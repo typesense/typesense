@@ -103,6 +103,7 @@ struct search_field_t {
 
 enum text_match_type_t {
     max_score,
+    sum_score,
     max_weight
 };
 
@@ -565,6 +566,10 @@ private:
                                    const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size = 200,
                                    const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);
     
+    static void process_embed_results(std::vector<std::pair<index_record*, std::string>>& values_to_embed,
+                                     const index_record* record,
+                                     const std::vector<embedding_res_t>& embedding_results,
+                                     size_t& count, const field& the_field);
 public:
     // for limiting number of results on multiple candidates / query rewrites
     enum {TYPO_TOKENS_THRESHOLD = 1};

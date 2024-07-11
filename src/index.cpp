@@ -4534,6 +4534,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
         }
 
         int64_t best_field_match_score = 0, best_field_weight = 0;
+        int64_t sum_field_weighted_score = 0;
         uint32_t num_matching_fields = 0;
 
         for(size_t fi = 0; fi < field_to_tokens.size(); fi++) {
@@ -4567,6 +4568,10 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
             if(match_type == max_weight && field_weight > best_field_weight) {
                 best_field_weight = field_weight;
                 best_field_match_score = field_match_score;
+            }
+
+            if(match_type == sum_score) {
+                sum_field_weighted_score += (field_weight * field_match_score);
             }
 
             num_matching_fields++;
@@ -4608,6 +4613,10 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
         // [ sign | tokens_matched | max_field_weight | max_field_score  | num_matching_fields ]
         // [   1  |        4       |        8         |      48          |         3           ]  (64 bits)
 
+         // SUM_SCORE
+         // [ sign | tokens_matched | sum_field_score  | num_matching_fields ]
+         // [   1  |        4       |       56         |         3           ]  (64 bits)
+
         auto max_field_weight = std::min<size_t>(FIELD_MAX_WEIGHT, best_field_weight);
         num_matching_fields = std::min<size_t>(7, num_matching_fields);
 
@@ -4615,26 +4624,31 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
             num_matching_fields = 0;
         }
 
-        uint64_t aggregated_score = match_type == max_score ?
-                                    ((int64_t(query_len) << 59) |
-                                    (int64_t(best_field_match_score) << 11) |
-                                    (int64_t(max_field_weight) << 3) |
-                                    (int64_t(num_matching_fields) << 0))
+        uint64_t aggregated_score = 0;
 
-                                    :
+         if (match_type == max_score) {
+             aggregated_score = ((int64_t(query_len) << 59) |
+                                 (int64_t(best_field_match_score) << 11) |
+                                 (int64_t(max_field_weight) << 3) |
+                                 (int64_t(num_matching_fields) << 0));
+         } else if (match_type == max_weight) {
+             aggregated_score = ((int64_t(query_len) << 59) |
+                                 (int64_t(max_field_weight) << 51) |
+                                 (int64_t(best_field_match_score) << 3) |
+                                 (int64_t(num_matching_fields) << 0));
+         } else {
+             // sum_score
+             aggregated_score = ((int64_t(query_len) << 59) |
+                                 (int64_t(sum_field_weighted_score) << 3) |
+                                 (int64_t(num_matching_fields) << 0));
+         }
 
-                                    ((int64_t(query_len) << 59) |
-                                     (int64_t(max_field_weight) << 51) |
-                                     (int64_t(best_field_match_score) << 3) |
-                                     (int64_t(num_matching_fields) << 0))
-                                    ;
-
-        /*LOG(INFO) << "seq_id: " << seq_id << ", query_len: " << query_len
-                  << ", syn_orig_num_tokens: " << syn_orig_num_tokens
-                  << ", best_field_match_score: " << best_field_match_score
-                  << ", max_field_weight: " << max_field_weight
-                  << ", num_matching_fields: " << num_matching_fields
-                  << ", aggregated_score: " << aggregated_score;*/
+         /*LOG(INFO) << "seq_id: " << seq_id << ", query_len: " << query_len
+                   << ", syn_orig_num_tokens: " << syn_orig_num_tokens
+                   << ", best_field_match_score: " << best_field_match_score
+                   << ", max_field_weight: " << max_field_weight
+                   << ", num_matching_fields: " << num_matching_fields
+                   << ", aggregated_score: " << aggregated_score;*/
 
         KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores, std::move(references));
 
@@ -7423,8 +7437,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                                const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size,
                                const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     for(const auto& field : embedding_fields) {
-        std::vector<std::pair<index_record*, std::string>> values_to_embed;
-        bool is_image_embedding = false;
+        std::vector<std::pair<index_record*, std::string>> values_to_embed_text, values_to_embed_image;
         auto indexing_prefix = EmbedderManager::get_instance().get_indexing_prefix(field.embed[fields::model_config]);
         for(auto& record : records) {
             if(!record->indexed.ok()) {
@@ -7455,8 +7468,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                         continue;
                 }
                 if(field_it.value().type == field_types::IMAGE) {
-                    is_image_embedding = true;
-                    value = doc_field_it->get<std::string>();
+                    values_to_embed_image.push_back(std::make_pair(record, doc_field_it->get<std::string>()));
                     continue;
                 }
                 if(field_it.value().type == field_types::STRING) {
@@ -7468,19 +7480,19 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 }
             }
             if(value != indexing_prefix) {
-                values_to_embed.push_back(std::make_pair(record, value));
+               values_to_embed_text.push_back(std::make_pair(record, value));
             }
         }
 
-        if(values_to_embed.empty()) {
+        if(values_to_embed_text.empty() && values_to_embed_image.empty()) {
             continue;
         }
 
-        std::vector<embedding_res_t> embeddings;
+        std::vector<embedding_res_t> embeddings_text, embeddings_image;
 
         // sort texts by length
-        if(!is_image_embedding) {
-            std::sort(values_to_embed.begin(), values_to_embed.end(),
+        if(!values_to_embed_text.empty()) {
+            std::sort(values_to_embed_text.begin(), values_to_embed_text.end(),
                     [](const std::pair<index_record*, std::string>& a,
                         const std::pair<index_record*, std::string>& b) {
                         return a.second.size() < b.second.size();
@@ -7488,13 +7500,21 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
         }
         
         // get vector of values
-        std::vector<std::string> values;
-        for(const auto& value_to_embed : values_to_embed) {
-            values.push_back(value_to_embed.second);
+        std::vector<std::string> values_text, values_image;
+
+        std::unordered_set<index_record*> records_to_index;
+        for(const auto& value_to_embed : values_to_embed_text) {
+            values_text.push_back(value_to_embed.second);
+            records_to_index.insert(value_to_embed.first);  
+        }
+
+        for(const auto& value_to_embed : values_to_embed_image) {
+            values_image.push_back(value_to_embed.second);
+            records_to_index.insert(value_to_embed.first);
         }
 
         EmbedderManager& embedder_manager = EmbedderManager::get_instance();
-        if(is_image_embedding) {
+        if(!values_image.empty()) {
             auto embedder_op = embedder_manager.get_image_embedder(field.embed[fields::model_config]);
             if(!embedder_op.ok()) {
                 const std::string& error_msg = "Could not find image embedder for model: " + field.embed[fields::model_config][fields::model_name].get<std::string>();
@@ -7504,32 +7524,79 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 LOG(ERROR) << "Error: " << error_msg;
                 return;
             }
-            embeddings = embedder_op.get()->batch_embed(values);
-        } else {
+            embeddings_image = embedder_op.get()->batch_embed(values_image);
+        }
+
+        if(!values_text.empty()) {
             auto embedder_op = embedder_manager.get_text_embedder(field.embed[fields::model_config]);
             if(!embedder_op.ok()) {
                 LOG(ERROR) << "Error while getting embedder for model: " << field.embed[fields::model_config];
                 LOG(ERROR) << "Error: " << embedder_op.error();
                 return;
             }
-            embeddings = embedder_op.get()->batch_embed(values, remote_embedding_batch_size, remote_embedding_timeout_ms,
+            embeddings_text = embedder_op.get()->batch_embed(values_text, remote_embedding_batch_size, remote_embedding_timeout_ms,
                                                             remote_embedding_num_tries);
         }
 
-        for(size_t i = 0; i < embeddings.size(); i++) {
-            auto& embedding_res = embeddings[i];
-            if(!embedding_res.success) {
-                values_to_embed[i].first->embedding_res = embedding_res.error;
-                values_to_embed[i].first->index_failure(embedding_res.status_code, "");
-                continue;
+        for(auto& record: records_to_index) {
+            size_t count = 0;
+            if(!values_to_embed_text.empty()) {
+                process_embed_results(values_to_embed_text, record, embeddings_text, count, field);
             }
-            if(values_to_embed[i].first->is_update) {
-                values_to_embed[i].first->new_doc[field.name] = embedding_res.embedding;
-            } 
-            values_to_embed[i].first->doc[field.name] = embedding_res.embedding;
+
+            if(!values_to_embed_image.empty()) {
+                process_embed_results(values_to_embed_image, record, embeddings_image, count, field);
+            }
+
+            if(count > 1) {
+                auto& doc = record->is_update ? record->new_doc : record->doc;
+                std::vector<float> existing_embedding = doc[field.name].get<std::vector<float>>();
+                // average embeddings
+                for(size_t i = 0; i < existing_embedding.size(); i++) {
+                    existing_embedding[i] /= count;
+                }
+                doc[field.name] = existing_embedding;
+            }
         }
     }
 }
+
+void Index::process_embed_results(std::vector<std::pair<index_record*, std::string>>& values_to_embed,
+                                     const index_record* record,
+                                     const std::vector<embedding_res_t>& embedding_results,
+                                     size_t& count, const field& the_field) {
+    for(size_t i = 0; i < values_to_embed.size(); i++) {
+        auto& value_to_embed = values_to_embed[i];
+        if(record == value_to_embed.first) {
+            if(!value_to_embed.first->embedding_res.empty()) {
+                continue;
+            }
+
+            if(!embedding_results[i].success) {
+                value_to_embed.first->embedding_res = embedding_results[i].error;
+                value_to_embed.first->index_failure(embedding_results[i].status_code, "");
+                continue;
+            }
+
+            std::vector<float> embedding_vals;
+            auto& doc = value_to_embed.first->is_update ? value_to_embed.first->new_doc : value_to_embed.first->doc;
+            if(doc.count(the_field.name) == 0) {
+                embedding_vals = embedding_results[i].embedding;
+            } else {
+                std::vector<float> existing_embedding = doc[the_field.name].get<std::vector<float>>();
+                // accumulate embeddings
+                for(size_t j = 0; j < existing_embedding.size(); j++) {
+                    existing_embedding[j] += embedding_results[i].embedding[j];
+                }
+                embedding_vals = existing_embedding;
+            }
+
+            doc[the_field.name] = embedding_vals;
+            count++;
+        }
+    }
+}
+
 
 void Index::repair_hnsw_index() {
     std::vector<std::string> vector_fields;

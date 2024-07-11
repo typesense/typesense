@@ -741,27 +741,10 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
             } else if (embed_field2->type != field_types::STRING && embed_field2->type != field_types::STRING_ARRAY && embed_field2->type != field_types::IMAGE) {
                 return Option<bool>(400, err_msg);
             }
-            if(embed_field2->type == field_types::IMAGE) {
-                if(found_image_field) {
-                    return Option<bool>(400, "Only one field can be used in the `embed.from` property of an embed field when embedding from an image field.");
-                }
-                if(field_json[fields::embed][fields::from].get<std::vector<std::string>>().size() > 1) {
-                    return Option<bool>(400, "Only one field can be used in the `embed.from` property of an embed field when embedding from an image field.");
-                }
-                found_image_field = true;
-            }
         } else if((*embed_field)[fields::type] != field_types::STRING &&
                   (*embed_field)[fields::type] != field_types::STRING_ARRAY &&
                     (*embed_field)[fields::type] != field_types::IMAGE) {
             return Option<bool>(400, err_msg);
-        } else if((*embed_field)[fields::type] == field_types::IMAGE) {
-            if(found_image_field) {
-                return Option<bool>(400, "Only one field can be used in the `embed.from` property of an embed field when embedding from an image field.");
-            }
-            if(field_json[fields::embed][fields::from].get<std::vector<std::string>>().size() > 1) {
-                return Option<bool>(400, "Only one field can be used in the `embed.from` property of an embed field when embedding from an image field.");
-            }
-            found_image_field = true;
         }
     }
 

@@ -1373,10 +1373,10 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
     return Option<bool>(true);
 }
 
-Option<bool> CollectionManager::_initialize_ref_include_exclude_fields_vec(const std::string& filter_query,
-                                                                           std::vector<std::string>& include_fields_vec,
-                                                                           std::vector<std::string>& exclude_fields_vec,
-                                                                           std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
+Option<bool> CollectionManager::initialize_ref_include_exclude_fields_vec(const std::string& filter_query,
+                                                                          std::vector<std::string>& include_fields_vec,
+                                                                          std::vector<std::string>& exclude_fields_vec,
+                                                                          std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
     ref_include_collection_names_t* ref_include_coll_names = nullptr;
     CollectionManager::_get_reference_collection_names(filter_query, ref_include_coll_names);
     std::unique_ptr<CollectionManager::ref_include_collection_names_t> guard(ref_include_coll_names);
@@ -1933,8 +1933,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         per_page = 0;
     }
 
-    auto initialize_op = _initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec, exclude_fields_vec,
-                                                                    ref_include_exclude_fields_vec);
+    auto initialize_op = initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec, exclude_fields_vec,
+                                                                   ref_include_exclude_fields_vec);
     if (!initialize_op.ok()) {
         return initialize_op;
     }
@@ -2405,9 +2405,10 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
             batch_doc_str_size = 0;
 
             if(num_indexed != num_records) {
-                const Option<std::string> & index_error_op = get_first_index_error(index_records);
-                if(!index_error_op.ok()) {
-                    return Option<bool>(400, index_error_op.get());
+                const std::string& index_error = get_first_index_error(index_records);
+                if(!index_error.empty()) {
+                    // for now, we will just ignore errors during loading of collection
+                    //return Option<bool>(400, index_error);
                 }
             }
 

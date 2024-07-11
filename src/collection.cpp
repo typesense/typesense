@@ -5574,6 +5574,17 @@ Option<bool> Collection::include_references(nlohmann::json& doc, const uint32_t&
     return Option<bool>(true);
 }
 
+Option<bool> Collection::prune_doc_with_lock(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
+                                             const tsl::htrie_set<char>& exclude_names,
+                                             const std::map<std::string, reference_filter_result_t>& reference_filter_results,
+                                             const uint32_t& seq_id,
+                                             const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
+    std::shared_lock lock(mutex);
+
+    return prune_doc(doc, include_names, exclude_names, "", 0, reference_filter_results, this, seq_id,
+                     ref_include_exclude_fields_vec);
+}
+
 Option<bool> Collection::prune_doc(nlohmann::json& doc,
                                    const tsl::htrie_set<char>& include_names,
                                    const tsl::htrie_set<char>& exclude_names,

@@ -85,14 +85,14 @@ private:
 
     ~CollectionManager() = default;
 
-    static Option<std::string> get_first_index_error(const std::vector<index_record>& index_records) {
+    static std::string get_first_index_error(const std::vector<index_record>& index_records) {
         for(const auto & index_record: index_records) {
             if(!index_record.indexed.ok()) {
-                return Option<std::string>(index_record.indexed.error());
+                return index_record.indexed.error();
             }
         }
 
-        return Option<std::string>(404, "Not found");
+        return "";
     }
 
 public:
@@ -228,10 +228,10 @@ public:
                                                 ref_include_collection_names_t*& reference_collection_names);
 
     // Separate out the reference includes and excludes into `ref_include_exclude_fields_vec`.
-    static Option<bool> _initialize_ref_include_exclude_fields_vec(const std::string& filter_query,
-                                                                   std::vector<std::string>& include_fields_vec,
-                                                                   std::vector<std::string>& exclude_fields_vec,
-                                                                   std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec);
+    static Option<bool> initialize_ref_include_exclude_fields_vec(const std::string& filter_query,
+                                                                  std::vector<std::string>& include_fields_vec,
+                                                                  std::vector<std::string>& exclude_fields_vec,
+                                                                  std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec);
 
     void add_referenced_in_backlog(const std::string& collection_name, reference_pair&& pair);
 

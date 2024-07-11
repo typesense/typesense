@@ -49,48 +49,46 @@ Option<bool> stateful_export_docs(export_state_t* export_state, size_t batch_siz
 
     export_state->res_body->clear();
 
-    for(size_t i = 0; i < export_state->index_ids.size(); i++) {
-        std::pair<size_t, uint32_t*>& size_ids = export_state->index_ids[i];
-        size_t ids_len = size_ids.first;
-        uint32_t* ids = size_ids.second;
+    auto const& filter_result = export_state->filter_result;
+    size_t ids_len = filter_result.count;
+    uint32_t* ids = filter_result.docs;
 
-        size_t start_index = export_state->offsets[i];
-        size_t batched_len = std::min(ids_len, (start_index+batch_size));
+    size_t start_index = export_state->offset;
+    size_t batched_len = std::min(ids_len, (start_index+batch_size));
 
-        for(size_t j = start_index; j < batched_len; j++) {
-            auto seq_id = ids[j];
-            nlohmann::json doc;
-            Option<bool> get_op = export_state->collection->get_document_from_store(seq_id, doc);
+    for(size_t j = start_index; j < batched_len; j++) {
+        uint32_t seq_id = ids[j];
+        nlohmann::json doc;
 
-            if(get_op.ok()) {
-                if(export_state->include_fields.empty() && export_state->exclude_fields.empty()) {
-                    export_state->res_body->append(doc.dump());
-                } else {
-                    Collection::remove_flat_fields(doc);
-                    Collection::remove_reference_helper_fields(doc);
-                    Collection::prune_doc(doc, export_state->include_fields, export_state->exclude_fields);
-                    export_state->res_body->append(doc.dump());
-                }
+        auto const& coll = export_state->collection;
+        Option<bool> get_op = coll->get_document_from_store(seq_id, doc);
+        Collection::remove_flat_fields(doc);
+        Collection::remove_reference_helper_fields(doc);
 
-                export_state->res_body->append("\n");
+        if(get_op.ok()) {
+            if(export_state->include_fields.empty() && export_state->exclude_fields.empty()) {
+                export_state->res_body->append(doc.dump());
+            } else {
+                coll->prune_doc_with_lock(doc, export_state->include_fields, export_state->exclude_fields,
+                                          filter_result.coll_to_references[j], seq_id,
+                                          export_state->ref_include_exclude_fields_vec);
+                export_state->res_body->append(doc.dump());
             }
 
-            export_state->offsets[i]++;
-            batch_count++;
+            export_state->res_body->append("\n");
+        }
 
-            if(batch_count == batch_size) {
-                goto END;
-            }
+        export_state->offset++;
+        batch_count++;
+
+        if(batch_count == batch_size) {
+            goto END;
         }
     }
 
     END:
 
-    done = true;
-    for(size_t i=0; i<export_state->index_ids.size(); i++) {
-        size_t current_offset = export_state->offsets[i];
-        done = done && (current_offset == export_state->index_ids[i].first);
-    }
+    done = export_state->offset == export_state->filter_result.count;
 
     if(done && !export_state->res_body->empty()) {
         export_state->res_body->pop_back();
