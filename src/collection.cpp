@@ -2264,9 +2264,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     auto drop_tokens_param = drop_tokens_param_op.get();
 
-    std::vector<std::vector<KV*>> raw_result_kvs;
-    std::vector<std::vector<KV*>> override_result_kvs;
-
     size_t total = 0;
 
     std::vector<uint32_t> excluded_ids;
@@ -2470,15 +2467,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         return Option<nlohmann::json>(search_op.code(), search_op.error());
     }
 
-    // for grouping we have to re-aggregate
-    Topster& topster = *search_params->topster;
-    Topster& curated_topster = *search_params->curated_topster;
-
-    topster.sort();
-    curated_topster.sort();
-
-    populate_result_kvs(&topster, raw_result_kvs, search_params->groups_processed, sort_fields_std);
-    populate_result_kvs(&curated_topster, override_result_kvs, search_params->groups_processed, sort_fields_std);
+    auto& raw_result_kvs = search_params->raw_result_kvs;
+    auto& override_result_kvs = search_params->override_result_kvs;
 
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
@@ -6301,8 +6291,9 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
     const std::regex range_pattern(
             "[[:print:]]+:\\[([+-]?([[:digit:]]*[.])?[[:digit:]]*)\\,\\s*([+-]?([[:digit:]]*[.])?[[:digit:]]*)\\]");
     const std::string _alpha = "_alpha";
+    bool top_k = false;
 
-    if((facet_field.find(":") != std::string::npos)
+    if((facet_field.find("[") != std::string::npos)
        && (facet_field.find("sort_by") == std::string::npos)) { //range based facet
 
         if(!std::regex_match(facet_field, base_pattern)) {
@@ -6360,6 +6351,23 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                     break;
                 }
             } else if(range_string[index] == ',' && range_open == false) {
+                if(index > 0 && range_string[index - 1] != ']') {
+                    //top_k string value
+                    auto top_k_str = range_string.substr(startpos, index - 1 - startpos);
+                    if(top_k_str.find("top_k") != std::string::npos) {
+                        std::vector<std::string> results;
+                        StringUtils::split(top_k_str, results, ":");
+
+                        if(results.size() != 2 || ((results[1] != "true") && (results[1] != "false"))) {
+                            return Option<bool>(400, "top_k string format is invalid.");
+                        }
+
+                        if(results[1] == "true") {
+                            top_k = true;
+                        }
+                        commaFound--;
+                    }
+                }
                 startpos = index + 1;
                 commaFound++;
             } else if(range_string[index] == '[') {
@@ -6462,6 +6470,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         }
 
         a_facet.is_range_query = true;
+        a_facet.is_top_k = top_k;
 
         facets.emplace_back(std::move(a_facet));
     } else if(facet_field.find('*') != std::string::npos) { // Wildcard
@@ -6502,18 +6511,45 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             return Option<bool>(404, error);
         }
 
-        if(facet_field.find("sort_by") != std::string::npos) { //sort params are supplied with facet
+        std::string facet_str = facet_field;
+        auto top_k_pos = facet_field.find("top_k");
+        if(top_k_pos != std::string::npos) {
+            auto p = top_k_pos;
+            auto colon_pos = 0;
+            while((facet_field[p] != ',') && (facet_field[p] != ')')) {
+                if(facet_field[p] == ':') {
+                    colon_pos = p;
+                }
+                p++;
+            }
+            std::string_view top_k_val = facet_field.substr(colon_pos + 1, p - colon_pos -1);
+            if(top_k_val.empty() || ((top_k_val != "true") && (top_k_val != "false"))) {
+                return Option<bool>(400, "top_k string format is invalid.");
+            }
+
+            if(top_k_val == "true") {
+                top_k = true;
+            }
+
+            if(facet_field.find("sort_by") != std::string::npos) {
+                if(facet_field[top_k_pos - 1] == '(') { //top_k at beginning
+                    auto len = facet_field.size() - 1;  //ignore last ')'
+                    facet_str = facet_field.substr(p + 1, len);
+                } else if(facet_field[top_k_pos - 1] == ',') { //top_k at end
+                    facet_str = facet_field.substr(pos + 1, top_k_pos - 2); //ignore before ','
+                }
+            } else { //only top_k param with facet
+                facet_str = facet_field_copy;
+            }
+        }
+
+        if(facet_str.find("sort_by") != std::string::npos) { //sort params are supplied with facet
             std::vector<std::string> tokens;
-            StringUtils::split(facet_field, tokens, ":");
+            StringUtils::split(facet_str, tokens, ":");
 
             if(tokens.size() != 3) {
                 std::string error = "Invalid sort format.";
                 return Option<bool>(400, error);
-            }
-
-            //remove possible whitespaces
-            for(auto i = 0; i < 3; ++i) {
-                StringUtils::trim(tokens[i]);
             }
 
             if(tokens[1] == _alpha) {
@@ -6546,12 +6582,12 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                 std::string error = "Invalid sort param.";
                 return Option<bool>(400, error);
             }
-        } else if(facet_field != facet_field_copy) {
+        } else if(facet_str != facet_field_copy) {
             std::string error = "Invalid sort format.";
             return Option<bool>(400, error);
         }
 
-        facets.emplace_back(facet(facet_field_copy, facets.size(), {}, false, sort_alpha,
+        facets.emplace_back(facet(facet_field_copy, facets.size(), top_k, {}, false, sort_alpha,
                                   order, sort_field));
     }
 

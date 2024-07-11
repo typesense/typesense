@@ -460,7 +460,8 @@ private:
                    const bool group_missing_values,
                    const uint32_t* result_ids, size_t results_size,
                    int max_facet_count, bool is_wildcard_query,
-                   const std::vector<facet_index_type_t>& facet_index_types) const;
+                   const std::vector<facet_index_type_t>& facet_index_types,
+                   const std::vector<uint32_t>& top_k_result_ids) const;
 
     bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
                                   filter_node_t*& filter_tree_root) const;
@@ -1052,6 +1053,8 @@ public:
 
     float get_distance(const string& geo_field_name, const uint32_t& seq_id,
                        const S2LatLng& reference_lat_lng, const std::string& unit) const;
+
+    void get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<uint32_t>& result_ids) const;
 };
 
 template<class T>
