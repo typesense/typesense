@@ -2405,9 +2405,10 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
             batch_doc_str_size = 0;
 
             if(num_indexed != num_records) {
-                const Option<std::string> & index_error_op = get_first_index_error(index_records);
-                if(!index_error_op.ok()) {
-                    return Option<bool>(400, index_error_op.get());
+                const std::string& index_error = get_first_index_error(index_records);
+                if(!index_error.empty()) {
+                    // for now, we will just ignore errors during loading of collection
+                    //return Option<bool>(400, index_error);
                 }
             }
 
