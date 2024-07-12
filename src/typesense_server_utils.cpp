@@ -238,7 +238,8 @@ const char* get_internal_ip(const std::string& subnet_cidr) {
     return "127.0.0.1";
 }
 
-int start_raft_server(ReplicationState& replication_state, const std::string& state_dir, const std::string& path_to_nodes,
+int start_raft_server(ReplicationState& replication_state, Store& store,
+                      const std::string& state_dir, const std::string& path_to_nodes,
                       const std::string& peering_address, uint32_t peering_port, const std::string& peering_subnet,
                       uint32_t api_port, int snapshot_interval_seconds, int snapshot_max_byte_count_per_rpc,
                       const std::atomic<bool>& reset_peers_on_error) {
@@ -290,6 +291,14 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
                                 nodes_config_op.get(), quit_raft_service) != 0) {
         LOG(ERROR) << "Failed to start peering state";
         exit(-1);
+    }
+
+    // important to init conversation models only after all collections have been loaded
+    auto conversation_models_init = ConversationModelManager::init(&store);
+    if(!conversation_models_init.ok()) {
+        LOG(INFO) << "Failed to initialize conversation model manager: " << conversation_models_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << conversation_models_init.get() << "(s) conversation models.";
     }
 
     LOG(INFO) << "Typesense peering service is running on " << raft_server.listen_address();
@@ -453,16 +462,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     if(!rate_limit_manager_init.ok()) {
         LOG(INFO) << "Failed to initialize rate limit manager: " << rate_limit_manager_init.error();
     }
+
     EmbedderManager::set_model_dir(config.get_data_dir() + "/models");
-
-
-    auto conversation_models_init = ConversationModelManager::init(&store);
-
-    if(!conversation_models_init.ok()) {
-        LOG(INFO) << "Failed to initialize conversation model manager: " << conversation_models_init.error();
-    } else {
-        LOG(INFO) << "Loaded " << conversation_models_init.get() << "(s) conversation models.";
-    }
 
     // first we start the peering service
 
@@ -480,7 +481,7 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
     }
 
-    std::thread raft_thread([&replication_state, &config, &state_dir,
+    std::thread raft_thread([&replication_state, &store, &config, &state_dir,
                              &app_thread_pool, &server_thread_pool, &replication_thread_pool, batch_indexer]() {
 
         std::thread batch_indexing_thread([batch_indexer]() {
@@ -504,7 +505,7 @@ int run_server(const Config & config, const std::string & version, void (*master
         RemoteEmbedder::init(&replication_state);
 
         std::string path_to_nodes = config.get_nodes();
-        start_raft_server(replication_state, state_dir, path_to_nodes,
+        start_raft_server(replication_state, store, state_dir, path_to_nodes,
                           config.get_peering_address(),
                           config.get_peering_port(),
                           config.get_peering_subnet(),
