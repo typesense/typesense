@@ -3072,7 +3072,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                         index_symbols[uint8_t(c)] = 1;
                     }
 
-                    handle_highlight_text(value, normalise, the_field, symbols_to_index, token_separators,
+                    handle_highlight_text(value, normalise, the_field, false, symbols_to_index, token_separators,
                                           highlight, string_utils, use_word_tokenizer,
                                           highlight_affix_num_tokens, qtoken_leaves, last_valid_offset_index,
                                           prefix_token_num_chars, false, snippet_threshold, false, ftokens,
@@ -4071,7 +4071,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
         std::string text = h_obj.get<std::string>();
         h_obj = nlohmann::json::object();
 
-        handle_highlight_text(text, normalise, search_field, symbols_to_index,
+        handle_highlight_text(text, normalise, search_field, is_arr_obj_ele, symbols_to_index,
                               token_separators, array_highlight, string_utils, use_word_tokenizer,
                               highlight_affix_num_tokens,
                               qtoken_leaves, last_valid_offset_index,
@@ -4165,7 +4165,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
             text = document[search_field.name][match_index.index];
         }
 
-        handle_highlight_text(text, normalise, search_field, symbols_to_index, token_separators,
+        handle_highlight_text(text, normalise, search_field, false, symbols_to_index, token_separators,
                               highlight, string_utils, use_word_tokenizer, highlight_affix_num_tokens,
                               qtoken_leaves, last_valid_offset_index, prefix_token_num_chars,
                               highlight_fully, snippet_threshold, is_infix_search, raw_query_tokens,
@@ -4195,7 +4195,8 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
 }
 
 bool Collection::handle_highlight_text(std::string& text, bool normalise, const field &search_field,
-                           const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
+                           const bool is_arr_obj_ele, const std::vector<char>& symbols_to_index,
+                           const std::vector<char>& token_separators,
                            highlight_t& highlight, StringUtils & string_utils, bool use_word_tokenizer,
                            const size_t highlight_affix_num_tokens,
                            const tsl::htrie_map<char, token_leaf>& qtoken_leaves, int last_valid_offset_index,
@@ -4267,8 +4268,10 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
 
         // Token might not appear in the best matched window, which is limited to a size of 10.
         // If field is marked to be highlighted fully, or field length exceeds snippet_threshold, we will
-        // locate all tokens that appear in the query / query candidates
-        bool raw_token_found = !match_offset_found && (highlight_fully || text_len < snippet_threshold * 6) &&
+        // locate all tokens that appear in the query / query candidates. Likewise, for text within nested array of
+        // objects have to be exhaustively looked for highlight tokens.
+        bool raw_token_found = !match_offset_found &&
+                                (highlight_fully || is_arr_obj_ele || text_len < snippet_threshold * 6) &&
                                 qtoken_leaves.find(raw_token) != qtoken_leaves.end();
 
         if (match_offset_found || raw_token_found) {
@@ -4326,6 +4329,12 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
                 }
 
                 found_first_match = true;
+            } else if(raw_token_found && is_arr_obj_ele) {
+                if(!found_first_match) {
+                    snippet_start_offset = snippet_start_window.front();
+                }
+
+                found_first_match = true;
             }
         } else if(is_infix_search && text.size() < 100 &&
                   raw_token.find(raw_query_tokens.front()) != std::string::npos) {
@@ -4333,7 +4342,7 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
             token_hits.insert(raw_token);
         }
 
-        if(raw_token_index >= last_valid_offset + highlight_affix_num_tokens) {
+        if(last_valid_offset_index != -1 && raw_token_index >= last_valid_offset + highlight_affix_num_tokens) {
             // register end of highlight snippet
             if(snippet_end_offset == text.size() - 1) {
                 snippet_end_offset = tok_end;
@@ -4349,7 +4358,7 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
         if(raw_token_index >= snippet_threshold &&
            match_offset_index > last_valid_offset_index &&
            raw_token_index >= last_valid_offset + highlight_affix_num_tokens &&
-           !highlight_fully) {
+           !is_arr_obj_ele && !highlight_fully) {
             break;
         }
     }
