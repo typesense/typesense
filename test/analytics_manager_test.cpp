@@ -36,7 +36,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        analyticsManager.init(store, analytic_store, state_dir_path);
+        analyticsManager.init(store, analytic_store);
         analyticsManager.resetToggleRateLimit(false);
     }
 
@@ -478,98 +478,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
 
     create_op = analyticsManager.create_rule(analytics_rule, true, true);
     ASSERT_TRUE(create_op.ok());
-}
-
-TEST_F(AnalyticsManagerTest, EventsPersist) {
-    //remove all rules first
-    analyticsManager.remove_all_rules();
-
-    nlohmann::json titles_schema = R"({
-            "name": "titles",
-            "fields": [
-                {"name": "title", "type": "string"}
-            ]
-        })"_json;
-
-    Collection *titles_coll = collectionManager.create_collection(titles_schema).get();
-
-    std::shared_ptr<http_req> req = std::make_shared<http_req>();
-    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
-
-    auto analytics_rule = R"({
-        "name": "product_click_events",
-        "type": "log",
-        "params": {
-            "name": "product_click_events_logging",
-            "source": {
-                "collections": ["titles"],
-                 "events":  [{"type": "click", "name": "APC"}]
-            }
-        }
-    })"_json;
-
-    auto create_op = analyticsManager.create_rule(analytics_rule, true, true);
-    ASSERT_TRUE(create_op.ok());
-
-    nlohmann::json event = R"({
-        "type": "click",
-        "name": "APC",
-        "data": {
-            "q": "technology",
-            "doc_id": "21",
-            "user_id": "13"
-        }
-    })"_json;
-
-    req->body = event.dump();
-    ASSERT_TRUE(post_create_event(req, res));
-
-    analyticsManager.persist_events(nullptr, 0);
-
-    auto fileOutput = Config::fetch_file_contents("/tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
-
-    std::stringstream strbuff(fileOutput.get());
-    std::string docid, userid, q, collection, name, timestamp;
-    strbuff >> timestamp >> name >> collection >> userid >> docid >> q;
-    ASSERT_EQ("APC", name);
-    ASSERT_EQ("titles", collection);
-    ASSERT_EQ("13", userid);
-    ASSERT_EQ("21", docid);
-    ASSERT_EQ("technology", q);
-
-    event = R"({
-        "type": "click",
-        "name": "APC",
-        "data": {
-            "q": "technology",
-            "doc_id": "12",
-            "user_id": "13"
-        }
-    })"_json;
-
-    req->body = event.dump();
-    ASSERT_TRUE(post_create_event(req, res));
-
-    analyticsManager.persist_events(nullptr, 0);
-
-    fileOutput = Config::fetch_file_contents("/tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
-
-    std::stringstream strbuff2(fileOutput.get());
-    timestamp.clear();name.clear();collection.clear();userid.clear();q.clear();
-    strbuff2 >> timestamp >> name >> collection >> userid >> docid >> q;
-    ASSERT_EQ("APC", name);
-    ASSERT_EQ("titles", collection);
-    ASSERT_EQ("13", userid);
-    ASSERT_EQ("21", docid);
-    ASSERT_EQ("technology", q);
-
-    timestamp.clear();name.clear();collection.clear();userid.clear();q.clear();
-    strbuff2 >> timestamp >> name >> collection >> userid >> docid >> q;
-    ASSERT_EQ("APC", name);
-    ASSERT_EQ("titles", collection);
-    ASSERT_EQ("13", userid);
-    ASSERT_EQ("12", docid);
-    ASSERT_EQ("technology", q);
 }
 
 TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
@@ -1016,8 +924,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     //restart analytics manager as fresh
     analyticsManager.dispose();
     analyticsManager.stop();
-    system("rm -rf /tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
-    analyticsManager.init(store, analytic_store, "/tmp/typesense_test/analytics_manager_test");
+    analyticsManager.init(store, analytic_store);
 
     nlohmann::json products_schema = R"({
             "name": "books",
@@ -1262,19 +1169,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_EQ(0, results["hits"][1]["document"]["popularity"]);
     ASSERT_EQ("Cool trousers", results["hits"][1]["document"]["title"]);
 
-    //verify log file
     analyticsManager.persist_events(nullptr, 0);
-
-    auto fileOutput = Config::fetch_file_contents("/tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
-
-    std::stringstream strbuff(fileOutput.get());
-    std::string timestamp, collection, userid, name, q, docid;
-    strbuff >> timestamp >> name >> collection >> userid >> docid >> q;
-    ASSERT_EQ("CNV4", name);
-    ASSERT_EQ("books", collection);
-    ASSERT_EQ("11", userid);
-    ASSERT_EQ("1", docid);
-    ASSERT_EQ("shorts", q);
 
     //now add click event rule
     analytics_rule = R"({
@@ -1330,59 +1225,12 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_EQ(1, popular_clicks["books"].docid_counts.size());
     ASSERT_EQ(10, popular_clicks["books"].docid_counts["1"]);
 
-    //check log file
     analyticsManager.persist_events(nullptr, 0);
-
-    fileOutput = Config::fetch_file_contents("/tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
-
-    std::stringstream strbuff2(fileOutput.get());
-    timestamp.clear(), collection.clear(), userid.clear(), name.clear(), q.clear(), docid.clear();
-    strbuff2 >> timestamp >> name >> collection >> userid >> docid >> q;
-    ASSERT_EQ("CNV4", name);
-    ASSERT_EQ("books", collection);
-    ASSERT_EQ("11", userid);
-    ASSERT_EQ("1", docid);
-    ASSERT_EQ("shorts", q);
-
-    timestamp.clear(), collection.clear(), userid.clear(), name.clear(), q.clear(), docid.clear();
-    strbuff2 >> timestamp >> name >> collection >> userid >> docid >> q;
-    ASSERT_EQ("APC2", name);
-    ASSERT_EQ("books", collection);
-    ASSERT_EQ("13", userid);
-    ASSERT_EQ("21", docid);
-    ASSERT_EQ("technology", q);
-
-    //counter event rule should not be allowed with logging if analytics-dir is not specified
-    analyticsManager.dispose();
-    analyticsManager.stop();
-    system("rm -rf /tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
-    analyticsManager.init(store, analytic_store, "");
-
-    analytics_rule = R"({
-        "name": "books_popularity3",
-        "type": "counter",
-        "params": {
-            "source": {
-                "collections": ["books"],
-                 "events":  [{"type": "conversion", "weight": 5, "name": "CNV4", "log_to_file" : true} ]
-            },
-            "destination": {
-                "collection": "books",
-                "counter_field": "popularity"
-            }
-        }
-    })"_json;
-
-    create_op = analyticsManager.create_rule(analytics_rule, false, true);
-    ASSERT_FALSE(create_op.ok());
-    ASSERT_EQ("Event can't be logged when analytics-dir is not defined.", create_op.error());
-
 
     //counter events should work without analytic-dir
     analyticsManager.dispose();
     analyticsManager.stop();
-    system("rm -rf /tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
-    analyticsManager.init(store, analytic_store, "");
+    analyticsManager.init(store, analytic_store);
 
     analytics_rule = R"({
         "name": "books_popularity3",
@@ -1431,7 +1279,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
     system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
 
     analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
-    analyticsManager.init(store, analytic_store, "");
+    analyticsManager.init(store, analytic_store);
 
     auto analytics_rule = R"({
         "name": "product_events2",
@@ -1511,7 +1359,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
 
     analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
-    analyticsManager.init(store, analytic_store, "");
+    analyticsManager.init(store, analytic_store);
 
     auto analytics_rule = R"({
         "name": "product_events2",
