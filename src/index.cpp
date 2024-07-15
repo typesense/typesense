@@ -1337,8 +1337,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                       const bool group_missing_values,
                       const uint32_t* result_ids, size_t results_size, 
                       int max_facet_count, bool is_wildcard_no_filter_query,
-                      const std::vector<facet_index_type_t>& facet_index_types,
-                      const std::vector<uint32_t>& top_k_result_ids) const {
+                      const std::vector<facet_index_type_t>& facet_index_types) const {
 
     if(results_size == 0) {
         return ;
@@ -1355,13 +1354,6 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         const auto& fquery_hashes = facet_infos[findex].hashes;
         const bool should_compute_stats = facet_infos[findex].should_compute_stats;
         const bool use_value_index = facet_infos[findex].use_value_index;
-
-        auto top_result_ids = a_facet.is_top_k ? top_k_result_ids.data() : result_ids;
-        auto top_results_size = a_facet.is_top_k ? top_k_result_ids.size() : results_size;
-
-        if(top_results_size == 0) {
-            continue;
-        }
 
         auto sort_index_it = sort_index.find(a_facet.field_name);
         auto facet_sort_index_it = sort_index.find(a_facet.sort_field);
@@ -1388,7 +1380,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                                       estimate_facets, facet_sample_mod_value,
                                       facet_infos[findex].fvalue_searched_tokens,
                                       symbols_to_index, token_separators,
-                                      top_result_ids, top_results_size, max_facet_count, facet_results,
+                                      result_ids, results_size, max_facet_count, facet_results,
                                       is_wildcard_no_filter_query, sort_order);
 
             for(const auto& kv : facet_results) {
@@ -1422,8 +1414,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             if(should_compute_stats) {
                 auto numerical_index_it = numerical_index.find(a_facet.field_name);
                 if(numerical_index_it != numerical_index.end()) {
-                    auto min_max_pair = numerical_index_it->second->get_min_max(top_result_ids,
-                                                                                top_results_size);
+                    auto min_max_pair = numerical_index_it->second->get_min_max(result_ids,
+                                                                                results_size);
                     if(facet_field.is_float()) {
                         a_facet.stats.fvmin = int64_t_to_float(min_max_pair.first);
                         a_facet.stats.fvmax = int64_t_to_float(min_max_pair.second);
@@ -1461,7 +1453,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     }
                 }
 
-                uint32_t doc_seq_id = top_result_ids[i];
+                uint32_t doc_seq_id = result_ids[i];
                 facet_index_it.skip_to(doc_seq_id);
 
                 if(!facet_index_it.valid()) {
@@ -3553,6 +3545,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     Collection::populate_result_kvs(topster, raw_result_kvs, groups_processed, sort_fields_std);
     Collection::populate_result_kvs(curated_topster, override_result_kvs, groups_processed, sort_fields_std);
     std::vector<uint32_t> top_k_result_ids, top_k_curated_result_ids;
+    std::vector<facet> top_k_facets;
 
     get_top_k_result_ids(raw_result_kvs, top_k_result_ids);
     get_top_k_result_ids(override_result_kvs, top_k_curated_result_ids);
@@ -3580,10 +3573,17 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
         std::vector<std::vector<facet>> facet_batches(num_threads);
         std::vector<std::vector<facet>> value_facets(concurrency);
+
         size_t num_value_facets = 0;
 
         for(size_t i = 0; i < facets.size(); i++) {
             const auto& this_facet = facets[i];
+            //process facets separately which has top_k set to true
+            if(this_facet.is_top_k) {
+                top_k_facets.emplace_back(this_facet.field_name, this_facet.orig_index, this_facet.is_top_k, this_facet.facet_range_map,
+                                          this_facet.is_range_query, this_facet.is_sort_by_alpha, this_facet.sort_order, this_facet.sort_field);
+                continue;
+            }
 
             if(facet_infos[i].use_value_index) {
                 // value based faceting on a single thread
@@ -3610,6 +3610,13 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         auto parent_search_cutoff = search_cutoff;
 
         //auto beginF = std::chrono::high_resolution_clock::now();
+
+        if(top_k_facets.size() >  0) {
+            do_facets(top_k_facets, facet_query, estimate_facets, facet_sample_percent,
+                      facet_infos, group_limit, group_by_fields, group_missing_values, top_k_result_ids.data(),
+                      top_k_result_ids.size(), max_facet_values, is_wildcard_no_filter_query,
+                      facet_index_types);
+        }
 
         for(size_t thread_id = 0; thread_id < num_threads && result_index < all_result_ids_len; thread_id++) {
             size_t batch_res_len = window_size;
@@ -3639,7 +3646,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 do_facets(facet_batches[thread_id], fq, estimate_facets, facet_sample_percent,
                           facet_infos, group_limit, group_by_fields, group_missing_values,
                           batch_result_ids, batch_res_len, max_facet_values,
-                          is_wildcard_no_filter_query, facet_index_types, top_k_result_ids);
+                          is_wildcard_no_filter_query, facet_index_types);
 
                 std::unique_lock<std::mutex> lock(m_process);
 
@@ -3680,7 +3687,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 do_facets({value_facets[thread_id]}, fq, estimate_facets, facet_sample_percent,
                           facet_infos, group_limit, group_by_fields, group_missing_values,
                           all_result_ids, all_result_ids_len, max_facet_values,
-                          is_wildcard_no_filter_query, facet_index_types, top_k_result_ids);
+                          is_wildcard_no_filter_query, facet_index_types);
 
                 std::unique_lock<std::mutex> lock(m_process);
 
@@ -3730,7 +3737,14 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     do_facets(facets, facet_query, estimate_facets, facet_sample_percent,
               facet_infos, group_limit, group_by_fields, group_missing_values, &included_ids_vec[0], 
               included_ids_vec.size(), max_facet_values, is_wildcard_no_filter_query,
-              facet_index_types, top_k_curated_result_ids);
+              facet_index_types);
+
+    if(top_k_facets.size() >  0) {
+        do_facets(top_k_facets, facet_query, estimate_facets, facet_sample_percent,
+                  facet_infos, group_limit, group_by_fields, group_missing_values, top_k_curated_result_ids.data(),
+                  top_k_curated_result_ids.size(), max_facet_values, is_wildcard_no_filter_query,
+                  facet_index_types);
+    }
 
     all_result_ids_len += curated_topster->size;
 

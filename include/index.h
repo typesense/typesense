@@ -461,8 +461,7 @@ private:
                    const bool group_missing_values,
                    const uint32_t* result_ids, size_t results_size,
                    int max_facet_count, bool is_wildcard_query,
-                   const std::vector<facet_index_type_t>& facet_index_types,
-                   const std::vector<uint32_t>& top_k_result_ids) const;
+                   const std::vector<facet_index_type_t>& facet_index_types) const;
 
     bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
                                   filter_node_t*& filter_tree_root) const;
