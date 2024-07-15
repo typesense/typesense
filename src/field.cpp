@@ -86,6 +86,11 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     } else if (!field_json.at(fields::async_reference).is_boolean()) {
         return Option<bool>(400, std::string("The `async_reference` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+    } else if (field_json[fields::async_reference].get<bool>() &&
+                field_json[fields::reference].get<std::string>().empty()) {
+        return Option<bool>(400, std::string("The `async_reference` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` is only applicable if "
+                                                                                           "`reference` is specified."));
     }
 
     if(field_json.count(fields::stem) != 0) {
