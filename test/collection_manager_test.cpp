@@ -135,7 +135,9 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "optional":false,
               "sort":false,
               "store":true,
-              "type":"string"
+              "type":"string",
+              "range_index":false,
+              "stem":false
             },
             {
               "facet":false,
@@ -147,7 +149,9 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "optional":false,
               "sort":false,
               "store":true,
-              "type":"string"
+              "type":"string",
+              "range_index":false,
+              "stem":false
             },
             {
               "facet":true,
@@ -159,7 +163,9 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "optional":true,
               "sort":false,
               "store":true,
-              "type":"string[]"
+              "type":"string[]",
+              "range_index":false,
+              "stem":false
             },
             {
               "facet":true,
@@ -171,7 +177,9 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "optional":true,
               "sort":true,
               "store":true,
-              "type":"int32"
+              "type":"int32",
+              "range_index":false,
+              "stem":false
             },
             {
               "facet":false,
@@ -183,7 +191,9 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "optional":true,
               "sort":true,
               "store":true,
-              "type":"geopoint"
+              "type":"geopoint",
+              "range_index":false,
+              "stem":false
             },
             {
               "facet":false,
@@ -195,7 +205,9 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "optional":true,
               "sort":false,
               "store":true,
-              "type":"string"
+              "type":"string",
+              "range_index":false,
+              "stem":false
             },
             {
               "facet":false,
@@ -207,7 +219,9 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "optional":false,
               "sort":true,
               "store":true,
-              "type":"int32"
+              "type":"int32",
+              "range_index":false,
+              "stem":false
             },
             {
               "facet":false,
@@ -220,7 +234,9 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "optional":true,
               "sort":false,
               "store":true,
-              "type":"object"
+              "type":"object",
+              "range_index":false,
+              "stem":false
             },
             {
               "facet":false,
@@ -234,7 +250,9 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "sort":false,
               "store":true,
               "type":"float[]",
-              "vec_dist":"cosine"
+              "vec_dist":"cosine",
+              "range_index":false,
+              "stem":false
             },
             {
               "facet":false,
@@ -247,7 +265,9 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "sort":false,
               "store":true,
               "type":"string",
-              "reference":"Products.product_id"
+              "reference":"Products.product_id",
+              "range_index":false,
+              "stem":false
             },
             {
               "facet":false,
@@ -259,7 +279,9 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "optional":true,
               "sort":true,
               "store":true,
-              "type":"int64"
+              "type":"int64",
+              "range_index":false,
+              "stem":false
             }
           ],
           "id":0,
@@ -1922,7 +1944,9 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "optional":false,
                     "sort":false,
                     "store":true,
-                    "type":"string"
+                    "type":"string",
+                    "range_index":false,
+                    "stem":false
                 },
                 {
                     "facet":true,
@@ -1935,7 +1959,9 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "optional":false,
                     "sort":true,
                     "store":true,
-                    "type":"int32"
+                    "type":"int32",
+                    "range_index":false,
+                    "stem":false
                 },{
                     "facet":true,
                     "index":true,
@@ -1947,7 +1973,9 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "optional":false,
                     "sort":true,
                     "store":true,
-                    "type":"int32"
+                    "type":"int32",
+                    "range_index":false,
+                    "stem":false
                 },{
                     "facet":true,
                     "index":true,
@@ -1959,7 +1987,9 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "optional":false,
                     "sort":true,
                     "store":true,
-                    "type":"int32"
+                    "type":"int32",
+                    "range_index":false,
+                    "stem":false
                 }
             ],
             "id":1,

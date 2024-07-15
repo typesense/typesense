@@ -1970,7 +1970,9 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "optional":false,
                     "sort":false,
                     "store":true,
-                    "type":"string"
+                    "type":"string",
+                    "range_index":false,
+                    "stem":false
                 },
                 {
                     "facet":true,
@@ -1983,7 +1985,9 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "optional":false,
                     "sort":true,
                     "store":true,
-                    "type":"int32"
+                    "type":"int32",
+                    "range_index":false,
+                    "stem":false
                 },{
                     "facet":true,
                     "index":true,
@@ -1995,7 +1999,9 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "optional":false,
                     "sort":true,
                     "store":true,
-                    "type":"int32"
+                    "type":"int32",
+                    "range_index":false,
+                    "stem":false
                 },{
                     "facet":true,
                     "index":true,
@@ -2007,7 +2013,9 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "optional":false,
                     "sort":true,
                     "store":true,
-                    "type":"int32"
+                    "type":"int32",
+                    "range_index":false,
+                    "stem":false
                 }
             ],
             "id":1,
@@ -2057,7 +2065,9 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "optional":false,
                     "sort":false,
                     "store":true,
-                    "type":"string"
+                    "type":"string",
+                    "range_index":false,
+                    "stem":false
                 },
                 {
                     "facet":true,
@@ -2070,7 +2080,9 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "optional":false,
                     "sort":true,
                     "store":true,
-                    "type":"int32"
+                    "type":"int32",
+                    "range_index":false,
+                    "stem":false
                 },{
                     "facet":true,
                     "index":true,
@@ -2082,7 +2094,9 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "optional":false,
                     "sort":true,
                     "store":true,
-                    "type":"int32"
+                    "type":"int32",
+                    "range_index":false,
+                    "stem":false
                 },{
                     "facet":true,
                     "index":true,
@@ -2094,7 +2108,9 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "optional":false,
                     "sort":true,
                     "store":true,
-                    "type":"int32"
+                    "type":"int32",
+                    "range_index":false,
+                    "stem":false
                 }
             ],
             "id":1,
