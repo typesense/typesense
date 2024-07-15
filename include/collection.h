@@ -39,13 +39,15 @@ struct highlight_field_t {
     }
 };
 
-struct reference_pair {
+struct reference_info {
     std::string collection;
     std::string field;
+    bool is_async;
 
-    reference_pair(std::string collection, std::string field) : collection(std::move(collection)), field(std::move(field)) {}
+    reference_info(std::string collection, std::string field, bool is_async) :
+                    collection(std::move(collection)), field(std::move(field)), is_async(is_async) {}
 
-    bool operator < (const reference_pair& pair) const {
+    bool operator < (const reference_info& pair) const {
         return collection < pair.collection;
     }
 };
@@ -140,13 +142,16 @@ private:
 
     SynonymIndex* synonym_index;
 
-    /// "field name" -> reference_pair(referenced_collection_name, referenced_field_name)
-    spp::sparse_hash_map<std::string, reference_pair> reference_fields;
+    /// "field name" -> reference_info(referenced_collection_name, referenced_field_name, is_async)
+    spp::sparse_hash_map<std::string, reference_info> reference_fields;
 
     /// Contains the info where the current collection is referenced.
     /// Useful to perform operations such as cascading delete.
     /// collection_name -> field_name
     spp::sparse_hash_map<std::string, std::string> referenced_in;
+
+    /// Contains the info where the current collection is referenced and are marked as `async`.
+    std::vector<std::pair<std::string, std::string>> async_referenced_ins;
 
     /// Reference helper fields that are part of an object. The reference doc of these fields will be included in the
     /// object rather than in the document.
@@ -220,7 +225,7 @@ private:
                                           bool is_update,
                                           std::vector<field>& new_fields,
                                           bool enable_nested_fields,
-                                          const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
+                                          const spp::sparse_hash_map<std::string, reference_info>& reference_fields,
                                           tsl::htrie_set<char>& object_reference_helper_fields);
 
     static bool facet_count_compare(const facet_count_t& a, const facet_count_t& b) {
@@ -386,7 +391,8 @@ public:
                const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
                const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model = nullptr,
                spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>(),
-               const nlohmann::json& metadata = {});
+               const nlohmann::json& metadata = {},
+               std::vector<std::pair<std::string, std::string>> async_referenced_ins = {});
 
     ~Collection();
 
@@ -435,7 +441,7 @@ public:
     void update_metadata(const nlohmann::json& meta);
 
     static Option<bool> add_reference_helper_fields(nlohmann::json& document, const tsl::htrie_map<char, field>& schema,
-                                                    const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
+                                                    const spp::sparse_hash_map<std::string, reference_info>& reference_fields,
                                                     tsl::htrie_set<char>& object_reference_helper_fields,
                                                     const bool& is_update);
 
@@ -666,7 +672,9 @@ public:
 
     SynonymIndex* get_synonym_index();
 
-    spp::sparse_hash_map<std::string, reference_pair> get_reference_fields();
+    spp::sparse_hash_map<std::string, reference_info> get_reference_fields();
+
+    std::vector<std::pair<std::string, std::string>> get_async_referenced_ins();
 
     // highlight ops
 
@@ -710,11 +718,10 @@ public:
 
     bool is_referenced_in(const std::string& collection_name) const;
 
-    void add_referenced_in(const reference_pair& pair);
+    void add_referenced_ins(const std::set<reference_info>& ref_infos);
 
-    void add_referenced_ins(const std::set<reference_pair>& pairs);
-
-    void add_referenced_in(const std::string& collection_name, const std::string& field_name);
+    void add_referenced_in(const std::string& collection_name, const std::string& field_name,
+                           const bool& is_async);
 
     Option<std::string> get_referenced_in_field_with_lock(const std::string& collection_name) const;
 

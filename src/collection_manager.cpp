@@ -22,7 +22,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                                const uint32_t collection_next_seq_id,
                                                Store* store,
                                                float max_memory_ratio,
-                                               spp::sparse_hash_map<std::string, std::string>& referenced_in) {
+                                               spp::sparse_hash_map<std::string, std::string>& referenced_in,
+                                               std::vector<std::pair<std::string, std::string>>& async_referenced_ins) {
     std::string this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
     std::vector<field> fields;
@@ -201,7 +202,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             symbols_to_index,
                                             token_separators,
                                             enable_nested_fields, model, std::move(referenced_in),
-                                            metadata);
+                                            metadata, std::move(async_referenced_ins));
 
     return collection;
 }
@@ -238,7 +239,8 @@ void CollectionManager::init(Store *store, const float max_memory_ratio, const s
 }
 
 void CollectionManager::_populate_referenced_ins(const std::string& collection_meta_json,
-                                                 std::map<std::string, spp::sparse_hash_map<std::string, std::string>>& referenced_ins) {
+                                                 std::map<std::string, spp::sparse_hash_map<std::string, std::string>>& referenced_ins,
+                                                 std::map<std::string, std::vector<std::pair<std::string, std::string>>>& async_referenced_ins) {
     auto const& obj = nlohmann::json::parse(collection_meta_json, nullptr, false);
 
     if (!obj.is_discarded() && obj.is_object() && obj.contains("name") && obj["name"].is_string() &&
@@ -264,6 +266,11 @@ void CollectionManager::_populate_referenced_ins(const std::string& collection_m
             }
 
             referenced_ins[ref_coll_name].emplace(collection_name, field_name);
+
+            if (field.contains(fields::async_reference) &&
+                    field[fields::async_reference].is_boolean() && field[fields::async_reference].get<bool>()) {
+                async_referenced_ins[ref_coll_name].emplace_back(collection_name, field_name);
+            }
         }
     }
 }
@@ -321,8 +328,9 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
     // Collection name -> Ref collection name -> Ref field name
     std::map<std::string, spp::sparse_hash_map<std::string, std::string>> referenced_ins;
+    std::map<std::string, std::vector<std::pair<std::string, std::string>>> async_referenced_ins;
     for (const auto &collection_meta_json: collection_meta_jsons) {
-        _populate_referenced_ins(collection_meta_json, referenced_ins);
+        _populate_referenced_ins(collection_meta_json, referenced_ins, async_referenced_ins);
     }
 
     size_t num_processed = 0;
@@ -343,7 +351,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         auto captured_store = store;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
                               &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit,
-                                     &referenced_ins, collection_name]() {
+                                     &referenced_ins, &async_referenced_ins, collection_name]() {
 
             spp::sparse_hash_map<std::string, std::string> referenced_in;
             auto const& it = referenced_ins.find(collection_name);
@@ -351,9 +359,15 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
                 referenced_in = it->second;
             }
 
+            std::vector<std::pair<std::string, std::string>> async_referenced_in;
+            auto const& async_it = async_referenced_ins.find(collection_name);
+            if (async_it != async_referenced_ins.end()) {
+                async_referenced_in = async_it->second;
+            }
+
             //auto begin = std::chrono::high_resolution_clock::now();
             Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit,
-                                               referenced_in);
+                                               referenced_in, async_referenced_in);
             /*long long int timeMillis =
                     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
             LOG(INFO) << "Time taken for indexing: " << timeMillis << "ms";*/
@@ -2286,7 +2300,8 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
                                                 const size_t batch_size,
                                                 const StoreStatus& next_coll_id_status,
                                                 const std::atomic<bool>& quit,
-                                                spp::sparse_hash_map<std::string, std::string>& referenced_in) {
+                                                spp::sparse_hash_map<std::string, std::string>& referenced_in,
+                                                std::vector<std::pair<std::string, std::string>>& async_referenced_ins) {
 
     auto& cm = CollectionManager::get_instance();
 
@@ -2332,7 +2347,8 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
     }
 
-    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f, referenced_in);
+    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f, referenced_in,
+                                             async_referenced_ins);
 
     LOG(INFO) << "Loading collection " << collection->get_name();
 
@@ -2564,12 +2580,12 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     return Option<Collection*>(new_coll);
 }
 
-void CollectionManager::add_referenced_in_backlog(const std::string& collection_name, reference_pair&& pair) {
+void CollectionManager::add_referenced_in_backlog(const std::string& collection_name, reference_info&& pair) {
     std::shared_lock lock(mutex);
     referenced_in_backlog[collection_name].insert(pair);
 }
 
-std::map<std::string, std::set<reference_pair>> CollectionManager::_get_referenced_in_backlog() const {
+std::map<std::string, std::set<reference_info>> CollectionManager::_get_referenced_in_backlog() const {
     std::shared_lock lock(mutex);
     return referenced_in_backlog;
 }

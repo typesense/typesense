@@ -54,7 +54,8 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const std::vector<std::string>& token_separators,
                        const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model,
                        spp::sparse_hash_map<std::string, std::string> referenced_in,
-                       const nlohmann::json& metadata) :
+                       const nlohmann::json& metadata,
+                       std::vector<std::pair<std::string, std::string>> async_referenced_ins) :
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
@@ -63,7 +64,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
         index(init_index()), vq_model(vq_model),
         referenced_in(std::move(referenced_in)),
-        metadata(metadata) {
+        metadata(metadata), async_referenced_ins(std::move(async_referenced_ins)) {
     
     if (vq_model) {
         vq_model->inc_collection_ref_count();
@@ -115,7 +116,7 @@ Option<bool> single_value_filter_query(nlohmann::json& document, const std::stri
 }
 
 Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, const tsl::htrie_map<char, field>& schema,
-                                                     const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
+                                                     const spp::sparse_hash_map<std::string, reference_info>& reference_fields,
                                                      tsl::htrie_set<char>& object_reference_helper_fields,
                                                      const bool& is_update) {
     tsl::htrie_set<char> flat_fields;
@@ -5129,10 +5130,15 @@ SynonymIndex* Collection::get_synonym_index() {
     return synonym_index;
 }
 
-spp::sparse_hash_map<std::string, reference_pair> Collection::get_reference_fields() {
+spp::sparse_hash_map<std::string, reference_info> Collection::get_reference_fields() {
     std::shared_lock lock(mutex);
     return reference_fields;
 }
+
+std::vector<std::pair<std::string, std::string>> Collection::get_async_referenced_ins() {
+    std::shared_lock lock(mutex);
+    return async_referenced_ins;
+};
 
 Option<bool> Collection::persist_collection_meta() {
     // first compact nested fields (to keep only parents of expanded children)
@@ -6296,7 +6302,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                                            bool is_update,
                                            std::vector<field>& new_fields,
                                            const bool enable_nested_fields,
-                                           const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
+                                           const spp::sparse_hash_map<std::string, reference_info>& reference_fields,
                                            tsl::htrie_set<char>& object_reference_helper_fields) {
 
     auto kv = document.begin();
@@ -6425,14 +6431,17 @@ Index* Collection::init_index() {
                 ref_coll_name = ref_coll->name;
 
                 // Passing reference helper field helps perform operation on doc_id instead of field value.
-                ref_coll->add_referenced_in(name, field.name + fields::REFERENCE_HELPER_FIELD_SUFFIX);
+                ref_coll->add_referenced_in(name, field.name + fields::REFERENCE_HELPER_FIELD_SUFFIX,
+                                            field.is_async_reference);
             } else {
                 // Reference collection has not been created yet.
                 collectionManager.add_referenced_in_backlog(ref_coll_name,
-                                                            reference_pair{name, field.name + fields::REFERENCE_HELPER_FIELD_SUFFIX});
+                                                            reference_info{name,
+                                                                           field.name + fields::REFERENCE_HELPER_FIELD_SUFFIX,
+                                                                           field.is_async_reference});
             }
 
-            reference_fields.emplace(field.name, reference_pair(ref_coll_name, ref_field_name));
+            reference_fields.emplace(field.name, reference_info(ref_coll_name, ref_field_name, field.is_async_reference));
             if (field.nested) {
                 object_reference_helper_fields.insert(field.name + fields::REFERENCE_HELPER_FIELD_SUFFIX);
             }
@@ -6911,20 +6920,24 @@ bool Collection::is_referenced_in(const std::string& collection_name) const {
     return referenced_in.count(collection_name) > 0;
 }
 
-void Collection::add_referenced_in(const reference_pair& pair) {
-    return add_referenced_in(pair.collection, pair.field);
-}
-
-void Collection::add_referenced_ins(const std::set<reference_pair>& pairs) {
+void Collection::add_referenced_ins(const std::set<reference_info>& ref_infos) {
     std::shared_lock lock(mutex);
-    for (const auto &pair: pairs) {
-        referenced_in.emplace(pair.collection, pair.field);
+    for (const auto &ref_info: ref_infos) {
+        referenced_in.emplace(ref_info.collection, ref_info.field);
+
+        if (ref_info.is_async) {
+            async_referenced_ins.emplace_back(ref_info.collection, ref_info.field);
+        }
     }
 }
 
-void Collection::add_referenced_in(const std::string& collection_name, const std::string& field_name) {
+void Collection::add_referenced_in(const std::string& collection_name, const std::string& field_name,
+                                   const bool& is_async) {
     std::shared_lock lock(mutex);
     referenced_in.emplace(collection_name, field_name);
+    if (is_async) {
+        async_referenced_ins.emplace_back(collection_name, field_name);
+    }
 }
 
 Option<std::string> Collection::get_referenced_in_field_with_lock(const std::string& collection_name) const {
