@@ -1371,7 +1371,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                         auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
 
                         if(!embedding_op.success) {
-                            if(!embedding_op.error["error"].get<std::string>().empty()) {
+                            if(embedding_op.error.contains("error")) {
                                 return Option<bool>(400, embedding_op.error["error"].get<std::string>());
                             } else {
                                 return Option<bool>(400, embedding_op.error.dump());
@@ -1426,7 +1426,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
 
                     if(!embedding_op.success) {
-                        if(!embedding_op.error["error"].get<std::string>().empty()) {
+                        if(embedding_op.error.contains("error")) {
                             return Option<bool>(400, embedding_op.error["error"].get<std::string>());
                         } else {
                             return Option<bool>(400, embedding_op.error.dump());
@@ -2020,7 +2020,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + query;
                 auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
                 if(!embedding_op.success) {
-                    if(!embedding_op.error["error"].get<std::string>().empty()) {
+                    if(embedding_op.error.contains("error")) {
                         return Option<nlohmann::json>(400, embedding_op.error["error"].get<std::string>());
                     } else {
                         return Option<nlohmann::json>(400, embedding_op.error.dump());
@@ -6851,7 +6851,7 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
             auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
 
             if(!embedding_op.success) {
-                if(!embedding_op.error["error"].get<std::string>().empty()) {
+                if(embedding_op.error.contains("error")) {
                     return Option<bool>(400, embedding_op.error["error"].get<std::string>());
                 } else {
                     return Option<bool>(400, embedding_op.error.dump());
