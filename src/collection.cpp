@@ -6364,7 +6364,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             } else if(range_string[index] == ',' && range_open == false) {
                 if(index > 0 && range_string[index - 1] != ']') {
                     //top_k string value
-                    auto top_k_str = range_string.substr(startpos, index - 1 - startpos);
+                    auto top_k_str = range_string.substr(startpos, index - startpos);
                     if(top_k_str.find("top_k") != std::string::npos) {
                         std::vector<std::string> results;
                         StringUtils::split(top_k_str, results, ":");
@@ -6594,8 +6594,11 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                 return Option<bool>(400, error);
             }
         } else if(facet_str != facet_field_copy) {
-            std::string error = "Invalid sort format.";
-            return Option<bool>(400, error);
+            if(facet_str.find("top") != std::string::npos) {
+                return Option<bool>(400, "top_k string format is invalid.");
+            }
+
+            return Option<bool>(400, "Invalid sort format.");
         }
 
         facets.emplace_back(facet(facet_field_copy, facets.size(), top_k, {}, false, sort_alpha,

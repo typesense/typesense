@@ -3637,7 +3637,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                          is_wildcard_no_filter_query, estimate_facets,
                                          facet_sample_percent, group_missing_values,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
-                                         &num_processed, &m_process, &cv_process, &facet_index_types, top_k_result_ids]() {
+                                         &num_processed, &m_process, &cv_process, &facet_index_types]() {
                 search_begin_us = parent_search_begin;
                 search_stop_us = parent_search_stop_ms;
                 search_cutoff = false;
@@ -3677,7 +3677,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                          is_wildcard_no_filter_query, estimate_facets,
                                          facet_sample_percent, group_missing_values,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
-                                         &num_processed, &m_process, &cv_process, facet_index_types, top_k_result_ids]() {
+                                         &num_processed, &m_process, &cv_process, facet_index_types]() {
                 search_begin_us = parent_search_begin;
                 search_stop_us = parent_search_stop_ms;
                 search_cutoff = false;
@@ -3761,6 +3761,14 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             if (estimate_facets) {
                 acc_facet.sampled = true;
             }
+        }
+    }
+
+    //copy top_k facets data
+    if(!top_k_facets.empty()) {
+        for(auto& this_facet : top_k_facets) {
+            auto& acc_facet = facets[this_facet.orig_index];
+            aggregate_facet(group_limit, this_facet, acc_facet);
         }
     }
 
