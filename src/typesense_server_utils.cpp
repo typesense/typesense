@@ -424,7 +424,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     HttpClient & httpClient = HttpClient::get_instance();
     httpClient.init(config.get_api_key());
 
-    AnalyticsManager::get_instance().init(&store, &analytics_store, analytics_dir);
+    AnalyticsManager::get_instance().init(&store, &analytics_store);
 
     server = new HttpServer(
         version,
