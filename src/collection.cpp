@@ -4499,12 +4499,16 @@ Option<nlohmann::json> Collection::get(const std::string & id) const {
 }
 
 void Collection::remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store) {
-    std::unique_lock lock(mutex);
+    spp::sparse_hash_map<std::string, std::string> referenced_in_copy;
+    {
+        std::unique_lock lock(mutex);
+        referenced_in_copy = referenced_in;
+    }
 
     // Cascade delete all the references.
-    if (!referenced_in.empty()) {
+    if (!referenced_in_copy.empty()) {
         CollectionManager& collectionManager = CollectionManager::get_instance();
-        for (const auto &item: referenced_in) {
+        for (const auto &item: referenced_in_copy) {
             auto coll = collectionManager.get_collection(item.first);
             if (coll != nullptr) {
                 coll->cascade_remove_docs(item.second, seq_id, document, remove_from_store);
@@ -4512,12 +4516,14 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
         }
     }
 
-    index->remove(seq_id, document, {}, false);
-    if(num_documents != 0) {
-        num_documents -= 1;
-    }
+    {
+        std::unique_lock lock(mutex);
 
-    lock.unlock();
+        index->remove(seq_id, document, {}, false);
+        if (num_documents != 0) {
+            num_documents -= 1;
+        }
+    }
 
     if(remove_from_store) {
         const std::string& id = document["id"];
