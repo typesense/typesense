@@ -4499,58 +4499,163 @@ Option<nlohmann::json> Collection::get(const std::string & id) const {
 }
 
 void Collection::remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store) {
-    const std::string& id = document["id"];
+    std::unique_lock lock(mutex);
 
-    {
-        std::unique_lock lock(mutex);
-
-        index->remove(seq_id, document, {}, false);
-        if(num_documents != 0) {
-            num_documents -= 1;
+    // Cascade delete all the references.
+    if (!referenced_in.empty()) {
+        CollectionManager& collectionManager = CollectionManager::get_instance();
+        for (const auto &item: referenced_in) {
+            auto coll = collectionManager.get_collection(item.first);
+            if (coll != nullptr) {
+                coll->cascade_remove_docs(item.second, seq_id, document, remove_from_store);
+            }
         }
     }
 
+    index->remove(seq_id, document, {}, false);
+    if(num_documents != 0) {
+        num_documents -= 1;
+    }
+
+    lock.unlock();
+
     if(remove_from_store) {
+        const std::string& id = document["id"];
+
         store->remove(get_doc_id_key(id));
         store->remove(get_seq_id_key(seq_id));
     }
+}
 
-    if (referenced_in.empty()) {
+void Collection::cascade_remove_docs(const std::string& ref_helper_field_name, const uint32_t& ref_seq_id,
+                                     const nlohmann::json& ref_doc, bool remove_from_store) {
+    auto field_name = ref_helper_field_name.substr(0, ref_helper_field_name.size() - fields::REFERENCE_HELPER_FIELD_SUFFIX.size());
+
+    filter_result_t filter_result;
+    get_filter_ids(ref_helper_field_name + ":" + std::to_string(ref_seq_id), filter_result);
+
+    if (filter_result.count == 0) {
         return;
     }
 
-    CollectionManager& collectionManager = CollectionManager::get_instance();
-    // Cascade delete all the references.
-    for (const auto &item: referenced_in) {
-        auto ref_coll = collectionManager.get_collection(item.first);
-        if (ref_coll != nullptr) {
-            // Delete all the docs where reference helper field has value `seq_id`.
-            filter_result_t filter_result;
-            ref_coll->get_filter_ids(item.second + ":" + std::to_string(seq_id), filter_result);
+    bool is_field_singular;
+    {
+        std::unique_lock lock(mutex);
 
-            ref_coll->remove_ref_docs(filter_result.count, filter_result.docs, remove_from_store);
+        auto it = search_schema.find(field_name);
+        if (it == search_schema.end()) {
+            return;
         }
+        is_field_singular = it.value().is_singular();
     }
-}
 
-void Collection::remove_ref_docs(const uint32_t& count, uint32_t const* const docs, bool remove_from_store) {
-    for (uint32_t i = 0; i < count; i++) {
-        auto const& seq_id = docs[i];
+    if (is_field_singular) {
+        // Delete all the docs where reference helper field has value `seq_id`.
+        for (uint32_t i = 0; i < filter_result.count; i++) {
+            auto const& seq_id = filter_result.docs[i];
 
-        nlohmann::json document;
-        auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), document);
+            nlohmann::json document;
+            auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), document);
 
-        if( !get_doc_op.ok()) {
-            if (get_doc_op.code() == 404) {
-                LOG(ERROR) << "`" << name << "` collection: Sequence ID `" << seq_id << "` exists, but document is missing.";
+            if (!get_doc_op.ok()) {
+                if (get_doc_op.code() == 404) {
+                    LOG(ERROR) << "`" << name << "` collection: Sequence ID `" << seq_id << "` exists, but document is missing.";
+                    continue;
+                }
+
+                LOG(ERROR) << "`" << name << "` collection: " << get_doc_op.error();
                 continue;
             }
 
-            LOG(ERROR) << "`" << name << "` collection: " << get_doc_op.error();
-            continue;
+            remove_document(document, seq_id, remove_from_store);
+        }
+    } else {
+        std::string ref_coll_name, ref_field_name;
+        {
+            std::unique_lock lock(mutex);
+
+            auto ref_it = reference_fields.find(field_name);
+            if (ref_it == reference_fields.end()) {
+                return;
+            }
+            ref_coll_name = ref_it->second.collection;
+            ref_field_name = ref_it->second.field;
         }
 
-        remove_document(document, seq_id, remove_from_store);
+        if (ref_doc.count(ref_field_name) == 0) {
+            LOG(ERROR) << "`" << ref_coll_name << "` collection doc `" << ref_doc.dump() << "` is missing `" <<
+                       ref_field_name << "` field.";
+            return;
+        } else if (ref_doc.at(ref_field_name).is_array()) {
+            LOG(ERROR) << "`" << ref_coll_name << "` collection doc `" << ref_doc.dump() << "` field `" <<
+                                 ref_field_name << "` is an array.";
+            return;
+        }
+
+        std::vector<std::string> buffer;
+        buffer.reserve(filter_result.count);
+
+        // Delete all references to `seq_id` in the docs.
+        for (uint32_t i = 0; i < filter_result.count; i++) {
+            auto const& seq_id = filter_result.docs[i];
+
+            nlohmann::json existing_document;
+            auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
+
+            if (!get_doc_op.ok()) {
+                if (get_doc_op.code() == 404) {
+                    LOG(ERROR) << "`" << name << "` collection: Sequence ID `" << seq_id << "` exists, but document is missing.";
+                    continue;
+                }
+
+                LOG(ERROR) << "`" << name << "` collection: " << get_doc_op.error();
+                continue;
+            }
+
+            if (existing_document.count("id") == 0) {
+                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` is missing `id` field.";
+            } else if (existing_document.count(field_name) == 0) {
+                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` is missing `" <<
+                                field_name << "` field.";
+            } else if (!existing_document.at(field_name).is_array()) {
+                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` field `" <<
+                                field_name << "` is not an array.";
+            } else if (existing_document.at(field_name).empty()) {
+                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` field `" <<
+                                field_name << "` is empty.";
+            } else if (existing_document.at(field_name)[0].type() != ref_doc.at(ref_field_name).type()) {
+                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() <<
+                                "` at field `" << field_name << "` elements do not match the type of `" << ref_coll_name <<
+                                "` collection doc `"<< ref_doc.dump() << "` at field `" << ref_field_name << "`.";
+            }
+            // If there are more than one references present in this document, we cannot delete the whole doc. Only remove
+            // `ref_seq_id` from reference helper field.
+            else if (existing_document.at(field_name).size() > 1) {
+                nlohmann::json update_document;
+                update_document["id"] = existing_document["id"].get<std::string>();
+                update_document[field_name] = nlohmann::json::array();
+
+                auto removed_ref_value_found = false;
+                for (const auto& ref_value: existing_document.at(field_name)) {
+                    if (ref_value == ref_doc.at(ref_field_name)) {
+                        removed_ref_value_found = true;
+                        continue;
+                    }
+
+                    update_document[field_name] += ref_value;
+                }
+
+                if (removed_ref_value_found) {
+                    buffer.push_back(update_document.dump());
+                }
+                continue;
+            }
+
+            remove_document(existing_document, seq_id, remove_from_store);
+        }
+
+        nlohmann::json dummy;
+        add_many(buffer, dummy, index_operation_t::UPDATE);
     }
 }
 
