@@ -782,7 +782,9 @@ void counter_event_t::serialize_as_docs(std::string &docs) {
 bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
     if(analytics_store) {
         for(const auto& event: payload) {
-            std::string key = event["user_id"].get<std::string>() + "_" + StringUtils::serialize_uint64_t(event["timestamp"].get<uint64_t>());
+            std::string key = event["user_id"].get<std::string>() + "_" + event["type"].get<std::string>()
+                    + "_" + StringUtils::serialize_uint64_t(event["timestamp"].get<uint64_t>());
+
             bool inserted = analytics_store->insert(key, event.dump());
             if(!inserted) {
                 LOG(ERROR) << "Error while dumping events to analytics db.";
@@ -797,8 +799,8 @@ bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
     return true;
 }
 
-void AnalyticsManager::get_last_N_events(const std::string& userid, uint32_t N, std::vector<std::string>& values) {
-    const std::string userid_prefix = userid + "_";
+void AnalyticsManager::get_last_N_events(const std::string& prefix, uint32_t N, std::vector<std::string>& values) {
+    const std::string userid_prefix = prefix + "_";
     analytics_store->get_last_N_values(userid_prefix, N, values);
 }
 

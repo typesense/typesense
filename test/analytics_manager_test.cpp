@@ -480,6 +480,126 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     ASSERT_TRUE(create_op.ok());
 }
 
+TEST_F(AnalyticsManagerTest, EventsPersist) {
+    //remove all rules first
+    analyticsManager.remove_all_rules();
+
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection *titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    auto analytics_rule = R"({
+        "name": "product_click_events",
+        "type": "log",
+        "params": {
+            "name": "product_click_events_logging",
+            "source": {
+                "collections": ["titles"],
+                 "events":  [{"type": "click", "name": "APC"}]
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    nlohmann::json event = R"({
+        "type": "click",
+        "name": "APC",
+        "data": {
+            "q": "technology",
+            "doc_id": "21",
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    //get events
+    nlohmann::json payload = nlohmann::json::array();
+    nlohmann::json event_data;
+    auto collection_events_map = analyticsManager.get_log_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto& collection = events_collection_it.first;
+        for(const auto& event: events_collection_it.second) {
+            event.to_json(event_data, collection);
+            payload.push_back(event_data);
+        }
+    }
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    std::vector<std::string> values;
+    analyticsManager.get_last_N_events("13", 5, values);
+    ASSERT_EQ(1, values.size());
+
+    auto parsed_json = nlohmann::json::parse(values[0]);
+
+    ASSERT_EQ("APC", parsed_json["name"]);
+    ASSERT_EQ("titles", parsed_json["collection"]);
+    ASSERT_EQ("13", parsed_json["user_id"]);
+    ASSERT_EQ("21", parsed_json["doc_id"]);
+    ASSERT_EQ("technology", parsed_json["query"]);
+
+    event = R"({
+        "type": "click",
+        "name": "APC",
+        "data": {
+            "q": "technology",
+            "doc_id": "12",
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    //get events
+    payload.clear();
+    collection_events_map = analyticsManager.get_log_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto& collection = events_collection_it.first;
+        for(const auto& event: events_collection_it.second) {
+            event.to_json(event_data, collection);
+            payload.push_back(event_data);
+        }
+    }
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    values.clear();
+    analyticsManager.get_last_N_events("13", 5, values);
+    ASSERT_EQ(2, values.size());
+
+    parsed_json = nlohmann::json::parse(values[0]);
+
+    //events will be fetched in LIFO order
+    ASSERT_EQ("APC", parsed_json["name"]);
+    ASSERT_EQ("titles", parsed_json["collection"]);
+    ASSERT_EQ("13", parsed_json["user_id"]);
+    ASSERT_EQ("12", parsed_json["doc_id"]);
+    ASSERT_EQ("technology", parsed_json["query"]);
+
+    parsed_json = nlohmann::json::parse(values[1]);
+
+    ASSERT_EQ("APC", parsed_json["name"]);
+    ASSERT_EQ("titles", parsed_json["collection"]);
+    ASSERT_EQ("13", parsed_json["user_id"]);
+    ASSERT_EQ("21", parsed_json["doc_id"]);
+    ASSERT_EQ("technology", parsed_json["query"]);
+}
+
 TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
     nlohmann::json titles_schema = R"({
             "name": "titles",
@@ -1169,7 +1289,30 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_EQ(0, results["hits"][1]["document"]["popularity"]);
     ASSERT_EQ("Cool trousers", results["hits"][1]["document"]["title"]);
 
-    analyticsManager.persist_events(nullptr, 0);
+    nlohmann::json payload = nlohmann::json::array();
+    nlohmann::json event_data;
+    auto collection_events_map = analyticsManager.get_log_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto& collection = events_collection_it.first;
+        for(const auto& event: events_collection_it.second) {
+            event.to_json(event_data, collection);
+            payload.push_back(event_data);
+        }
+    }
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    std::vector<std::string> values;
+    analyticsManager.get_last_N_events("11", 5, values);
+    ASSERT_EQ(1, values.size());
+
+    auto parsed_json = nlohmann::json::parse(values[0]);
+    ASSERT_EQ("CNV4", parsed_json["name"]);
+    ASSERT_EQ("books", parsed_json["collection"]);
+    ASSERT_EQ("11", parsed_json["user_id"]);
+    ASSERT_EQ("1", parsed_json["doc_id"]);
+    ASSERT_EQ("shorts", parsed_json["query"]);
 
     //now add click event rule
     analytics_rule = R"({
@@ -1225,7 +1368,50 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_EQ(1, popular_clicks["books"].docid_counts.size());
     ASSERT_EQ(10, popular_clicks["books"].docid_counts["1"]);
 
-    analyticsManager.persist_events(nullptr, 0);
+    payload.clear();
+    event_data.clear();
+    collection_events_map = analyticsManager.get_log_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto& collection = events_collection_it.first;
+        for(const auto& event: events_collection_it.second) {
+            event.to_json(event_data, collection);
+            payload.push_back(event_data);
+        }
+    }
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    values.clear();
+    analyticsManager.get_last_N_events("11", 5, values);
+    ASSERT_EQ(2, values.size());
+
+    parsed_json = nlohmann::json::parse(values[0]);
+    ASSERT_EQ("CNV4", parsed_json["name"]);
+    ASSERT_EQ("books", parsed_json["collection"]);
+    ASSERT_EQ("11", parsed_json["user_id"]);
+    ASSERT_EQ("1", parsed_json["doc_id"]);
+    ASSERT_EQ("shorts", parsed_json["query"]);
+
+    parsed_json = nlohmann::json::parse(values[1]);
+    ASSERT_EQ("CNV4", parsed_json["name"]);
+    ASSERT_EQ("books", parsed_json["collection"]);
+    ASSERT_EQ("11", parsed_json["user_id"]);
+    ASSERT_EQ("1", parsed_json["doc_id"]);
+    ASSERT_EQ("shorts", parsed_json["query"]);
+
+    values.clear();
+    analyticsManager.get_last_N_events("13", 5, values);
+    ASSERT_EQ(1, values.size());
+
+    parsed_json = nlohmann::json::parse(values[0]);
+    ASSERT_EQ("APC2", parsed_json["name"]);
+    ASSERT_EQ("books", parsed_json["collection"]);
+    ASSERT_EQ("13", parsed_json["user_id"]);
+    ASSERT_EQ("21", parsed_json["doc_id"]);
+    ASSERT_EQ("technology", parsed_json["query"]);
+
+
 
     analyticsManager.dispose();
     analyticsManager.stop();
@@ -1367,7 +1553,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
             "name": "product_events_logging2",
             "source": {
                 "collections": ["titles"],
-                 "events":  [{"type": "click", "name": "AB"}]
+                 "events":  [{"type": "click", "name": "AB"}, {"type": "visit", "name": "AV"}]
             }
         }
     })"_json;
@@ -1459,6 +1645,53 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     values.clear();
     analyticsManager.get_last_N_events("16", 8, values);
     ASSERT_EQ(0, values.size());
+
+    //get specific event type or user
+
+    //add different type events
+    event1["name"] = "AV";
+    event1["type"] = "visit";
+    event1["data"]["user_id"] = "14";
+
+    for(auto i = 0; i < 5; i++) {
+        event1["data"]["doc_id"] = std::to_string(i);
+        req->body = event1.dump();
+        ASSERT_TRUE(post_create_event(req, res));
+    }
+
+    payload.clear();
+    event_data.clear();
+    collection_events_map = analyticsManager.get_log_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto& collection = events_collection_it.first;
+        for(const auto& event: events_collection_it.second) {
+            event.to_json(event_data, collection);
+            payload.push_back(event_data);
+        }
+    }
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    //get last 5 visit events for user_id 14
+    values.clear();
+    analyticsManager.get_last_N_events("14_visit", 5, values);
+    ASSERT_EQ(5, values.size());
+    for(int i = 0; i < 5; ++i) {
+        parsed_json = nlohmann::json::parse(values[i]);
+        ASSERT_EQ("AV", parsed_json["name"]);
+        ASSERT_EQ(std::to_string(4-i), parsed_json["doc_id"]);
+    }
+
+    //get last 5 click events for user_id 14
+    values.clear();
+    analyticsManager.get_last_N_events("14_click", 5, values);
+    ASSERT_EQ(5, values.size());
+    for(int i = 0; i < 5; ++i) {
+        parsed_json = nlohmann::json::parse(values[i]);
+        ASSERT_EQ("AB", parsed_json["name"]);
+        ASSERT_EQ(std::to_string(6-i), parsed_json["doc_id"]);
+    }
 }
 
 TEST_F(AnalyticsManagerTest, AnalyticsWithAliases) {
