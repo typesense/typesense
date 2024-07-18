@@ -1692,6 +1692,37 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
         ASSERT_EQ("AB", parsed_json["name"]);
         ASSERT_EQ(std::to_string(6-i), parsed_json["doc_id"]);
     }
+
+    event1["name"] = "AB";
+    event1["type"] = "click";
+    event1["data"]["user_id"] = "14";
+
+    for(auto i = 7; i < 10; i++) {
+        event1["data"]["doc_id"] = std::to_string(i);
+        req->body = event1.dump();
+        ASSERT_TRUE(post_create_event(req, res));
+    }
+
+    payload.clear();
+    event_data.clear();
+    collection_events_map = analyticsManager.get_log_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto& collection = events_collection_it.first;
+
+        for(const auto& event: events_collection_it.second) {
+            event.to_json(event_data, collection);
+            payload.push_back(event_data);
+        }
+    }
+
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    values.clear();
+    analyticsManager.get_last_N_events("14_click", 10, values);
+    for(auto value : values) {
+        parsed_json = nlohmann::json::parse(value);
+    }
+    ASSERT_EQ(10, values.size());
 }
 
 TEST_F(AnalyticsManagerTest, AnalyticsWithAliases) {
