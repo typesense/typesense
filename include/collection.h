@@ -288,7 +288,7 @@ private:
     void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type,
                                   const size_t total_tokens) const;
 
-    bool handle_highlight_text(std::string& text, bool normalise, const field &search_field,
+    bool handle_highlight_text(std::string& text, bool normalise, const field &search_field, const bool is_arr_obj_ele,
                                const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
                                highlight_t& highlight, StringUtils & string_utils, bool use_word_tokenizer,
                                const size_t highlight_affix_num_tokens,
@@ -616,7 +616,8 @@ public:
 
     Option<nlohmann::json> get(const std::string & id) const;
 
-    void remove_ref_docs(const uint32_t& count, uint32_t const* const docs, bool remove_from_store = true);
+    void cascade_remove_docs(const std::string& ref_helper_field_name, const uint32_t& ref_seq_id,
+                             const nlohmann::json& ref_doc, bool remove_from_store = true);
 
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
 

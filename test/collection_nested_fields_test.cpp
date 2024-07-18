@@ -1487,6 +1487,39 @@ TEST_F(CollectionNestedFieldsTest, ExplicitSchemaForNestedArrayTypeValidation) {
               "Hint: field inside an array of objects must be an array type as well.", add_op.error());
 }
 
+TEST_F(CollectionNestedFieldsTest, NestedStringArrayHighlight) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "passages", "type": "object[]"},
+            {"name": "passages.text", "type": "string[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc_str = std::string (R"({"passages": [{"text": "In January 1880, two of Tesla's uncles put together enough money to help him )") +
+            "leave Gospić for Prague, where he was to study. He arrived too late to enroll at Charles-Ferdinand " +
+            "University; he had never studied Greek, a required subject; and he was illiterate in Czech, another " +
+            "required subject. Tesla did, however, attend lectures in philosophy at the university as an auditor " +
+            "but he did not receive grades for the courses." + R"("}]})";
+
+    auto doc1 = nlohmann::json::parse(doc_str);
+    coll1->add(doc1.dump(), CREATE);
+
+    auto results = coll1->search("grades", {"passages.text"},
+                                 "", {}, {}, {0}, 10, 1,
+                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("he did not receive <mark>grades</mark> for the courses.",
+              results["hits"][0]["highlight"]["passages"][0]["text"]["snippet"].get<std::string>());
+}
+
 TEST_F(CollectionNestedFieldsTest, OptionalNestedOptionalOjectArrStringField) {
     nlohmann::json schema = R"({
             "name": "coll1",
