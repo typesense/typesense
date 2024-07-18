@@ -223,9 +223,9 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
             if(event.contains("log_to_file")) {
                 log_to_file = event["log_to_file"].get<bool>();
 
-                if(log_to_file && !analytics_logs.is_open()) {
+                if(log_to_file && !analytics_store) {
                     remove_index(suggestion_config_name);
-                    return Option<bool>(400, "Event can't be logged when analytics-dir is not defined.");
+                    return Option<bool>(400, "Event can't be logged when analytics-db is not defined.");
                 }
             }
             event_weight_map[event["name"]] = event["weight"];
@@ -658,21 +658,7 @@ void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t pr
     for (auto &events_collection_it: query_collection_events) {
         const auto& collection = events_collection_it.first;
         for (const auto &event: events_collection_it.second) {
-            if (analytics_logs.is_open() && event.log_to_file) {
-                //store events to log file
-                std::stringstream ssbuf;
-                ssbuf << event.timestamp << "\t" << event.name << "\t"
-                               << collection << "\t" << event.user_id << "\t" << event.doc_id << "\t"
-                               << event.query << "\t";
-
-                for(const auto& kv : event.data) {
-                    ssbuf << kv.second << "\t";
-                }
-
-                analytics_logs << ssbuf.str();
-                analytics_logs << "\n";
-                analytics_logs << std::flush;
-
+            if (event.log_to_file) {
                 nlohmann::json event_data;
                 event.to_json(event_data, collection);
                 payload.push_back(event_data);
@@ -720,7 +706,6 @@ void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uin
 void AnalyticsManager::stop() {
     quit = true;
     cv.notify_all();
-    analytics_logs.close();
 }
 
 void AnalyticsManager::dispose() {
@@ -751,13 +736,11 @@ void AnalyticsManager::dispose() {
     events_cache.clear();
 }
 
-void AnalyticsManager::init(Store* store, Store* analytics_store, const std::string& analytics_dir) {
+void AnalyticsManager::init(Store* store, Store* analytics_store) {
     this->store = store;
     this->analytics_store = analytics_store;
 
-    if(!analytics_dir.empty()) {
-        const auto analytics_log_path = analytics_dir + "/analytics_events.tsv";
-        analytics_logs.open(analytics_log_path, std::ofstream::out | std::ofstream::app);
+    if(analytics_store) {
         events_cache.capacity(1024);
     }
 }
@@ -799,7 +782,9 @@ void counter_event_t::serialize_as_docs(std::string &docs) {
 bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
     if(analytics_store) {
         for(const auto& event: payload) {
-            std::string key = event["user_id"].get<std::string>() + "_" + StringUtils::serialize_uint64_t(event["timestamp"].get<uint64_t>());
+            std::string key = event["user_id"].get<std::string>() + "_" + event["type"].get<std::string>()
+                    + "_" + StringUtils::serialize_uint64_t(event["timestamp"].get<uint64_t>());
+
             bool inserted = analytics_store->insert(key, event.dump());
             if(!inserted) {
                 LOG(ERROR) << "Error while dumping events to analytics db.";
@@ -814,8 +799,8 @@ bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
     return true;
 }
 
-void AnalyticsManager::get_last_N_events(const std::string& userid, uint32_t N, std::vector<std::string>& values) {
-    const std::string userid_prefix = userid + "_";
+void AnalyticsManager::get_last_N_events(const std::string& prefix, uint32_t N, std::vector<std::string>& values) {
+    const std::string userid_prefix = prefix + "_";
     analytics_store->get_last_N_values(userid_prefix, N, values);
 }
 
