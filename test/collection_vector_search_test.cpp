@@ -3385,32 +3385,26 @@ TEST_F(CollectionVectorTest, TryAddingMultipleImageFieldToEmbedFrom) {
 
 TEST_F(CollectionVectorTest, TestLongTextForImageEmbedding) {
     auto schema_json = R"({
-            "name": "images",
+            "name": "images2",
             "fields": [
                 {
-                "name": "name",
-                "type": "string"
+                    "name": "name",
+                    "type": "string"
                 },
                 {
-                "name": "image",
-                "type": "image",
-                "store": false
-                },
-                {
-                "name": "embedding",
-                "type": "float[]",
-                "embed": {
-                    "from": [
-                    "image",
-                    "name"
-                    ],
-                    "model_config": {
-                    "model_name": "ts/clip-vit-b-p32"
+                    "name": "embedding",
+                    "type": "float[]",
+                    "embed": {
+                        "from": [
+                            "name"
+                        ],
+                        "model_config": {
+                            "model_name": "ts/clip-vit-b-p32"
+                        }
                     }
                 }
-                }
             ]
-            })"_json;
+        })"_json;
     
     EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
