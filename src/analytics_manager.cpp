@@ -507,7 +507,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
         std::unique_lock lk(mutex);
         cv.wait_for(lk, std::chrono::seconds(QUERY_COMPACTION_INTERVAL_S), [&] { return quit.load(); });
 
-        //LOG(INFO) << "QuerySuggestions::run";
+        //LOG(INFO) << "AnalyticsManager::run";
 
         if(quit) {
             lk.unlock();

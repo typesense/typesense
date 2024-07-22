@@ -579,6 +579,9 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
         }
 
         if(analytics_store) {
+            // to ensure that in-memory table is sent to disk (we don't use WAL)
+            analytics_store->flush();
+
             rocksdb::Checkpoint* checkpoint2 = nullptr;
             status = analytics_store->create_check_point(&checkpoint2, analytics_db_snapshot_path);
             std::unique_ptr<rocksdb::Checkpoint> checkpoint_guard(checkpoint2);
