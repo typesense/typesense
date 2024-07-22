@@ -302,7 +302,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "name": "product_events",
         "type": "log",
         "params": {
-            "name": "product_events_logging",
             "source": {
                 "collections": ["titles"],
                  "events":  [{"type": "click", "name": "AP"}, {"type": "visit", "name": "VP"}]
@@ -363,7 +362,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "name": "product_click_events2",
         "type": "log",
         "params": {
-            "name": "product_events_logging2",
             "source": {
                 "collections": ["titles"],
                  "events":  [{"type": "click", "name": "AP"}]
@@ -435,7 +433,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "name": "product_events2",
         "type": "log",
         "params": {
-            "name": "custom_events_logging",
             "source": {
                 "collections": ["titles"],
                  "events":  [{"type": "custom", "name": "CP"}]
@@ -468,7 +465,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "name": "product_events2",
         "type": "log",
         "params": {
-            "name": "custom_events_logging",
             "source": {
                 "collections": ["titles"],
                  "events":  [{"type": "custom", "name": "CP"}]
@@ -500,7 +496,6 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
         "name": "product_click_events",
         "type": "log",
         "params": {
-            "name": "product_click_events_logging",
             "source": {
                 "collections": ["titles"],
                  "events":  [{"type": "click", "name": "APC"}]
@@ -617,7 +612,6 @@ TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
         "name": "product_events2",
         "type": "log",
         "params": {
-            "name": "product_events_logging2",
             "source": {
                 "collections": ["titles"],
                  "events":  [{"type": "click", "name": "AB"}]
@@ -1319,7 +1313,6 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "name": "click_event_rule",
         "type": "log",
         "params": {
-            "name": "click_event_log",
             "source": {
                 "collections": ["books"],
                  "events":  [{"type": "click", "name": "APC2"}]
@@ -1470,7 +1463,6 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
         "name": "product_events2",
         "type": "log",
         "params": {
-            "name": "product_events_logging2",
             "source": {
                 "collections": ["titles"],
                  "events":  [{"type": "click", "name": "AB"}]
@@ -1550,7 +1542,6 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
         "name": "product_events2",
         "type": "log",
         "params": {
-            "name": "product_events_logging2",
             "source": {
                 "collections": ["titles"],
                  "events":  [{"type": "click", "name": "AB"}, {"type": "visit", "name": "AV"}]
