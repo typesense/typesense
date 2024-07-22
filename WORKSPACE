@@ -53,8 +53,8 @@ new_git_repository(
 
 new_git_repository(
     name="clip_tokenizer",
-    commit="0ca1e2e2e7418108725eaa7fb93e029516ae63fa",
-    remote="https://github.com/ozanarmagan/clip_tokenizer_cpp",
+    branch="master",
+    remote="https://github.com/typesense/clip_tokenizer_cpp.git",
     build_file = "//bazel:clip_tokenizer.BUILD",
 )
 
