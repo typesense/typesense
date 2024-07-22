@@ -85,10 +85,6 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     suggestion_config.rule_type = payload["type"];
 
     if(payload["type"] == LOG_TYPE) {
-        if(!params.contains("name") || params["name"].empty()) {
-            return Option<bool>(400, "Bad or missing name in params");
-        }
-
         if(!params["source"].contains("collections") || !params["source"]["collections"].is_array()) {
             return Option<bool>(400, "Must contain a valid list of source collections.");
         }
@@ -104,10 +100,6 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
 
         suggestion_collection = params["source"]["collections"][0].get<std::string>();
         suggestion_config.suggestion_collection = suggestion_collection;
-
-        if(event_collection_map.count(params["name"]) != 0) {
-            return Option<bool>(400, "Event name already exists.");
-        }
     } else {
         if(payload["type"] == COUNTER_TYPE) {
             if(!params["source"].contains("events") || (params["source"].contains("events") &&
