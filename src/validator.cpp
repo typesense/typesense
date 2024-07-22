@@ -718,17 +718,13 @@ Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document,
         // flag to check if all fields to embed from are optional and null
         bool all_optional_and_null = true;
         for(const auto& field_name : embed_from) {
-            LOG(INFO) << "Field name: " << field_name;
             auto schema_field_it = search_schema.find(field_name);
             auto doc_field_it = document.find(field_name);
-            LOG(INFO) << "Schema field: " << schema_field_it->name;
-            LOG(INFO) << "Doc field: " << (doc_field_it == document.end()) ? "Not found" : doc_field_it->dump();
             if(schema_field_it == search_schema.end()) {
                 return Option<bool>(400, "Field `" + field.name + "` has invalid fields to create embeddings from.");
             }
             if(doc_field_it == document.end() || doc_field_it.value().is_null()) {
                 if(!is_update && !schema_field_it->optional) {
-                    LOG(INFO) << "Not found in document: " << field_name;
                     return Option<bool>(400, "Field `" + field_name + "` is needed to create embedding.");
                 } else {
                     continue;
