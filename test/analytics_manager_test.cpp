@@ -910,7 +910,7 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
             "source": {
                 "collections": ["products"],
                 "events":  [{"type": "click", "weight": 1, "name": "CLK1"}, {"type": "conversion", "weight": 5, "name": "CNV1"} ],
-                "log_to_file": true
+                "log_to_store": true
             },
             "destination": {
                 "collection": "products",
@@ -1209,7 +1209,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "params": {
             "source": {
                 "collections": ["books"],
-                 "events":  [{"type": "click", "name" : "CLK4"}, {"type": "conversion", "name": "CNV4", "log_to_file" : true} ]
+                 "events":  [{"type": "click", "name" : "CLK4"}, {"type": "conversion", "name": "CNV4", "log_to_store" : true} ]
             },
             "destination": {
                 "collection": "books",
@@ -1228,7 +1228,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "params": {
             "source": {
                 "collections": ["books"],
-                 "events":  [{"type": "click", "weight": 1, "name" : "CLK4"}, {"type": "conversion", "weight": 5, "name": "CNV4", "log_to_file" : true} ]
+                 "events":  [{"type": "click", "weight": 1, "name" : "CLK4"}, {"type": "conversion", "weight": 5, "name": "CNV4", "log_to_store" : true} ]
             },
             "destination": {
                 "collection": "books",

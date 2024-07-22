@@ -219,17 +219,17 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
 
             //store event name to their weights
             //which can be used to keep counter events separate from non counter events
-            bool log_to_file = false;
-            if(event.contains("log_to_file")) {
-                log_to_file = event["log_to_file"].get<bool>();
+            bool log_to_store = false;
+            if(event.contains("log_to_store")) {
+                log_to_store = event["log_to_store"].get<bool>();
 
-                if(log_to_file && !analytics_store) {
+                if(log_to_store && !analytics_store) {
                     remove_index(suggestion_config_name);
                     return Option<bool>(400, "Event can't be logged when analytics-db is not defined.");
                 }
             }
             event_weight_map[event["name"]] = event["weight"];
-            event_type_collection ec{event["type"], suggestion_collection, log_to_file, suggestion_config_name};
+            event_type_collection ec{event["type"], suggestion_collection, log_to_store, suggestion_config_name};
             event_collection_map.emplace(event["name"], ec);
         }
         counter_events.emplace(suggestion_collection, counter_event_t{counter_field, {}, event_weight_map});
@@ -470,7 +470,7 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
         }
 
         event_t event(query, event_type, now_ts_useconds, user_id, doc_id,
-                      event_name, event_collection_map[event_name].log_to_file, custom_data);
+                      event_name, event_collection_map[event_name].log_to_store, custom_data);
         events_vec.emplace_back(event);
 
         if (!counter_events.empty()) {
@@ -658,7 +658,7 @@ void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t pr
     for (auto &events_collection_it: query_collection_events) {
         const auto& collection = events_collection_it.first;
         for (const auto &event: events_collection_it.second) {
-            if (event.log_to_file) {
+            if (event.log_to_store) {
                 nlohmann::json event_data;
                 event.to_json(event_data, collection);
                 payload.push_back(event_data);
