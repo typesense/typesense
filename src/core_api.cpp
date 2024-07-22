@@ -2903,7 +2903,7 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
     }
 
     if(!AnalyticsManager::get_instance().write_to_db(req_json)) {
-        res->set_400(R"({"ok": false})");
+        res->set_500(R"({"ok": false})");
         return false;
     }
 
