@@ -461,8 +461,11 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
             doc_id = event_json["doc_id"].get<std::string>();
         }
 
-        if(event_collection_map[event_name].log_to_store) {
+        if(event_collection_map_it->second.log_to_store) {
             //only store events if log_to_store is specified in rule
+            //remove any '%' found in userid
+            user_id.erase(std::remove(user_id.begin(), user_id.end(), '%'), user_id.end());
+
             event_t event(query, event_type, now_ts_useconds, user_id, doc_id,
                           event_name, event_collection_map[event_name].log_to_store, custom_data);
             events_vec.emplace_back(event);
@@ -780,9 +783,6 @@ bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
             std::string userid = event["user_id"].get<std::string>();
             std::string event_type = event["type"].get<std::string>();
             std::string ts = StringUtils::serialize_uint64_t(event["timestamp"].get<uint64_t>());
-
-            //remove any '%' found in userid
-            userid.erase(std::remove(userid.begin(), userid.end(), '%'), userid.end());
 
             std::string key =  userid+ "%" + event_type+ "%" + ts;
 
