@@ -1505,7 +1505,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     //try fetching from db
-    const std::string prefix_start = "13_";
+    const std::string prefix_start = "13%";
     const std::string prefix_end = "13`";
     std::vector<std::string> events;
 

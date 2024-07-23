@@ -781,8 +781,10 @@ bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
             std::string event_type = event["type"].get<std::string>();
             std::string ts = StringUtils::serialize_uint64_t(event["timestamp"].get<uint64_t>());
 
-            std::replace(userid.begin(), userid.end(), '_', '%');
-            std::string key =  userid+ "_" + event_type+ "_" + ts;
+            //remove any '%' found in userid
+            userid.erase(std::remove(userid.begin(), userid.end(), '%'), userid.end());
+
+            std::string key =  userid+ "%" + event_type+ "%" + ts;
 
             bool inserted = analytics_store->insert(key, event.dump());
             if(!inserted) {
@@ -801,9 +803,11 @@ bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
 void AnalyticsManager::get_last_N_events(const std::string& userid, const std::string& event_type, uint32_t N,
                                             std::vector<std::string>& values) {
     std::string user_id = userid;
-    std::replace(user_id.begin(), user_id.end(), '_', '%');
 
-    auto userid_prefix = user_id + "_";
+    //erase any '%' in userid
+    user_id.erase(std::remove(user_id.begin(), user_id.end(), '%'), user_id.end());
+
+    auto userid_prefix = user_id + "%";
     if(event_type != "*") {
         userid_prefix += event_type;
     }
