@@ -535,7 +535,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     std::vector<std::string> values;
-    analyticsManager.get_last_N_events("13", 5, values);
+    analyticsManager.get_last_N_events("13", "*", 5, values);
     ASSERT_EQ(1, values.size());
 
     auto parsed_json = nlohmann::json::parse(values[0]);
@@ -574,7 +574,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     values.clear();
-    analyticsManager.get_last_N_events("13", 5, values);
+    analyticsManager.get_last_N_events("13", "*", 5, values);
     ASSERT_EQ(2, values.size());
 
     parsed_json = nlohmann::json::parse(values[0]);
@@ -1298,7 +1298,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     std::vector<std::string> values;
-    analyticsManager.get_last_N_events("11", 5, values);
+    analyticsManager.get_last_N_events("11", "*", 5, values);
     ASSERT_EQ(1, values.size());
 
     auto parsed_json = nlohmann::json::parse(values[0]);
@@ -1376,7 +1376,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     values.clear();
-    analyticsManager.get_last_N_events("11", 5, values);
+    analyticsManager.get_last_N_events("11", "*", 5, values);
     ASSERT_EQ(2, values.size());
 
     parsed_json = nlohmann::json::parse(values[0]);
@@ -1394,7 +1394,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_EQ("shorts", parsed_json["query"]);
 
     values.clear();
-    analyticsManager.get_last_N_events("13", 5, values);
+    analyticsManager.get_last_N_events("13", "*", 5, values);
     ASSERT_EQ(1, values.size());
 
     parsed_json = nlohmann::json::parse(values[0]);
@@ -1599,7 +1599,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //basic test
     std::vector<std::string> values;
-    analyticsManager.get_last_N_events("13", 5, values);
+    analyticsManager.get_last_N_events("13", "*", 5, values);
     ASSERT_EQ(5, values.size());
 
     nlohmann::json parsed_json;
@@ -1611,7 +1611,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //fetch events for middle user
     values.clear();
-    analyticsManager.get_last_N_events("14", 5, values);
+    analyticsManager.get_last_N_events("14", "*", 5, values);
     ASSERT_EQ(5, values.size());
 
     start_index = 6;
@@ -1622,7 +1622,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //fetch more events than stored in db
     values.clear();
-    analyticsManager.get_last_N_events("15", 8, values);
+    analyticsManager.get_last_N_events("15", "*", 8, values);
     ASSERT_EQ(5, values.size());
 
     start_index = 4;
@@ -1634,7 +1634,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //fetch events for non-existing user
     values.clear();
-    analyticsManager.get_last_N_events("16", 8, values);
+    analyticsManager.get_last_N_events("16", "*", 8, values);
     ASSERT_EQ(0, values.size());
 
     //get specific event type or user
@@ -1666,7 +1666,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //get last 5 visit events for user_id 14
     values.clear();
-    analyticsManager.get_last_N_events("14_visit", 5, values);
+    analyticsManager.get_last_N_events("14", "visit", 5, values);
     ASSERT_EQ(5, values.size());
     for(int i = 0; i < 5; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);
@@ -1676,7 +1676,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //get last 5 click events for user_id 14
     values.clear();
-    analyticsManager.get_last_N_events("14_click", 5, values);
+    analyticsManager.get_last_N_events("14", "click", 5, values);
     ASSERT_EQ(5, values.size());
     for(int i = 0; i < 5; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);
@@ -1709,11 +1709,48 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     values.clear();
-    analyticsManager.get_last_N_events("14_click", 10, values);
-    for(auto value : values) {
-        parsed_json = nlohmann::json::parse(value);
-    }
+    analyticsManager.get_last_N_events("14", "click", 10, values);
     ASSERT_EQ(10, values.size());
+    for(int i = 0; i < 10; ++i) {
+        parsed_json = nlohmann::json::parse(values[i]);
+        ASSERT_EQ("AB", parsed_json["name"]);
+        ASSERT_EQ(std::to_string(9-i), parsed_json["doc_id"]);
+    }
+
+
+    //try adding userid with _
+    event1["name"] = "AB";
+    event1["type"] = "click";
+    event1["data"]["user_id"] = "14_U1";
+
+    for(auto i = 0; i < 5; i++) {
+        event1["data"]["doc_id"] = std::to_string(i);
+        req->body = event1.dump();
+        ASSERT_TRUE(post_create_event(req, res));
+    }
+
+    payload.clear();
+    event_data.clear();
+    collection_events_map = analyticsManager.get_log_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto& collection = events_collection_it.first;
+
+        for(const auto& event: events_collection_it.second) {
+            event.to_json(event_data, collection);
+            payload.push_back(event_data);
+        }
+    }
+
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    values.clear();
+    analyticsManager.get_last_N_events("14_U1", "click", 10, values);
+    ASSERT_EQ(5, values.size());
+    for(int i = 0; i < 5; ++i) {
+        parsed_json = nlohmann::json::parse(values[i]);
+        ASSERT_EQ("AB", parsed_json["name"]);
+        ASSERT_EQ(std::to_string(4-i), parsed_json["doc_id"]);
+    }
 }
 
 TEST_F(AnalyticsManagerTest, AnalyticsWithAliases) {
