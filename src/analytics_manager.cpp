@@ -461,9 +461,15 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
             doc_id = event_json["doc_id"].get<std::string>();
         }
 
-        event_t event(query, event_type, now_ts_useconds, user_id, doc_id,
-                      event_name, event_collection_map[event_name].log_to_store, custom_data);
-        events_vec.emplace_back(event);
+        if(event_collection_map_it->second.log_to_store) {
+            //only store events if log_to_store is specified in rule
+            //remove any '%' found in userid
+            user_id.erase(std::remove(user_id.begin(), user_id.end(), '%'), user_id.end());
+
+            event_t event(query, event_type, now_ts_useconds, user_id, doc_id,
+                          event_name, event_collection_map[event_name].log_to_store, custom_data);
+            events_vec.emplace_back(event);
+        }
 
         if (!counter_events.empty()) {
             auto counter_events_it = counter_events.find(query_collection);
@@ -774,8 +780,11 @@ void counter_event_t::serialize_as_docs(std::string &docs) {
 bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
     if(analytics_store) {
         for(const auto& event: payload) {
-            std::string key = event["user_id"].get<std::string>() + "_" + event["type"].get<std::string>()
-                    + "_" + StringUtils::serialize_uint64_t(event["timestamp"].get<uint64_t>());
+            std::string userid = event["user_id"].get<std::string>();
+            std::string event_type = event["type"].get<std::string>();
+            std::string ts = StringUtils::serialize_uint64_t(event["timestamp"].get<uint64_t>());
+
+            std::string key =  userid+ "%" + event_type+ "%" + ts;
 
             bool inserted = analytics_store->insert(key, event.dump());
             if(!inserted) {
@@ -791,8 +800,18 @@ bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
     return true;
 }
 
-void AnalyticsManager::get_last_N_events(const std::string& prefix, uint32_t N, std::vector<std::string>& values) {
-    const std::string userid_prefix = prefix + "_";
+void AnalyticsManager::get_last_N_events(const std::string& userid, const std::string& event_type, uint32_t N,
+                                            std::vector<std::string>& values) {
+    std::string user_id = userid;
+
+    //erase any '%' in userid
+    user_id.erase(std::remove(user_id.begin(), user_id.end(), '%'), user_id.end());
+
+    auto userid_prefix = user_id + "%";
+    if(event_type != "*") {
+        userid_prefix += event_type;
+    }
+
     analytics_store->get_last_N_values(userid_prefix, N, values);
 }
 
