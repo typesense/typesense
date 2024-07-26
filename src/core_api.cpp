@@ -2902,8 +2902,12 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
         return false;
     }
 
-    AnalyticsManager::get_instance().write_to_db(req_json);
+    if(!AnalyticsManager::get_instance().write_to_db(req_json)) {
+        res->set_500(R"({"ok": false})");
+        return false;
+    }
 
+    res->set_200(R"({"ok": true})");
     return true;
 }
 

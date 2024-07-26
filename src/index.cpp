@@ -709,7 +709,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
         std::unordered_map<uint32_t, std::vector<facet_value_id_t>> seq_id_to_fvalues;
 
         size_t total_num_docs = seq_ids->num_ids();
-        if(afield.facet && total_num_docs > 10*1000 && search_schema.size() > 100) {
+        if(afield.facet && total_num_docs > 10*1000) {
             facet_index_v4->check_for_high_cardinality(afield.name, total_num_docs);
         }
 

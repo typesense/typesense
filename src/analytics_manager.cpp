@@ -85,10 +85,6 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     suggestion_config.rule_type = payload["type"];
 
     if(payload["type"] == LOG_TYPE) {
-        if(!params.contains("name") || params["name"].empty()) {
-            return Option<bool>(400, "Bad or missing name in params");
-        }
-
         if(!params["source"].contains("collections") || !params["source"]["collections"].is_array()) {
             return Option<bool>(400, "Must contain a valid list of source collections.");
         }
@@ -104,10 +100,6 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
 
         suggestion_collection = params["source"]["collections"][0].get<std::string>();
         suggestion_config.suggestion_collection = suggestion_collection;
-
-        if(event_collection_map.count(params["name"]) != 0) {
-            return Option<bool>(400, "Event name already exists.");
-        }
     } else {
         if(payload["type"] == COUNTER_TYPE) {
             if(!params["source"].contains("events") || (params["source"].contains("events") &&
@@ -219,17 +211,17 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
 
             //store event name to their weights
             //which can be used to keep counter events separate from non counter events
-            bool log_to_file = false;
-            if(event.contains("log_to_file")) {
-                log_to_file = event["log_to_file"].get<bool>();
+            bool log_to_store = false;
+            if(event.contains("log_to_store")) {
+                log_to_store = event["log_to_store"].get<bool>();
 
-                if(log_to_file && !analytics_store) {
+                if(log_to_store && !analytics_store) {
                     remove_index(suggestion_config_name);
                     return Option<bool>(400, "Event can't be logged when analytics-db is not defined.");
                 }
             }
             event_weight_map[event["name"]] = event["weight"];
-            event_type_collection ec{event["type"], suggestion_collection, log_to_file, suggestion_config_name};
+            event_type_collection ec{event["type"], suggestion_collection, log_to_store, suggestion_config_name};
             event_collection_map.emplace(event["name"], ec);
         }
         counter_events.emplace(suggestion_collection, counter_event_t{counter_field, {}, event_weight_map});
@@ -469,9 +461,15 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
             doc_id = event_json["doc_id"].get<std::string>();
         }
 
-        event_t event(query, event_type, now_ts_useconds, user_id, doc_id,
-                      event_name, event_collection_map[event_name].log_to_file, custom_data);
-        events_vec.emplace_back(event);
+        if(event_collection_map_it->second.log_to_store) {
+            //only store events if log_to_store is specified in rule
+            //remove any '%' found in userid
+            user_id.erase(std::remove(user_id.begin(), user_id.end(), '%'), user_id.end());
+
+            event_t event(query, event_type, now_ts_useconds, user_id, doc_id,
+                          event_name, event_collection_map[event_name].log_to_store, custom_data);
+            events_vec.emplace_back(event);
+        }
 
         if (!counter_events.empty()) {
             auto counter_events_it = counter_events.find(query_collection);
@@ -515,7 +513,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
         std::unique_lock lk(mutex);
         cv.wait_for(lk, std::chrono::seconds(QUERY_COMPACTION_INTERVAL_S), [&] { return quit.load(); });
 
-        //LOG(INFO) << "QuerySuggestions::run";
+        //LOG(INFO) << "AnalyticsManager::run";
 
         if(quit) {
             lk.unlock();
@@ -658,7 +656,7 @@ void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t pr
     for (auto &events_collection_it: query_collection_events) {
         const auto& collection = events_collection_it.first;
         for (const auto &event: events_collection_it.second) {
-            if (event.log_to_file) {
+            if (event.log_to_store) {
                 nlohmann::json event_data;
                 event.to_json(event_data, collection);
                 payload.push_back(event_data);
@@ -782,8 +780,11 @@ void counter_event_t::serialize_as_docs(std::string &docs) {
 bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
     if(analytics_store) {
         for(const auto& event: payload) {
-            std::string key = event["user_id"].get<std::string>() + "_" + event["type"].get<std::string>()
-                    + "_" + StringUtils::serialize_uint64_t(event["timestamp"].get<uint64_t>());
+            std::string userid = event["user_id"].get<std::string>();
+            std::string event_type = event["type"].get<std::string>();
+            std::string ts = StringUtils::serialize_uint64_t(event["timestamp"].get<uint64_t>());
+
+            std::string key =  userid+ "%" + event_type+ "%" + ts;
 
             bool inserted = analytics_store->insert(key, event.dump());
             if(!inserted) {
@@ -799,8 +800,18 @@ bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
     return true;
 }
 
-void AnalyticsManager::get_last_N_events(const std::string& prefix, uint32_t N, std::vector<std::string>& values) {
-    const std::string userid_prefix = prefix + "_";
+void AnalyticsManager::get_last_N_events(const std::string& userid, const std::string& event_type, uint32_t N,
+                                            std::vector<std::string>& values) {
+    std::string user_id = userid;
+
+    //erase any '%' in userid
+    user_id.erase(std::remove(user_id.begin(), user_id.end(), '%'), user_id.end());
+
+    auto userid_prefix = user_id + "%";
+    if(event_type != "*") {
+        userid_prefix += event_type;
+    }
+
     analytics_store->get_last_N_values(userid_prefix, N, values);
 }
 
