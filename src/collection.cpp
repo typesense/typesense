@@ -150,6 +150,17 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
         auto reference_field_name = reference_pair.field;
         auto& cm = CollectionManager::get_instance();
         auto ref_collection = cm.get_collection(reference_collection_name);
+        auto const reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+
+        if (is_update && document.contains(reference_helper_field) &&
+            (!document[field_name].is_array() || document[field_name].size() == document[reference_helper_field].size())) {
+            // No need to look up the reference collection since reference helper field is already populated.
+            // Saves needless computation in cases where references are known beforehand. For example, when cascade
+            // deleting the related docs.
+            document[fields::reference_helper_fields] += reference_helper_field;
+            continue;
+        }
+
         if (ref_collection == nullptr) {
             return Option<bool>(400, "Referenced collection `" + reference_collection_name
                                              + "` not found.");
@@ -4663,6 +4674,16 @@ void Collection::cascade_remove_docs(const std::string& ref_helper_field_name, c
                 LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() <<
                                 "` at field `" << field_name << "` elements do not match the type of `" << ref_coll_name <<
                                 "` collection doc `"<< ref_doc.dump() << "` at field `" << ref_field_name << "`.";
+            } else if (existing_document.count(ref_helper_field_name) == 0) {
+                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` is missing `" <<
+                                ref_helper_field_name << "` field.";
+            } else if (!existing_document.at(ref_helper_field_name).is_array()) {
+                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` field `" <<
+                                ref_helper_field_name << "` is not an array.";
+            } else if (existing_document[field_name].size() != existing_document[ref_helper_field_name].size()) {
+                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` reference field `" <<
+                           field_name << "` values and its reference helper field `" << ref_helper_field_name <<
+                           "` values differ in count.";
             }
             // If there are more than one references present in this document, we cannot delete the whole doc. Only remove
             // `ref_seq_id` from reference helper field.
@@ -4672,13 +4693,16 @@ void Collection::cascade_remove_docs(const std::string& ref_helper_field_name, c
                 update_document[field_name] = nlohmann::json::array();
 
                 auto removed_ref_value_found = false;
-                for (const auto& ref_value: existing_document.at(field_name)) {
+
+                for (uint32_t j = 0; j < existing_document[field_name].size(); j++) {
+                    auto const& ref_value = existing_document[field_name][j];
                     if (ref_value == ref_doc.at(ref_field_name)) {
                         removed_ref_value_found = true;
                         continue;
                     }
 
                     update_document[field_name] += ref_value;
+                    update_document[ref_helper_field_name] += existing_document[ref_helper_field_name][j];
                 }
 
                 if (removed_ref_value_found) {
