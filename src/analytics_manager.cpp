@@ -116,14 +116,9 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
             return Option<bool>(400, "Bad or missing destination.");
         }
 
-        if(!params["source"].contains("collections") || !params["source"]["collections"].is_array()) {
-            return Option<bool>(400, "Must contain a valid list of source collections.");
-        }
-
         if(!params["destination"].contains("collection") || !params["destination"]["collection"].is_string()) {
             return Option<bool>(400, "Must contain a valid destination collection.");
         }
-
 
         if(params["destination"].contains("counter_field")) {
             if(!params["destination"]["counter_field"].is_string()) {
@@ -137,14 +132,18 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
         suggestion_config.suggestion_collection = suggestion_collection;
     }
 
-    for(const auto& coll: params["source"]["collections"]) {
-        if(!coll.is_string()) {
-            return Option<bool>(400, "Must contain a valid list of source collection names.");
-        }
+    //for counter events source collections are not needed
+    if(payload["type"] != COUNTER_TYPE) {
+        for(const auto& coll: params["source"]["collections"]) {
+            if(!coll.is_string()) {
+                return Option<bool>(400, "Must contain a valid list of source collection names.");
+            }
 
-        const std::string& src_collection = coll.get<std::string>();
-        suggestion_config.query_collections.push_back(src_collection);
+            const std::string& src_collection = coll.get<std::string>();
+            suggestion_config.query_collections.push_back(src_collection);
+        }
     }
+
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
         if(!upsert && popular_queries.count(suggestion_collection) != 0) {
             return Option<bool>(400, "There's already another configuration for this destination collection.");

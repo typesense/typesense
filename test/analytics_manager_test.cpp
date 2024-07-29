@@ -902,7 +902,6 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
         "type": "counter",
         "params": {
             "source": {
-                "collections": ["products"],
                 "events":  [{"type": "click", "weight": 1, "name": "CLK1"}, {"type": "conversion", "weight": 5, "name": "CNV1"} ],
                 "log_to_store": true
             },
@@ -1066,7 +1065,6 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
-                "collections": ["books"],
                 "events":  [{"type": "click", "weight": 1, "name": "CLK2"}, {"type": "conversion", "weight": 5, "name": "CNV2"} ]
             },
             "destination": {
@@ -1085,7 +1083,6 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
-                "collections": ["books"],
                 "events":  [{"type": "click", "weight": 1, "name": "CLK3"}, {"type": "conversion", "weight": 5, "name": "CNV3"} ]
             },
             "destination": {
@@ -1123,7 +1120,6 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
-                "collections": ["books"]
             },
             "destination": {
                 "collection": "books",
@@ -1141,7 +1137,6 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
-                "collections": ["books"],
                 "events":  []
             },
             "destination": {
@@ -1160,7 +1155,6 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
-                "collections": ["books"],
                 "events":  "query_click"
             },
             "destination": {
@@ -1179,7 +1173,6 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
-                "collections": ["books"],
                 "events":  [{"type": "click", "weight": 1}, {"type": "conversion", "weight": 5} ]
             },
             "destination": {
@@ -1202,7 +1195,6 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
-                "collections": ["books"],
                  "events":  [{"type": "click", "name" : "CLK4"}, {"type": "conversion", "name": "CNV4", "log_to_store" : true} ]
             },
             "destination": {
@@ -1221,7 +1213,6 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
-                "collections": ["books"],
                  "events":  [{"type": "click", "weight": 1, "name" : "CLK4"}, {"type": "conversion", "weight": 5, "name": "CNV4", "log_to_store" : true} ]
             },
             "destination": {
@@ -1415,7 +1406,6 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
-                "collections": ["books"],
                  "events":  [{"type": "conversion", "weight": 5, "name": "CNV4"} ]
             },
             "destination": {
@@ -1781,7 +1771,6 @@ TEST_F(AnalyticsManagerTest, AnalyticsWithAliases) {
         "type": "counter",
         "params": {
             "source": {
-                "collections": ["coll1"],
                 "events":  [{"type": "click", "weight": 1, "name": "CLK1"}, {"type": "conversion", "weight": 5, "name": "CNV1"} ]
             },
             "destination": {
