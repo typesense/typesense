@@ -263,7 +263,7 @@ bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr
     AuthManager &auth_manager = collectionManager.getAuthManager();
     auto api_key_collections = auth_manager.get_api_key_collections(req->api_auth_key);
 
-    auto collections_summaries_op = collectionManager.get_collection_summaries(limit, offset,
+    auto collections_summaries_op = collectionManager.get_collection_summaries(limit, offset, exclude_fields,
                                                                                api_key_collections);
     if(!collections_summaries_op.ok()) {
         res->set(collections_summaries_op.code(), collections_summaries_op.error());
