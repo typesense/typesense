@@ -4941,9 +4941,10 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
     // avoiding loop
     if (sort_fields.size() > 0) {
         auto reference_found = true;
+        auto const& is_reference_sort = !sort_fields[0].reference_collection_name.empty();
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
-        if (!sort_fields[0].reference_collection_name.empty()) {
+        if (is_reference_sort) {
             auto const& ref_compute_op = ref_compute_sort_scores(sort_fields[0], seq_id, ref_seq_id, reference_found,
                                                                  references, collection_name);
             if (!ref_compute_op.ok()) {
@@ -4959,7 +4960,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         } else if(field_values[0] == &geo_sentinel_value) {
             scores[0] = geopoint_distances[0];
         } else if(field_values[0] == &str_sentinel_value) {
-            if (sort_fields[0].reference_collection_name.empty()) {
+            if (!is_reference_sort) {
                 scores[0] = str_sort_index.at(sort_fields[0].name)->rank(seq_id);
             } else if (!reference_found) {
                 scores[0] = adi_tree_t::NOT_FOUND;
@@ -4995,15 +4996,18 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             uint32_t index = 0;
             auto const& eval = sort_fields[0].eval;
             for (; index < count; index++) {
-                auto& filter_index = filter_indexes[index];
+                // ref_seq_id(s) can be unordered.
+                uint32_t ref_filter_index = 0;
+                auto& filter_index = is_reference_sort ? ref_filter_index : filter_indexes[index];
                 auto const& eval_ids = eval.eval_ids_vec[index];
                 auto const& eval_ids_count = eval.eval_ids_count_vec[index];
                 if (filter_index == 0 || filter_index < eval_ids_count) {
                     // Returns iterator to the first element that is >= to value or last if no such element is found.
-                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, seq_id) -
+                    auto const& id = is_reference_sort ? ref_seq_id : seq_id;
+                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, id) -
                                                             eval_ids;
 
-                    if (filter_index < eval_ids_count && eval_ids[filter_index] == seq_id) {
+                    if (filter_index < eval_ids_count && eval_ids[filter_index] == id) {
                         filter_index++;
                         found = true;
                         break;
@@ -5027,8 +5031,8 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 // do nothing
             }
         } else {
-            if (sort_fields[0].reference_collection_name.empty() || reference_found) {
-                auto it = field_values[0]->find(sort_fields[0].reference_collection_name.empty() ? seq_id : ref_seq_id);
+            if (!is_reference_sort || reference_found) {
+                auto it = field_values[0]->find(is_reference_sort ? ref_seq_id : seq_id);
                 scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
             } else {
                 scores[0] = default_score;
@@ -5050,9 +5054,10 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
 
     if(sort_fields.size() > 1) {
         auto reference_found = true;
+        auto const& is_reference_sort = !sort_fields[1].reference_collection_name.empty();
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
-        if (!sort_fields[1].reference_collection_name.empty()) {
+        if (is_reference_sort) {
             auto const& ref_compute_op = ref_compute_sort_scores(sort_fields[1], seq_id, ref_seq_id, reference_found,
                                                                  references, collection_name);
             if (!ref_compute_op.ok()) {
@@ -5068,7 +5073,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         } else if(field_values[1] == &geo_sentinel_value) {
             scores[1] = geopoint_distances[1];
         } else if(field_values[1] == &str_sentinel_value) {
-            if (sort_fields[1].reference_collection_name.empty()) {
+            if (!is_reference_sort) {
                 scores[1] = str_sort_index.at(sort_fields[1].name)->rank(seq_id);
             } else if (!reference_found) {
                 scores[1] = adi_tree_t::NOT_FOUND;
@@ -5104,15 +5109,18 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             uint32_t index = 0;
             auto const& eval = sort_fields[1].eval;
             for (; index < count; index++) {
-                auto& filter_index = filter_indexes[index];
+                // ref_seq_id(s) can be unordered.
+                uint32_t ref_filter_index = 0;
+                auto& filter_index = is_reference_sort ? ref_filter_index : filter_indexes[index];
                 auto const& eval_ids = eval.eval_ids_vec[index];
                 auto const& eval_ids_count = eval.eval_ids_count_vec[index];
                 if (filter_index == 0 || filter_index < eval_ids_count) {
                     // Returns iterator to the first element that is >= to value or last if no such element is found.
-                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, seq_id) -
+                    auto const& id = is_reference_sort ? ref_seq_id : seq_id;
+                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, id) -
                                    eval_ids;
 
-                    if (filter_index < eval_ids_count && eval_ids[filter_index] == seq_id) {
+                    if (filter_index < eval_ids_count && eval_ids[filter_index] == id) {
                         filter_index++;
                         found = true;
                         break;
@@ -5121,6 +5129,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             }
 
             scores[1] = found ? eval.scores[index] : 0;
+            LOG(INFO) << "seq_id: " << seq_id << " ref_seq_id: " << ref_seq_id << " score: " << scores[1] << " index: " << index;
         }  else if(field_values[1] == &vector_distance_sentinel_value) {
             scores[1] = float_to_int64_t(vector_distance);
         } else if(field_values[1] == &vector_query_sentinel_value) {
@@ -5137,8 +5146,8 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             }
 
         } else {
-            if (sort_fields[1].reference_collection_name.empty() || reference_found) {
-                auto it = field_values[1]->find(sort_fields[1].reference_collection_name.empty() ? seq_id : ref_seq_id);
+            if (!is_reference_sort || reference_found) {
+                auto it = field_values[1]->find(is_reference_sort ? ref_seq_id : seq_id);
                 scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
             } else {
                 scores[1] = default_score;
@@ -5157,9 +5166,10 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
 
     if(sort_fields.size() > 2) {
         auto reference_found = true;
+        auto const& is_reference_sort = !sort_fields[2].reference_collection_name.empty();
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
-        if (!sort_fields[2].reference_collection_name.empty()) {
+        if (is_reference_sort) {
             auto const& ref_compute_op = ref_compute_sort_scores(sort_fields[2], seq_id, ref_seq_id, reference_found,
                                                                  references, collection_name);
             if (!ref_compute_op.ok()) {
@@ -5175,7 +5185,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         } else if(field_values[2] == &geo_sentinel_value) {
             scores[2] = geopoint_distances[2];
         } else if(field_values[2] == &str_sentinel_value) {
-            if (sort_fields[2].reference_collection_name.empty()) {
+            if (!is_reference_sort) {
                 scores[2] = str_sort_index.at(sort_fields[2].name)->rank(seq_id);
             } else if (!reference_found) {
                 scores[2] = adi_tree_t::NOT_FOUND;
@@ -5211,15 +5221,18 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             uint32_t index = 0;
             auto const& eval = sort_fields[2].eval;
             for (; index < count; index++) {
-                auto& filter_index = filter_indexes[index];
+                // ref_seq_id(s) can be unordered.
+                uint32_t ref_filter_index = 0;
+                auto& filter_index = is_reference_sort ? ref_filter_index : filter_indexes[index];
                 auto const& eval_ids = eval.eval_ids_vec[index];
                 auto const& eval_ids_count = eval.eval_ids_count_vec[index];
                 if (filter_index == 0 || filter_index < eval_ids_count) {
                     // Returns iterator to the first element that is >= to value or last if no such element is found.
-                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, seq_id) -
+                    auto const& id = is_reference_sort ? ref_seq_id : seq_id;
+                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, id) -
                                    eval_ids;
 
-                    if (filter_index < eval_ids_count && eval_ids[filter_index] == seq_id) {
+                    if (filter_index < eval_ids_count && eval_ids[filter_index] == id) {
                         filter_index++;
                         found = true;
                         break;
@@ -5243,8 +5256,8 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 // do nothing
             }
         } else {
-            if (sort_fields[2].reference_collection_name.empty() || reference_found) {
-                auto it = field_values[2]->find(sort_fields[2].reference_collection_name.empty() ? seq_id : ref_seq_id);
+            if (!is_reference_sort || reference_found) {
+                auto it = field_values[2]->find(is_reference_sort ? ref_seq_id : seq_id);
                 scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
             } else {
                 scores[2] = default_score;
