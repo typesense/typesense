@@ -11,7 +11,7 @@
 struct event_type_collection {
     std::string event_type;
     std::string collection;
-    bool log_to_file = false;
+    bool log_to_store = false;
     std::string analytic_rule;
 };
 
@@ -23,21 +23,21 @@ struct event_t {
     std::string doc_id;
     std::string name;
     std::vector<std::pair<std::string, std::string>> data;
-    bool log_to_file;
+    bool log_to_store;
 
     event_t() = delete;
 
     ~event_t() = default;
 
     event_t(const std::string& q, const std::string& type, uint64_t ts, const std::string& uid, const std::string& id,
-            const std::string& event_name, bool should_log_to_file, const std::vector<std::pair<std::string, std::string>> datavec) {
+            const std::string& event_name, bool should_log_to_store, const std::vector<std::pair<std::string, std::string>> datavec) {
         query = q;
         event_type = type;
         timestamp = ts;
         user_id = uid;
         doc_id = id;
         name = event_name;
-        log_to_file = should_log_to_file;
+        log_to_store = should_log_to_store;
         data = datavec;
     }
 
@@ -142,7 +142,6 @@ private:
 
     Store* store = nullptr;
     Store* analytics_store = nullptr;
-    std::ofstream  analytics_logs;
 
     bool isRateLimitEnabled = true;
 
@@ -176,7 +175,7 @@ public:
     AnalyticsManager(AnalyticsManager const&) = delete;
     void operator=(AnalyticsManager const&) = delete;
 
-    void init(Store* store, Store* analytics_store, const std::string& analytics_dir="");
+    void init(Store* store, Store* analytics_store);
 
     void run(ReplicationState* raft_server);
 
@@ -220,7 +219,7 @@ public:
 
     bool write_to_db(const nlohmann::json& payload);
 
-    void get_last_N_events(const std::string& userid, uint32_t N, std::vector<std::string>& values);
+    void get_last_N_events(const std::string& userid, const std::string& event_type, uint32_t N, std::vector<std::string>& values);
 
 #ifdef TEST_BUILD
     std::unordered_map<std::string, std::vector<event_t>> get_log_events() {

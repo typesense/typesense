@@ -2095,6 +2095,7 @@ ThreadPool* CollectionManager::get_thread_pool() const {
 }
 
 Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limit, uint32_t offset,
+                                                                   const std::vector<std::string>& exclude_fields,
                                                                    const std::vector<std::string>& api_key_collections) const {
     std::shared_lock lock(mutex);
 
@@ -2109,6 +2110,10 @@ Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limi
 
     for(Collection* collection: colls) {
         nlohmann::json collection_json = collection->get_summary_json();
+        for(const auto& exclude_field: exclude_fields) {
+            collection_json.erase(exclude_field);
+        }
+
         json_summaries.push_back(collection_json);
     }
 
