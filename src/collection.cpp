@@ -1190,7 +1190,8 @@ Option<bool> Collection::validate_and_standardize_sort_fields_with_lock(const st
                                                                         const size_t remote_embedding_num_tries) const {
     std::shared_lock lock(mutex);
     return validate_and_standardize_sort_fields(sort_fields, sort_fields_std, is_wildcard_query, is_vector_query,
-                                                query, is_group_by_query, remote_embedding_timeout_ms, true);
+                                                query, is_group_by_query, remote_embedding_timeout_ms, remote_embedding_num_tries,
+                                                true);
 }
 
 Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
