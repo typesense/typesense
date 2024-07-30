@@ -4196,8 +4196,11 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
         resume_typo_loop:
 
         auto results_count = group_limit != 0 ? groups_processed.size() : all_result_ids_len;
-        if(!exhaustive_search && results_count >= typo_tokens_threshold) {
+        if(!exhaustive_search && (results_count >= typo_tokens_threshold ||
+                                 (results_count == 0 && !curated_ids.empty()))) {
             // if typo threshold is breached, we are done
+            // Also, if there are curated hits, results_count will be zero when all hits overlap with curated hits
+            // in that case, we should not think that no results were found.
             return Option<bool>(true);
         }
 
