@@ -83,7 +83,8 @@ TEST_F(AnalyticsManagerTest, AddSuggestion) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"]
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "coll_search"}]
             },
             "destination": {
                 "collection": "top_queries"
@@ -149,7 +150,8 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithExpandedQuery) {
             "limit": 100,
             "expand_query": true,
             "source": {
-                "collections": ["titles"]
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "coll_search"}]
             },
             "destination": {
                 "collection": "top_queries"
@@ -177,7 +179,8 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"]
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "coll_search"}]
             },
             "destination": {
                 "collection": "top_queries"
@@ -194,7 +197,8 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"]
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "coll_search"}]
             },
             "destination": {
                 "collection": "top_queries"
@@ -212,7 +216,8 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": [241, 2353]
+                "collections": [241, 2353],
+                "events":  [{"type": "search", "name": "coll_search"}]
             },
             "destination": {
                 "collection": "top_queries"
@@ -230,7 +235,8 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"]
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "coll_search2"}]
             },
             "destination": {
                 "collection": "top_queries2"
@@ -258,7 +264,8 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"]
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "coll_search3"}]
             },
             "destination": {
                 "collection": "top_queriesUpdated"
@@ -767,7 +774,8 @@ TEST_F(AnalyticsManagerTest, QueryLengthTruncation) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"]
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "coll_search3"}]
             },
             "destination": {
                 "collection": "queries"
@@ -819,7 +827,8 @@ TEST_F(AnalyticsManagerTest, SuggestionConfigRule) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"]
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "coll_search3"}]
             },
             "destination": {
                 "collection": "top_queries"
@@ -1792,4 +1801,83 @@ TEST_F(AnalyticsManagerTest, AnalyticsWithAliases) {
 
     req->body = event1.dump();
     ASSERT_TRUE(post_create_event(req, res));
+}
+
+TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Cool trousers";
+    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
+
+    // create a collection to store suggestions
+    nlohmann::json suggestions_schema = R"({
+        "name": "top_queries",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    nlohmann::json analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "coll_search"}]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    nlohmann::json event_data;
+    event_data["q"] = "coo";
+    event_data["user_id"] = "1";
+    event_data["expanded_query"] = "cool";
+    event_data["live_query"] = true;
+
+    analyticsManager.add_event("127.0.0.1", "search", "coll_search", event_data);
+
+    auto popularQueries = analyticsManager.get_popular_queries();
+    auto userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
+    ASSERT_EQ(1, userQueries.size());
+    ASSERT_EQ("coo", userQueries[0].query);  // expanded query is NOT stored since it's not enabled
+
+    // add another query which is more popular
+    event_data["q"] = "buzzfoo";
+    event_data["expanded_query"] = "buzzfoo";
+    event_data["live_query"] = true;
+    event_data["user_id"] = "1";
+    analyticsManager.add_event("127.0.0.1", "search", "coll_search", event_data);
+
+    event_data["user_id"] = "2";
+    analyticsManager.add_event("127.0.0.1", "search", "coll_search", event_data);
+
+    event_data["user_id"] = "3";
+    analyticsManager.add_event("127.0.0.1", "search", "coll_search", event_data);
+
+
+    popularQueries = analyticsManager.get_popular_queries();
+    userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
+    ASSERT_EQ(2, userQueries.size());
+    ASSERT_EQ("coo", userQueries[0].query);
+    ASSERT_EQ("buzzfoo", userQueries[1].query);
+
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
 }

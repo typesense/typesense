@@ -166,6 +166,7 @@ public:
     static constexpr const char* CONVERSION_EVENT = "conversion";
     static constexpr const char* VISIT_EVENT = "visit";
     static constexpr const char* CUSTOM_EVENT = "custom";
+    static constexpr const char* SEARCH_EVENT = "search";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
