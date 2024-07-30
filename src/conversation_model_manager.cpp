@@ -132,10 +132,6 @@ Option<int> ConversationModelManager::init(Store* store) {
         
         // Migrate models that don't have a conversation collection
         if(model_json.count("history_collection") == 0) {
-            auto delete_op = delete_model_unsafe(model_id);
-            if(!delete_op.ok()) {
-                return Option<int>(delete_op.code(), delete_op.error());
-            }
             auto migrate_op = migrate_model(model_json);
             if(!migrate_op.ok()) {
                 return Option<int>(migrate_op.code(), migrate_op.error());
@@ -181,7 +177,7 @@ Option<Collection*> ConversationModelManager::get_default_history_collection() {
             {
                 "name": "message",
                 "type": "string",
-                "index: false
+                "index": false
             },
             {
                 "name": "timestamp",
