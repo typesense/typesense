@@ -446,7 +446,7 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
             }
         } else {
             query = event_json.contains("q") ? event_json["q"].get<std::string>() : "";
-            user_id = event_json["user_id"].get<std::string>();
+            user_id = event_json.contains("user_id") ? event_json["user_id"].get<std::string>() : "";
             doc_id = event_json["doc_id"].get<std::string>();
         }
 

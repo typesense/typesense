@@ -355,7 +355,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
 
     req->body = event3.dump();
     ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"`doc_id` value should be string.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"event should have 'doc_id' as string value.\"}", res->body);
 
     //event name should be unique
     analytics_rule = R"({
@@ -1031,6 +1031,22 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     ASSERT_EQ(1, popular_clicks.size());
     ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
     ASSERT_EQ(1, popular_clicks["products"].docid_counts.size());
+
+    //add with only doc_id
+    event5 = R"({
+        "type": "conversion",
+        "name": "CNV1",
+        "data": {
+            "doc_id": "5"
+        }
+    })"_json;
+    req->body = event5.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    popular_clicks = analyticsManager.get_popular_clicks();
+    ASSERT_EQ(1, popular_clicks.size());
+    ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
+    ASSERT_EQ(2, popular_clicks["products"].docid_counts.size());
 }
 
 TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {

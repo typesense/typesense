@@ -41,17 +41,15 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
             }
 
             if(event_type != AnalyticsManager::CUSTOM_EVENT) {
-                if (!event_data_val.contains("doc_id") || !event_data_val.contains("user_id")) {
+                if ((event_type == AnalyticsManager::SEARCH_EVENT) && (!event_data_val.contains("live_query")
+                    || !event_data_val.contains("user_id") || !event_data_val.contains("q")
+                    || !event_data_val.contains("expanded_query"))) {
                     return Option<bool>(500,
-                                        "event json data fields should contain `doc_id`, `user_id`.");
+                                        "search event json data fields should contain `live_query`, `user_id`,'q', and 'expanded_query'.");
                 }
 
-                if (!event_data_val["doc_id"].is_string()) {
-                    return Option<bool>(500, "`doc_id` value should be string.");
-                }
-
-                if (!event_data_val["user_id"].is_string()) {
-                    return Option<bool>(500, "`user_id` value should be string.");
+                if (!event_data_val.contains("doc_id") || !event_data_val["doc_id"].is_string()) {
+                    return Option<bool>(500, "event should have 'doc_id' as string value.");
                 }
             }
 
