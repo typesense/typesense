@@ -474,6 +474,123 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
 
     create_op = analyticsManager.create_rule(analytics_rule, true, true);
     ASSERT_TRUE(create_op.ok());
+
+    // log based event should be created with only doc_id
+    event5 = R"({
+        "type": "click",
+        "name": "AP",
+        "data": {
+            "doc_id": "21"
+        }
+    })"_json;
+
+    req->body = event5.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    //search events validation
+
+    nlohmann::json suggestions_schema = R"({
+        "name": "top_queries",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    analytics_rule = R"({
+        "name": "popular_searches",
+        "type": "popular_queries",
+        "params": {
+            "source": {
+                "collections": ["titles"],
+                 "events":  [{"type": "search", "name": "PS1"}]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    analytics_rule = R"({
+        "name": "nohits_searches",
+        "type": "nohits_queries",
+        "params": {
+            "source": {
+                "collections": ["titles"],
+                 "events":  [{"type": "search", "name": "NH1"}]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    //missing live_query and expanded_query param
+    nlohmann::json event9 = R"({
+        "type": "search",
+        "name": "PS1",
+        "data": {
+            "q": "technology",
+            "doc_id": "21",
+            "user_id": "11"
+        }
+    })"_json;
+    req->body = event9.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"search event json data fields should contain `live_query`, `user_id`,'q', and 'expanded_query'.\"}", res->body);
+
+    //missing expanded_query param
+    event9 = R"({
+        "type": "search",
+        "name": "PS1",
+        "data": {
+            "q": "technology",
+            "doc_id": "21",
+            "user_id": "11",
+            "live_query": false
+        }
+    })"_json;
+    req->body = event9.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"search event json data fields should contain `live_query`, `user_id`,'q', and 'expanded_query'.\"}", res->body);
+
+    //missing query param
+    event9 = R"({
+        "type": "search",
+        "name": "NH1",
+        "data": {
+            "doc_id": "21",
+            "user_id": "11",
+            "live_query": false,
+            "expanded_query": "tech"
+        }
+    })"_json;
+    req->body = event9.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"search event json data fields should contain `live_query`, `user_id`,'q', and 'expanded_query'.\"}", res->body);
+
+    //correct params
+    event9 = R"({
+        "type": "search",
+        "name": "NH1",
+        "data": {
+            "q": "tech",
+            "doc_id": "21",
+            "user_id": "11",
+            "live_query": false,
+            "expanded_query": "technology"
+        }
+    })"_json;
+    req->body = event9.dump();
+    ASSERT_TRUE(post_create_event(req, res));
 }
 
 TEST_F(AnalyticsManagerTest, EventsPersist) {
