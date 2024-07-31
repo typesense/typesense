@@ -2756,10 +2756,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return filter_init_op;
     }
 
-    if (filter_tree_root != nullptr && filter_result_iterator->validity != filter_result_iterator_t::valid) {
-        return Option(true);
-    }
-
 #ifdef TEST_BUILD
 
     if (filter_result_iterator->approx_filter_ids_length > 20) {
@@ -2789,6 +2785,14 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     std::vector<uint32_t> curated_ids_sorted(curated_ids.begin(), curated_ids.end());
     std::sort(curated_ids_sorted.begin(), curated_ids_sorted.end());
 
+    bool const& filter_by_provided = filter_tree_root != nullptr;
+    bool const& no_filter_by_matches = filter_by_provided && filter_result_iterator->approx_filter_ids_length == 0;
+
+    // If curation is not involved and there are no filter matches, return early.
+    if (curated_ids_sorted.empty() && no_filter_by_matches) {
+        return Option(true);
+    }
+
     // Order of `fields` are used to sort results
     // auto begin = std::chrono::high_resolution_clock::now();
     uint32_t* all_result_ids = nullptr;
@@ -2816,8 +2820,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     // phrase queries are handled as a filtering query
     bool is_wildcard_non_phrase_query = is_wildcard_query && field_query_tokens[0].q_phrases.empty();
-    
-    bool no_filters_provided = (filter_tree_root == nullptr && !filter_result_iterator->validity == filter_result_iterator_t::valid);
 
     // handle phrase searches
     if (!field_query_tokens[0].q_phrases.empty()) {
@@ -2845,7 +2847,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
     // for phrase query, parser will set field_query_tokens to "*", need to handle that
     if (is_wildcard_non_phrase_query) {
-        if(no_filters_provided && facets.empty() && curated_ids.empty() && vector_query.field_name.empty() &&
+        if(!filter_by_provided && facets.empty() && curated_ids.empty() && vector_query.field_name.empty() &&
            sort_fields_std.size() == 1 && sort_fields_std[0].name == sort_field_const::seq_id &&
            sort_fields_std[0].order == sort_field_const::desc) {
             // optimize for this path specifically
@@ -2917,7 +2919,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             filter_result_iterator->compute_iterators();
 
             uint32_t filter_id_count = filter_result_iterator->approx_filter_ids_length;
-            if (!no_filters_provided && filter_id_count < vector_query.flat_search_cutoff) {
+            if (filter_by_provided && filter_id_count < vector_query.flat_search_cutoff) {
                 while (filter_result_iterator->validity == filter_result_iterator_t::valid) {
                     auto seq_id = filter_result_iterator->seq_id;
                     auto filter_result = single_filter_result_t(seq_id, std::move(filter_result_iterator->reference));
@@ -2948,7 +2950,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             filter_result_iterator->reset();
             search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
-            if(no_filters_provided ||
+            if(!filter_by_provided ||
                 (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid)) {
                 dist_results.clear();
 
@@ -3060,7 +3062,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
         } else {
             // if filters were not provided, use the seq_ids index to generate the list of all document ids
-            if (no_filters_provided) {
+            if (!filter_by_provided) {
                 filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids(),
                                                                       search_begin_us, search_stop_us);
                 filter_iterator_guard.reset(filter_result_iterator);
@@ -3428,7 +3430,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     auto& vec_result = vec_results[res_index];
                     auto seq_id = vec_result.first;
 
-                    if (!no_filters_provided && filter_result_iterator->is_valid(seq_id) != 1) {
+                    if (filter_by_provided && filter_result_iterator->is_valid(seq_id) != 1) {
                         continue;
                     }
                     auto references = std::move(filter_result_iterator->reference);
@@ -3544,7 +3546,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     bool estimate_facets = (facet_sample_percent > 0 && facet_sample_percent < 100 &&
                             all_result_ids_len > facet_sample_threshold);
-    bool is_wildcard_no_filter_query = is_wildcard_non_phrase_query && no_filters_provided && vector_query.field_name.empty();
+    bool is_wildcard_no_filter_query = is_wildcard_non_phrase_query && !filter_by_provided && vector_query.field_name.empty();
 
     if(!facets.empty()) {
         const size_t num_threads = std::min(concurrency, all_result_ids_len);
@@ -3930,6 +3932,12 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                         const std::string& collection_name,
                                         bool enable_typos_for_numerical_tokens,
                                         bool enable_typos_for_alpha_numerical_tokens) const {
+
+    // Return early in case filter_by is provided but it matches no docs.
+    if (filter_result_iterator != nullptr && filter_result_iterator->is_filter_provided() &&
+            filter_result_iterator->approx_filter_ids_length == 0) {
+        return Option<bool>(true);
+    }
 
     // NOTE: `query_tokens` preserve original tokens, while `search_tokens` could be a result of dropped tokens
 
