@@ -13,6 +13,7 @@ struct event_type_collection {
     std::string collection;
     bool log_to_store = false;
     std::string analytic_rule;
+    QueryAnalytics* queries_ptr = nullptr;
 };
 
 struct event_t {

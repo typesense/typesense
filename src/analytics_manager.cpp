@@ -88,16 +88,16 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
         }
     }
 
-    if(payload["type"] != NOHITS_QUERIES_TYPE) {
-        if(!params["source"].contains("events") || (params["source"].contains("events") &&
-                                                    (params["source"]["events"].empty()
-                                                     || !params["source"]["events"].is_array()
-                                                     || !params["source"]["events"][0].is_object()))) {
-            return Option<bool>(400, "Bad or missing events.");
-        }
-        suggestion_config.events = params["source"]["events"];
-    }
+    bool valid_events_found = params["source"].contains("events") && !params["source"]["events"].empty()
+                                                     && params["source"]["events"].is_array()
+                                                     && params["source"]["events"][0].is_object();
 
+    if(valid_events_found) {
+        suggestion_config.events = params["source"]["events"];
+    } else if(payload["type"] == LOG_TYPE || payload["type"] == COUNTER_TYPE) {
+        //events array is mandatory for LOG and COUNTER EVENTS
+        return Option<bool>(400, "Bad or missing events.");
+    }
 
     if(payload["type"] != LOG_TYPE) {
         if(!params.contains("destination") || !params["destination"].is_object()) {
@@ -161,7 +161,16 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     std::map<std::string, uint16_t> event_weight_map;
     bool log_to_store = payload["type"] == LOG_TYPE ? true : false;
 
-    if(payload["type"] != NOHITS_QUERIES_TYPE) {
+    if(payload["type"] == POPULAR_QUERIES_TYPE) {
+        QueryAnalytics* popularQueries = new QueryAnalytics(limit);
+        popularQueries->set_expand_query(suggestion_config.expand_query);
+        popular_queries.emplace(suggestion_collection, popularQueries);
+    } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
+        QueryAnalytics* noresultsQueries = new QueryAnalytics(limit);
+        nohits_queries.emplace(suggestion_collection, noresultsQueries);
+    }
+
+    if(valid_events_found) {
         for(const auto& event: params["source"]["events"]) {
             if(!event.contains("name") || event_collection_map.count(event["name"]) != 0) {
                 return Option<bool>(400, "Events must contain a unique name.");
@@ -185,19 +194,21 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
             }
 
             event_type_collection ec{event["type"], suggestion_collection, log_to_store, suggestion_config_name};
+
+            //keep pointer for /events API
+            if(payload["type"] == POPULAR_QUERIES_TYPE) {
+                ec.queries_ptr = popular_queries.at(suggestion_collection);
+            } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
+                ec.queries_ptr = nohits_queries.at(suggestion_collection);
+            }
+
             event_collection_map.emplace(event["name"], ec);
         }
-    }
 
-    if(payload["type"] == POPULAR_QUERIES_TYPE) {
-        QueryAnalytics* popularQueries = new QueryAnalytics(limit);
-        popularQueries->set_expand_query(suggestion_config.expand_query);
-        popular_queries.emplace(suggestion_collection, popularQueries);
-    } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
-        QueryAnalytics* noresultsQueries = new QueryAnalytics(limit);
-        nohits_queries.emplace(suggestion_collection, noresultsQueries);
-    } else if(payload["type"] == COUNTER_TYPE) {
-        counter_events.emplace(suggestion_collection, counter_event_t{counter_field, {}, event_weight_map});
+        //store counter events data
+        if(payload["type"] == COUNTER_TYPE) {
+            counter_events.emplace(suggestion_collection, counter_event_t{counter_field, {}, event_weight_map});
+        }
     }
 
     suggestion_config.suggestion_collection = suggestion_collection;
@@ -414,9 +425,11 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
             auto expanded_query = event_json["expanded_query"].get<std::string>();
             bool live_query = event_json["live_query"].get<bool>();
 
-            const auto& popular_queries_it = popular_queries.find(query_collection);
-            if(popular_queries_it != popular_queries.end()) {
-                popular_queries_it->second->add(query, expanded_query, live_query, user_id);
+            //add to respective popular queries/nohits queries
+            if(event_collection_map_it->second.queries_ptr) {
+                event_collection_map_it->second.queries_ptr->add(query, expanded_query, live_query, user_id);
+            } else {
+                return Option<bool>(500, "Error in /events endpoint for event " + event_name);
             }
         } else if (event_type == CUSTOM_EVENT) {
             for(auto itr = event_json.begin(); itr != event_json.end(); ++itr) {
@@ -679,6 +692,7 @@ void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uin
 
 void AnalyticsManager::stop() {
     quit = true;
+    dispose();
     cv.notify_all();
 }
 

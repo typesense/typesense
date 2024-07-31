@@ -83,8 +83,7 @@ TEST_F(AnalyticsManagerTest, AddSuggestion) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"],
-                "events":  [{"type": "search", "name": "coll_search"}]
+                "collections": ["titles"]
             },
             "destination": {
                 "collection": "top_queries"
@@ -150,8 +149,7 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithExpandedQuery) {
             "limit": 100,
             "expand_query": true,
             "source": {
-                "collections": ["titles"],
-                "events":  [{"type": "search", "name": "coll_search"}]
+                "collections": ["titles"]
             },
             "destination": {
                 "collection": "top_queries"
@@ -179,8 +177,7 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"],
-                "events":  [{"type": "search", "name": "coll_search"}]
+                "collections": ["titles"]
             },
             "destination": {
                 "collection": "top_queries"
@@ -197,8 +194,7 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"],
-                "events":  [{"type": "search", "name": "coll_search"}]
+                "collections": ["titles"]
             },
             "destination": {
                 "collection": "top_queries"
@@ -216,8 +212,7 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": [241, 2353],
-                "events":  [{"type": "search", "name": "coll_search"}]
+                "collections": [241, 2353]
             },
             "destination": {
                 "collection": "top_queries"
@@ -235,8 +230,7 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"],
-                "events":  [{"type": "search", "name": "coll_search2"}]
+                "collections": ["titles"]
             },
             "destination": {
                 "collection": "top_queries2"
@@ -264,8 +258,7 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"],
-                "events":  [{"type": "search", "name": "coll_search3"}]
+                "collections": ["titles"]
             },
             "destination": {
                 "collection": "top_queriesUpdated"
@@ -774,8 +767,7 @@ TEST_F(AnalyticsManagerTest, QueryLengthTruncation) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"],
-                "events":  [{"type": "search", "name": "coll_search3"}]
+                "collections": ["titles"]
             },
             "destination": {
                 "collection": "queries"
@@ -827,8 +819,7 @@ TEST_F(AnalyticsManagerTest, SuggestionConfigRule) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["titles"],
-                "events":  [{"type": "search", "name": "coll_search3"}]
+                "collections": ["titles"]
             },
             "destination": {
                 "collection": "top_queries"
@@ -1879,5 +1870,64 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
     ASSERT_EQ("coo", userQueries[0].query);
     ASSERT_EQ("buzzfoo", userQueries[1].query);
 
-    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
+    //try with nohits analytic rule
+    analytics_rule = R"({
+        "name": "noresults_queries",
+        "type": "nohits_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "nohits_search"}]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    event_data["q"] = "foobar";
+    event_data["expanded_query"] = "foobar";
+    event_data["live_query"] = true;
+    event_data["user_id"] = "1";
+    analyticsManager.add_event("127.0.0.1", "search", "nohits_search", event_data);
+
+    auto noresults_queries = analyticsManager.get_nohits_queries();
+    userQueries = noresults_queries["top_queries"]->get_user_prefix_queries()["1"];
+
+    ASSERT_EQ(1, userQueries.size());
+    ASSERT_EQ("foobar", userQueries[0].query);
+
+    //try creating event with same name
+    suggestions_schema = R"({
+        "name": "top_queries2",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    analytics_rule = R"({
+        "name": "noresults_queries2",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "nohits_search"}]
+            },
+            "destination": {
+                "collection": "top_queries2"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Events must contain a unique name.", create_op.error());
 }
