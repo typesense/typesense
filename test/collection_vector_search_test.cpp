@@ -1272,6 +1272,49 @@ TEST_F(CollectionVectorTest, EmbeddOptionalFieldNullValueUpsert) {
     ASSERT_EQ("Field `tags` must be an array of string.", add_op.error());
 }
 
+TEST_F(CollectionVectorTest, SortKeywordSearchWithAutoEmbedVector) {
+    nlohmann::json schema = R"({
+                "name": "coll1",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "points", "type": "int32"},
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["title"],
+                        "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "The Lord of the Rings";
+    doc["points"] = 100;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    std::vector<sort_by> sort_by_list = {sort_by("_vector_query(embedding:([]))", "asc")};
+
+    auto results = coll1->search("lord", {"title"}, "", {}, sort_by_list, {0}, 10, 1, FREQUENCY, {true},
+                                 Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>()).get();
+
+    LOG(INFO) << results["hits"][0]["vector_distance"].get<float>();
+
+    //ASSERT_EQ(1, results["found"].get<size_t>());
+    //ASSERT_EQ(1.0f, results["hits"][0]["vector_distance"].get<float>());
+
+    results = coll1->search("lord", {"title"}, "", {}, sort_by_list, {0}, 10, 1, FREQUENCY, {true},
+                            Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>()).get();
+
+    LOG(INFO) << results["hits"][0]["vector_distance"].get<float>();
+}
+
 TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     nlohmann::json schema = R"({
                             "name": "objects",

@@ -2826,6 +2826,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                                                          reference_lat_lng, sort_field.unit);
                 } else if(sort_field.geopoint != 0) {
                     geo_distances[sort_field.name] = std::abs(field_order_kv->scores[sort_field_index]);
+                } else if(sort_field.name == sort_field_const::vector_query &&
+                          !sort_field.vector_query.query.field_name.empty()) {
+                    wrapper_doc["vector_distance"] = Index::int64_t_to_float(field_order_kv->scores[sort_field_index]);
                 }
             }
 
