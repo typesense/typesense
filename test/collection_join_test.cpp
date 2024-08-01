@@ -5904,6 +5904,17 @@ TEST_F(CollectionJoinTest, SortByReference) {
     ASSERT_EQ("2", res_obj["hits"][3]["document"].at("id"));
     ASSERT_EQ("6", res_obj["hits"][4]["document"].at("id"));
     ASSERT_EQ("1", res_obj["hits"][5]["document"].at("id"));
+
+    req_params = {
+            {"collection", "product"},
+            {"q", "tablet"},
+            {"query_by", "name"},
+            {"filter_by", "$stock(id: *)"},
+            {"sort_by", "_eval($stock(store_1:true || store_2:true)):desc"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Parameter `sort_by` is malformed.", search_op.error());
 }
 
 TEST_F(CollectionJoinTest, FilterByReferenceAlias) {

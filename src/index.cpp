@@ -2807,7 +2807,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     int sort_order[3];  // 1 or -1 based on DESC or ASC respectively
     std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values;
     std::vector<size_t> geopoint_indices;
-    populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
+    auto populate_op = populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
+    if (!populate_op.ok()) {
+        return populate_op;
+    }
 
     // Prepare excluded document IDs that we can later remove from the result set
     uint32_t* excluded_result_ids = nullptr;
@@ -5006,6 +5009,10 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             bool found = false;
             uint32_t index = 0;
             auto const& eval = sort_fields[0].eval;
+            if (eval.eval_ids_vec.size() != count || eval.eval_ids_count_vec.size() != count) {
+                return Option<bool>(400, "Eval expressions count does not match the ids count.");
+            }
+
             for (; index < count; index++) {
                 // ref_seq_id(s) can be unordered.
                 uint32_t ref_filter_index = 0;
@@ -5140,7 +5147,6 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             }
 
             scores[1] = found ? eval.scores[index] : 0;
-            LOG(INFO) << "seq_id: " << seq_id << " ref_seq_id: " << ref_seq_id << " score: " << scores[1] << " index: " << index;
         }  else if(field_values[1] == &vector_distance_sentinel_value) {
             scores[1] = float_to_int64_t(vector_distance);
         } else if(field_values[1] == &vector_query_sentinel_value) {
@@ -6124,9 +6130,9 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
     return Option<bool>(true);
 }
 
-void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
-                                  std::vector<sort_by>& sort_fields_std,
-                                  std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const {
+Option<bool> Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
+                                          std::vector<sort_by>& sort_fields_std,
+                                          std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const {
     for (size_t i = 0; i < sort_fields_std.size(); i++) {
         if (!sort_fields_std[i].reference_collection_name.empty()) {
             auto& cm = CollectionManager::get_instance();
@@ -6138,8 +6144,11 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
             ref_sort_fields_std.emplace_back(sort_fields_std[i]);
             ref_sort_fields_std.front().reference_collection_name.clear();
             std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> ref_field_values;
-            ref_collection->reference_populate_sort_mapping(ref_sort_order, ref_geopoint_indices,
-                                                            ref_sort_fields_std, ref_field_values);
+            auto populate_op = ref_collection->reference_populate_sort_mapping(ref_sort_order, ref_geopoint_indices,
+                                                                               ref_sort_fields_std, ref_field_values);
+            if (!populate_op.ok()) {
+                return populate_op;
+            }
 
             sort_order[i] = ref_sort_order[0];
             if (!ref_geopoint_indices.empty()) {
@@ -6171,7 +6180,7 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
                                                                        search_begin_us, search_stop_us);
                 auto filter_init_op = filter_result_iterator.init_status();
                 if (!filter_init_op.ok()) {
-                    return;
+                    return filter_init_op;
                 }
 
                 filter_result_iterator.compute_iterators();
@@ -6200,13 +6209,15 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
             }
         }
     }
+
+    return Option<bool>(true);
 }
 
-void Index::populate_sort_mapping_with_lock(int* sort_order, std::vector<size_t>& geopoint_indices,
-                                            std::vector<sort_by>& sort_fields_std,
-                                            std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const {
+Option<bool> Index::populate_sort_mapping_with_lock(int* sort_order, std::vector<size_t>& geopoint_indices,
+                                                    std::vector<sort_by>& sort_fields_std,
+                                                    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const {
     std::shared_lock lock(mutex);
-    populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
+    return populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
 }
 
 int Index::get_bounded_typo_cost(const size_t max_cost, const std::string& token, const size_t token_len,

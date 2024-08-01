@@ -1036,6 +1036,11 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
                 i = open_paren_pos;
                 while(sort_by_str[++i] == ' ');
 
+                if (sort_by_str[i] == '$' && sort_by_str.find('(', i) != std::string::npos) {
+                    // Reference expression inside `_eval()`
+                    return false;
+                }
+
                 auto result = sort_by_str[i] == '[' ? parse_multi_eval(sort_by_str, i, sort_fields) :
                                                         parse_eval(sort_by_str, --i, sort_fields);
                 if (!result) {
