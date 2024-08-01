@@ -422,11 +422,10 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
         if(event_type == SEARCH_EVENT) {
             query = event_json["q"].get<std::string>();
             user_id = event_json["user_id"].get<std::string>();
-            auto expanded_query = event_json["expanded_query"].get<std::string>();
 
             //add to respective popular queries/nohits queries
             if(event_collection_map_it->second.queries_ptr) {
-                event_collection_map_it->second.queries_ptr->add(query, expanded_query, false, user_id);
+                event_collection_map_it->second.queries_ptr->add(query, query, false, user_id);
             } else {
                 return Option<bool>(500, "Error in /events endpoint for event " + event_name);
             }

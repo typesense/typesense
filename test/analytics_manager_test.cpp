@@ -533,22 +533,8 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     create_op = analyticsManager.create_rule(analytics_rule, true, true);
     ASSERT_TRUE(create_op.ok());
 
-    //missing expanded_query param
-    auto event9 = R"({
-        "type": "search",
-        "name": "PS1",
-        "data": {
-            "q": "technology",
-            "doc_id": "21",
-            "user_id": "11"
-        }
-    })"_json;
-    req->body = event9.dump();
-    ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"search event json data fields should contain `live_query`, `user_id`,'q', and 'expanded_query'.\"}", res->body);
-
     //missing query param
-    event9 = R"({
+    auto event9 = R"({
         "type": "search",
         "name": "NH1",
         "data": {
@@ -559,7 +545,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     })"_json;
     req->body = event9.dump();
     ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"search event json data fields should contain `live_query`, `user_id`,'q', and 'expanded_query'.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"search event json data fields should contain `user_id` and 'q'.\"}", res->body);
 
     //correct params
     event9 = R"({
