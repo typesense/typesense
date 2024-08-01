@@ -41,8 +41,7 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
             }
 
             if(event_type != AnalyticsManager::CUSTOM_EVENT) {
-                if ((event_type == AnalyticsManager::SEARCH_EVENT) && (!event_data_val.contains("live_query")
-                    || !event_data_val.contains("user_id") || !event_data_val.contains("q")
+                if ((event_type == AnalyticsManager::SEARCH_EVENT) && (!event_data_val.contains("user_id") || !event_data_val.contains("q")
                     || !event_data_val.contains("expanded_query"))) {
                     return Option<bool>(500,
                                         "search event json data fields should contain `live_query`, `user_id`,'q', and 'expanded_query'.");

@@ -533,29 +533,14 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     create_op = analyticsManager.create_rule(analytics_rule, true, true);
     ASSERT_TRUE(create_op.ok());
 
-    //missing live_query and expanded_query param
-    nlohmann::json event9 = R"({
+    //missing expanded_query param
+    auto event9 = R"({
         "type": "search",
         "name": "PS1",
         "data": {
             "q": "technology",
             "doc_id": "21",
             "user_id": "11"
-        }
-    })"_json;
-    req->body = event9.dump();
-    ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"search event json data fields should contain `live_query`, `user_id`,'q', and 'expanded_query'.\"}", res->body);
-
-    //missing expanded_query param
-    event9 = R"({
-        "type": "search",
-        "name": "PS1",
-        "data": {
-            "q": "technology",
-            "doc_id": "21",
-            "user_id": "11",
-            "live_query": false
         }
     })"_json;
     req->body = event9.dump();
@@ -569,7 +554,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "data": {
             "doc_id": "21",
             "user_id": "11",
-            "live_query": false,
             "expanded_query": "tech"
         }
     })"_json;
@@ -585,7 +569,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
             "q": "tech",
             "doc_id": "21",
             "user_id": "11",
-            "live_query": false,
             "expanded_query": "technology"
         }
     })"_json;
@@ -1979,9 +1962,10 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
     analyticsManager.add_event("127.0.0.1", "search", "coll_search", event_data);
 
     auto popularQueries = analyticsManager.get_popular_queries();
-    auto userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
-    ASSERT_EQ(1, userQueries.size());
-    ASSERT_EQ("coo", userQueries[0].query);  // expanded query is NOT stored since it's not enabled
+    auto localCounts = popularQueries["top_queries"]->get_local_counts();
+    ASSERT_EQ(1, localCounts.size());
+    ASSERT_EQ(1, localCounts.count("coo"));
+    ASSERT_EQ(1, localCounts["coo"]);
 
     // add another query which is more popular
     event_data["q"] = "buzzfoo";
@@ -1998,10 +1982,12 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
 
 
     popularQueries = analyticsManager.get_popular_queries();
-    userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
-    ASSERT_EQ(2, userQueries.size());
-    ASSERT_EQ("coo", userQueries[0].query);
-    ASSERT_EQ("buzzfoo", userQueries[1].query);
+    localCounts = popularQueries["top_queries"]->get_local_counts();
+    ASSERT_EQ(2, localCounts.size());
+    ASSERT_EQ(1, localCounts.count("coo"));
+    ASSERT_EQ(1, localCounts["coo"]);
+    ASSERT_EQ(1, localCounts.count("buzzfoo"));
+    ASSERT_EQ(3, localCounts["buzzfoo"]);
 
     //try with nohits analytic rule
     analytics_rule = R"({
@@ -2029,10 +2015,11 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
     analyticsManager.add_event("127.0.0.1", "search", "nohits_search", event_data);
 
     auto noresults_queries = analyticsManager.get_nohits_queries();
-    userQueries = noresults_queries["top_queries"]->get_user_prefix_queries()["1"];
+    localCounts = noresults_queries["top_queries"]->get_local_counts();
 
-    ASSERT_EQ(1, userQueries.size());
-    ASSERT_EQ("foobar", userQueries[0].query);
+    ASSERT_EQ(1, localCounts.size());
+    ASSERT_EQ(1, localCounts.count("foobar"));
+    ASSERT_EQ(1, localCounts["foobar"]);
 
     //try creating event with same name
     suggestions_schema = R"({
