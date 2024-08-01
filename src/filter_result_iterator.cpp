@@ -793,6 +793,12 @@ void filter_result_iterator_t::init() {
         ref_collection_name = ref_collection->name;
 
         auto coll = cm.get_collection(collection_name);
+        if (coll == nullptr) {
+            status = Option<bool>(400, "Collection `" + collection_name + "` not found.");
+            validity = invalid;
+            return;
+        }
+
         bool is_referenced = coll->referenced_in.count(ref_collection_name) > 0,
                 has_reference = ref_collection->is_referenced_in(collection_name);
         if (!is_referenced && !has_reference) {
