@@ -13,6 +13,7 @@ struct event_type_collection {
     std::string collection;
     bool log_to_store = false;
     std::string analytic_rule;
+    QueryAnalytics* queries_ptr = nullptr;
 };
 
 struct event_t {
@@ -166,6 +167,7 @@ public:
     static constexpr const char* CONVERSION_EVENT = "conversion";
     static constexpr const char* VISIT_EVENT = "visit";
     static constexpr const char* CUSTOM_EVENT = "custom";
+    static constexpr const char* SEARCH_EVENT = "search";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;

@@ -661,7 +661,8 @@ TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["coll1"]
+                "collections": ["coll1"],
+                "events":  [{"type": "search", "name": "coll_search"}]
             },
             "destination": {
                 "collection": "top_queries"
@@ -2196,7 +2197,8 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["coll3"]
+                "collections": ["coll3"],
+                "events":  [{"type": "search", "name": "coll_search3"}]
             },
             "destination": {
                 "collection": "top_queries2"
