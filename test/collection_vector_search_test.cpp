@@ -1302,17 +1302,10 @@ TEST_F(CollectionVectorTest, SortKeywordSearchWithAutoEmbedVector) {
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>()).get();
 
-    LOG(INFO) << results["hits"][0]["vector_distance"].get<float>();
-
-    //ASSERT_EQ(1, results["found"].get<size_t>());
-    //ASSERT_EQ(1.0f, results["hits"][0]["vector_distance"].get<float>());
-
-    results = coll1->search("lord", {"title"}, "", {}, sort_by_list, {0}, 10, 1, FREQUENCY, {true},
-                            Index::DROP_TOKENS_THRESHOLD,
-                            spp::sparse_hash_set<std::string>(),
-                            spp::sparse_hash_set<std::string>()).get();
-
-    LOG(INFO) << results["hits"][0]["vector_distance"].get<float>();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    auto actual_dist = results["hits"][0]["vector_distance"].get<float>();
+    ASSERT_LE(0.173, actual_dist);
+    ASSERT_GE(0.175, actual_dist);
 }
 
 TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
