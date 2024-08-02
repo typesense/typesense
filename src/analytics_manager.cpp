@@ -49,6 +49,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
 
     size_t limit = 1000;
     bool expand_query = false;
+    bool enable_auto_aggregation = true;
 
     if(params.contains("limit") && params["limit"].is_number_integer()) {
         limit = params["limit"].get<size_t>();
@@ -86,6 +87,16 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
                 suggestion_collection = src_collection;
             }
         }
+    }
+
+    if((payload["type"] == POPULAR_QUERIES_TYPE || payload["type"] == NOHITS_QUERIES_TYPE)
+        && (params.contains("enable_auto_aggregation"))) {
+
+        if(!params["enable_auto_aggregation"].is_boolean()) {
+            return Option<bool>(400, "enable_auto_aggregation should be boolean.");
+        }
+
+        enable_auto_aggregation = params["enable_auto_aggregation"];
     }
 
     bool valid_events_found = params["source"].contains("events") && !params["source"]["events"].empty()
@@ -162,11 +173,11 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     bool log_to_store = payload["type"] == LOG_TYPE ? true : false;
 
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
-        QueryAnalytics* popularQueries = new QueryAnalytics(limit);
+        QueryAnalytics* popularQueries = new QueryAnalytics(limit, enable_auto_aggregation);
         popularQueries->set_expand_query(suggestion_config.expand_query);
         popular_queries.emplace(suggestion_collection, popularQueries);
     } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
-        QueryAnalytics* noresultsQueries = new QueryAnalytics(limit);
+        QueryAnalytics* noresultsQueries = new QueryAnalytics(limit, enable_auto_aggregation);
         nohits_queries.emplace(suggestion_collection, noresultsQueries);
     }
 
@@ -360,7 +371,7 @@ void AnalyticsManager::add_suggestion(const std::string &query_collection,
     if(suggestion_collections_it != query_collection_mapping.end()) {
         for(const auto& suggestion_collection: suggestion_collections_it->second) {
             const auto& popular_queries_it = popular_queries.find(suggestion_collection);
-            if(popular_queries_it != popular_queries.end()) {
+            if(popular_queries_it != popular_queries.end() && popular_queries_it->second->is_auto_aggregation_enabled()) {
                 popular_queries_it->second->add(query, expanded_query, live_query, user_id);
             }
         }
@@ -485,7 +496,7 @@ void AnalyticsManager::add_nohits_query(const std::string &query_collection, con
     if(suggestion_collections_it != query_collection_mapping.end()) {
         for(const auto& suggestion_collection: suggestion_collections_it->second) {
             const auto& noresults_queries_it = nohits_queries.find(suggestion_collection);
-            if(noresults_queries_it != nohits_queries.end()) {
+            if(noresults_queries_it != nohits_queries.end() && noresults_queries_it->second->is_auto_aggregation_enabled()) {
                 noresults_queries_it->second->add(query, query, live_query, user_id);
             }
         }
