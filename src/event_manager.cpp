@@ -40,13 +40,27 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
                 return Option<bool>(500, "event_data_val is not object.");
             }
 
-            if(event_type != AnalyticsManager::CUSTOM_EVENT) {
-                if((event_type == AnalyticsManager::SEARCH_EVENT) &&
-                   (!event_data_val.contains("user_id") || !event_data_val.contains("q"))) {
+            if(event_type == AnalyticsManager::SEARCH_EVENT) {
+                if(!event_data_val.contains("user_id") || !event_data_val["user_id"].is_string()) {
                     return Option<bool>(500,
-                                        "search event json data fields should contain `user_id` and 'q'.");
-                } else if(!event_data_val.contains("doc_id") || !event_data_val["doc_id"].is_string()) {
+                                        "search event json data fields should contain `user_id` as string value.");
+                }
+
+                if(!event_data_val.contains("q") || !event_data_val["q"].is_string()) {
+                    return Option<bool>(500,
+                                        "search event json data fields should contain `q` as string value.");
+                }
+            } else {
+                if(!event_data_val.contains("doc_id") || !event_data_val["doc_id"].is_string()) {
                     return Option<bool>(500, "event should have 'doc_id' as string value.");
+                }
+
+                if(event_data_val.contains("user_id") && !event_data_val["user_id"].is_string()) {
+                    return Option<bool>(500, "'user_id' should be a string value.");
+                }
+
+                if(event_data_val.contains("q") && !event_data_val["q"].is_string()) {
+                    return Option<bool>(500, "'q' should be a string value.");
                 }
             }
 

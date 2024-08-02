@@ -357,6 +357,34 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     ASSERT_FALSE(post_create_event(req, res));
     ASSERT_EQ("{\"message\": \"event should have 'doc_id' as string value.\"}", res->body);
 
+    event3 = R"({
+        "type": "conversion",
+        "name": "AP",
+        "data": {
+            "q": "technology",
+            "doc_id": "21",
+            "user_id": 12
+        }
+    })"_json;
+
+    req->body = event3.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"'user_id' should be a string value.\"}", res->body);
+
+    event3 = R"({
+        "type": "conversion",
+        "name": "AP",
+        "data": {
+            "q": 1245,
+            "doc_id": "21",
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event3.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"'q' should be a string value.\"}", res->body);
+
     //event name should be unique
     analytics_rule = R"({
         "name": "product_click_events2",
@@ -538,14 +566,23 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "type": "search",
         "name": "NH1",
         "data": {
-            "doc_id": "21",
-            "user_id": "11",
-            "expanded_query": "tech"
+            "user_id": "11"
         }
     })"_json;
     req->body = event9.dump();
     ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"search event json data fields should contain `user_id` and 'q'.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"search event json data fields should contain `q` as string value.\"}", res->body);
+
+    event9 = R"({
+        "type": "search",
+        "name": "NH1",
+        "data": {
+            "q": "11"
+        }
+    })"_json;
+    req->body = event9.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"search event json data fields should contain `user_id` as string value.\"}", res->body);
 
     //correct params
     event9 = R"({
@@ -553,9 +590,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "name": "NH1",
         "data": {
             "q": "tech",
-            "doc_id": "21",
-            "user_id": "11",
-            "expanded_query": "technology"
+            "user_id": "11"
         }
     })"_json;
     req->body = event9.dump();
@@ -1942,8 +1977,6 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
     nlohmann::json event_data;
     event_data["q"] = "coo";
     event_data["user_id"] = "1";
-    event_data["expanded_query"] = "cool";
-    event_data["live_query"] = true;
 
     analyticsManager.add_event("127.0.0.1", "search", "coll_search", event_data);
 
@@ -1955,9 +1988,6 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
 
     // add another query which is more popular
     event_data["q"] = "buzzfoo";
-    event_data["expanded_query"] = "buzzfoo";
-    event_data["live_query"] = true;
-    event_data["user_id"] = "1";
     analyticsManager.add_event("127.0.0.1", "search", "coll_search", event_data);
 
     event_data["user_id"] = "2";
@@ -1995,9 +2025,6 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
     ASSERT_TRUE(create_op.ok());
 
     event_data["q"] = "foobar";
-    event_data["expanded_query"] = "foobar";
-    event_data["live_query"] = true;
-    event_data["user_id"] = "1";
     analyticsManager.add_event("127.0.0.1", "search", "nohits_search", event_data);
 
     auto noresults_queries = analyticsManager.get_nohits_queries();
@@ -2094,8 +2121,6 @@ TEST_F(AnalyticsManagerTest, EventsOnlySearchTest) {
     nlohmann::json event_data;
     event_data["q"] = "coo";
     event_data["user_id"] = "1";
-    event_data["expanded_query"] = "cool";
-    event_data["live_query"] = true;
 
     analyticsManager.add_event("127.0.0.1", "search", "coll_search", event_data);
 
@@ -2135,9 +2160,6 @@ TEST_F(AnalyticsManagerTest, EventsOnlySearchTest) {
 
     //send events for same
     event_data["q"] = "foobar";
-    event_data["expanded_query"] = "foobar";
-    event_data["live_query"] = true;
-    event_data["user_id"] = "1";
     analyticsManager.add_event("127.0.0.1", "search", "nohits_search", event_data);
 
     noresults_queries = analyticsManager.get_nohits_queries();
