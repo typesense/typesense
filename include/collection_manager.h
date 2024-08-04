@@ -79,7 +79,7 @@ private:
     std::atomic<bool>* quit;
 
     // All the references to a particular collection are stored until it is created.
-    std::map<std::string, std::set<reference_pair>> referenced_in_backlog;
+    std::map<std::string, std::set<reference_info>> referenced_in_backlog;
 
     CollectionManager();
 
@@ -125,13 +125,15 @@ public:
                                        const uint32_t collection_next_seq_id,
                                        Store* store,
                                        float max_memory_ratio,
-                                       spp::sparse_hash_map<std::string, std::string>& referenced_in);
+                                       spp::sparse_hash_map<std::string, std::string>& referenced_in,
+                                       std::vector<std::pair<std::string, std::string>>& async_referenced_ins);
 
     static Option<bool> load_collection(const nlohmann::json& collection_meta,
                                         const size_t batch_size,
                                         const StoreStatus& next_coll_id_status,
                                         const std::atomic<bool>& quit,
-                                        spp::sparse_hash_map<std::string, std::string>& referenced_in);
+                                        spp::sparse_hash_map<std::string, std::string>& referenced_in,
+                                        std::vector<std::pair<std::string, std::string>>& async_referenced_ins);
 
     Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json);
 
@@ -234,14 +236,15 @@ public:
                                                                   std::vector<std::string>& exclude_fields_vec,
                                                                   std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec);
 
-    void add_referenced_in_backlog(const std::string& collection_name, reference_pair&& pair);
+    void add_referenced_in_backlog(const std::string& collection_name, reference_info&& pair);
 
-    std::map<std::string, std::set<reference_pair>> _get_referenced_in_backlog() const;
+    std::map<std::string, std::set<reference_info>> _get_referenced_in_backlog() const;
 
     void process_embedding_field_delete(const std::string& model_name);
 
     static void _populate_referenced_ins(const std::string& collection_meta_json,
-                                         std::map<std::string, spp::sparse_hash_map<std::string, std::string>>& referenced_ins);
+                                         std::map<std::string, spp::sparse_hash_map<std::string, std::string>>& referenced_ins,
+                                         std::map<std::string, std::vector<std::pair<std::string, std::string>>>& async_referenced_ins);
 
     std::unordered_set<std::string> get_collection_references(const std::string& coll_name);
 
