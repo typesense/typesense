@@ -381,7 +381,6 @@ TEST_F(ConversationTest, UpdateConversationTTL) {
     })"_json;
 
     collectionManager.create_collection(schema_json);
-    ConversationManager::get_instance().add_history_collection("conversation_store");
 
     nlohmann::json conversation = nlohmann::json::array();
     nlohmann::json message = nlohmann::json::object();
