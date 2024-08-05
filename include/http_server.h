@@ -196,7 +196,8 @@ private:
 
     static int async_req_cb(void *ctx, int is_end_stream);
 
-    static bool is_write_request(const std::string& root_resource, const std::string& http_method);
+    static bool is_write_request(const std::string& root_resource, const std::string& http_method,
+                                 bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&));
 
     static void handle_gzip(const std::shared_ptr<http_req>& request);
 

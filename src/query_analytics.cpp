@@ -4,7 +4,8 @@
 #include <mutex>
 #include "string_utils.h"
 
-QueryAnalytics::QueryAnalytics(size_t k) : k(k), max_size(k * 2) {
+QueryAnalytics::QueryAnalytics(size_t k, bool enable_auto_aggregation)
+                : k(k), max_size(k * 2), auto_aggregation_enabled(enable_auto_aggregation) {
 
 }
 
@@ -122,4 +123,8 @@ tsl::htrie_map<char, uint32_t> QueryAnalytics::get_local_counts() {
 
 void QueryAnalytics::set_expand_query(bool expand_query) {
     this->expand_query = expand_query;
+}
+
+bool QueryAnalytics::is_auto_aggregation_enabled() const {
+    return auto_aggregation_enabled;
 }

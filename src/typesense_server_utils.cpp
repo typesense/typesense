@@ -20,11 +20,9 @@
 #include "ratelimit_manager.h"
 #include "embedder_manager.h"
 #include "typesense_server_utils.h"
-#include "file_utils.h"
 #include "threadpool.h"
 #include "stopwords_manager.h"
 #include "conversation_manager.h"
-#include "conversation_model_manager.h"
 #include "vq_model_manager.h"
 
 #ifndef ASAN_BUILD
@@ -293,14 +291,6 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
         exit(-1);
     }
 
-    // important to init conversation models only after all collections have been loaded
-    auto conversation_models_init = ConversationModelManager::init(&store);
-    if(!conversation_models_init.ok()) {
-        LOG(INFO) << "Failed to initialize conversation model manager: " << conversation_models_init.error();
-    } else {
-        LOG(INFO) << "Loaded " << conversation_models_init.get() << "(s) conversation models.";
-    }
-
     LOG(INFO) << "Typesense peering service is running on " << raft_server.listen_address();
     LOG(INFO) << "Snapshot interval configured as: " << snapshot_interval_seconds << "s";
     LOG(INFO) << "Snapshot max byte count configured as: " << snapshot_max_byte_count_per_rpc;
@@ -424,7 +414,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     HttpClient & httpClient = HttpClient::get_instance();
     httpClient.init(config.get_api_key());
 
-    AnalyticsManager::get_instance().init(&store, &analytics_store, analytics_dir);
+    AnalyticsManager::get_instance().init(&store, &analytics_store);
 
     server = new HttpServer(
         version,

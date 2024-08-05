@@ -14,7 +14,6 @@ Option<nlohmann::json> ConversationModelManager::get_model(const std::string& mo
 
 Option<nlohmann::json> ConversationModelManager::add_model(nlohmann::json model, const std::string& model_id) {
     std::unique_lock lock(models_mutex);
-
     return add_model_unsafe(model, model_id);
 }
 
@@ -23,7 +22,6 @@ Option<nlohmann::json> ConversationModelManager::add_model_unsafe(nlohmann::json
     if (!validate_res.ok()) {
         return Option<nlohmann::json>(validate_res.code(), validate_res.error());
     }
-
 
     model["id"] = model_id.empty() ? sole::uuid4().str() : model_id;
 
@@ -35,14 +33,12 @@ Option<nlohmann::json> ConversationModelManager::add_model_unsafe(nlohmann::json
 
     models[model_id] = model;
 
-
     ConversationManager::get_instance().add_history_collection(model["history_collection"]);
     return Option<nlohmann::json>(model);
 }
 
 Option<nlohmann::json> ConversationModelManager::delete_model(const std::string& model_id) {
     std::unique_lock lock(models_mutex);
-
     return delete_model_unsafe(model_id);
 }
 
@@ -120,10 +116,15 @@ Option<int> ConversationModelManager::init(Store* store) {
     std::vector<std::string> model_strs;
     store->scan_fill(std::string(MODEL_KEY_PREFIX) + "_", std::string(MODEL_KEY_PREFIX) + "`", model_strs);
 
+    if(!model_strs.empty()) {
+        LOG(INFO) << "Found " << model_strs.size() << " conversation model(s).";
+    }
+
     int loaded_models = 0;
     for(auto& model_str : model_strs) {
         nlohmann::json model_json = nlohmann::json::parse(model_str);
         std::string model_id = model_json["id"];
+
         // Migrate cloudflare models to new namespace convention, change namespace from `cf` to `cloudflare`
         if(EmbedderManager::get_model_namespace(model_json["model_name"]) == "cf") {
             model_json["model_name"] = "cloudflare/@cf/" + EmbedderManager::get_model_name_without_namespace(model_json["model_name"]);
@@ -141,7 +142,7 @@ Option<int> ConversationModelManager::init(Store* store) {
             }
         }
 
-    
+
         // Migrate models that don't have a conversation collection
         if(model_json.count("history_collection") == 0) {
             auto migrate_op = migrate_model(model_json);
@@ -190,7 +191,7 @@ Option<Collection*> ConversationModelManager::get_default_history_collection() {
             {
                 "name": "message",
                 "type": "string",
-                "index: false
+                "index": false
             },
             {
                 "name": "timestamp",
