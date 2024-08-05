@@ -353,3 +353,60 @@ TEST_F(ConversationTest, TestInvalidConversationCollection) {
     ASSERT_EQ(res.code(), 400);
     ASSERT_EQ(res.error(), "Schema is missing `conversation_id` field");
 }
+
+
+TEST_F(ConversationTest, UpdateConversationTTL) {
+        nlohmann::json schema_json = R"({
+        "name": "conversation_store",
+        "fields": [
+            {
+                "name": "conversation_id",
+                "type": "string",
+                "facet": true
+            },
+            {
+                "name": "role",
+                "type": "string"
+            },
+            {
+                "name": "message",
+                "type": "string"
+            },
+            {
+                "name": "timestamp",
+                "type": "int32",
+                "sort": true
+            }
+        ]
+    })"_json;
+
+    collectionManager.create_collection(schema_json);
+    ConversationManager::get_instance().add_history_collection("conversation_store");
+
+    nlohmann::json conversation = nlohmann::json::array();
+    nlohmann::json message = nlohmann::json::object();
+    message["user"] = "Hello";
+    conversation.push_back(message);
+    auto create_res = ConversationManager::get_instance().add_conversation(conversation, "conversation_store");
+    ASSERT_TRUE(create_res.ok());
+
+    
+    auto conversation_retreived = ConversationManager::get_instance().get_conversation(create_res.get());
+    ASSERT_TRUE(conversation_retreived.ok());
+    ASSERT_EQ(conversation_retreived.get()["ttl"], 60 * 60 * 24);
+
+    auto update_schema = R"({
+        "ttl": 60000
+    })"_json;
+
+    update_schema["id"] = create_res.get();
+
+    auto update_res = ConversationManager::get_instance().update_conversation(update_schema);
+    ASSERT_TRUE(update_res.ok());
+
+    conversation_retreived = ConversationManager::get_instance().get_conversation(create_res.get());
+    ASSERT_TRUE(conversation_retreived.ok());
+
+    ASSERT_EQ(conversation_retreived.get()["ttl"], 60000);
+}
+

@@ -58,4 +58,5 @@ class ConversationManager {
         std::condition_variable cv;
         std::unordered_map<std::string, uint32_t> history_collection_map;
         std::unordered_map<std::string, std::string> conversation_mapper;
+        std::unordered_map<std::string, uint64_t> conversation_ttl;
 };

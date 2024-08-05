@@ -3714,8 +3714,7 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
 TEST_F(CollectionVectorTest, TestMigratingConversationModel) {
     auto conversation_model_config = R"({
         "model_name": "openai/gpt-3.5-turbo",
-        "max_bytes": 1000,
-        "history_collection": "conversation_store"
+        "max_bytes": 1000
     })"_json;
 
     if (std::getenv("api_key") == nullptr) {
@@ -3732,6 +3731,54 @@ TEST_F(CollectionVectorTest, TestMigratingConversationModel) {
 
     auto collection = CollectionManager::get_instance().get_collection("conversation_store").get();
     ASSERT_TRUE(collection != nullptr);
+}
+
+TEST_F(CollectionVectorTest, TestPartiallyUpdateConversationModel) {
+    auto schema_json =
+        R"({
+        "name": "Products",
+        "fields": [
+            {"name": "product_name", "type": "string", "infix": true},
+            {"name": "category", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["product_name", "category"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+
+    auto conversation_model_config = R"({
+        "model_name": "openai/gpt-3.5-turbo",
+        "max_bytes: 1000,
+        "history_collection": "conversation_store",
+    })"_json;
+
+    conversation_model_config["api_key"] = api_key;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto model_add_op = ConversationModelManager::add_model(conversation_model_config);
+    ASSERT_TRUE(model_add_op.ok());
+
+    auto model_id = model_add_op.get()["id"];
+
+    auto update_op = ConversationModelManager::update_model(model_id, R"({"max_bytes": 2000})"_json);
+    ASSERT_TRUE(update_op.ok());
+
+    auto updated_model = update_op.get();
+    ASSERT_EQ(updated_model["max_bytes"], 2000);
+    ASSERT_EQ(updated_model["history_collection"], "conversation_store");
+    ASSERT_EQ(updated_model["model_name"], "openai/gpt-3.5-turbo");    
 }
 
 

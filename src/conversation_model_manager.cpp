@@ -76,32 +76,37 @@ Option<nlohmann::json> ConversationModelManager::get_all_models() {
 
 Option<nlohmann::json> ConversationModelManager::update_model(const std::string& model_id, nlohmann::json model) {
     std::unique_lock lock(models_mutex);
-    auto validate_res = ConversationModel::validate_model(model);
-    if (!validate_res.ok()) {
-        return Option<nlohmann::json>(validate_res.code(), validate_res.error());
-    }
-
     auto it = models.find(model_id);
     if (it == models.end()) {
         return Option<nlohmann::json>(404, "Model not found");
     }
 
-    model["id"] = model_id;
+    nlohmann::json model_copy = it->second;
+
+    for (auto& [key, value] : model.items()) {
+        model_copy[key] = value;
+    }
+
+    auto validate_res = ConversationModel::validate_model(model_copy);
+    if (!validate_res.ok()) {
+        return Option<nlohmann::json>(validate_res.code(), validate_res.error());
+    }
+
 
     auto model_key = get_model_key(model_id);
-    bool insert_op = store->insert(model_key, model.dump(0));
+    bool insert_op = store->insert(model_key, model_copy.dump(0));
     if(!insert_op) {
         return Option<nlohmann::json>(500, "Error while inserting model into the store");
     }
 
-    if(it->second["history_collection"] != model["history_collection"]) {
+    if(it->second["history_collection"] != model_copy["history_collection"]) {
         ConversationManager::get_instance().remove_history_collection(it->second["history_collection"]);
-        ConversationManager::get_instance().add_history_collection(model["history_collection"]);
+        ConversationManager::get_instance().add_history_collection(model_copy["history_collection"]);
     }
 
-    models[model_id] = model;
+    models[model_id] = model_copy;
 
-    return Option<nlohmann::json>(model);
+    return Option<nlohmann::json>(model_copy);
 }
 
 Option<int> ConversationModelManager::init(Store* store) {
@@ -117,12 +122,16 @@ Option<int> ConversationModelManager::init(Store* store) {
         std::string model_id = model_json["id"];
         // Migrate cloudflare models to new namespace convention, change namespace from `cf` to `cloudflare`
         if(EmbedderManager::get_model_namespace(model_json["model_name"]) == "cf") {
-            auto delete_op = delete_model(model_id);
-            if(!delete_op.ok()) {
-                return Option<int>(delete_op.code(), delete_op.error());
+            model_json["model_name"] = "cloudflare/@cf/" + EmbedderManager::get_model_name_without_namespace(model_json["model_name"]);
+            if(model_json.find("history_collection") == model_json.end()) {
+                auto default_collection = get_default_history_collection();
+                if(!default_collection.ok()) {
+                    LOG(INFO) << "Error while creating default history collection for model " << model_id << ": " << default_collection.error();
+                    continue;
+                }
+                model_json["history_collection"] = default_collection.get()->get_name();
             }
-            model_json["model_name"] = "cloudflare/" + EmbedderManager::get_model_name_without_namespace(model_json["model_name"]);
-            auto add_res = add_model(model_json, model_id);
+            auto add_res = add_model_unsafe(model_json, model_id);
             if(!add_res.ok()) {
                 return Option<int>(add_res.code(), add_res.error());
             }
