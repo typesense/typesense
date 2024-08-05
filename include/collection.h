@@ -616,7 +616,8 @@ public:
 
     Option<nlohmann::json> get(const std::string & id) const;
 
-    void remove_ref_docs(const uint32_t& count, uint32_t const* const docs, bool remove_from_store = true);
+    void cascade_remove_docs(const std::string& ref_helper_field_name, const uint32_t& ref_seq_id,
+                             const nlohmann::json& ref_doc, bool remove_from_store = true);
 
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
 
@@ -700,9 +701,9 @@ public:
 
     Option<bool> truncate_after_top_k(const std::string& field_name, size_t k);
 
-    void reference_populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
-                                         std::vector<sort_by>& sort_fields_std,
-                                         std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const;
+    Option<bool> reference_populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
+                                                 std::vector<sort_by>& sort_fields_std,
+                                                 std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const;
 
     int64_t reference_string_sort_score(const std::string& field_name, const uint32_t& seq_id) const;
 

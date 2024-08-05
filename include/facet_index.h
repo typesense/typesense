@@ -62,6 +62,10 @@ public:
         std::string facet_value;
         uint32_t count;
         uint32_t facet_id;
+
+        bool operator<(const facet_count_t& other) const {
+            return count > other.count;
+        }
     };
 
     const static size_t MAX_FACET_VAL_LEN = 255;
@@ -70,7 +74,7 @@ private:
     struct facet_id_seq_ids_t {
         void* seq_ids;
         uint32_t facet_id;
-        std::list<facet_count_t>::iterator facet_count_it;
+        std::multiset<facet_count_t>::iterator facet_count_it;
 
         facet_id_seq_ids_t() {
             seq_ids = nullptr;
@@ -82,8 +86,8 @@ private:
     
     struct facet_doc_ids_list_t {
         std::map<std::string, facet_id_seq_ids_t> fvalue_seq_ids;
-        std::list<facet_count_t> counts;
-        std::map<uint32_t, std::list<facet_count_t>::iterator> count_map;
+        std::multiset<facet_count_t> counts;
+
         posting_list_t* seq_id_hashes = nullptr;
         spp::sparse_hash_map<uint32_t, int64_t> fhash_to_int64_map;
 

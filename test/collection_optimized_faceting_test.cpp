@@ -2646,15 +2646,15 @@ TEST_F(CollectionOptimizedFacetingTest, ValueIndexStatsMinMax) {
 
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("9", results["facet_counts"][0]["counts"][0]["value"]);
-    ASSERT_EQ("9.2", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("9.3", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("9.2", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
 
     //stats
     ASSERT_EQ(5, results["facet_counts"][0]["stats"].size());
-    ASSERT_FLOAT_EQ(9.1, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(9.25, results["facet_counts"][0]["stats"]["avg"].get<double>());
     ASSERT_FLOAT_EQ(8.800000190734863, results["facet_counts"][0]["stats"]["min"].get<double>());
     ASSERT_FLOAT_EQ(9.300000190734863, results["facet_counts"][0]["stats"]["max"].get<double>());
-    ASSERT_FLOAT_EQ(18.2, results["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(18.5, results["facet_counts"][0]["stats"]["sum"].get<double>());
     ASSERT_FLOAT_EQ(2, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
 }
 
@@ -2744,9 +2744,9 @@ TEST_F(CollectionOptimizedFacetingTest, StringFacetsCountListOrderTest) {
 
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("The Dark Knight", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("The Dark Knight", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
     ASSERT_EQ(6, results["facet_counts"][0]["counts"][0]["count"]);
-    ASSERT_EQ("The Godfather", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("The Shawshank Redemption", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"][1]["count"]);
 }
 

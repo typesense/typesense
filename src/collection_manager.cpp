@@ -1036,6 +1036,11 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
                 i = open_paren_pos;
                 while(sort_by_str[++i] == ' ');
 
+                if (sort_by_str[i] == '$' && sort_by_str.find('(', i) != std::string::npos) {
+                    // Reference expression inside `_eval()`
+                    return false;
+                }
+
                 auto result = sort_by_str[i] == '[' ? parse_multi_eval(sort_by_str, i, sort_fields) :
                                                         parse_eval(sort_by_str, --i, sort_fields);
                 if (!result) {
@@ -2095,6 +2100,7 @@ ThreadPool* CollectionManager::get_thread_pool() const {
 }
 
 Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limit, uint32_t offset,
+                                                                   const std::vector<std::string>& exclude_fields,
                                                                    const std::vector<std::string>& api_key_collections) const {
     std::shared_lock lock(mutex);
 
@@ -2109,6 +2115,10 @@ Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limi
 
     for(Collection* collection: colls) {
         nlohmann::json collection_json = collection->get_summary_json();
+        for(const auto& exclude_field: exclude_fields) {
+            collection_json.erase(exclude_field);
+        }
+
         json_summaries.push_back(collection_json);
     }
 
