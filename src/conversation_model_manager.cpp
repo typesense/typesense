@@ -56,6 +56,9 @@ Option<nlohmann::json> ConversationModelManager::delete_model_unsafe(const std::
 
     auto model_key = get_model_key(model_id);
     bool delete_op = store->remove(model_key);
+    if(!delete_op) {
+        return Option<nlohmann::json>(500, "Error while deleting model from the store");
+    }
     
     if(model.count("history_collection") != 0) {
         ConversationManager::get_instance().remove_history_collection(model["history_collection"].get<std::string>());
@@ -112,6 +115,7 @@ Option<nlohmann::json> ConversationModelManager::update_model(const std::string&
 Option<int> ConversationModelManager::init(Store* store) {
     std::unique_lock lock(models_mutex);
     ConversationModelManager::store = store;
+    ConversationManager::set_store(store);
 
     std::vector<std::string> model_strs;
     store->scan_fill(std::string(MODEL_KEY_PREFIX) + "_", std::string(MODEL_KEY_PREFIX) + "`", model_strs);
@@ -137,14 +141,9 @@ Option<int> ConversationModelManager::init(Store* store) {
             }
         }
 
-        
-        
+    
         // Migrate models that don't have a conversation collection
         if(model_json.count("history_collection") == 0) {
-            auto delete_op = delete_model_unsafe(model_id);
-            if(!delete_op.ok()) {
-                return Option<int>(delete_op.code(), delete_op.error());
-            }
             auto migrate_op = migrate_model(model_json);
             if(!migrate_op.ok()) {
                 return Option<int>(migrate_op.code(), migrate_op.error());
@@ -154,6 +153,7 @@ Option<int> ConversationModelManager::init(Store* store) {
 
         models[model_id] = model_json;
         ConversationManager::get_instance().add_history_collection(model_json["history_collection"].get<std::string>());
+        ConversationManager::get_instance().initialize_history_collection(model_json["history_collection"].get<std::string>());
         loaded_models++;
     }
 

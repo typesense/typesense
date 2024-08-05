@@ -45,12 +45,17 @@ class ConversationManager {
         Option<bool> add_history_collection(const std::string& collection);
         Option<bool> remove_history_collection(const std::string& collection);
         Option<Collection*> get_history_collection(const std::string& conversation_id);
+        Option<bool> initialize_history_collection(const std::string& collection);
+        static void set_store(Store* store) {
+            ConversationManager::store = store;
+        }
     private:
         ConversationManager() {}
         std::mutex conversations_mutex;
         
         ReplicationState* raft_server;
         static constexpr size_t CONVERSATION_TTL = 60 * 60 * 24;
+        static inline Store* store;
         size_t TTL_OFFSET = 0;
         size_t MAX_CONVERSATIONS_TO_DELETE_ONCE = 5;
 
@@ -59,4 +64,11 @@ class ConversationManager {
         std::unordered_map<std::string, uint32_t> history_collection_map;
         std::unordered_map<std::string, std::string> conversation_mapper;
         std::unordered_map<std::string, uint64_t> conversation_ttl;
+
+        static inline const std::string CONVERSATION_TTL_KEY_PREFIX = "$CNVTTL";
+        static inline const std::string get_conversation_ttl_key(const std::string& conversation_id) {
+            return CONVERSATION_TTL_KEY_PREFIX + "_" + conversation_id;
+        }
+
+        Option<nlohmann::json> delete_conversation_unsafe(const std::string& conversation_id);
 };
