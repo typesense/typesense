@@ -786,6 +786,14 @@ TEST_F(CollectionOverrideTest, IncludeOverrideWithFilterBy) {
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
+    // when filter by does not match any result, curated result should still show up
+    // because `filter_curated_hits` is false
+    results = coll1->search("shoes", {"name"}, "points:1000",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
     // when bad filter by clause is used in override
     override_json_include = {
             {"id", "include-rule-2"},
@@ -4280,7 +4288,44 @@ TEST_F(CollectionOverrideTest, FilterPinnedHits) {
     ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", results["hits"][4]["document"]["id"].get<std::string>());
 
+    // when filter does not match, we should return only curated results
+    results = coll3->search("2023", {"title"}, "title: foobarbaz", {}, {},
+                            {0}, 50, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10,
+                            "", 30, 5, "",
+                            10, pinned_hits, {}, {}, 3,
+                            "<mark>", "</mark>", {}, UINT_MAX,
+                            true, false, true, "",
+                            false, 6000 * 1000, 4, 7,
+                            fallback, 4, {off}, INT16_MAX,
+                            INT16_MAX, 2, filter_curated_hits ).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
+
     filter_curated_hits = true;
+    // Filter should apply on curated results
+    results = coll3->search("2023", {"title"}, "points: >70", {}, {},
+                            {0}, 50, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10,
+                            "", 30, 5, "",
+                            10, pinned_hits, {}, {}, 3,
+                            "<mark>", "</mark>", {}, UINT_MAX,
+                            true, false, true, "",
+                            false, 6000 * 1000, 4, 7,
+                            fallback, 4, {off}, INT16_MAX,
+                            INT16_MAX, 2, filter_curated_hits ).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+
     results = coll3->search("2023", {"title"}, "title: snapdragon", {}, {},
                             {0}, 50, 1, FREQUENCY,
                             {false}, Index::DROP_TOKENS_THRESHOLD,
@@ -4320,4 +4365,72 @@ TEST_F(CollectionOverrideTest, FilterPinnedHits) {
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionOverrideTest, AvoidTypoMatchingWhenOverlapWithCuratedData) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    Collection* coll3 = collectionManager.get_collection("coll3").get();
+    if (coll3 == nullptr) {
+        coll3 = collectionManager.create_collection("coll3", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc;
+
+    doc["title"] = "Snapdragon 7 gen 2023";
+    doc["points"] = 100;
+    ASSERT_TRUE(coll3->add(doc.dump()).ok());
+
+    doc["title"] = "Snapdragon 732G 2023";
+    doc["points"] = 91;
+    ASSERT_TRUE(coll3->add(doc.dump()).ok());
+
+    doc["title"] = "Mediatak 4 gen 2023";
+    doc["points"] = 65;
+    ASSERT_TRUE(coll3->add(doc.dump()).ok());
+
+    doc["title"] = "Mediatek Dimensity 720G 2022";
+    doc["points"] = 87;
+    ASSERT_TRUE(coll3->add(doc.dump()).ok());
+
+    doc["title"] = "Mediatek Dimensity 470G 2023";
+    doc["points"] = 63;
+    ASSERT_TRUE(coll3->add(doc.dump()).ok());
+
+    auto pinned_hits = "3:1, 4:2";
+
+    auto results = coll3->search("Mediatek", {"title"}, "", {}, {},
+                                 {2}, 50, 1, FREQUENCY,
+                                 {false}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10,
+                                 "", 30, 5, "",
+                                 10, pinned_hits, {}, {}, 3,
+                                 "<mark>", "</mark>", {}, UINT_MAX,
+                                 true, false, true, "",
+                                 false, 6000 * 1000, 4, 7,
+                                 fallback, 4, {off}, INT16_MAX,
+                                 INT16_MAX, 2, false).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll3->search("Mediatek", {"title"}, "", {}, {},
+                            {2}, 50, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10,
+                            "", 30, 5, "",
+                            10, pinned_hits, {}, {}, 3,
+                            "<mark>", "</mark>", {}, UINT_MAX,
+                            true, false, true, "",
+                            false, 6000 * 1000, 4, 7,
+                            fallback, 4, {off}, INT16_MAX,
+                            INT16_MAX, 2, false).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
 }

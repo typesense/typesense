@@ -425,4 +425,8 @@ public:
     [[nodiscard]] bool _get_is_equals_iterator_valid() const {
         return is_equals_iterator_valid;
     }
+
+    inline bool is_filter_provided() const {
+        return filter_node != nullptr;
+    }
 };

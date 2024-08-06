@@ -709,7 +709,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
         std::unordered_map<uint32_t, std::vector<facet_value_id_t>> seq_id_to_fvalues;
 
         size_t total_num_docs = seq_ids->num_ids();
-        if(afield.facet && total_num_docs > 10*1000 && search_schema.size() > 100) {
+        if(afield.facet && total_num_docs > 10*1000) {
             facet_index_v4->check_for_high_cardinality(afield.name, total_num_docs);
         }
 
@@ -2756,10 +2756,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return filter_init_op;
     }
 
-    if (filter_tree_root != nullptr && filter_result_iterator->validity != filter_result_iterator_t::valid) {
-        return Option(true);
-    }
-
 #ifdef TEST_BUILD
 
     if (filter_result_iterator->approx_filter_ids_length > 20) {
@@ -2789,6 +2785,14 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     std::vector<uint32_t> curated_ids_sorted(curated_ids.begin(), curated_ids.end());
     std::sort(curated_ids_sorted.begin(), curated_ids_sorted.end());
 
+    bool const& filter_by_provided = filter_tree_root != nullptr;
+    bool const& no_filter_by_matches = filter_by_provided && filter_result_iterator->approx_filter_ids_length == 0;
+
+    // If curation is not involved and there are no filter matches, return early.
+    if (curated_ids_sorted.empty() && no_filter_by_matches) {
+        return Option(true);
+    }
+
     // Order of `fields` are used to sort results
     // auto begin = std::chrono::high_resolution_clock::now();
     uint32_t* all_result_ids = nullptr;
@@ -2803,7 +2807,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     int sort_order[3];  // 1 or -1 based on DESC or ASC respectively
     std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values;
     std::vector<size_t> geopoint_indices;
-    populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
+    auto populate_op = populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
+    if (!populate_op.ok()) {
+        return populate_op;
+    }
 
     // Prepare excluded document IDs that we can later remove from the result set
     uint32_t* excluded_result_ids = nullptr;
@@ -2816,8 +2823,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     // phrase queries are handled as a filtering query
     bool is_wildcard_non_phrase_query = is_wildcard_query && field_query_tokens[0].q_phrases.empty();
-    
-    bool no_filters_provided = (filter_tree_root == nullptr && !filter_result_iterator->validity == filter_result_iterator_t::valid);
 
     // handle phrase searches
     if (!field_query_tokens[0].q_phrases.empty()) {
@@ -2845,7 +2850,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
     // for phrase query, parser will set field_query_tokens to "*", need to handle that
     if (is_wildcard_non_phrase_query) {
-        if(no_filters_provided && facets.empty() && curated_ids.empty() && vector_query.field_name.empty() &&
+        if(!filter_by_provided && facets.empty() && curated_ids.empty() && vector_query.field_name.empty() &&
            sort_fields_std.size() == 1 && sort_fields_std[0].name == sort_field_const::seq_id &&
            sort_fields_std[0].order == sort_field_const::desc) {
             // optimize for this path specifically
@@ -2917,7 +2922,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             filter_result_iterator->compute_iterators();
 
             uint32_t filter_id_count = filter_result_iterator->approx_filter_ids_length;
-            if (!no_filters_provided && filter_id_count < vector_query.flat_search_cutoff) {
+            if (filter_by_provided && filter_id_count < vector_query.flat_search_cutoff) {
                 while (filter_result_iterator->validity == filter_result_iterator_t::valid) {
                     auto seq_id = filter_result_iterator->seq_id;
                     auto filter_result = single_filter_result_t(seq_id, std::move(filter_result_iterator->reference));
@@ -2948,7 +2953,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             filter_result_iterator->reset();
             search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
-            if(no_filters_provided ||
+            if(!filter_by_provided ||
                 (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid)) {
                 dist_results.clear();
 
@@ -3060,7 +3065,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
         } else {
             // if filters were not provided, use the seq_ids index to generate the list of all document ids
-            if (no_filters_provided) {
+            if (!filter_by_provided) {
                 filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids(),
                                                                       search_begin_us, search_stop_us);
                 filter_iterator_guard.reset(filter_result_iterator);
@@ -3428,7 +3433,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     auto& vec_result = vec_results[res_index];
                     auto seq_id = vec_result.first;
 
-                    if (!no_filters_provided && filter_result_iterator->is_valid(seq_id) != 1) {
+                    if (filter_by_provided && filter_result_iterator->is_valid(seq_id) != 1) {
                         continue;
                     }
                     auto references = std::move(filter_result_iterator->reference);
@@ -3544,7 +3549,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     bool estimate_facets = (facet_sample_percent > 0 && facet_sample_percent < 100 &&
                             all_result_ids_len > facet_sample_threshold);
-    bool is_wildcard_no_filter_query = is_wildcard_non_phrase_query && no_filters_provided && vector_query.field_name.empty();
+    bool is_wildcard_no_filter_query = is_wildcard_non_phrase_query && !filter_by_provided && vector_query.field_name.empty();
 
     if(!facets.empty()) {
         const size_t num_threads = std::min(concurrency, all_result_ids_len);
@@ -3931,6 +3936,12 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                         bool enable_typos_for_numerical_tokens,
                                         bool enable_typos_for_alpha_numerical_tokens) const {
 
+    // Return early in case filter_by is provided but it matches no docs.
+    if (filter_result_iterator != nullptr && filter_result_iterator->is_filter_provided() &&
+            filter_result_iterator->approx_filter_ids_length == 0) {
+        return Option<bool>(true);
+    }
+
     // NOTE: `query_tokens` preserve original tokens, while `search_tokens` could be a result of dropped tokens
 
     // To prevent us from doing ART search repeatedly as we iterate through possible corrections
@@ -4196,8 +4207,11 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
         resume_typo_loop:
 
         auto results_count = group_limit != 0 ? groups_processed.size() : all_result_ids_len;
-        if(!exhaustive_search && results_count >= typo_tokens_threshold) {
+        if(!exhaustive_search && (results_count >= typo_tokens_threshold ||
+                                 (results_count == 0 && !curated_ids.empty()))) {
             // if typo threshold is breached, we are done
+            // Also, if there are curated hits, results_count will be zero when all hits overlap with curated hits
+            // in that case, we should not think that no results were found.
             return Option<bool>(true);
         }
 
@@ -4941,9 +4955,10 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
     // avoiding loop
     if (sort_fields.size() > 0) {
         auto reference_found = true;
+        auto const& is_reference_sort = !sort_fields[0].reference_collection_name.empty();
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
-        if (!sort_fields[0].reference_collection_name.empty()) {
+        if (is_reference_sort) {
             auto const& ref_compute_op = ref_compute_sort_scores(sort_fields[0], seq_id, ref_seq_id, reference_found,
                                                                  references, collection_name);
             if (!ref_compute_op.ok()) {
@@ -4959,7 +4974,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         } else if(field_values[0] == &geo_sentinel_value) {
             scores[0] = geopoint_distances[0];
         } else if(field_values[0] == &str_sentinel_value) {
-            if (sort_fields[0].reference_collection_name.empty()) {
+            if (!is_reference_sort) {
                 scores[0] = str_sort_index.at(sort_fields[0].name)->rank(seq_id);
             } else if (!reference_found) {
                 scores[0] = adi_tree_t::NOT_FOUND;
@@ -4994,16 +5009,23 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             bool found = false;
             uint32_t index = 0;
             auto const& eval = sort_fields[0].eval;
+            if (eval.eval_ids_vec.size() != count || eval.eval_ids_count_vec.size() != count) {
+                return Option<bool>(400, "Eval expressions count does not match the ids count.");
+            }
+
             for (; index < count; index++) {
-                auto& filter_index = filter_indexes[index];
+                // ref_seq_id(s) can be unordered.
+                uint32_t ref_filter_index = 0;
+                auto& filter_index = is_reference_sort ? ref_filter_index : filter_indexes[index];
                 auto const& eval_ids = eval.eval_ids_vec[index];
                 auto const& eval_ids_count = eval.eval_ids_count_vec[index];
                 if (filter_index == 0 || filter_index < eval_ids_count) {
                     // Returns iterator to the first element that is >= to value or last if no such element is found.
-                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, seq_id) -
+                    auto const& id = is_reference_sort ? ref_seq_id : seq_id;
+                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, id) -
                                                             eval_ids;
 
-                    if (filter_index < eval_ids_count && eval_ids[filter_index] == seq_id) {
+                    if (filter_index < eval_ids_count && eval_ids[filter_index] == id) {
                         filter_index++;
                         found = true;
                         break;
@@ -5027,8 +5049,8 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 // do nothing
             }
         } else {
-            if (sort_fields[0].reference_collection_name.empty() || reference_found) {
-                auto it = field_values[0]->find(sort_fields[0].reference_collection_name.empty() ? seq_id : ref_seq_id);
+            if (!is_reference_sort || reference_found) {
+                auto it = field_values[0]->find(is_reference_sort ? ref_seq_id : seq_id);
                 scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
             } else {
                 scores[0] = default_score;
@@ -5050,9 +5072,10 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
 
     if(sort_fields.size() > 1) {
         auto reference_found = true;
+        auto const& is_reference_sort = !sort_fields[1].reference_collection_name.empty();
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
-        if (!sort_fields[1].reference_collection_name.empty()) {
+        if (is_reference_sort) {
             auto const& ref_compute_op = ref_compute_sort_scores(sort_fields[1], seq_id, ref_seq_id, reference_found,
                                                                  references, collection_name);
             if (!ref_compute_op.ok()) {
@@ -5068,7 +5091,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         } else if(field_values[1] == &geo_sentinel_value) {
             scores[1] = geopoint_distances[1];
         } else if(field_values[1] == &str_sentinel_value) {
-            if (sort_fields[1].reference_collection_name.empty()) {
+            if (!is_reference_sort) {
                 scores[1] = str_sort_index.at(sort_fields[1].name)->rank(seq_id);
             } else if (!reference_found) {
                 scores[1] = adi_tree_t::NOT_FOUND;
@@ -5104,15 +5127,18 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             uint32_t index = 0;
             auto const& eval = sort_fields[1].eval;
             for (; index < count; index++) {
-                auto& filter_index = filter_indexes[index];
+                // ref_seq_id(s) can be unordered.
+                uint32_t ref_filter_index = 0;
+                auto& filter_index = is_reference_sort ? ref_filter_index : filter_indexes[index];
                 auto const& eval_ids = eval.eval_ids_vec[index];
                 auto const& eval_ids_count = eval.eval_ids_count_vec[index];
                 if (filter_index == 0 || filter_index < eval_ids_count) {
                     // Returns iterator to the first element that is >= to value or last if no such element is found.
-                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, seq_id) -
+                    auto const& id = is_reference_sort ? ref_seq_id : seq_id;
+                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, id) -
                                    eval_ids;
 
-                    if (filter_index < eval_ids_count && eval_ids[filter_index] == seq_id) {
+                    if (filter_index < eval_ids_count && eval_ids[filter_index] == id) {
                         filter_index++;
                         found = true;
                         break;
@@ -5137,8 +5163,8 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             }
 
         } else {
-            if (sort_fields[1].reference_collection_name.empty() || reference_found) {
-                auto it = field_values[1]->find(sort_fields[1].reference_collection_name.empty() ? seq_id : ref_seq_id);
+            if (!is_reference_sort || reference_found) {
+                auto it = field_values[1]->find(is_reference_sort ? ref_seq_id : seq_id);
                 scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
             } else {
                 scores[1] = default_score;
@@ -5157,9 +5183,10 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
 
     if(sort_fields.size() > 2) {
         auto reference_found = true;
+        auto const& is_reference_sort = !sort_fields[2].reference_collection_name.empty();
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
-        if (!sort_fields[2].reference_collection_name.empty()) {
+        if (is_reference_sort) {
             auto const& ref_compute_op = ref_compute_sort_scores(sort_fields[2], seq_id, ref_seq_id, reference_found,
                                                                  references, collection_name);
             if (!ref_compute_op.ok()) {
@@ -5175,7 +5202,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         } else if(field_values[2] == &geo_sentinel_value) {
             scores[2] = geopoint_distances[2];
         } else if(field_values[2] == &str_sentinel_value) {
-            if (sort_fields[2].reference_collection_name.empty()) {
+            if (!is_reference_sort) {
                 scores[2] = str_sort_index.at(sort_fields[2].name)->rank(seq_id);
             } else if (!reference_found) {
                 scores[2] = adi_tree_t::NOT_FOUND;
@@ -5211,15 +5238,18 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             uint32_t index = 0;
             auto const& eval = sort_fields[2].eval;
             for (; index < count; index++) {
-                auto& filter_index = filter_indexes[index];
+                // ref_seq_id(s) can be unordered.
+                uint32_t ref_filter_index = 0;
+                auto& filter_index = is_reference_sort ? ref_filter_index : filter_indexes[index];
                 auto const& eval_ids = eval.eval_ids_vec[index];
                 auto const& eval_ids_count = eval.eval_ids_count_vec[index];
                 if (filter_index == 0 || filter_index < eval_ids_count) {
                     // Returns iterator to the first element that is >= to value or last if no such element is found.
-                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, seq_id) -
+                    auto const& id = is_reference_sort ? ref_seq_id : seq_id;
+                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, id) -
                                    eval_ids;
 
-                    if (filter_index < eval_ids_count && eval_ids[filter_index] == seq_id) {
+                    if (filter_index < eval_ids_count && eval_ids[filter_index] == id) {
                         filter_index++;
                         found = true;
                         break;
@@ -5243,8 +5273,8 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 // do nothing
             }
         } else {
-            if (sort_fields[2].reference_collection_name.empty() || reference_found) {
-                auto it = field_values[2]->find(sort_fields[2].reference_collection_name.empty() ? seq_id : ref_seq_id);
+            if (!is_reference_sort || reference_found) {
+                auto it = field_values[2]->find(is_reference_sort ? ref_seq_id : seq_id);
                 scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
             } else {
                 scores[2] = default_score;
@@ -6100,9 +6130,9 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
     return Option<bool>(true);
 }
 
-void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
-                                  std::vector<sort_by>& sort_fields_std,
-                                  std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const {
+Option<bool> Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
+                                          std::vector<sort_by>& sort_fields_std,
+                                          std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const {
     for (size_t i = 0; i < sort_fields_std.size(); i++) {
         if (!sort_fields_std[i].reference_collection_name.empty()) {
             auto& cm = CollectionManager::get_instance();
@@ -6114,8 +6144,11 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
             ref_sort_fields_std.emplace_back(sort_fields_std[i]);
             ref_sort_fields_std.front().reference_collection_name.clear();
             std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> ref_field_values;
-            ref_collection->reference_populate_sort_mapping(ref_sort_order, ref_geopoint_indices,
-                                                            ref_sort_fields_std, ref_field_values);
+            auto populate_op = ref_collection->reference_populate_sort_mapping(ref_sort_order, ref_geopoint_indices,
+                                                                               ref_sort_fields_std, ref_field_values);
+            if (!populate_op.ok()) {
+                return populate_op;
+            }
 
             sort_order[i] = ref_sort_order[0];
             if (!ref_geopoint_indices.empty()) {
@@ -6147,7 +6180,7 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
                                                                        search_begin_us, search_stop_us);
                 auto filter_init_op = filter_result_iterator.init_status();
                 if (!filter_init_op.ok()) {
-                    return;
+                    return filter_init_op;
                 }
 
                 filter_result_iterator.compute_iterators();
@@ -6176,13 +6209,15 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
             }
         }
     }
+
+    return Option<bool>(true);
 }
 
-void Index::populate_sort_mapping_with_lock(int* sort_order, std::vector<size_t>& geopoint_indices,
-                                            std::vector<sort_by>& sort_fields_std,
-                                            std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const {
+Option<bool> Index::populate_sort_mapping_with_lock(int* sort_order, std::vector<size_t>& geopoint_indices,
+                                                    std::vector<sort_by>& sort_fields_std,
+                                                    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const {
     std::shared_lock lock(mutex);
-    populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
+    return populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
 }
 
 int Index::get_bounded_typo_cost(const size_t max_cost, const std::string& token, const size_t token_len,
