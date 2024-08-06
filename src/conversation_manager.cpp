@@ -119,7 +119,7 @@ Option<nlohmann::json> ConversationManager::get_conversation(const std::string& 
     }
 
     // swap every two elements
-    for(size_t i = 0; i < res["conversation"].size(); i += 2) {
+    for(size_t i = 0; i < res["conversation"].size() - 1; i += 2) {
         res["conversation"].at(i).swap(res["conversation"].at(i + 1));
     }
 
