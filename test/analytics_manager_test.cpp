@@ -643,7 +643,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     //get events
     nlohmann::json payload = nlohmann::json::array();
     nlohmann::json event_data;
-    auto collection_events_map = analyticsManager.get_log_events();
+    auto collection_events_map = analyticsManager.get_events();
     for (auto &events_collection_it: collection_events_map) {
         const auto& collection = events_collection_it.first;
         for(const auto& event: events_collection_it.second) {
@@ -682,7 +682,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
 
     //get events
     payload.clear();
-    collection_events_map = analyticsManager.get_log_events();
+    collection_events_map = analyticsManager.get_events();
     for (auto &events_collection_it: collection_events_map) {
         const auto& collection = events_collection_it.first;
         for(const auto& event: events_collection_it.second) {
@@ -1413,7 +1413,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 
     nlohmann::json payload = nlohmann::json::array();
     nlohmann::json event_data;
-    auto collection_events_map = analyticsManager.get_log_events();
+    auto collection_events_map = analyticsManager.get_events();
     for (auto &events_collection_it: collection_events_map) {
         const auto& collection = events_collection_it.first;
         for(const auto& event: events_collection_it.second) {
@@ -1491,7 +1491,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 
     payload.clear();
     event_data.clear();
-    collection_events_map = analyticsManager.get_log_events();
+    collection_events_map = analyticsManager.get_events();
     for (auto &events_collection_it: collection_events_map) {
         const auto& collection = events_collection_it.first;
         for(const auto& event: events_collection_it.second) {
@@ -1619,7 +1619,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
     //get events
     nlohmann::json payload = nlohmann::json::array();
     nlohmann::json event_data;
-    auto collection_events_map = analyticsManager.get_log_events();
+    auto collection_events_map = analyticsManager.get_events();
     for (auto &events_collection_it: collection_events_map) {
         const auto& collection = events_collection_it.first;
         for(const auto& event: events_collection_it.second) {
@@ -1712,7 +1712,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     //get events
     nlohmann::json payload = nlohmann::json::array();
     nlohmann::json event_data;
-    auto collection_events_map = analyticsManager.get_log_events();
+    auto collection_events_map = analyticsManager.get_events();
     for (auto &events_collection_it: collection_events_map) {
         const auto& collection = events_collection_it.first;
         for(const auto& event: events_collection_it.second) {
@@ -1779,7 +1779,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     payload.clear();
     event_data.clear();
-    collection_events_map = analyticsManager.get_log_events();
+    collection_events_map = analyticsManager.get_events();
     for (auto &events_collection_it: collection_events_map) {
         const auto& collection = events_collection_it.first;
         for(const auto& event: events_collection_it.second) {
@@ -1823,7 +1823,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     payload.clear();
     event_data.clear();
-    collection_events_map = analyticsManager.get_log_events();
+    collection_events_map = analyticsManager.get_events();
     for (auto &events_collection_it: collection_events_map) {
         const auto& collection = events_collection_it.first;
 
@@ -1858,7 +1858,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     payload.clear();
     event_data.clear();
-    collection_events_map = analyticsManager.get_log_events();
+    collection_events_map = analyticsManager.get_events();
     for (auto &events_collection_it: collection_events_map) {
         const auto& collection = events_collection_it.first;
 
@@ -2065,7 +2065,7 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
     ASSERT_EQ("Events must contain a unique name.", create_op.error());
 }
 
-TEST_F(AnalyticsManagerTest, EventsOnlySearchTest) {
+TEST_F(AnalyticsManagerTest, AutoAggregationSearchEvents) {
     nlohmann::json titles_schema = R"({
             "name": "titles",
             "fields": [
@@ -2168,4 +2168,181 @@ TEST_F(AnalyticsManagerTest, EventsOnlySearchTest) {
     ASSERT_EQ(1, localCounts.size());
     ASSERT_EQ(1, localCounts.count("foobar"));
     ASSERT_EQ(1, localCounts["foobar"]);
+}
+
+TEST_F(AnalyticsManagerTest, EventsOnlySearchTest) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection *titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Cool trousers";
+    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
+
+    // create a collection to store suggestions
+    nlohmann::json suggestions_schema = R"({
+        "name": "top_queries",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection *suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    //enable_auto_aggregation flag enables query aggregation via events only
+    //no destination means don't log events to destination collection
+    //if log_to_store is mentioned then will be written to anlaytics store or else will be abandoned
+    nlohmann::json analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "enable_auto_aggregation": true,
+            "source": {
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "coll_search"}]
+            }
+        }
+    })"_json;
+
+    //destination is mandatory if enable_auto_aggregation is true
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ(create_op.error(), "Bad or missing destination.");
+
+    analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "enable_auto_aggregation": false,
+            "source": {
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "coll_search", "log_to_store":true}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    //try sending via events api
+    nlohmann::json event_data;
+    event_data["q"] = "coo";
+    event_data["user_id"] = "1";
+
+    analyticsManager.add_event("127.0.0.1", "search", "coll_search", event_data);
+
+    nlohmann::json payload = nlohmann::json::array();
+    nlohmann::json event_json;
+    auto collection_events_map = analyticsManager.get_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto &collection = events_collection_it.first;
+        for (const auto &event: events_collection_it.second) {
+            event.to_json(event_json, collection);
+            payload.push_back(event_json);
+        }
+    }
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    std::vector<std::string> values;
+    analyticsManager.get_last_N_events("1", "*", 5, values);
+    ASSERT_EQ(1, values.size());
+
+    nlohmann::json parsed_json = nlohmann::json::parse(values[0]);
+    ASSERT_EQ("coo", parsed_json["query"]);
+
+    //try with nohits analytic rule
+    analytics_rule = R"({
+        "name": "noresults_queries",
+        "type": "nohits_queries",
+        "params": {
+            "limit": 100,
+            "enable_auto_aggregation": false,
+            "source": {
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "nohits_search", "log_to_store":true}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    //send events for same
+    event_data["q"] = "foobar";
+    analyticsManager.add_event("127.0.0.1", "search", "nohits_search", event_data);
+
+    payload.clear();
+    collection_events_map = analyticsManager.get_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto &collection = events_collection_it.first;
+        for (const auto &event: events_collection_it.second) {
+            event.to_json(event_json, collection);
+            payload.push_back(event_json);
+        }
+    }
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    values.clear();
+    analyticsManager.get_last_N_events("1", "*", 5, values);
+    ASSERT_EQ(2, values.size());
+
+    parsed_json = nlohmann::json::parse(values[0]);
+    ASSERT_EQ("foobar", parsed_json["query"]);
+    parsed_json = nlohmann::json::parse(values[1]);
+    ASSERT_EQ("coo", parsed_json["query"]);
+
+    //without log_to_store, events will be abandoned
+    analytics_rule = R"({
+        "name": "noresults_queries2",
+        "type": "nohits_queries",
+        "params": {
+            "limit": 100,
+            "enable_auto_aggregation": false,
+            "source": {
+                "collections": ["titles"],
+                "events":  [{"type": "search", "name": "nohits_search2"}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    //send events for same
+    event_data["q"] = "buzz";
+    analyticsManager.add_event("127.0.0.1", "search", "nohits_search2", event_data);
+
+    payload.clear();
+    collection_events_map = analyticsManager.get_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto &collection = events_collection_it.first;
+        for (const auto &event: events_collection_it.second) {
+            event.to_json(event_json, collection);
+            payload.push_back(event_json);
+        }
+    }
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    values.clear();
+    analyticsManager.get_last_N_events("1", "*", 5, values);
+    ASSERT_EQ(2, values.size());
+
+    parsed_json = nlohmann::json::parse(values[0]);
+    ASSERT_EQ("foobar", parsed_json["query"]);
+    parsed_json = nlohmann::json::parse(values[1]);
+    ASSERT_EQ("coo", parsed_json["query"]);
 }

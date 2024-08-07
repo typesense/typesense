@@ -224,7 +224,7 @@ public:
     void get_last_N_events(const std::string& userid, const std::string& event_type, uint32_t N, std::vector<std::string>& values);
 
 #ifdef TEST_BUILD
-    std::unordered_map<std::string, std::vector<event_t>> get_log_events() {
+    std::unordered_map<std::string, std::vector<event_t>> get_events() {
         return query_collection_events;
     }
 #endif

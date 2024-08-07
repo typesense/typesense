@@ -50,6 +50,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     size_t limit = 1000;
     bool expand_query = false;
     bool enable_auto_aggregation = true;
+    bool is_event_only = false;
 
     if(params.contains("limit") && params["limit"].is_number_integer()) {
         limit = params["limit"].get<size_t>();
@@ -81,11 +82,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
 
             const std::string& src_collection = coll.get<std::string>();
             suggestion_config.query_collections.push_back(src_collection);
-
-            //for log type rule
-            if(payload["type"] == LOG_TYPE) {
-                suggestion_collection = src_collection;
-            }
+            suggestion_collection = src_collection;
         }
     }
 
@@ -110,8 +107,8 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
         return Option<bool>(400, "Bad or missing events.");
     }
 
-    if(payload["type"] != LOG_TYPE) {
-        if(!params.contains("destination") || !params["destination"].is_object()) {
+    if(params.contains("destination")) {
+        if(!params["destination"].is_object()) {
             return Option<bool>(400, "Bad or missing destination.");
         }
 
@@ -128,6 +125,17 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
         }
 
         suggestion_collection = params["destination"]["collection"].get<std::string>();
+    } else if(payload["type"] == COUNTER_TYPE) {
+        //destination is mandatory for counter events
+        return Option<bool>(400, "Bad or missing destination.");
+    } else if((payload["type"] == NOHITS_QUERIES_TYPE || payload["type"] == POPULAR_QUERIES_TYPE)) {
+        //if destination is not found and auto-aggregation is true then it's and error
+        // otherwise it's an event_only type
+        if(enable_auto_aggregation) {
+            return Option<bool>(400, "Bad or missing destination.");
+        } else {
+            is_event_only = true;
+        }
     }
 
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
@@ -172,12 +180,13 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     std::map<std::string, uint16_t> event_weight_map;
     bool log_to_store = payload["type"] == LOG_TYPE ? true : false;
 
-    if(payload["type"] == POPULAR_QUERIES_TYPE) {
-        QueryAnalytics* popularQueries = new QueryAnalytics(limit, enable_auto_aggregation);
+    if(payload["type"] == POPULAR_QUERIES_TYPE && !is_event_only) {
+        auto *popularQueries = new QueryAnalytics(limit, enable_auto_aggregation);
         popularQueries->set_expand_query(suggestion_config.expand_query);
         popular_queries.emplace(suggestion_collection, popularQueries);
-    } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
-        QueryAnalytics* noresultsQueries = new QueryAnalytics(limit, enable_auto_aggregation);
+
+    } else if(payload["type"] == NOHITS_QUERIES_TYPE && !is_event_only) {
+        auto *noresultsQueries = new QueryAnalytics(limit, enable_auto_aggregation);
         nohits_queries.emplace(suggestion_collection, noresultsQueries);
     }
 
@@ -194,23 +203,26 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
 
                 //store event name to their weights
                 //which can be used to keep counter events separate from non counter events
-                if(event.contains("log_to_store")) {
-                    log_to_store = event["log_to_store"].get<bool>();
-
-                    if(log_to_store && !analytics_store) {
-                        return Option<bool>(400, "Event can't be logged when analytics-db is not defined.");
-                    }
-                }
                 event_weight_map[event["name"]] = event["weight"];
+            }
+
+            if(event.contains("log_to_store")) {
+                log_to_store = event["log_to_store"].get<bool>();
+
+                if(log_to_store && !analytics_store) {
+                    return Option<bool>(400, "Event can't be logged when analytics-db is not defined.");
+                }
             }
 
             event_type_collection ec{event["type"], suggestion_collection, log_to_store, suggestion_config_name};
 
-            //keep pointer for /events API
-            if(payload["type"] == POPULAR_QUERIES_TYPE) {
-                ec.queries_ptr = popular_queries.at(suggestion_collection);
-            } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
-                ec.queries_ptr = nohits_queries.at(suggestion_collection);
+            if(!is_event_only) {
+                //keep pointer for /events API
+                if(payload["type"] == POPULAR_QUERIES_TYPE) {
+                    ec.queries_ptr = popular_queries.at(suggestion_collection);
+                } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
+                    ec.queries_ptr = nohits_queries.at(suggestion_collection);
+                }
             }
 
             event_collection_map.emplace(event["name"], ec);
@@ -437,8 +449,6 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
             //add to respective popular queries/nohits queries
             if(event_collection_map_it->second.queries_ptr) {
                 event_collection_map_it->second.queries_ptr->add(query, query, false, user_id);
-            } else {
-                return Option<bool>(500, "Error in /events endpoint for event " + event_name);
             }
         } else if (event_type == CUSTOM_EVENT) {
             for(auto itr = event_json.begin(); itr != event_json.end(); ++itr) {
@@ -465,7 +475,7 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
             user_id.erase(std::remove(user_id.begin(), user_id.end(), '%'), user_id.end());
 
             event_t event(query, event_type, now_ts_useconds, user_id, doc_id,
-                          event_name, event_collection_map[event_name].log_to_store, custom_data);
+                          event_name, true, custom_data);
             events_vec.emplace_back(event);
         }
 
