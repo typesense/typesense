@@ -208,6 +208,11 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         } else {
             field_json[fields::sort] = false;
         }
+    } else if (!field_json[fields::sort].get<bool>() &&
+                (field_json["type"] == field_types::GEOPOINT || field_json["type"] == field_types::GEOPOINT_ARRAY)) {
+        return Option<bool>(400, std::string("The `sort` property of the field `") +=
+                                 field_json[fields::name].get<std::string>() += "` having `" + field_json["type"].get<std::string>() +=
+                                 "` type cannot be `false`. The sort index is used during GeoSearch.");
     }
 
     if(field_json.count(fields::infix) == 0) {
