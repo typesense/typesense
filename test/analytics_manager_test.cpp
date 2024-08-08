@@ -595,6 +595,22 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     })"_json;
     req->body = event9.dump();
     ASSERT_TRUE(post_create_event(req, res));
+
+    //for log events source collections is optional
+    req->params["name"] = "product_events2";
+    ASSERT_TRUE(del_analytics_rules(req, res));
+    analytics_rule = R"({
+        "name": "product_events2",
+        "type": "log",
+        "params": {
+            "source": {
+                 "events":  [{"type": "custom", "name": "CP"}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
 }
 
 TEST_F(AnalyticsManagerTest, EventsPersist) {
@@ -713,6 +729,60 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     ASSERT_EQ("titles", parsed_json["collection"]);
     ASSERT_EQ("13", parsed_json["user_id"]);
     ASSERT_EQ("21", parsed_json["doc_id"]);
+    ASSERT_EQ("technology", parsed_json["query"]);
+
+    //create rule without source collections
+    analytics_rule = R"({
+        "name": "product_click_events2",
+        "type": "log",
+        "params": {
+            "source": {
+                 "events":  [{"type": "click", "name": "APCT"}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    event = R"({
+        "type": "click",
+        "name": "APCT",
+        "data": {
+            "q": "technology",
+            "doc_id": "10",
+            "user_id": "1"
+        }
+    })"_json;
+
+    req->body = event.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    //get events
+    payload.clear();
+    collection_events_map = analyticsManager.get_log_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto& collection = events_collection_it.first;
+        for(const auto& event: events_collection_it.second) {
+            event.to_json(event_data, collection);
+            payload.push_back(event_data);
+        }
+    }
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    values.clear();
+    analyticsManager.get_last_N_events("1", "*", 5, values);
+    ASSERT_EQ(1, values.size());
+
+    parsed_json = nlohmann::json::parse(values[0]);
+
+    //events will be fetched in LIFO order
+    ASSERT_EQ("APCT", parsed_json["name"]);
+    ASSERT_EQ("generic", parsed_json["collection"]); //without source collections events are classified into generic collection
+    ASSERT_EQ("1", parsed_json["user_id"]);
+    ASSERT_EQ("10", parsed_json["doc_id"]);
     ASSERT_EQ("technology", parsed_json["query"]);
 }
 

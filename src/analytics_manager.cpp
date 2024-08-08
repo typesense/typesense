@@ -60,7 +60,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     }
 
     std::string counter_field;
-    std::string suggestion_collection;
+    std::string suggestion_collection = "generic";
 
     suggestion_config_t suggestion_config;
     suggestion_config.name = suggestion_config_name;
@@ -69,24 +69,24 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     suggestion_config.rule_type = payload["type"];
 
     //for counter events source collections are not needed
-    if(payload["type"] != COUNTER_TYPE) {
-        if(!params["source"].contains("collections") || !params["source"]["collections"].is_array()) {
+    if(params["source"].contains("collections")) {
+        if(!params["source"]["collections"].is_array()) {
             return Option<bool>(400, "Must contain a valid list of source collections.");
         }
 
         for(const auto& coll: params["source"]["collections"]) {
-            if(!coll.is_string()) {
+            if (!coll.is_string()) {
                 return Option<bool>(400, "Must contain a valid list of source collection names.");
             }
 
-            const std::string& src_collection = coll.get<std::string>();
+            const std::string &src_collection = coll.get<std::string>();
             suggestion_config.query_collections.push_back(src_collection);
 
-            //for log type rule
-            if(payload["type"] == LOG_TYPE) {
-                suggestion_collection = src_collection;
-            }
+            suggestion_collection = src_collection;
         }
+    } else if(payload["type"] == POPULAR_QUERIES_TYPE || payload["type"] == NOHITS_QUERIES_TYPE) {
+        //for popular and nohits queries, source collection is mandatory
+        return Option<bool>(400, "Must contain a valid list of source collections.");
     }
 
     if((payload["type"] == POPULAR_QUERIES_TYPE || payload["type"] == NOHITS_QUERIES_TYPE)
