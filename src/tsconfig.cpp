@@ -268,6 +268,10 @@ void Config::load_config_env() {
     if(!get_env("TYPESENSE_ANALYTICS_DB_TTL").empty()) {
         this->analytics_db_ttl = std::stoi(get_env("TYPESENSE_ANALYTICS_DB_TTL"));
     }
+
+    if(!get_env("TYPESENSE_ANALYTICS_MINUTE_RATE_LIMIT").empty()) {
+        this->analytics_minute_rate_limit = std::stoi(get_env("TYPESENSE_ANALYTICS_MINUTE_RATE_LIMIT"));
+    }
 }
 
 void Config::load_config_file(cmdline::parser& options) {
@@ -303,11 +307,11 @@ void Config::load_config_file(cmdline::parser& options) {
     }
 
     if(reader.Exists("server", "analytics-db-ttl")) {
-        this->analytics_db_ttl = std::stoi(reader.Get("server", "analytics-db-ttl", "0"));
+        this->analytics_db_ttl = reader.GetInteger("server", "analytics-db-ttl", 0);
     }
 
     if(reader.Exists("server", "analytics-minute-rate-limit")) {
-        this->analytics_minute_rate_limit = std::stoi(reader.Get("server", "analytics-minute-rate-limit", "5"));
+        this->analytics_minute_rate_limit = reader.GetInteger("server", "analytics-minute-rate-limit", 5);
     }
 
     if(reader.Exists("server", "api-key")) {

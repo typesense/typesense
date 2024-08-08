@@ -18,6 +18,7 @@ protected:
     std::vector<sort_by> sort_fields;
 
     AnalyticsManager& analyticsManager = AnalyticsManager::get_instance();
+    uint32_t analytics_minute_rate_limit = 5;
 
     void setupCollection() {
         state_dir_path = "/tmp/typesense_test/analytics_manager_test";
@@ -36,7 +37,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        analyticsManager.init(store, analytic_store);
+        analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
         analyticsManager.resetToggleRateLimit(false);
     }
 
@@ -843,7 +844,7 @@ TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
     analyticsManager.dispose();
     analyticsManager.stop();
 
-    uint32_t analytics_minute_rate_limit = 20;
+    analytics_minute_rate_limit = 20;
     analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     analytics_rule = R"({
@@ -1291,7 +1292,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     //restart analytics manager as fresh
     analyticsManager.dispose();
     analyticsManager.stop();
-    analyticsManager.init(store, analytic_store);
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     nlohmann::json products_schema = R"({
             "name": "books",
@@ -1653,7 +1654,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 
     analyticsManager.dispose();
     analyticsManager.stop();
-    analyticsManager.init(store, analytic_store);
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     analytics_rule = R"({
         "name": "books_popularity3",
@@ -1701,7 +1702,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
     system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
 
     analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
-    analyticsManager.init(store, analytic_store);
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     auto analytics_rule = R"({
         "name": "product_events2",
@@ -1780,7 +1781,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
 
     analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
-    analyticsManager.init(store, analytic_store);
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     auto analytics_rule = R"({
         "name": "product_events2",
