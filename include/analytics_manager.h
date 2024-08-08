@@ -146,6 +146,8 @@ private:
 
     bool isRateLimitEnabled = true;
 
+    uint32_t analytics_minute_rate_limit;
+
     AnalyticsManager() {}
 
     ~AnalyticsManager();
@@ -177,7 +179,7 @@ public:
     AnalyticsManager(AnalyticsManager const&) = delete;
     void operator=(AnalyticsManager const&) = delete;
 
-    void init(Store* store, Store* analytics_store);
+    void init(Store* store, Store* analytics_store, uint32_t analytics_minute_rate_limit);
 
     void run(ReplicationState* raft_server);
 

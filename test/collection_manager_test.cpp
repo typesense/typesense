@@ -28,7 +28,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        AnalyticsManager::get_instance().init(store, analytic_store);
+        AnalyticsManager::get_instance().init(store, analytic_store, 5);
 
         schema = R"({
             "name": "collection1",

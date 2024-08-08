@@ -18,6 +18,7 @@ protected:
     std::vector<sort_by> sort_fields;
 
     AnalyticsManager& analyticsManager = AnalyticsManager::get_instance();
+    uint32_t analytics_minute_rate_limit = 5;
 
     void setupCollection() {
         state_dir_path = "/tmp/typesense_test/analytics_manager_test";
@@ -36,7 +37,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        analyticsManager.init(store, analytic_store);
+        analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
         analyticsManager.resetToggleRateLimit(false);
     }
 
@@ -836,6 +837,53 @@ TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
     ASSERT_EQ("{\"message\": \"event rate limit reached.\"}", res->body);
 
     analyticsManager.resetToggleRateLimit(false);
+
+
+    //try with different limit
+    //restart analytics manager as fresh
+    analyticsManager.dispose();
+    analyticsManager.stop();
+
+    analytics_minute_rate_limit = 20;
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
+
+    analytics_rule = R"({
+        "name": "product_events2",
+        "type": "log",
+        "params": {
+            "source": {
+                "collections": ["titles"],
+                 "events":  [{"type": "click", "name": "AB"}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    event1 = R"({
+        "type": "click",
+        "name": "AB",
+        "data": {
+            "q": "technology",
+            "doc_id": "21",
+            "user_id": "13"
+        }
+    })"_json;
+
+    //reset the LRU cache to test the rate limit
+    analyticsManager.resetToggleRateLimit(true);
+
+    for(auto i = 0; i < 20; ++i) {
+        req->body = event1.dump();
+        ASSERT_TRUE(post_create_event(req, res));
+    }
+
+    //as rate limit is 20, adding one more event above that should trigger rate limit
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"event rate limit reached.\"}", res->body);
+
+    analyticsManager.resetToggleRateLimit(false);
 }
 
 TEST_F(AnalyticsManagerTest, NoresultsQueries) {
@@ -1244,7 +1292,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     //restart analytics manager as fresh
     analyticsManager.dispose();
     analyticsManager.stop();
-    analyticsManager.init(store, analytic_store);
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     nlohmann::json products_schema = R"({
             "name": "books",
@@ -1606,7 +1654,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 
     analyticsManager.dispose();
     analyticsManager.stop();
-    analyticsManager.init(store, analytic_store);
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     analytics_rule = R"({
         "name": "books_popularity3",
@@ -1654,7 +1702,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
     system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
 
     analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
-    analyticsManager.init(store, analytic_store);
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     auto analytics_rule = R"({
         "name": "product_events2",
@@ -1733,7 +1781,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
 
     analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
-    analyticsManager.init(store, analytic_store);
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     auto analytics_rule = R"({
         "name": "product_events2",
