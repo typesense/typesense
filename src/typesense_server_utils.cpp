@@ -20,11 +20,9 @@
 #include "ratelimit_manager.h"
 #include "embedder_manager.h"
 #include "typesense_server_utils.h"
-#include "file_utils.h"
 #include "threadpool.h"
 #include "stopwords_manager.h"
 #include "conversation_manager.h"
-#include "conversation_model_manager.h"
 #include "vq_model_manager.h"
 
 #ifndef ASAN_BUILD
@@ -291,14 +289,6 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
                                 nodes_config_op.get(), quit_raft_service) != 0) {
         LOG(ERROR) << "Failed to start peering state";
         exit(-1);
-    }
-
-    // important to init conversation models only after all collections have been loaded
-    auto conversation_models_init = ConversationModelManager::init(&store);
-    if(!conversation_models_init.ok()) {
-        LOG(INFO) << "Failed to initialize conversation model manager: " << conversation_models_init.error();
-    } else {
-        LOG(INFO) << "Loaded " << conversation_models_init.get() << "(s) conversation models.";
     }
 
     LOG(INFO) << "Typesense peering service is running on " << raft_server.listen_address();

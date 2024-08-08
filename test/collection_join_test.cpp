@@ -412,8 +412,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     doc = id_ref_collection->get("3").get();
     ASSERT_EQ(0, doc.count("id_reference_sequence_id"));
     ASSERT_EQ(0, doc.count("multi_id_reference_sequence_id"));
-    ASSERT_EQ(1, doc.count(".ref"));
-    ASSERT_EQ(0, doc[".ref"].size());
+    ASSERT_EQ(0, doc.count(".ref"));
 
     id_ref_json = R"({
                         "multi_id_reference": [null]
@@ -555,8 +554,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
 
     doc = coll2->get("1").get();
     ASSERT_EQ(0, doc.count("ref_string_field_sequence_id"));
-    ASSERT_EQ(1, doc.count(".ref"));
-    ASSERT_EQ(0, doc[".ref"].size());
+    ASSERT_EQ(0, doc.count(".ref"));
 
     doc_json = R"({
                     "ref_string_array_field": ["foo"]
@@ -4798,6 +4796,242 @@ TEST_F(CollectionJoinTest, CascadeDeletion) {
     ASSERT_EQ(2, res_obj["hits"][0]["document"].at("split_members").size());
     ASSERT_EQ("user_a", res_obj["hits"][0]["document"]["split_members"][0].at("user_id"));
     ASSERT_EQ("user_c", res_obj["hits"][0]["document"]["split_members"][1].at("user_id"));
+
+    collectionManager.drop_collection("Users");
+    schema_json =
+            R"({
+                "name": "Users",
+                "fields": [
+                    {"name": "user_id", "type": "string"},
+                    {"name": "user_name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "user_id": "user_a",
+                "user_name": "Roshan"
+            })"_json,
+            R"({
+                "user_id": "user_b",
+                "user_name": "Ruby"
+            })"_json,
+            R"({
+                "user_id": "user_c",
+                "user_name": "Joe"
+            })"_json,
+            R"({
+                "user_id": "user_d",
+                "user_name": "Aby"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Repos",
+                "fields": [
+                    {"name": "repo_id", "type": "string"},
+                    {"name": "repo_content", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "repo_id": "repo_a",
+                "repo_content": "body1"
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "repo_content": "body2"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "repo_content": "body3"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Links",
+                "fields": [
+                    {"name": "repo_id", "type": "string", "reference": "Repos.repo_id", "optional": true},
+                    {"name": "user_id", "type": "string", "reference": "Users.user_id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "repo_id": "repo_a",
+                "user_id": "user_b"
+            })"_json,
+            R"({
+                "repo_id": "repo_a",
+                "user_id": "user_c"
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "user_id": "user_a"
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "user_id": "user_b"
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "user_id": "user_d"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_a"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_b"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_c"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_d"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto links_collection = collectionManager.get_collection_unsafe("Links");
+    auto links_doc = links_collection->get("0").get();
+    ASSERT_EQ(1, links_doc.count(".ref"));
+    ASSERT_EQ(2, links_doc[".ref"].size());
+    ASSERT_EQ("user_id_sequence_id", links_doc[".ref"][0]);
+    ASSERT_EQ("repo_id_sequence_id", links_doc[".ref"][1]);
+    ASSERT_EQ(1, links_doc.count("user_id_sequence_id"));
+    ASSERT_EQ(1, links_doc["user_id_sequence_id"]);
+    ASSERT_EQ(1, links_doc.count("repo_id_sequence_id"));
+    ASSERT_EQ(0, links_doc["repo_id_sequence_id"]);
+
+    links_doc = links_collection->get("1").get();
+    ASSERT_EQ(1, links_doc.count(".ref"));
+    ASSERT_EQ(2, links_doc[".ref"].size());
+    ASSERT_EQ("user_id_sequence_id", links_doc[".ref"][0]);
+    ASSERT_EQ("repo_id_sequence_id", links_doc[".ref"][1]);
+    ASSERT_EQ(1, links_doc.count("user_id_sequence_id"));
+    ASSERT_EQ(2, links_doc["user_id_sequence_id"]);
+    ASSERT_EQ(1, links_doc.count("repo_id_sequence_id"));
+    ASSERT_EQ(0, links_doc["repo_id_sequence_id"]);
+
+    collectionManager.get_collection_unsafe("Repos")->remove("0");
+
+    // Only optional reference to repos was deleted, so the document will not be deleted.
+    links_collection = collectionManager.get_collection_unsafe("Links");
+    links_doc = links_collection->get("0").get();
+    ASSERT_EQ(1, links_doc.count(".ref"));
+    ASSERT_EQ(1, links_doc[".ref"].size());
+    ASSERT_EQ("user_id_sequence_id", links_doc[".ref"][0]);
+    ASSERT_EQ(1, links_doc.count("user_id_sequence_id"));
+    ASSERT_EQ(1, links_doc["user_id_sequence_id"]);
+    ASSERT_EQ(0, links_doc.count("repo_id_sequence_id"));
+
+    links_doc = links_collection->get("1").get();
+    ASSERT_EQ(1, links_doc.count(".ref"));
+    ASSERT_EQ(1, links_doc[".ref"].size());
+    ASSERT_EQ("user_id_sequence_id", links_doc[".ref"][0]);
+    ASSERT_EQ(1, links_doc.count("user_id_sequence_id"));
+    ASSERT_EQ(2, links_doc["user_id_sequence_id"]);
+    ASSERT_EQ(0, links_doc.count("repo_id_sequence_id"));
+
+    collectionManager.get_collection_unsafe("Users")->remove("2");
+
+    links_doc = links_collection->get("0").get();
+    ASSERT_EQ(1, links_doc.count(".ref"));
+    ASSERT_EQ(1, links_doc[".ref"].size());
+    ASSERT_EQ("user_id_sequence_id", links_doc[".ref"][0]);
+    ASSERT_EQ(1, links_doc.count("user_id_sequence_id"));
+    ASSERT_EQ(1, links_doc["user_id_sequence_id"]);
+
+    // Required reference to users was deleted, so the documents are removed.
+    auto get_op = links_collection->get("1");
+    ASSERT_FALSE(get_op.ok());
+    ASSERT_EQ("Could not find a document with id: 1", get_op.error());
+
+    get_op = links_collection->get("7");
+    ASSERT_FALSE(get_op.ok());
+    ASSERT_EQ("Could not find a document with id: 7", get_op.error());
+
+    schema_json =
+            R"({
+                "name": "Links_2",
+                "fields": [
+                    {"name": "repo_id", "type": "string", "reference": "Repos.repo_id", "optional": true},
+                    {"name": "user_id", "type": "string", "reference": "Users.user_id", "optional": true}
+                ]
+            })"_json;
+
+    documents = {
+            R"({
+                "repo_id": "repo_b",
+                "user_id": "user_b"
+            })"_json,
+    };
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto links_2_collection = collectionManager.get_collection_unsafe("Links_2");
+    auto links_2_doc = links_2_collection->get("0").get();
+    ASSERT_EQ(1, links_2_doc.count(".ref"));
+    ASSERT_EQ(2, links_2_doc[".ref"].size());
+    ASSERT_EQ("user_id_sequence_id", links_2_doc[".ref"][0]);
+    ASSERT_EQ("repo_id_sequence_id", links_2_doc[".ref"][1]);
+    ASSERT_EQ(1, links_2_doc.count("user_id_sequence_id"));
+    ASSERT_EQ(1, links_2_doc["user_id_sequence_id"]);
+    ASSERT_EQ(1, links_2_doc.count("repo_id_sequence_id"));
+    ASSERT_EQ(1, links_2_doc["repo_id_sequence_id"]);
+
+    collectionManager.get_collection_unsafe("Users")->remove("1");
+
+    links_2_doc = links_2_collection->get("0").get();
+    ASSERT_EQ(1, links_2_doc.count(".ref"));
+    ASSERT_EQ(1, links_2_doc[".ref"].size());
+    ASSERT_EQ("repo_id_sequence_id", links_2_doc[".ref"][0]);
+    ASSERT_EQ(0, links_2_doc.count("user_id_sequence_id"));
+    ASSERT_EQ(1, links_2_doc.count("repo_id_sequence_id"));
+    ASSERT_EQ(1, links_2_doc["repo_id_sequence_id"]);
+
+    collectionManager.get_collection_unsafe("Repos")->remove("1");
+
+    // All references were deleted, so the document is removed.
+    get_op = links_2_collection->get("0");
+    ASSERT_FALSE(get_op.ok());
+    ASSERT_EQ("Could not find a document with id: 0", get_op.error());
 }
 
 TEST_F(CollectionJoinTest, SortByReference) {
@@ -5788,6 +6022,133 @@ TEST_F(CollectionJoinTest, SortByReference) {
     ASSERT_EQ("0", res_obj["hits"][3]["document"].at("id"));
     ASSERT_EQ("bar", res_obj["hits"][3]["document"]["Structures"].at("name"));
     ASSERT_EQ(0, res_obj["hits"][3]["document"].count("Ads"));
+
+    schema_json =
+            R"({
+                "name": "product",
+                "fields": [
+                    {"name": "entity_id", "type": "string"},
+                    {"name": "name", "type": "string", "sort": true}
+                ]
+            })"_json;
+    documents = {
+            R"({"entity_id": "P0",  "name": "Generic brand Tablet"})"_json,
+            R"({"entity_id": "P1", "name": "Tablet from samsung"})"_json,
+            R"({"entity_id": "P2", "name": "Tablet from apple"})"_json,
+            R"({"entity_id": "P3", "name": "Tablet from oppo"})"_json,
+            R"({"entity_id": "P4", "name": "Tablet from vivo"})"_json,
+            R"({"entity_id": "P5", "name": "Phone from samsung"})"_json,
+            R"({"entity_id": "P6", "name": "Tablet from xiaomi"})"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "stock",
+                "fields": [
+                    {"name": "entity_id", "type": "string", "reference": "product.entity_id"},
+                    {"name": "store_.*", "type": "bool", "sort": true}
+                ]
+            })"_json;
+    documents = {
+            R"({"entity_id": "P0", "store_1": true, "store_2": true})"_json,
+            R"({"entity_id": "P1", "store_1": false, "store_2": false})"_json,
+            R"({"entity_id": "P2", "store_1": false, "store_2": true})"_json,
+            R"({"entity_id": "P4", "store_1": true, "store_2": true})"_json,
+            R"({"entity_id": "P6", "store_1": false, "store_2": false})"_json,
+            R"({"entity_id": "P3", "store_1": true, "store_2": false})"_json,
+            R"({"entity_id": "P5", "store_1": true, "store_2": true})"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "product"},
+            {"q", "tablet"},
+            {"query_by", "name"},
+            {"filter_by", "$stock(id: *)"},
+            {"sort_by", "$stock(_eval(store_1:true || store_2:true):desc)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(6, res_obj["found"].get<size_t>());
+    ASSERT_EQ(6, res_obj["hits"].size());
+    ASSERT_EQ("4", res_obj["hits"][0]["document"].at("id"));
+    ASSERT_EQ("3", res_obj["hits"][1]["document"].at("id"));
+    ASSERT_EQ("2", res_obj["hits"][2]["document"].at("id"));
+    ASSERT_EQ("0", res_obj["hits"][3]["document"].at("id"));
+    ASSERT_EQ("6", res_obj["hits"][4]["document"].at("id"));
+    ASSERT_EQ("1", res_obj["hits"][5]["document"].at("id"));
+
+    req_params = {
+            {"collection", "product"},
+            {"q", "tablet"},
+            {"query_by", "name"},
+            {"filter_by", "$stock(id: *)"},
+            {"sort_by", "$stock(_eval([(store_1:true && store_2:true):3, (store_1:true || store_2:true):2 ]):desc)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(6, res_obj["found"].get<size_t>());
+    ASSERT_EQ(6, res_obj["hits"].size());
+    ASSERT_EQ("4", res_obj["hits"][0]["document"].at("id"));
+    ASSERT_EQ("0", res_obj["hits"][1]["document"].at("id"));
+    ASSERT_EQ("3", res_obj["hits"][2]["document"].at("id"));
+    ASSERT_EQ("2", res_obj["hits"][3]["document"].at("id"));
+    ASSERT_EQ("6", res_obj["hits"][4]["document"].at("id"));
+    ASSERT_EQ("1", res_obj["hits"][5]["document"].at("id"));
+
+    req_params = {
+            {"collection", "product"},
+            {"q", "tablet"},
+            {"query_by", "name"},
+            {"filter_by", "$stock(id: *)"},
+            {"sort_by", "_text_match:desc, $stock(_eval([(store_1:true && store_2:true):3, (store_1:true || store_2:true):2 ]):desc)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(6, res_obj["found"].get<size_t>());
+    ASSERT_EQ(6, res_obj["hits"].size());
+    ASSERT_EQ("4", res_obj["hits"][0]["document"].at("id"));
+    ASSERT_EQ("0", res_obj["hits"][1]["document"].at("id"));
+    ASSERT_EQ("3", res_obj["hits"][2]["document"].at("id"));
+    ASSERT_EQ("2", res_obj["hits"][3]["document"].at("id"));
+    ASSERT_EQ("6", res_obj["hits"][4]["document"].at("id"));
+    ASSERT_EQ("1", res_obj["hits"][5]["document"].at("id"));
+
+    req_params = {
+            {"collection", "product"},
+            {"q", "tablet"},
+            {"query_by", "name"},
+            {"filter_by", "$stock(id: *)"},
+            {"sort_by", "_eval($stock(store_1:true || store_2:true)):desc"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Parameter `sort_by` is malformed.", search_op.error());
 }
 
 TEST_F(CollectionJoinTest, FilterByReferenceAlias) {

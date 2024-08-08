@@ -235,6 +235,8 @@ bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
     uint32_t offset = 0, limit = 0;
+    std::vector<std::string> exclude_fields;
+
     if(req->params.count("offset") != 0) {
         const auto &offset_str = req->params["offset"];
         if(!StringUtils::is_uint32_t(offset_str)) {
@@ -253,10 +255,16 @@ bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr
         limit = std::stoi(limit_str);
     }
 
+    if(req->params.count("exclude_fields") != 0) {
+        const auto& exclude_fields_str = req->params["exclude_fields"];
+        StringUtils::split(exclude_fields_str, exclude_fields, ",");
+    }
+
     AuthManager &auth_manager = collectionManager.getAuthManager();
     auto api_key_collections = auth_manager.get_api_key_collections(req->api_auth_key);
 
-    auto collections_summaries_op = collectionManager.get_collection_summaries(limit, offset, api_key_collections);
+    auto collections_summaries_op = collectionManager.get_collection_summaries(limit, offset, exclude_fields,
+                                                                               api_key_collections);
     if(!collections_summaries_op.ok()) {
         res->set(collections_summaries_op.code(), collections_summaries_op.error());
         return false;

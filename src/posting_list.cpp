@@ -2154,7 +2154,7 @@ uint32_t posting_list_t::iterator_t::get_field_id() const {
 }
 
 bool result_iter_state_t::is_filter_provided() const {
-    return filter_ids_length > 0 || (fit != nullptr && fit->approx_filter_ids_length > 0);
+    return filter_ids_length > 0 || (fit != nullptr && fit->is_filter_provided());
 }
 
 bool result_iter_state_t::is_filter_valid() const {

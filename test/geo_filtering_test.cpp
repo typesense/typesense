@@ -567,7 +567,7 @@ TEST_F(GeoFilteringTest, GeoPointFilteringWithNonSortableLocationField) {
         "name": "coll1",
         "fields": [
             {"name": "title", "type": "string", "sort": false},
-            {"name": "loc", "type": "geopoint", "sort": false},
+            {"name": "loc", "type": "geopoint", "sort": true},
             {"name": "points", "type": "int32", "sort": false}
         ]
     })"_json;

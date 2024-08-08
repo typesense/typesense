@@ -661,7 +661,8 @@ TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["coll1"]
+                "collections": ["coll1"],
+                "events":  [{"type": "search", "name": "coll_search"}]
             },
             "destination": {
                 "collection": "top_queries"
@@ -1877,6 +1878,36 @@ TEST_F(CollectionManagerTest, ReferencedInBacklog) {
     ASSERT_EQ("Could not find any field in `Products` referencing the collection `foo`.", get_reference_field_op.error());
 }
 
+TEST_F(CollectionManagerTest, ExcludeFieldsInCollectionListing) {
+    auto schema_json =
+            R"({
+                "name": "products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "name", "type": "string"},
+                    {"name": "points", "type": "int32"}
+                ],
+                "default_sorting_field": "points"
+            })"_json;
+
+    auto create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(create_op.ok());
+
+    nlohmann::json coll_json_summaries = collectionManager.get_collection_summaries(10, 0, {"fields"}).get();
+    ASSERT_EQ(2, coll_json_summaries.size());
+
+    for(auto coll_json: coll_json_summaries) {
+        ASSERT_FALSE(coll_json.contains("fields"));
+    }
+
+    coll_json_summaries = collectionManager.get_collection_summaries(10, 0, {}).get();
+    ASSERT_EQ(2, coll_json_summaries.size());
+
+    for(auto coll_json: coll_json_summaries) {
+        ASSERT_TRUE(coll_json.contains("fields"));
+    }
+}
+
 TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
     CollectionManager & collectionManager3 = CollectionManager::get_instance();
 
@@ -2166,7 +2197,8 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
         "params": {
             "limit": 100,
             "source": {
-                "collections": ["coll3"]
+                "collections": ["coll3"],
+                "events":  [{"type": "search", "name": "coll_search3"}]
             },
             "destination": {
                 "collection": "top_queries2"

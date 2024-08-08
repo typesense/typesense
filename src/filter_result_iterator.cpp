@@ -793,6 +793,12 @@ void filter_result_iterator_t::init() {
         ref_collection_name = ref_collection->name;
 
         auto coll = cm.get_collection(collection_name);
+        if (coll == nullptr) {
+            status = Option<bool>(400, "Collection `" + collection_name + "` not found.");
+            validity = invalid;
+            return;
+        }
+
         bool is_referenced = coll->referenced_in.count(ref_collection_name) > 0,
                 has_reference = ref_collection->is_referenced_in(collection_name);
         if (!is_referenced && !has_reference) {
@@ -2421,6 +2427,14 @@ void filter_result_iterator_t::compute_iterators() {
         for (uint32_t i = 0; i < id_lists.size(); i++) {
             auto const& lists = id_lists[i];
             auto const& is_not_equals_comparator = numerical_not_iterator_index.count(i) != 0;
+
+            if (lists.empty() && is_not_equals_comparator) {
+                auto all_ids = index->seq_ids->uncompress();
+                std::copy(all_ids, all_ids + index->seq_ids->num_ids(), std::back_inserter(f_id_buff));
+                delete[] all_ids;
+
+                continue;
+            }
 
             for (const auto& list: lists) {
                 if (is_not_equals_comparator) {

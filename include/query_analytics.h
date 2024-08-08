@@ -25,7 +25,7 @@ private:
     const size_t max_query_length = 1024;
 
     bool expand_query = false;
-
+    bool auto_aggregation_enabled;
     // counts aggregated within the current node
     tsl::htrie_map<char, uint32_t> local_counts;
     std::shared_mutex lmutex;
@@ -35,7 +35,7 @@ private:
 
 public:
 
-    QueryAnalytics(size_t k);
+    QueryAnalytics(size_t k, bool enable_auto_aggregation = true);
 
     void add(const std::string& value, const std::string& expanded_key,
              const bool live_query, const std::string& user_id, uint64_t now_ts_us = 0);
@@ -53,4 +53,6 @@ public:
     tsl::htrie_map<char, uint32_t> get_local_counts();
 
     void set_expand_query(bool expand_query);
+
+    bool is_auto_aggregation_enabled() const;
 };

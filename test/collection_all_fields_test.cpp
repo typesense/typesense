@@ -1774,3 +1774,30 @@ TEST_F(CollectionAllFieldsTest, InvalidstemValue) {
     ASSERT_EQ("The `stem` property is only allowed for string and string[] fields.", obj_coll_op.error());
 }
 
+TEST_F(CollectionAllFieldsTest, GeopointSortValue) {
+    nlohmann::json schema = R"({
+        "name": "test",
+        "fields": [
+            {"name": "geo", "type": "geopoint", "sort": false}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("The `sort` property of the field `geo` having `geopoint` type cannot be `false`."
+               " The sort index is used during GeoSearch.", create_op.error());
+
+    schema = R"({
+        "name": "test",
+        "fields": [
+            {"name": "geo_array", "type": "geopoint[]", "sort": false}
+        ]
+    })"_json;
+
+    create_op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("The `sort` property of the field `geo_array` having `geopoint[]` type cannot be `false`."
+              " The sort index is used during GeoSearch.", create_op.error());
+
+}
+

@@ -130,6 +130,8 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
     // Add reference helper fields in the document.
     for (auto const& pair: reference_fields) {
         auto field_name = pair.first;
+        auto const reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+
         auto const& field = schema.at(field_name);
         auto const& optional = field.optional;
         // Strict checking for presence of non-optional reference field during indexing operation.
@@ -138,11 +140,10 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
             return Option<bool>(400, "Missing the required reference field `" + field_name
                                              + "` in the document.");
         } else if (document.count(field_name) != 1) {
+            if (is_update) {
+                document[fields::reference_helper_fields] += reference_helper_field;
+            }
             continue;
-        }
-
-        if (document.count(fields::reference_helper_fields) == 0) {
-            document[fields::reference_helper_fields] = nlohmann::json::array();
         }
 
         auto reference_pair = pair.second;
@@ -154,8 +155,6 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
             return Option<bool>(400, "Referenced collection `" + reference_collection_name
                                              + "` not found.");
         }
-
-        auto const reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
 
         bool is_object_reference_field = flat_fields.count(field_name) != 0;
         std::string object_key;
@@ -240,6 +239,10 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
                 document[reference_helper_field] = ref_doc_id_op.get();
                 document[fields::reference_helper_fields] += reference_helper_field;
             } else if (optional && document[field_name].is_null()) {
+                // Reference helper field should also be removed along with reference field.
+                if (is_update) {
+                    document[reference_helper_field] = nullptr;
+                }
                 continue;
             } else {
                 return id_field_type_error_op;
@@ -365,6 +368,10 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
                                                                           filter_query);
             if (!single_value_filter_query_op.ok()) {
                 if (optional && single_value_filter_query_op.code() == 422) {
+                    // Reference helper field should also be removed along with reference field.
+                    if (is_update) {
+                        document[reference_helper_field] = nullptr;
+                    }
                     continue;
                 }
                 return single_value_filter_query_op;
@@ -1190,7 +1197,8 @@ Option<bool> Collection::validate_and_standardize_sort_fields_with_lock(const st
                                                                         const size_t remote_embedding_num_tries) const {
     std::shared_lock lock(mutex);
     return validate_and_standardize_sort_fields(sort_fields, sort_fields_std, is_wildcard_query, is_vector_query,
-                                                query, is_group_by_query, remote_embedding_timeout_ms, true);
+                                                query, is_group_by_query, remote_embedding_timeout_ms, remote_embedding_num_tries,
+                                                true);
 }
 
 Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
@@ -2815,6 +2823,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                                                          reference_lat_lng, sort_field.unit);
                 } else if(sort_field.geopoint != 0) {
                     geo_distances[sort_field.name] = std::abs(field_order_kv->scores[sort_field_index]);
+                } else if(sort_field.name == sort_field_const::vector_query &&
+                          !sort_field.vector_query.query.field_name.empty()) {
+                    wrapper_doc["vector_distance"] = -Index::int64_t_to_float(field_order_kv->scores[sort_field_index]);
                 }
             }
 
@@ -4534,7 +4545,7 @@ void Collection::cascade_remove_docs(const std::string& ref_helper_field_name, c
         return;
     }
 
-    bool is_field_singular;
+    bool is_field_singular, is_field_optional;
     {
         std::unique_lock lock(mutex);
 
@@ -4543,6 +4554,7 @@ void Collection::cascade_remove_docs(const std::string& ref_helper_field_name, c
             return;
         }
         is_field_singular = it.value().is_singular();
+        is_field_optional = it.value().optional;
     }
 
     if (is_field_singular) {
@@ -4550,8 +4562,8 @@ void Collection::cascade_remove_docs(const std::string& ref_helper_field_name, c
         for (uint32_t i = 0; i < filter_result.count; i++) {
             auto const& seq_id = filter_result.docs[i];
 
-            nlohmann::json document;
-            auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), document);
+            nlohmann::json existing_document;
+            auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
 
             if (!get_doc_op.ok()) {
                 if (get_doc_op.code() == 404) {
@@ -4563,7 +4575,22 @@ void Collection::cascade_remove_docs(const std::string& ref_helper_field_name, c
                 continue;
             }
 
-            remove_document(document, seq_id, remove_from_store);
+            bool multiple_ref_fields = existing_document.contains(fields::reference_helper_fields) &&
+                                       existing_document[fields::reference_helper_fields].size() > 1;
+
+            // If there are other references present and the reference of an optional field is removed, don't delete the
+            // document.
+            if (multiple_ref_fields && is_field_optional) {
+                auto const id = existing_document["id"].get<std::string>();
+
+                nlohmann::json update_document;
+                update_document["id"] = id;
+                update_document[field_name] = nullptr;
+
+                add(update_document.dump(), index_operation_t::UPDATE, id);
+            } else {
+                remove_document(existing_document, seq_id, remove_from_store);
+            }
         }
     } else {
         std::string ref_coll_name, ref_field_name;
@@ -4647,7 +4674,22 @@ void Collection::cascade_remove_docs(const std::string& ref_helper_field_name, c
                 continue;
             }
 
-            remove_document(existing_document, seq_id, remove_from_store);
+            bool multiple_ref_fields = existing_document.contains(fields::reference_helper_fields) &&
+                                       existing_document[fields::reference_helper_fields].size() > 1;
+
+            // If there are other references present and the reference of an optional field is removed, don't delete the
+            // document.
+            if (multiple_ref_fields && is_field_optional) {
+                auto const id = existing_document["id"].get<std::string>();
+
+                nlohmann::json update_document;
+                update_document["id"] = id;
+                update_document[field_name] = nullptr;
+
+                buffer.push_back(update_document.dump());
+            } else {
+                remove_document(existing_document, seq_id, remove_from_store);
+            }
         }
 
         nlohmann::json dummy;
@@ -6863,12 +6905,12 @@ Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k
     return Option<bool>(true);
 }
 
-void Collection::reference_populate_sort_mapping(int *sort_order, std::vector<size_t> &geopoint_indices,
-                                                 std::vector<sort_by> &sort_fields_std,
-                                                 std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32> *, 3> &field_values)
-                                                 const {
+Option<bool> Collection::reference_populate_sort_mapping(int *sort_order, std::vector<size_t> &geopoint_indices,
+                                                         std::vector<sort_by> &sort_fields_std,
+                                                         std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32> *, 3> &field_values)
+                                                         const {
     std::shared_lock lock(mutex);
-    index->populate_sort_mapping_with_lock(sort_order, geopoint_indices, sort_fields_std, field_values);
+    return index->populate_sort_mapping_with_lock(sort_order, geopoint_indices, sort_fields_std, field_values);
 }
 
 int64_t Collection::reference_string_sort_score(const string &field_name,  const uint32_t& seq_id) const {

@@ -181,6 +181,7 @@ public:
     locked_resource_view_t<Collection> get_collection_with_id(uint32_t collection_id) const;
 
     Option<nlohmann::json> get_collection_summaries(uint32_t limit = 0 , uint32_t offset = 0,
+                                                    const std::vector<std::string>& exclude_fields = {},
                                                     const std::vector<std::string>& api_key_collections = {}) const;
 
     Option<nlohmann::json> drop_collection(const std::string& collection_name,

@@ -796,13 +796,13 @@ public:
                              const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, uint32_t*& filter_ids,
                              uint32_t& filter_ids_length, const std::vector<uint32_t>& curated_ids_sorted) const;
 
-    void populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
-                               std::vector<sort_by>& sort_fields_std,
-                               std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const;
+    Option<bool> populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
+                                       std::vector<sort_by>& sort_fields_std,
+                                       std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const;
 
-    void populate_sort_mapping_with_lock(int* sort_order, std::vector<size_t>& geopoint_indices,
-                                         std::vector<sort_by>& sort_fields_std,
-                                         std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const;
+    Option<bool> populate_sort_mapping_with_lock(int* sort_order, std::vector<size_t>& geopoint_indices,
+                                                 std::vector<sort_by>& sort_fields_std,
+                                                 std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const;
 
     int64_t reference_string_sort_score(const std::string& field_name, const uint32_t& seq_id) const;
 

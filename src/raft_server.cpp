@@ -7,6 +7,7 @@
 #include <file_utils.h>
 #include <collection_manager.h>
 #include <http_client.h>
+#include <conversation_model_manager.h>
 #include "rocksdb/utilities/checkpoint.h"
 #include "thread_local_vars.h"
 #include "core_api.h"
@@ -626,6 +627,14 @@ int ReplicationState::init_db() {
     } else {
         LOG(ERROR)<< "Typesense failed to start. " << "Could not load collections from disk: " << init_op.error();
         return 1;
+    }
+
+    // important to init conversation models only after all collections have been loaded
+    auto conversation_models_init = ConversationModelManager::init(store);
+    if(!conversation_models_init.ok()) {
+        LOG(INFO) << "Failed to initialize conversation model manager: " << conversation_models_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << conversation_models_init.get() << "conversation model(s).";
     }
 
     if(batched_indexer != nullptr) {
