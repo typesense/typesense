@@ -306,6 +306,10 @@ void Config::load_config_file(cmdline::parser& options) {
         this->analytics_db_ttl = std::stoi(reader.Get("server", "analytics-db-ttl", "0"));
     }
 
+    if(reader.Exists("server", "analytics-minute-rate-limit")) {
+        this->analytics_minute_rate_limit = std::stoi(reader.Get("server", "analytics-minute-rate-limit", "5"));
+    }
+
     if(reader.Exists("server", "api-key")) {
         this->api_key = reader.Get("server", "api-key", "");
     }
@@ -496,6 +500,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("analytics-db-ttl")) {
         this->analytics_db_ttl = options.get<uint32_t>("analytics-db-ttl");
+    }
+
+    if(options.exist("analytics-minute-rate-limit")) {
+        this->analytics_minute_rate_limit = options.get<uint32_t>("analytics-minute-rate-limit");
     }
 
     if(options.exist("api-key")) {

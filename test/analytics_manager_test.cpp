@@ -836,6 +836,53 @@ TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
     ASSERT_EQ("{\"message\": \"event rate limit reached.\"}", res->body);
 
     analyticsManager.resetToggleRateLimit(false);
+
+
+    //try with different limit
+    //restart analytics manager as fresh
+    analyticsManager.dispose();
+    analyticsManager.stop();
+
+    uint32_t analytics_minute_rate_limit = 20;
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
+
+    analytics_rule = R"({
+        "name": "product_events2",
+        "type": "log",
+        "params": {
+            "source": {
+                "collections": ["titles"],
+                 "events":  [{"type": "click", "name": "AB"}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    event1 = R"({
+        "type": "click",
+        "name": "AB",
+        "data": {
+            "q": "technology",
+            "doc_id": "21",
+            "user_id": "13"
+        }
+    })"_json;
+
+    //reset the LRU cache to test the rate limit
+    analyticsManager.resetToggleRateLimit(true);
+
+    for(auto i = 0; i < 20; ++i) {
+        req->body = event1.dump();
+        ASSERT_TRUE(post_create_event(req, res));
+    }
+
+    //as rate limit is 20, adding one more event above that should trigger rate limit
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"event rate limit reached.\"}", res->body);
+
+    analyticsManager.resetToggleRateLimit(false);
 }
 
 TEST_F(AnalyticsManagerTest, NoresultsQueries) {

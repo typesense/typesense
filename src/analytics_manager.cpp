@@ -7,7 +7,6 @@
 #include "string_utils.h"
 
 #define EVENTS_RATE_LIMIT_SEC 60
-#define EVENTS_RATE_LIMIT_COUNT 5
 
 Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk) {
 
@@ -406,7 +405,7 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
         if (events_cache_it != events_cache.end()) {
             // event found in events cache
             if ((now_ts_seconds - events_cache_it->second.last_update_time) < EVENTS_RATE_LIMIT_SEC) {
-                if (events_cache_it->second.count >= EVENTS_RATE_LIMIT_COUNT) {
+                if (events_cache_it->second.count >= analytics_minute_rate_limit) {
                     return Option<bool>(500, "event rate limit reached.");
                 } else {
                     events_cache_it->second.count++;
@@ -733,9 +732,10 @@ void AnalyticsManager::dispose() {
     events_cache.clear();
 }
 
-void AnalyticsManager::init(Store* store, Store* analytics_store) {
+void AnalyticsManager::init(Store* store, Store* analytics_store, uint32_t analytics_minute_rate_limit) {
     this->store = store;
     this->analytics_store = analytics_store;
+    this->analytics_minute_rate_limit = analytics_minute_rate_limit;
 
     if(analytics_store) {
         events_cache.capacity(1024);
