@@ -973,7 +973,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         new_conversation_history.push_back(formatted_answer_op.get());
         std::string conversation_id = conversation_history ? orig_req_params["conversation_id"] : "";
 
-        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation_history, conversation_model["history_collection"], conversation_id);
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation_history, conversation_model, conversation_id);
         if(!add_conversation_op.ok()) {
             res->set_400(add_conversation_op.error());
             return false;
@@ -2980,73 +2980,6 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     return true;
 }
 
-
-bool get_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    std::string conversation_id = req->params["id"];
-
-    auto conversation_op = ConversationManager::get_instance().get_conversation(conversation_id);
-
-    if(!conversation_op.ok()) {
-        res->set(conversation_op.code(), conversation_op.error());
-        return false;
-    }
-
-    res->set_200(conversation_op.get().dump());
-    return true;
-}
-
-
-bool del_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    std::string conversation_id = req->params["id"];
-
-    auto conversation_op = ConversationManager::get_instance().delete_conversation(conversation_id);
-
-    if(!conversation_op.ok()) {
-        res->set(conversation_op.code(), conversation_op.error());
-        return false;
-    }
-
-    res->set_200(conversation_op.get().dump());
-    return true;
-}
-
-bool get_conversations(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto conversations_op = ConversationManager::get_instance().get_all_conversations();
-
-    if(!conversations_op.ok()) {
-        res->set(conversations_op.code(), conversations_op.error());
-        return false;
-    }
-
-    res->set_200(conversations_op.get().dump());
-    return true;
-}
-
-bool put_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    std::string conversation_id = req->params["id"];
-
-    nlohmann::json req_json;
-
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const nlohmann::json::parse_error& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-
-    req_json["id"] = conversation_id;
-
-    auto conversation_op = ConversationManager::get_instance().update_conversation(req_json);
-
-    if(!conversation_op.ok()) {
-        res->set(conversation_op.code(), conversation_op.error());
-        return false;
-    }
-
-    res->set_200(conversation_op.get().dump());
-    return true;
-}
 
 bool post_conversation_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;

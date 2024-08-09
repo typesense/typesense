@@ -18,12 +18,30 @@ Option<nlohmann::json> ConversationModelManager::add_model(nlohmann::json model,
 }
 
 Option<nlohmann::json> ConversationModelManager::add_model_unsafe(nlohmann::json model, const std::string& model_id) {
+    // check if model exists
+    if (models.find(model_id) != models.end()) {
+        return Option<nlohmann::json>(409, "Model already exists");
+    }
+
+
     auto validate_res = ConversationModel::validate_model(model);
     if (!validate_res.ok()) {
         return Option<nlohmann::json>(validate_res.code(), validate_res.error());
     }
 
     model["id"] = model_id.empty() ? sole::uuid4().str() : model_id;
+
+    if(model.count("history_collection") == 0) {
+        auto default_collection = get_default_history_collection();
+        if(!default_collection.ok()) {
+            return Option<nlohmann::json>(default_collection.code(), default_collection.error());
+        }
+        model["history_collection"] = default_collection.get()->get_name();
+    }
+
+    if(model.count("ttl") == 0) {
+        model["ttl"] = 60 * 60 * 24;
+    }
 
     auto model_key = get_model_key(model_id);
     bool insert_op = store->insert(model_key, model.dump(0));
@@ -33,7 +51,6 @@ Option<nlohmann::json> ConversationModelManager::add_model_unsafe(nlohmann::json
 
     models[model_id] = model;
 
-    ConversationManager::get_instance().add_history_collection(model["history_collection"]);
     return Option<nlohmann::json>(model);
 }
 
@@ -56,9 +73,6 @@ Option<nlohmann::json> ConversationModelManager::delete_model_unsafe(const std::
         return Option<nlohmann::json>(500, "Error while deleting model from the store");
     }
     
-    if(model.count("history_collection") != 0) {
-        ConversationManager::get_instance().remove_history_collection(model["history_collection"].get<std::string>());
-    }
     models.erase(it);
     return Option<nlohmann::json>(model);
 }
@@ -98,10 +112,14 @@ Option<nlohmann::json> ConversationModelManager::update_model(const std::string&
         return Option<nlohmann::json>(500, "Error while inserting model into the store");
     }
 
-    if(it->second["history_collection"] != model_copy["history_collection"]) {
-        ConversationManager::get_instance().remove_history_collection(it->second["history_collection"]);
-        ConversationManager::get_instance().add_history_collection(model_copy["history_collection"]);
+    if(model_copy.count("history_collection") == 0) {
+        auto default_collection = get_default_history_collection();
+        if(!default_collection.ok()) {
+            return Option<nlohmann::json>(default_collection.code(), default_collection.error());
+        }
+        model_copy["history_collection"] = default_collection.get()->get_name();
     }
+
 
     models[model_id] = model_copy;
 
@@ -111,7 +129,6 @@ Option<nlohmann::json> ConversationModelManager::update_model(const std::string&
 Option<int> ConversationModelManager::init(Store* store) {
     std::unique_lock lock(models_mutex);
     ConversationModelManager::store = store;
-    ConversationManager::set_store(store);
 
     std::vector<std::string> model_strs;
     store->scan_fill(std::string(MODEL_KEY_PREFIX) + "_", std::string(MODEL_KEY_PREFIX) + "`", model_strs);
@@ -153,7 +170,6 @@ Option<int> ConversationModelManager::init(Store* store) {
         }
 
         models[model_id] = model_json;
-        ConversationManager::get_instance().add_history_collection(model_json["history_collection"].get<std::string>());
         ConversationManager::get_instance().initialize_history_collection(model_json["history_collection"].get<std::string>());
         loaded_models++;
     }
@@ -180,8 +196,7 @@ Option<Collection*> ConversationModelManager::get_default_history_collection() {
         "fields": [
             {
                 "name": "conversation_id",
-                "type": "string",
-                "facet": true
+                "type": "string"
             },
             {
                 "name": "role",
@@ -197,6 +212,10 @@ Option<Collection*> ConversationModelManager::get_default_history_collection() {
                 "name": "timestamp",
                 "type": "int32",
                 "sort": true
+            },
+            {
+                "name": "model_id",
+                "type": "string"
             }
         ]
     })"_json;
@@ -226,4 +245,15 @@ Option<nlohmann::json> ConversationModelManager::migrate_model(nlohmann::json mo
         return Option<nlohmann::json>(add_res.code(), add_res.error());
     }
     return Option<nlohmann::json>(model);
+}
+
+std::unordered_set<std::string> ConversationModelManager::get_history_collections() {
+    std::unordered_set<std::string> collections;
+    for(auto& [id, model] : models) {
+        if(model.find("history_collection") == model.end()) {
+            continue;
+        }
+        collections.insert(model["history_collection"].get<std::string>());
+    }
+    return collections;
 }

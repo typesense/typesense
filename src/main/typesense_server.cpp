@@ -102,12 +102,7 @@ void master_server_routes() {
     server->get("/conversations/models/:id", get_conversation_model);
     server->put("/conversations/models/:id", put_conversation_model);
     server->del("/conversations/models/:id", del_conversation_model);
-
-    server->get("/conversations", get_conversations);
-    server->get("/conversations/:id", get_conversation);
-    server->del("/conversations/:id", del_conversation);
-    server->put("/conversations/:id", put_conversation);
-
+    
     server->get("/limits", get_rate_limits);
     server->get("/limits/active", get_active_throttles);
     server->get("/limits/exceeds", get_limit_exceed_counts);
