@@ -3286,3 +3286,137 @@ TEST_F(CollectionFacetingTest, FacetSearchIndexTypeValidation) {
 
     ASSERT_TRUE(res_op.ok());
 }
+
+TEST_F(CollectionFacetingTest, TopKFaceting) {
+    std::vector<field> fields = {field("name", field_types::STRING, true, false, true, "", 1),
+                                 field("price", field_types::FLOAT, true, false, true, "", 0)};
+
+    Collection* coll2 = collectionManager.create_collection(
+            "coll2", 1, fields, "", 0, "",
+            {},{}).get();
+
+    nlohmann::json doc;
+    for(int i=0; i < 500; ++i) {
+        doc["name"] = "jeans";
+        doc["price"] = 49.99;
+        ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+        doc["name"] = "narrow jeans";
+        doc["price"] = 29.99;
+        ASSERT_TRUE(coll2->add(doc.dump()).ok());
+    }
+
+    //normal facet
+    auto results = coll2->search("jeans", {"name"}, "",
+                            {"name"}, {}, {2},
+                            10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ("name", results["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("jeans", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(500, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("narrow jeans", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ(500, (int) results["facet_counts"][0]["counts"][1]["count"]);
+
+    //facet with top_k
+    results = coll2->search("jeans", {"name"}, "",
+                                 {"name(top_k:true)"}, {}, {2},
+                                 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ("name", results["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("jeans", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(250, (int) results["facet_counts"][0]["counts"][0]["count"]);
+
+    //some are facets with top-K
+    results = coll2->search("jeans", {"name"}, "",
+                            {"name(top_k:true)", "price"}, {}, {2},
+                            10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(2, results["facet_counts"].size());
+
+    ASSERT_EQ("name", results["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("jeans", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(250, (int) results["facet_counts"][0]["counts"][0]["count"]);
+
+    ASSERT_EQ("price", results["facet_counts"][1]["field_name"]);
+    ASSERT_EQ(2, results["facet_counts"][1]["counts"].size());
+    ASSERT_EQ("49.99", results["facet_counts"][1]["counts"][0]["value"]);
+    ASSERT_EQ(500, (int) results["facet_counts"][1]["counts"][0]["count"]);
+    ASSERT_EQ("29.99", results["facet_counts"][1]["counts"][1]["value"]);
+    ASSERT_EQ(500, (int) results["facet_counts"][1]["counts"][1]["count"]);
+}
+
+TEST_F(CollectionFacetingTest, TopKFacetValidation) {
+    std::vector<field> fields = {field("name", field_types::STRING, true, false, true, "", 1),
+                                 field("price", field_types::FLOAT, true, false, true, "", 1)};
+
+    Collection* coll2 = collectionManager.create_collection(
+            "coll2", 1, fields, "", 0, "",
+            {},{}).get();
+
+    //'=' separator instead of ":"
+    auto results = coll2->search("jeans", {"name"}, "",
+                        {"name(top_k=true)"}, {}, {2},
+                        10, 1, FREQUENCY, {true});
+
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("top_k string format is invalid.", results.error());
+
+    //typo in top_k
+    results = coll2->search("jeans", {"name"}, "",
+                            {"name(top-k:true)"}, {}, {2},
+                            10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("top_k string format is invalid.", results.error());
+
+    results = coll2->search("jeans", {"name"}, "",
+                            {"name(topk:true)"}, {}, {2},
+                            10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("top_k string format is invalid.", results.error());
+
+    //value should be boolean
+    results = coll2->search("jeans", {"name"}, "",
+                            {"name(top_k:10)"}, {}, {2},
+                            10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("top_k string format is invalid.", results.error());
+
+    //correct val
+    results = coll2->search("jeans", {"name"}, "",
+                            {"name(top_k:false)"}, {}, {2},
+                            10, 1, FREQUENCY, {true});
+    ASSERT_TRUE(results.ok());
+
+    //with sort params
+    results = coll2->search("jeans", {"name"}, "",
+                            {"name(top_k:false, sort_by:_alpha:desc)"}, {}, {2},
+                            10, 1, FREQUENCY, {true});
+    ASSERT_TRUE(results.ok());
+
+    results = coll2->search("jeans", {"name"}, "",
+                            {"name(top_k:false, sort_by:price:desc)"}, {}, {2},
+                            10, 1, FREQUENCY, {true});
+    ASSERT_TRUE(results.ok());
+
+    //with range facets
+    results = coll2->search("jeans", {"name"}, "",
+                            {"price(top_k:false, economic:[0, 30], Luxury:[30, 50])"}, {}, {2},
+                            10, 1, FREQUENCY, {true});
+    ASSERT_TRUE(results.ok());
+
+
+    results = coll2->search("jeans", {"name"}, "",
+                            {"price(economic:[0, 30], top_k:true, Luxury:[30, 50])"}, {}, {2},
+                            10, 1, FREQUENCY, {true});
+    ASSERT_TRUE(results.ok());
+
+    results = coll2->search("jeans", {"name"}, "",
+                            {"price(economic:[0, 30], Luxury:[30, 50], top_k:true)"}, {}, {2},
+                            10, 1, FREQUENCY, {true});
+    ASSERT_TRUE(results.ok());
+}
