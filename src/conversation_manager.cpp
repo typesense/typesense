@@ -117,8 +117,15 @@ Option<nlohmann::json> ConversationManager::get_conversation(const std::string& 
         message[hit["document"]["role"]] = hit["document"]["message"];
         res["conversation"].push_back(message);
     }
+
+    // swap every two elements
+    for(size_t i = 0; i < res["conversation"].size() - 1; i += 2) {
+        res["conversation"].at(i).swap(res["conversation"].at(i + 1));
+    }
+
+
     res["id"] = conversation_id;
-    res["ttl"] = CONVERSATION_TTL;
+    res["ttl"] = conversation_ttl.find(conversation_id) != conversation_ttl.end() ? conversation_ttl[conversation_id] : CONVERSATION_TTL;
     res["last_updated"] = (search_res_json["hits"].size() > 0) ? search_res_json["hits"][search_res_json["hits"].size() - 1]["document"]["timestamp"].get<uint32_t>() : 0;
 
     if(total > 250) {
@@ -161,9 +168,7 @@ Option<nlohmann::json> ConversationManager::truncate_conversation(nlohmann::json
     return Option<nlohmann::json>(conversation);
 }
 
-Option<nlohmann::json> ConversationManager::delete_conversation(const std::string& conversation_id) {
-    std::unique_lock lock(conversations_mutex);
-
+Option<nlohmann::json> ConversationManager::delete_conversation_unsafe(const std::string& conversation_id) {
     auto conversation_exists = check_conversation_exists(conversation_id);
     if(!conversation_exists.ok()) {
         return Option<nlohmann::json>(conversation_exists.code(), conversation_exists.error());
@@ -215,8 +220,17 @@ Option<nlohmann::json> ConversationManager::delete_conversation(const std::strin
         nlohmann::json res_json;
         res_json["conversation_id"] = conversation_id;
         conversation_mapper.erase(conversation_id);
+        if(conversation_ttl.find(conversation_id) != conversation_ttl.end()) {
+            conversation_ttl.erase(conversation_id);
+            store->remove(get_conversation_ttl_key(conversation_id));
+        }
         return Option<nlohmann::json>(res_json);
     }
+}
+
+Option<nlohmann::json> ConversationManager::delete_conversation(const std::string& conversation_id) {
+    std::unique_lock lock(conversations_mutex);
+    return delete_conversation_unsafe(conversation_id); 
 } 
 
 Option<nlohmann::json> ConversationManager::get_all_conversations() {
@@ -283,7 +297,8 @@ void ConversationManager::clear_expired_conversations() {
             continue;
         }
         auto last_updated = search_res_json["hits"][0]["document"]["timestamp"].get<uint32_t>();
-        if(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() - last_updated + TTL_OFFSET > CONVERSATION_TTL) {
+        auto ttl = conversation_ttl.find(conversation_id) != conversation_ttl.end() ? conversation_ttl[conversation_id] : CONVERSATION_TTL;
+        if(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() - last_updated + TTL_OFFSET > ttl) {
             conversation_ids_to_delete.push_back(conversation_id);
         }
 
@@ -298,7 +313,7 @@ void ConversationManager::clear_expired_conversations() {
 
     for(auto& conversation_id : conversation_ids_to_delete) {
         lock.unlock();
-        auto delete_op = delete_conversation(conversation_id);
+        auto delete_op = delete_conversation_unsafe(conversation_id);
         lock.lock();
         if(!delete_op.ok()) {
             LOG(ERROR) << delete_op.error();
@@ -324,8 +339,26 @@ Option<nlohmann::json> ConversationManager::update_conversation(nlohmann::json c
         return Option<nlohmann::json>(400, "Conversation id must be a string");
     }
 
+    const std::string& conversation_id = conversation["id"];
+
+    auto conversation_exists = check_conversation_exists(conversation_id);
+    if(!conversation_exists.ok()) {
+        return Option<nlohmann::json>(conversation_exists.code(), conversation_exists.error());
+    }
+
     if(conversation.count("conversation") == 0) {
-        return Option<nlohmann::json>(400, "Conversation is missing conversation");
+        
+        if(conversation.count("ttl") != 0) {
+            
+            if(!conversation["ttl"].is_number_unsigned()) {
+                return Option<nlohmann::json>(400, "TTL must be a positive integer");
+            }
+
+            conversation_ttl[conversation_id] = conversation["ttl"].get<uint64_t>();
+            store->insert(get_conversation_ttl_key(conversation_id), std::to_string(conversation["ttl"].get<uint64_t>()));
+
+            return Option<nlohmann::json>(get_conversation(conversation_id).get());
+        }
     }
 
     if(!conversation["conversation"].is_array()) {
@@ -347,14 +380,7 @@ Option<nlohmann::json> ConversationManager::update_conversation(nlohmann::json c
         }
     }
 
-    const std::string& conversation_id = conversation["id"];
-
-    auto conversation_exists = check_conversation_exists(conversation_id);
-    if(!conversation_exists.ok()) {
-        return Option<nlohmann::json>(conversation_exists.code(), conversation_exists.error());
-    }
-
-    auto delete_op = delete_conversation(conversation_id);
+    auto delete_op = delete_conversation_unsafe(conversation_id);
     if(!delete_op.ok()) {
         return Option<nlohmann::json>(delete_op.code(), delete_op.error());
     }
@@ -556,6 +582,39 @@ Option<bool> ConversationManager::validate_conversation_store_collection(const s
     auto validate_op = validate_conversation_store_schema(collection_ptr);
     if(!validate_op.ok()) {
         return Option<bool>(validate_op.code(), validate_op.error());
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> ConversationManager::initialize_history_collection(const std::string& collection) {
+    auto collection_ptr = CollectionManager::get_instance().get_collection(collection).get();
+    if(!collection_ptr) {
+        return Option<bool>(404, "Collection not found");
+    }
+
+    auto validate_op = validate_conversation_store_schema(collection_ptr);
+    if(!validate_op.ok()) {
+        return Option<bool>(validate_op.code(), validate_op.error());
+    }
+
+    
+    auto results = collection_ptr->search("*", {}, {}, {"conversation_id"}, {}, {});
+
+    if(!results.ok()) {
+        return Option<bool>(results.code(), results.error());
+    }
+
+    auto facets = results.get()["facet_counts"][0]["counts"];
+
+    for(auto& facet : facets) {
+        conversation_mapper[facet["value"]] = collection;
+
+        if(store->contains(get_conversation_ttl_key(facet["value"]))) {
+            std::string val;
+            store->get(get_conversation_ttl_key(facet["value"]), val);
+            conversation_ttl[facet["value"]] = std::stoll(val);
+        }
     }
 
     return Option<bool>(true);
