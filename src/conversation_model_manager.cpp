@@ -43,13 +43,13 @@ Option<nlohmann::json> ConversationModelManager::add_model_unsafe(nlohmann::json
         model["ttl"] = 60 * 60 * 24;
     }
 
-    auto model_key = get_model_key(model_id);
+    auto model_key = get_model_key(model["id"]);
     bool insert_op = store->insert(model_key, model.dump(0));
     if(!insert_op) {
         return Option<nlohmann::json>(500, "Error while inserting model into the store");
     }
 
-    models[model_id] = model;
+    models[model["id"]] = model;
 
     return Option<nlohmann::json>(model);
 }
