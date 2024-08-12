@@ -471,6 +471,7 @@ void CollectionManager::dispose() {
     collections.clear();
     collection_symlinks.clear();
     preset_configs.clear();
+    referenced_in_backlog.clear();
     store->close();
 }
 

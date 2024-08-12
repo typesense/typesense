@@ -150,7 +150,6 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
         auto reference_field_name = reference_pair.field;
         auto& cm = CollectionManager::get_instance();
         auto ref_collection = cm.get_collection(reference_collection_name);
-        auto const reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
 
         if (is_update && document.contains(reference_helper_field) &&
             (!document[field_name].is_array() || document[field_name].size() == document[reference_helper_field].size())) {
