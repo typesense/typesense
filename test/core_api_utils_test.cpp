@@ -54,7 +54,6 @@ protected:
         })"_json;
 
         collectionManager.create_collection(schema_json);
-        ConversationManager::get_instance().add_history_collection("conversation_store");
     }
 
     virtual void SetUp() {
@@ -1341,20 +1340,6 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
     auto req = std::make_shared<http_req>();
     auto resp = std::make_shared<http_res>(nullptr);
 
-    req->params["id"] = "0";
-
-    get_conversations(req, resp);
-
-    ASSERT_EQ(200, resp->status_code);
-
-    nlohmann::json res_json = nlohmann::json::parse(resp->body);
-    ASSERT_TRUE(res_json.is_array());
-    ASSERT_EQ(0, res_json.size());
-
-    get_conversation(req, resp);
-
-    ASSERT_EQ(404, resp->status_code);
-
     auto schema_json =
         R"({
         "name": "Products",
@@ -1432,41 +1417,11 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
     
     ASSERT_TRUE(results_op.ok());
 
-    get_conversations(req, resp);
+    auto id = results_op.get()["conversation"]["id"].get<std::string>();
 
-    ASSERT_EQ(200, resp->status_code);
-
-    res_json = nlohmann::json::parse(resp->body);
-
-    ASSERT_TRUE(res_json.is_array());
-    ASSERT_EQ(1, res_json.size());
-
-    ASSERT_TRUE(res_json[0]["conversation"].is_array());
-    ASSERT_EQ(2, res_json[0]["conversation"].size());
-    ASSERT_EQ("how many products are there for clothing category?", res_json[0]["conversation"][0]["user"].get<std::string>());
-
-    req->params["id"] = res_json[0]["id"].get<std::string>();
-    get_conversation(req, resp);
-
-    ASSERT_EQ(200, resp->status_code);
-
-    res_json = nlohmann::json::parse(resp->body);
-
-    ASSERT_TRUE(res_json.is_object());
-    ASSERT_TRUE(res_json["conversation"].is_array());
-    ASSERT_EQ(2, res_json["conversation"].size());
-    ASSERT_EQ("how many products are there for clothing category?", res_json["conversation"][0]["user"].get<std::string>());
-
-    del_conversation(req, resp);
-    ASSERT_EQ(200, resp->status_code);
-
-    get_conversations(req, resp);
-    ASSERT_EQ(200, resp->status_code);
-
-    res_json = nlohmann::json::parse(resp->body);
-    ASSERT_TRUE(res_json.is_array());
-    ASSERT_EQ(0, res_json.size());
-
+    auto history_collection = ConversationManager::get_instance().get_history_collection(add_model_op.get()["history_collection"].get<std::string>()).get();
+    auto history_search_res = history_collection->search(id, {"conversation_id"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(2, history_search_res["hits"].size());
     auto del_res = ConversationModelManager::delete_model(model_id);
 }
 
