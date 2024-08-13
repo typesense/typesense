@@ -20,7 +20,6 @@ protected:
 
     std::vector<std::string> query_fields;
     std::vector<sort_by> sort_fields;
-
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/collection_vector_search";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
@@ -51,10 +50,13 @@ protected:
                     "name": "timestamp",
                     "type": "int32",
                     "sort": true
+                },
+                {
+                    "name": "model_id",
+                    "type": "string"
                 }
             ]
         })"_json;
-
         collectionManager.create_collection(schema_json);
     }
 
@@ -3165,8 +3167,8 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
 
     auto conversation_model_config = R"({
         "model_name": "openai/gpt-3.5-turbo",
-        "max_bytes: 1000,
-        "history_collection": "conversation_store",
+        "max_bytes": 1000,
+        "history_collection": "conversation_store"
     })"_json;
 
     conversation_model_config["api_key"] = api_key;
@@ -3178,7 +3180,6 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
     auto coll = collection_create_op.get();
 
     auto model_add_op = ConversationModelManager::add_model(conversation_model_config);
-
     ASSERT_TRUE(model_add_op.ok());
 
     auto add_op = coll->add(R"({
@@ -3215,8 +3216,7 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
                                  0, spp::sparse_hash_set<std::string>(), {},
                                  10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
                                  true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
-                                 true, 0, max_score, 100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, true, model_add_op.get()["id"]);
-    
+                                 true, 0, max_score, 100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, true, model_add_op.get()["id"].get<std::string>());
     ASSERT_TRUE(results_op.ok());
 
     auto results = results_op.get();
@@ -3788,9 +3788,9 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
 
 TEST_F(CollectionVectorTest, TestMigratingConversationModel) {
     auto conversation_model_config = R"({
+        "id": "0",
         "model_name": "openai/gpt-3.5-turbo",
-        "max_bytes": 1000,
-        "history_collection": "conversation_store"
+        "max_bytes": 1000
     })"_json;
 
     if (std::getenv("api_key") == nullptr) {
@@ -3799,6 +3799,7 @@ TEST_F(CollectionVectorTest, TestMigratingConversationModel) {
     }
 
     auto api_key = std::string(std::getenv("api_key"));
+    conversation_model_config["api_key"] = api_key;
 
     auto migrate_res = ConversationModelManager::migrate_model(conversation_model_config);
     ASSERT_TRUE(migrate_res.ok());
@@ -3807,6 +3808,54 @@ TEST_F(CollectionVectorTest, TestMigratingConversationModel) {
 
     auto collection = CollectionManager::get_instance().get_collection("conversation_store").get();
     ASSERT_TRUE(collection != nullptr);
+}
+
+TEST_F(CollectionVectorTest, TestPartiallyUpdateConversationModel) {
+    auto schema_json =
+        R"({
+        "name": "Products",
+        "fields": [
+            {"name": "product_name", "type": "string", "infix": true},
+            {"name": "category", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["product_name", "category"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+
+    auto conversation_model_config = R"({
+        "model_name": "openai/gpt-3.5-turbo",
+        "max_bytes: 1000,
+        "history_collection": "conversation_store",
+    })"_json;
+
+    conversation_model_config["api_key"] = api_key;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto model_add_op = ConversationModelManager::add_model(conversation_model_config);
+    ASSERT_TRUE(model_add_op.ok());
+
+    auto model_id = model_add_op.get()["id"];
+
+    auto update_op = ConversationModelManager::update_model(model_id, R"({"max_bytes": 2000})"_json);
+    ASSERT_TRUE(update_op.ok());
+
+    auto updated_model = update_op.get();
+    ASSERT_EQ(updated_model["max_bytes"], 2000);
+    ASSERT_EQ(updated_model["history_collection"], "conversation_store");
+    ASSERT_EQ(updated_model["model_name"], "openai/gpt-3.5-turbo");    
 }
 
 
