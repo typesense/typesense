@@ -3803,7 +3803,6 @@ TEST_F(CollectionVectorTest, TestMigratingConversationModel) {
     conversation_model_config["api_key"] = api_key;
 
     auto migrate_res = ConversationModelManager::migrate_model(conversation_model_config);
-    LOG(INFO) << migrate_res.error();
     ASSERT_TRUE(migrate_res.ok());
     auto migrated_model = migrate_res.get();
     ASSERT_TRUE(migrated_model.count("history_collection") == 1);
