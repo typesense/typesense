@@ -40,7 +40,7 @@ Option<nlohmann::json> ConversationModelManager::add_model_unsafe(nlohmann::json
     }
 
     if(model.count("ttl") == 0) {
-        model["ttl"] = 60 * 60 * 24;
+        model["ttl"] = (uint64_t)(60 * 60 * 24);
     }
 
     auto model_key = get_model_key(model["id"]);
@@ -240,6 +240,11 @@ Option<nlohmann::json> ConversationModelManager::migrate_model(nlohmann::json mo
         return Option<nlohmann::json>(default_collection.code(), default_collection.error());
     }
     model["history_collection"] = default_collection.get()->get_name();
+
+    if(model.count("ttl") == 0) {
+        model["ttl"] = (uint64_t)(60 * 60 * 24);
+    }
+
     auto add_res = add_model_unsafe(model, model_id);
     if(!add_res.ok()) {
         return Option<nlohmann::json>(add_res.code(), add_res.error());
