@@ -35,16 +35,17 @@ protected:
             "fields": [
                 {
                     "name": "conversation_id",
-                    "type": "string",
-                    "facet": true
+                    "type": "string"
                 },
                 {
                     "name": "role",
-                    "type": "string"
+                    "type": "string",
+                    "index": false
                 },
                 {
                     "name": "message",
-                    "type": "string"
+                    "type": "string",
+                    "index": false
                 },
                 {
                     "name": "timestamp",
@@ -3802,6 +3803,7 @@ TEST_F(CollectionVectorTest, TestMigratingConversationModel) {
     conversation_model_config["api_key"] = api_key;
 
     auto migrate_res = ConversationModelManager::migrate_model(conversation_model_config);
+    LOG(INFO) << migrate_res.error();
     ASSERT_TRUE(migrate_res.ok());
     auto migrated_model = migrate_res.get();
     ASSERT_TRUE(migrated_model.count("history_collection") == 1);
@@ -3832,8 +3834,8 @@ TEST_F(CollectionVectorTest, TestPartiallyUpdateConversationModel) {
 
     auto conversation_model_config = R"({
         "model_name": "openai/gpt-3.5-turbo",
-        "max_bytes: 1000,
-        "history_collection": "conversation_store",
+        "max_bytes": 1000,
+        "history_collection": "conversation_store"
     })"_json;
 
     conversation_model_config["api_key"] = api_key;
