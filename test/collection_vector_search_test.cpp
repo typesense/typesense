@@ -35,16 +35,17 @@ protected:
             "fields": [
                 {
                     "name": "conversation_id",
-                    "type": "string",
-                    "facet": true
+                    "type": "string"
                 },
                 {
                     "name": "role",
-                    "type": "string"
+                    "type": "string",
+                    "index": false
                 },
                 {
                     "name": "message",
-                    "type": "string"
+                    "type": "string",
+                    "index": false
                 },
                 {
                     "name": "timestamp",
@@ -3832,8 +3833,8 @@ TEST_F(CollectionVectorTest, TestPartiallyUpdateConversationModel) {
 
     auto conversation_model_config = R"({
         "model_name": "openai/gpt-3.5-turbo",
-        "max_bytes: 1000,
-        "history_collection": "conversation_store",
+        "max_bytes": 1000,
+        "history_collection": "conversation_store"
     })"_json;
 
     conversation_model_config["api_key"] = api_key;

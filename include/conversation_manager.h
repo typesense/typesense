@@ -39,8 +39,6 @@ class ConversationManager {
 
         Option<bool> validate_conversation_store_schema(Collection* collection);
         Option<bool> validate_conversation_store_collection(const std::string& collection);
-        Option<bool> add_history_collection(const std::string& collection);
-        Option<bool> remove_history_collection(const std::string& collection);
         Option<Collection*> get_history_collection(const std::string& conversation_id);
         Option<bool> initialize_history_collection(const std::string& collection);
     private:

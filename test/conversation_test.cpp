@@ -25,16 +25,17 @@ class ConversationTest : public ::testing::Test {
                 "fields": [
                     {
                         "name": "conversation_id",
-                        "type": "string",
-                        "facet": true
+                        "type": "string"
                     },
                     {
                         "name": "role",
-                        "type": "string"
+                        "type": "string",
+                        "index": false
                     },
                     {
                         "name": "message",
-                        "type": "string"
+                        "type": "string",
+                        "index": false
                     },
                     {
                         "name": "timestamp",

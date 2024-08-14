@@ -242,6 +242,10 @@ Option<bool> ConversationManager::init(ReplicationState* raft_server) {
 
 void ConversationManager::clear_expired_conversations() {
     std::unique_lock lock(conversations_mutex);
+    // Only leader can delete expired conversations
+    if(raft_server && !raft_server->is_leader()) {
+        return;
+    }
 
     auto models_op = ConversationModelManager::get_all_models();
     if(!models_op.ok()) {
@@ -260,16 +264,29 @@ void ConversationManager::clear_expired_conversations() {
         auto ttl = model["ttl"].get<uint64_t>();
 
         auto collection = CollectionManager::get_instance().get_collection(history_collection).get();
+        std::string filter_by_str = "timestamp:<" + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() - ttl + TTL_OFFSET) + "&&model_id:=" + model["id"].get<std::string>();
+        if(raft_server) {
+            
+            std::string res;
+            std::map<std::string, std::string> res_headers;
+            std::string url  = raft_server->get_leader_url() + "collections/" + history_collection + "/documents?filter_by=" + filter_by_str;
+            auto res_code = HttpClient::get_instance().delete_response(url, res, res_headers, 10*1000, true);
 
-        std::shared_ptr<http_req> req = std::make_shared<http_req>();
-        std::shared_ptr<http_res> resp = std::make_shared<http_res>(nullptr);
-        req->params["collection"] = history_collection;
-        req->params["filter_by"] = "timestamp:<" + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() - ttl + TTL_OFFSET) + "&&model_id:=" + model["id"].get<std::string>();
+            if(res_code != 200) {
+                LOG(ERROR) << "Error while deleting expired conversations: " << res;
+                LOG(ERROR) << "Status: " << res_code;
+            }
+        } else {
+            std::shared_ptr<http_req> req = std::make_shared<http_req>();
+            std::shared_ptr<http_res> resp = std::make_shared<http_res>(nullptr);
+            req->params["collection"] = history_collection;
+            req->params["filter_by"] = filter_by_str;
+            auto api_res = del_remove_documents(req, resp);
 
-        auto api_res = del_remove_documents(req, resp);
+            if(!api_res) {
+                LOG(ERROR) << "Error while deleting expired conversations: " << resp->body;
+            }
 
-        if(!api_res) {
-            LOG(ERROR) << "Error while deleting expired conversations: " << resp->body;
         }
 
     }
