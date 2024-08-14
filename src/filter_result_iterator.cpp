@@ -2428,6 +2428,14 @@ void filter_result_iterator_t::compute_iterators() {
             auto const& lists = id_lists[i];
             auto const& is_not_equals_comparator = numerical_not_iterator_index.count(i) != 0;
 
+            if (lists.empty() && is_not_equals_comparator) {
+                auto all_ids = index->seq_ids->uncompress();
+                std::copy(all_ids, all_ids + index->seq_ids->num_ids(), std::back_inserter(f_id_buff));
+                delete[] all_ids;
+
+                continue;
+            }
+
             for (const auto& list: lists) {
                 if (is_not_equals_comparator) {
                     std::vector<uint32_t> equals_ids;

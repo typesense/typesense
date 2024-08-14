@@ -67,6 +67,8 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("health-rusage-api-key", '\0', "API key that allows access to health end-point with resource usage.", false);
     options.add<std::string>("analytics-dir", '\0', "Directory where Analytics will be stored.", false);
     options.add<uint32_t>("analytics-db-ttl", '\0', "TTL in seconds for events stored in analytics db", false);
+    options.add<uint32_t>("analytics-minute-rate-limit", '\0', "per minute rate limit for /events endpoint", false);
+
 
     options.add<std::string>("api-address", '\0', "Address to which Typesense API service binds.", false, "0.0.0.0");
     options.add<uint32_t>("api-port", '\0', "Port on which Typesense API service listens.", false, 8108);
@@ -386,6 +388,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     std::string meta_dir = config.get_data_dir() + "/meta";
     std::string analytics_dir = config.get_analytics_dir();
     int32_t analytics_db_ttl = config.get_analytics_db_ttl();
+    uint32_t analytics_minute_rate_limit = config.get_analytics_minute_rate_limit();
 
     size_t thread_pool_size = config.get_thread_pool_size();
 
@@ -414,7 +417,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     HttpClient & httpClient = HttpClient::get_instance();
     httpClient.init(config.get_api_key());
 
-    AnalyticsManager::get_instance().init(&store, &analytics_store);
+    AnalyticsManager::get_instance().init(&store, &analytics_store, analytics_minute_rate_limit);
 
     server = new HttpServer(
         version,

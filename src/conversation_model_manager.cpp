@@ -40,7 +40,7 @@ Option<nlohmann::json> ConversationModelManager::add_model_unsafe(nlohmann::json
     }
 
     if(model.count("ttl") == 0) {
-        model["ttl"] = (uint64_t)(60 * 60 * 24);
+        model["ttl"] = 60 * 60 * 24;
     }
 
     auto model_key = get_model_key(model["id"]);

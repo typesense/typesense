@@ -7,7 +7,6 @@
 #include "string_utils.h"
 
 #define EVENTS_RATE_LIMIT_SEC 60
-#define EVENTS_RATE_LIMIT_COUNT 5
 
 Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk) {
 
@@ -60,7 +59,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     }
 
     std::string counter_field;
-    std::string suggestion_collection;
+    std::string suggestion_collection = "generic";
 
     suggestion_config_t suggestion_config;
     suggestion_config.name = suggestion_config_name;
@@ -69,24 +68,24 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     suggestion_config.rule_type = payload["type"];
 
     //for counter events source collections are not needed
-    if(payload["type"] != COUNTER_TYPE) {
-        if(!params["source"].contains("collections") || !params["source"]["collections"].is_array()) {
+    if(params["source"].contains("collections")) {
+        if(!params["source"]["collections"].is_array()) {
             return Option<bool>(400, "Must contain a valid list of source collections.");
         }
 
         for(const auto& coll: params["source"]["collections"]) {
-            if(!coll.is_string()) {
+            if (!coll.is_string()) {
                 return Option<bool>(400, "Must contain a valid list of source collection names.");
             }
 
-            const std::string& src_collection = coll.get<std::string>();
+            const std::string &src_collection = coll.get<std::string>();
             suggestion_config.query_collections.push_back(src_collection);
 
-            //for log type rule
-            if(payload["type"] == LOG_TYPE) {
-                suggestion_collection = src_collection;
-            }
+            suggestion_collection = src_collection;
         }
+    } else if(payload["type"] == POPULAR_QUERIES_TYPE || payload["type"] == NOHITS_QUERIES_TYPE) {
+        //for popular and nohits queries, source collection is mandatory
+        return Option<bool>(400, "Must contain a valid list of source collections.");
     }
 
     if((payload["type"] == POPULAR_QUERIES_TYPE || payload["type"] == NOHITS_QUERIES_TYPE)
@@ -406,7 +405,7 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
         if (events_cache_it != events_cache.end()) {
             // event found in events cache
             if ((now_ts_seconds - events_cache_it->second.last_update_time) < EVENTS_RATE_LIMIT_SEC) {
-                if (events_cache_it->second.count >= EVENTS_RATE_LIMIT_COUNT) {
+                if (events_cache_it->second.count >= analytics_minute_rate_limit) {
                     return Option<bool>(500, "event rate limit reached.");
                 } else {
                     events_cache_it->second.count++;
@@ -733,9 +732,10 @@ void AnalyticsManager::dispose() {
     events_cache.clear();
 }
 
-void AnalyticsManager::init(Store* store, Store* analytics_store) {
+void AnalyticsManager::init(Store* store, Store* analytics_store, uint32_t analytics_minute_rate_limit) {
     this->store = store;
     this->analytics_store = analytics_store;
+    this->analytics_minute_rate_limit = analytics_minute_rate_limit;
 
     if(analytics_store) {
         events_cache.capacity(1024);
