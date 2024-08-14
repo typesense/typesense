@@ -270,7 +270,7 @@ void ConversationManager::clear_expired_conversations() {
             std::string res;
             std::map<std::string, std::string> res_headers;
             std::string url  = raft_server->get_leader_url() + "collections/" + history_collection + "/documents?filter_by=" + filter_by_str;
-            auto res_code = HttpClient::get_instance().delete_response(raft_server->get_leader_url() + "collections/" + history_collection + "/documents?filter_by=" + filter_by_str, res, res_headers, 10*1000, true);
+            auto res_code = HttpClient::get_instance().delete_response(url, res, res_headers, 10*1000, true);
 
             if(res_code != 200) {
                 LOG(ERROR) << "Error while deleting expired conversations: " << res;
