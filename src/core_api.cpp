@@ -2982,34 +2982,33 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
 
 bool post_conversation_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    nlohmann::json req_json;
+    nlohmann::json model_json;
 
     try {
-        req_json = nlohmann::json::parse(req->body);
+        model_json = nlohmann::json::parse(req->body);
     } catch(const nlohmann::json::parse_error& e) {
         LOG(ERROR) << "JSON error: " << e.what();
         res->set_400("Bad JSON.");
         return false;
     }
 
-    if(!req_json.is_object()) {
+    if(!model_json.is_object()) {
         res->set_400("Bad JSON.");
         return false;
     }
 
     std::string model_id = req->metadata;
 
-    auto add_model_op = ConversationModelManager::add_model(req_json, model_id);
+    auto add_model_op = ConversationModelManager::add_model(model_json, model_id, true);
 
     if(!add_model_op.ok()) {
         res->set(add_model_op.code(), add_model_op.error());
         return false;
     }
 
-    auto model = add_model_op.get();
-    Collection::hide_credential(model, "api_key");
+    Collection::hide_credential(model_json, "api_key");
 
-    res->set_200(model.dump());
+    res->set_200(model_json.dump());
     return true;
 }
 

@@ -3180,7 +3180,7 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
 
     auto coll = collection_create_op.get();
 
-    auto model_add_op = ConversationModelManager::add_model(conversation_model_config);
+    auto model_add_op = ConversationModelManager::add_model(conversation_model_config, "", true);
     ASSERT_TRUE(model_add_op.ok());
 
     auto add_op = coll->add(R"({
@@ -3214,10 +3214,11 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
     auto results_op = coll->search("how many products are there for clothing category?", {"embedding"},
                                  "", {}, {}, {2}, 10,
                                  1, FREQUENCY, {true},
-                                 0, spp::sparse_hash_set<std::string>(), {},
+                                 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
                                  10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
                                  true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
-                                 true, 0, max_score, 100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, true, model_add_op.get()["id"].get<std::string>());
+                                 true, 0, max_score, 100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, true,
+                                 conversation_model_config["id"].get<std::string>());
     ASSERT_TRUE(results_op.ok());
 
     auto results = results_op.get();
@@ -3716,11 +3717,11 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
 
     conversation_model_config["api_key"] = api_key;
 
-    auto model_add_op = ConversationModelManager::add_model(conversation_model_config);
+    auto model_add_op = ConversationModelManager::add_model(conversation_model_config, "", true);
 
     ASSERT_TRUE(model_add_op.ok());
 
-    auto model_id = model_add_op.get()["id"];
+    std::string model_id = conversation_model_config["id"];
     auto collection_create_op = collectionManager.create_collection(schema_json);
 
     ASSERT_TRUE(collection_create_op.ok());
@@ -3752,7 +3753,7 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
     ASSERT_EQ(res_json["message"], "`q` parameter cannot be used in POST body if `conversation` is enabled. Please set `q` as a query parameter in the request, instead of inside the POST body");
 
     search_body["searches"][0].erase("q");
-    search_body["searches"][0]["conversation_model_id"] = to_string(model_id);
+    search_body["searches"][0]["conversation_model_id"] = model_id;
 
     req->body = search_body.dump();
 
@@ -3803,9 +3804,8 @@ TEST_F(CollectionVectorTest, TestMigratingConversationModel) {
     conversation_model_config["api_key"] = api_key;
 
     auto migrate_res = ConversationModelManager::migrate_model(conversation_model_config);
-    ASSERT_TRUE(migrate_res.ok());
-    auto migrated_model = migrate_res.get();
-    ASSERT_TRUE(migrated_model.count("history_collection") == 1);
+    ASSERT_TRUE(migrate_res);
+    ASSERT_TRUE(conversation_model_config.count("history_collection") == 1);
 
     auto collection = CollectionManager::get_instance().get_collection("conversation_store").get();
     ASSERT_TRUE(collection != nullptr);
@@ -3845,10 +3845,10 @@ TEST_F(CollectionVectorTest, TestPartiallyUpdateConversationModel) {
 
     auto coll = collection_create_op.get();
 
-    auto model_add_op = ConversationModelManager::add_model(conversation_model_config);
+    auto model_add_op = ConversationModelManager::add_model(conversation_model_config, "", true);
     ASSERT_TRUE(model_add_op.ok());
 
-    auto model_id = model_add_op.get()["id"];
+    std::string model_id = conversation_model_config["id"];
 
     auto update_op = ConversationModelManager::update_model(model_id, R"({"max_bytes": 2000})"_json);
     ASSERT_TRUE(update_op.ok());

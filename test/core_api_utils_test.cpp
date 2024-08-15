@@ -1400,18 +1400,18 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
 
     model_config["api_key"] = api_key;
 
-    auto add_model_op = ConversationModelManager::add_model(model_config);
+    auto add_model_op = ConversationModelManager::add_model(model_config, "", true);
 
     ASSERT_TRUE(add_model_op.ok());
 
-    LOG(INFO) << "Model id: " << add_model_op.get();
+    LOG(INFO) << "Model id: " << model_config["id"];
 
-    auto model_id = add_model_op.get()["id"].get<std::string>();
+    auto model_id = model_config["id"].get<std::string>();
 
     auto results_op = coll->search("how many products are there for clothing category?", {"embedding"},
                                  "", {}, {}, {2}, 10,
                                  1, FREQUENCY, {true},
-                                 0, spp::sparse_hash_set<std::string>(), {},
+                                 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
                                  10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
                                  true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
                                  true, 0, max_score, 100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, true, model_id);
@@ -1420,7 +1420,8 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
 
     auto id = results_op.get()["conversation"]["id"].get<std::string>();
 
-    auto history_collection = ConversationManager::get_instance().get_history_collection(add_model_op.get()["history_collection"].get<std::string>()).get();
+    auto history_collection = ConversationManager::get_instance()
+            .get_history_collection(model_config["history_collection"].get<std::string>()).get();
     auto history_search_res = history_collection->search(id, {"conversation_id"}, "", {}, {}, {0}).get();
     ASSERT_EQ(2, history_search_res["hits"].size());
     auto del_res = ConversationModelManager::delete_model(model_id);

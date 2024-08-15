@@ -226,7 +226,6 @@ Option<nlohmann::json> ConversationManager::delete_conversation(const std::strin
     return delete_conversation_unsafe(conversation_id); 
 } 
 
-
 Option<bool> ConversationManager::init(ReplicationState* raft_server) {
 
     if(raft_server == nullptr) {
@@ -237,8 +236,6 @@ Option<bool> ConversationManager::init(ReplicationState* raft_server) {
 
     return Option<bool>(true);
 }   
-
-
 
 void ConversationManager::clear_expired_conversations() {
     std::unique_lock lock(conversations_mutex);
@@ -423,9 +420,5 @@ Option<bool> ConversationManager::validate_conversation_store_collection(const s
         return Option<bool>(validate_op.code(), validate_op.error());
     }
 
-    return Option<bool>(true);
-}
-
-Option<bool> ConversationManager::initialize_history_collection(const std::string& collection) {
     return Option<bool>(true);
 }
