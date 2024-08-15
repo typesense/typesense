@@ -897,6 +897,9 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                 res["embedding_error"] = index_record.embedding_res;
             }
             res["code"] = index_record.indexed.code();
+            if (return_id && index_record.doc.contains("id")) {
+                res["id"] = index_record.doc["id"];
+            }
         }
 
         json_out[index_record.position] = res.dump(-1, ' ', false,
