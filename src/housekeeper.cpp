@@ -5,6 +5,9 @@ void HouseKeeper::run() {
     uint64_t prev_hnsw_repair_s = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
 
+    uint64_t prev_remove_expired_keys_s = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
     uint64_t prev_db_compaction_s = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -48,12 +51,17 @@ void HouseKeeper::run() {
                 LOG(INFO) << "Ran housekeeping for " << coll_names.size() << " collections.";
             }
 
-            //do housekeeping for authmanager
-            CollectionManager::get_instance().getAuthManager().do_housekeeping();
-
             prev_hnsw_repair_s = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
         }*/
+
+        if (now_ts_seconds - prev_remove_expired_keys_s >= remove_expired_keys_interval_s) {
+            // Do housekeeping for authmanager
+            CollectionManager::get_instance().getAuthManager().do_housekeeping();
+
+            prev_remove_expired_keys_s = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+        }
 
         lk.unlock();
     }
