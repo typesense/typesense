@@ -65,7 +65,7 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
 
             for(auto& svalue: svalues) {
                 if(!StringUtils::is_float(svalue)) {
-                    return Option<bool>(400, "Malformed vector query string: one of the vector values is not a float.");
+                    return Option<bool>(400, "Malformed vector query string: one of the vector values is not a float or bool.");
                 }
 
                 vector_query.values.push_back(std::stof(svalue));

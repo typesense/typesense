@@ -12,6 +12,7 @@ struct vector_query_t {
     size_t flat_search_cutoff = 0;
     float distance_threshold = 2.01;
     std::vector<float> values;
+    bool is_boolean = false;
 
     uint32_t seq_id = 0;
     bool query_doc_given = false;

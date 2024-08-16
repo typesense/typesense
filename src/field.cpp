@@ -292,8 +292,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             return Option<bool>(400, "Property `" + fields::num_dim + "` must be a positive integer.");
         }
 
-        if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
-            return Option<bool>(400, "Property `" + fields::num_dim + "` is only allowed on a float array field.");
+        if((field_json[fields::type] != field_types::FLOAT_ARRAY) && (field_json[fields::type] != field_types::BOOL_ARRAY)) {
+            return Option<bool>(400, "Property `" + fields::num_dim + "` is only allowed on a float array and bool array field.");
         }
 
         if(field_json[fields::facet].get<bool>()) {

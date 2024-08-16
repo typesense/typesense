@@ -270,7 +270,7 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
 
     auto coll_op = collectionManager.create_collection(schema);
     ASSERT_FALSE(coll_op.ok());
-    ASSERT_EQ("Property `num_dim` is only allowed on a float array field.", coll_op.error());
+    ASSERT_EQ("Property `num_dim` is only allowed on a float array and bool array field.", coll_op.error());
 
     // bad value for num_dim
     schema = R"({
@@ -4895,4 +4895,120 @@ TEST_F(CollectionVectorTest, TestRestoringImages) {
     coll = collectionManager.get_collection("test").get();
 
     ASSERT_EQ(1, coll->get_summary_json()["num_documents"]);
+}
+
+TEST_F(CollectionVectorTest, BasicVectorQueryingBoolean) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "points", "type": "int32", "facet": true},
+                {"name": "vec", "type": "bool[]", "num_dim": 4}
+            ]
+        })"_json;
+
+    Collection *coll1 = collectionManager.create_collection(schema).get();
+
+    auto coll_summary = coll1->get_summary_json();
+    ASSERT_EQ("cosine", coll_summary["fields"][2]["vec_dist"].get<std::string>());
+
+    std::vector<std::vector<bool>> values = {
+            {1, 1, 0, 0},
+            {1, 1, 1, 0},
+            {1, 1, 0, 1}
+    };
+
+    for (size_t i = 0; i < values.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = std::to_string(i) + " title";
+        doc["points"] = i;
+        doc["vec"] = values[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "vec:([0, 0, 1, 0])").get();
+
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("2", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "vec:([1, 0, 0, 1])").get();
+
+
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_STREQ("2", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+
+    //try with higher dims
+    schema = R"({
+            "name": "coll2",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "points", "type": "int32", "facet": true},
+                {"name": "vec", "type": "bool[]", "num_dim": 36}
+            ]
+        })"_json;
+
+    Collection *coll2 = collectionManager.create_collection(schema).get();
+
+    coll_summary = coll2->get_summary_json();
+    ASSERT_EQ("cosine", coll_summary["fields"][2]["vec_dist"].get<std::string>());
+
+    values = {
+            {1, 1, 0, 0, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0},
+            {1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0},
+            {1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1}
+    };
+
+    for (size_t i = 0; i < values.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = std::to_string(i) + " title";
+        doc["points"] = i;
+        doc["vec"] = values[i];
+        ASSERT_TRUE(coll2->add(doc.dump()).ok());
+    }
+
+    results = coll2->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                            fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true,
+                            "vec:([0, 1, 1, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 1, 1])").get();
+
+
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_STREQ("2", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 }

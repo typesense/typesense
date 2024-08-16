@@ -1457,7 +1457,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                 sort_field_std.vector_query.vector_index = vector_index_map.at(sort_field_std.vector_query.query.field_name);
 
-                if(sort_field_std.vector_query.vector_index->distance_type == cosine) {
+                if(sort_field_std.vector_query.vector_index->distance_type == cosine && !sort_field_std.vector_query.query.is_boolean) {
                     std::vector<float> normalized_values(sort_field_std.vector_query.query.values.size());
                     hnsw_index_t::normalize_vector(sort_field_std.vector_query.query.values, normalized_values);
                     sort_field_std.vector_query.query.values = normalized_values;
@@ -7052,6 +7052,30 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
             return Option<bool>(400, "Query field `" + vector_query.field_name + "` must have " +
                                                 std::to_string(vector_field_it.value().num_dim) + " dimensions.");
         }
+    }
+
+    //pack bool values to float
+    if(search_schema.at(vector_query.field_name).is_bool()) {
+        unsigned num = 0;
+        std::vector<float> packed_values;
+        bool vals_end = false;
+        for(int i = 0, j = 1; i < vector_query.values.size(); ++i, ++j) {
+            num = num | ((unsigned int) vector_query.values[i] << i);
+            vals_end = false;
+
+            if (j % (8 * sizeof(float)) == 0) {
+                packed_values.push_back(num);
+                num = 0;
+                vals_end = true;
+            }
+        }
+        if(!vals_end) {
+            //push remaining vals
+            packed_values.push_back(num);
+        }
+
+        vector_query.values = packed_values;
+        vector_query.is_boolean = true;
     }
 
     return Option<bool>(true);
