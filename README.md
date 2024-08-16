@@ -14,13 +14,13 @@
  <!-- <a href="https://circleci.com/gh/typesense/typesense"><img src="https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa"></a> -->
  <a href="https://hub.docker.com/r/typesense/typesense/tags"><img src="https://img.shields.io/docker/pulls/typesense/typesense"></a>
   <a href="https://github.com/typesense"><img src="https://img.shields.io/github/stars/typesense/typesense?label=github%20stars&style=flat"></a><br>
-  <a href="https://cloud.typesense.org"><img src="https://img.shields.io/badge/searches_per_month_on_typesense_cloud-3 Billion-blue"></a>
+  <a href="https://cloud.typesense.org"><img src="https://img.shields.io/badge/searches_per_month_on_typesense_cloud-10 Billion-blue"></a>
 <p>
 <p align="center">
   <a href="https://typesense.org">Website</a> | 
   <a href="https://typesense.org/docs/">Documentation</a> | 
   <a href="https://github.com/orgs/typesense/projects/1">Roadmap</a> | 
-  <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-2fetvh0pw-ft5y2YQlq4l_bPhhqpjXig">Slack Community</a> | 
+  <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-2otyo41xs-tbZNeeC6F37_FKftAdUc5A">Slack Community</a> | 
   <a href="https://threads.typesense.org/kb">Community Threads</a> | 
   <a href="https://twitter.com/typesense">Twitter</a>
 </p>
@@ -115,7 +115,7 @@ We'd love to benchmark with larger datasets, if we can find large ones in the pu
 
 Typesense is used by a range of users across different domains and verticals.
 
-On Typesense Cloud we serve more than **3 BILLION** searches per month. Typesense's Docker images have been downloaded over 12M times.
+On Typesense Cloud we serve more than **10 BILLION** searches per month. Typesense's Docker images have been downloaded over 12M times.
 
 We've recently started documenting who's using it in our [Showcase](SHOWCASE.md).
 If you'd like to be included in the list, please feel free to edit [SHOWCASE.md](SHOWCASE.md) and send us a PR.
@@ -351,7 +351,7 @@ If you have specifics that prevent you from using Typesense due to a licensing i
 
 ## Support
 
-👋 🌐 If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our public [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-2fetvh0pw-ft5y2YQlq4l_bPhhqpjXig). 
+👋 🌐 If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our public [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-2otyo41xs-tbZNeeC6F37_FKftAdUc5A). 
 
 If you run into any problems or issues, please create a GitHub issue and we'll try our best to help.
 
@@ -375,7 +375,7 @@ If you'd like to get updates when we release new versions, click on the "Watch" 
 
 We also post updates to our Twitter account about releases and additional topics related to Typesense. Follow us here: [@typesense](https://twitter.com/typesense).
 
-👋 🌐 We'll also post updates on our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-2fetvh0pw-ft5y2YQlq4l_bPhhqpjXig). 
+👋 🌐 We'll also post updates on our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-2otyo41xs-tbZNeeC6F37_FKftAdUc5A). 
 
 ## Build from source
 

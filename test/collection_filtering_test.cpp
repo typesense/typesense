@@ -1593,6 +1593,9 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     results = coll1->search("*", {"artist"}, "artist:![Swift, Jackson]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(0, results["found"]);
 
+    results = coll1->search("*", {"artist"}, "artist:!=[]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(4, results["found"]);
+
     // empty value (bad filtering)
     auto res_op = coll1->search("*", {"artist"}, "artist:!=", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);
     ASSERT_FALSE(res_op.ok());
@@ -1609,10 +1612,6 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     res_op = coll1->search("*", {"artist"}, "artist:!=[`foo`, ``]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Error with filter field `artist`: Filter value cannot be empty.", res_op.error());
-
-    res_op = coll1->search("*", {"artist"}, "artist:!=[]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Error with filter field `artist`: Filter value array cannot be empty.", res_op.error());
 
     collectionManager.drop_collection("coll1");
 }
@@ -1676,6 +1675,11 @@ TEST_F(CollectionFilteringTest, FilterStringsWithComma) {
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("*", {"place"}, "place: []", {}, {}, {0}, 10, 1,
+                            FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
 }
