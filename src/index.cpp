@@ -1727,7 +1727,7 @@ void aggregate_nested_references(single_filter_result_t *const reference_result,
 Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
                                                      filter_result_t& filter_result,
                                                      const std::string& ref_collection_name,
-                                                     const std::string& reference_helper_field_name) const {
+                                                     const std::string& field_name) const {
     std::shared_lock lock(mutex);
 
     auto ref_filter_result_iterator = filter_result_iterator_t(ref_collection_name, this, filter_tree_root,
@@ -1755,6 +1755,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     ref_filter_result->docs = nullptr;
     std::unique_ptr<uint32_t[]> docs_guard(reference_docs);
 
+    auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
     auto const is_nested_join = !ref_filter_result_iterator.reference.empty();
     if (search_schema.at(reference_helper_field_name).is_singular()) { // Only one reference per doc.
         if (sort_index.count(reference_helper_field_name) == 0) {
@@ -1837,6 +1838,10 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
                 continue;
             }
             auto doc_id = ref_index.at(reference_doc_id);
+
+            if (doc_id == Collection::reference_helper_sentinel_value) {
+                continue;
+            }
 
             id_pairs.emplace_back(std::make_pair(doc_id, reference_doc_id));
             unique_doc_ids.insert(doc_id);
@@ -2036,7 +2041,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     return Option(true);
 }
 
-Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string& reference_helper_field_name,
+Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string& field_name,
                                                                const std::string& ref_collection_name,
                                                                filter_result_t&& ref_filter_result) const {
     filter_result_t filter_result;
@@ -2048,6 +2053,7 @@ Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string
         return Option<filter_result_t>(filter_result);
     }
 
+    auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
     if (numerical_index.count(reference_helper_field_name) == 0) {
         return Option<filter_result_t>(400, "`" + reference_helper_field_name + "` is not present in index.");
     }
@@ -4831,12 +4837,14 @@ Option<bool> Index::ref_compute_sort_scores(const sort_by& sort_field, const uin
                 return Option<bool>(get_reference_field_op.code(), get_reference_field_op.error());
             }
             auto const& field_name = get_reference_field_op.get();
-            if (sort_index.count(field_name) == 0) {
-                return Option<bool>(400, "Could not find `" + field_name + "` in sort_index.");
-            } else if (sort_index.at(field_name)->count(seq_id) == 0) {
+            auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+
+            if (sort_index.count(reference_helper_field_name) == 0) {
+                return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in sort_index.");
+            } else if (sort_index.at(reference_helper_field_name)->count(seq_id) == 0) {
                 reference_found = false;
             } else {
-                ref_seq_id = sort_index.at(field_name)->at(seq_id);
+                ref_seq_id = sort_index.at(reference_helper_field_name)->at(seq_id);
             }
         }
             // Joined collection has a reference
@@ -7646,28 +7654,39 @@ int64_t Index::reference_string_sort_score(const string &field_name, const uint3
 Option<bool> Index::get_related_ids(const std::string& collection_name, const string& field_name,
                                     const uint32_t& seq_id, std::vector<uint32_t>& result) const {
     std::shared_lock lock(mutex);
-    if (search_schema.count(field_name) == 0) {
-        return Option<bool>(400, "Could not find `" + field_name + "` in the collection `" + collection_name + "`.");
+
+    auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+    if (search_schema.count(reference_helper_field_name) == 0) {
+        return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" + collection_name + "`.");
     }
 
-    auto const no_match_op = Option<bool>(400, "Could not find `" + field_name + "` value for doc `" +
-                                                std::to_string(seq_id) + "`.");
-    if (search_schema.at(field_name).is_singular()) {
-        if (sort_index.count(field_name) == 0 || sort_index.at(field_name)->count(seq_id) == 0) {
+    auto const no_match_op = Option<bool>(400, "Could not find `" + reference_helper_field_name + "` value for doc `" +
+                                               std::to_string(seq_id) + "`.");
+    if (search_schema.at(reference_helper_field_name).is_singular()) {
+        if (sort_index.count(reference_helper_field_name) == 0) {
             return no_match_op;
         }
 
-        result.emplace_back(sort_index.at(field_name)->at(seq_id));
+        auto const& ref_index = sort_index.at(reference_helper_field_name);
+        auto const it = ref_index->find(seq_id);
+        if (it == ref_index->end()) {
+            return no_match_op;
+        }
+
+        const uint32_t id = it->second;
+        if (id != Collection::reference_helper_sentinel_value) {
+            result.emplace_back(id);
+        }
         return Option<bool>(true);
     }
 
-    if (reference_index.count(field_name) == 0) {
+    if (reference_index.count(reference_helper_field_name) == 0) {
         return no_match_op;
     }
 
     size_t ids_len = 0;
     uint32_t* ids = nullptr;
-    reference_index.at(field_name)->search(EQUALS, seq_id, &ids, ids_len);
+    reference_index.at(reference_helper_field_name)->search(EQUALS, seq_id, &ids, ids_len);
     if (ids_len == 0) {
         return no_match_op;
     }
@@ -7700,17 +7719,21 @@ Option<uint32_t> Index::get_sort_index_value_with_lock(const std::string& collec
                                                        const std::string& field_name,
                                                        const uint32_t& seq_id) const {
     std::shared_lock lock(mutex);
-    if (search_schema.count(field_name) == 0) {
-        return Option<uint32_t>(400, "Could not find `" + field_name + "` in the collection `" + collection_name + "`.");
-    } else if (search_schema.at(field_name).is_array()) {
-        return Option<uint32_t>(400, "Cannot sort on `" + field_name + "` in the collection, `" + collection_name +
-                                        "` is `" + search_schema.at(field_name).type + "`.");
-    } else if (sort_index.count(field_name) == 0 || sort_index.at(field_name)->count(seq_id) == 0) {
-        return Option<uint32_t>(404, "Could not find `" + field_name + "` value for doc `" +
+
+    auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+    if (search_schema.count(reference_helper_field_name) == 0) {
+        return Option<uint32_t>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" +
+                                        collection_name + "`.");
+    } else if (search_schema.at(reference_helper_field_name).is_array()) {
+        return Option<uint32_t>(400, "Cannot sort on `" + reference_helper_field_name + "` in the collection, `" +
+                                        collection_name + "` is `" + search_schema.at(reference_helper_field_name).type + "`.");
+    } else if (sort_index.count(reference_helper_field_name) == 0 ||
+                sort_index.at(reference_helper_field_name)->count(seq_id) == 0) {
+        return Option<uint32_t>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
                                      std::to_string(seq_id) + "`.");;
     }
 
-    return Option<uint32_t>(sort_index.at(field_name)->at(seq_id));
+    return Option<uint32_t>(sort_index.at(reference_helper_field_name)->at(seq_id));
 }
 
 float Index::get_distance(const string& geo_field_name, const uint32_t& seq_id,

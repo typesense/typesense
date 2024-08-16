@@ -520,7 +520,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     auto async_ref_fields = collection_create_op.get()->get_async_referenced_ins();
     ASSERT_EQ(1, async_ref_fields.size());
     ASSERT_EQ("collection1", async_ref_fields[0].first);
-    ASSERT_EQ("product_id_sequence_id", async_ref_fields[0].second);
+    ASSERT_EQ("product_id", async_ref_fields[0].second);
 
     // recreate collection manager to ensure that it restores the records from the disk backed store
     collectionManager.dispose();
@@ -599,7 +599,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     async_ref_fields = collectionManager.get_collection("Products").get()->get_async_referenced_ins();
     ASSERT_EQ(1, async_ref_fields.size());
     ASSERT_EQ("collection1", async_ref_fields[0].first);
-    ASSERT_EQ("product_id_sequence_id", async_ref_fields[0].second);
+    ASSERT_EQ("product_id", async_ref_fields[0].second);
 }
 
 TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
@@ -1879,7 +1879,7 @@ TEST_F(CollectionManagerTest, ReferencedInBacklog) {
     auto const& references = referenced_ins_backlog.at("Products");
     ASSERT_EQ(1, references.size());
     ASSERT_EQ("collection1", references.cbegin()->collection);
-    ASSERT_EQ("product_id_sequence_id", references.cbegin()->field);
+    ASSERT_EQ("product_id", references.cbegin()->field);
 
     auto schema_json =
             R"({
@@ -1898,7 +1898,7 @@ TEST_F(CollectionManagerTest, ReferencedInBacklog) {
 
     auto get_reference_field_op = create_op.get()->get_referenced_in_field_with_lock("collection1");
     ASSERT_TRUE(get_reference_field_op.ok());
-    ASSERT_EQ("product_id_sequence_id", get_reference_field_op.get());
+    ASSERT_EQ("product_id", get_reference_field_op.get());
 
     get_reference_field_op = create_op.get()->get_referenced_in_field_with_lock("foo");
     ASSERT_FALSE(get_reference_field_op.ok());
@@ -2120,18 +2120,18 @@ TEST_F(CollectionManagerTest, PopulateReferencedIns) {
     ASSERT_EQ(1, referenced_ins.count("A"));
     ASSERT_EQ(1, referenced_ins["A"].size());
     ASSERT_EQ(1, referenced_ins["A"].count("B"));
-    ASSERT_EQ("a_ref_sequence_id", referenced_ins["A"]["B"]);
+    ASSERT_EQ("a_ref", referenced_ins["A"]["B"]);
 
     ASSERT_EQ(1, referenced_ins.count("C"));
     ASSERT_EQ(1, referenced_ins["C"].size());
     ASSERT_EQ(1, referenced_ins["C"].count("B"));
-    ASSERT_EQ("c_ref_sequence_id", referenced_ins["C"]["B"]);
+    ASSERT_EQ("c_ref", referenced_ins["C"]["B"]);
 
     ASSERT_EQ(1, async_referenced_ins.count("C"));
     ASSERT_EQ(1, async_referenced_ins["C"].size());
     ASSERT_EQ(1, async_referenced_ins["C"].size());
     ASSERT_EQ("B", async_referenced_ins["C"][0].first);
-    ASSERT_EQ("c_ref_sequence_id", async_referenced_ins["C"][0].second);
+    ASSERT_EQ("c_ref", async_referenced_ins["C"][0].second);
 }
 
 TEST_F(CollectionManagerTest, CollectionPagination) {

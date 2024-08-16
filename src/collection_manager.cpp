@@ -251,7 +251,7 @@ void CollectionManager::_populate_referenced_ins(const std::string& collection_m
             if (!field.contains("name") || !field.contains("reference")) {
                 continue;
             }
-            auto field_name = std::string(field["name"]) + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+            auto field_name = std::string(field["name"]);
             std::vector<std::string> split_result;
             StringUtils::split(field["reference"], split_result, ".");
             auto ref_coll_name = split_result.front();

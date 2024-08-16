@@ -216,7 +216,9 @@ private:
                         bool& filter_curated_hits,
                         std::string& curated_sort_by, nlohmann::json& override_metadata) const;
 
-    static Option<bool> detect_new_fields(nlohmann::json& document,
+    static Option<bool> detect_new_fields(const std::string& coll_name,
+                                          const uint32_t& seq_id,
+                                          nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
                                           const tsl::htrie_map<char, field>& schema,
                                           const std::unordered_map<std::string, field>& dyn_fields,
@@ -226,7 +228,8 @@ private:
                                           std::vector<field>& new_fields,
                                           bool enable_nested_fields,
                                           const spp::sparse_hash_map<std::string, reference_info>& reference_fields,
-                                          tsl::htrie_set<char>& object_reference_helper_fields);
+                                          tsl::htrie_set<char>& object_reference_helper_fields,
+                                          const std::vector<std::pair<std::string, std::string>>& async_referenced_ins);
 
     static bool facet_count_compare(const facet_count_t& a, const facet_count_t& b) {
         return std::tie(a.count, a.fhash) > std::tie(b.count, b.fhash);
@@ -380,6 +383,9 @@ public:
 
     static constexpr const char* COLLECTION_METADATA = "metadata";
 
+    /// Value used when async_reference is true and a reference doc is not found.
+    static constexpr int64_t reference_helper_sentinel_value = UINT32_MAX;
+
     // methods
 
     Collection() = delete;
@@ -440,9 +446,12 @@ public:
 
     void update_metadata(const nlohmann::json& meta);
 
-    static Option<bool> add_reference_helper_fields(nlohmann::json& document, const tsl::htrie_map<char, field>& schema,
+    static Option<bool> add_reference_helper_fields(const std::string& coll_name,
+                                                    const uint32_t& seq_id, nlohmann::json& document,
+                                                    const tsl::htrie_map<char, field>& schema,
                                                     const spp::sparse_hash_map<std::string, reference_info>& reference_fields,
                                                     tsl::htrie_set<char>& object_reference_helper_fields,
+                                                    const std::vector<std::pair<std::string, std::string>>& async_referenced_ins,
                                                     const bool& is_update);
 
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
@@ -623,7 +632,7 @@ public:
 
     Option<nlohmann::json> get(const std::string & id) const;
 
-    void cascade_remove_docs(const std::string& ref_helper_field_name, const uint32_t& ref_seq_id,
+    void cascade_remove_docs(const std::string& field_name, const uint32_t& ref_seq_id,
                              const nlohmann::json& ref_doc, bool remove_from_store = true);
 
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
@@ -727,6 +736,9 @@ public:
 
     Option<bool> get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
                                            std::vector<uint32_t>& result) const;
+
+    Option<bool> update_async_references_with_lock(const std::string& filter, const uint32_t ref_seq_id,
+                                                   const std::string& field_name);
 
     Option<uint32_t> get_sort_index_value_with_lock(const std::string& field_name, const uint32_t& seq_id) const;
 

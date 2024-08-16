@@ -762,9 +762,9 @@ public:
     Option<bool> do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
                                                   filter_result_t& filter_result,
                                                   const std::string& ref_collection_name,
-                                                  const std::string& reference_helper_field_name) const;
+                                                  const std::string& field_name) const;
 
-    Option<filter_result_t> do_filtering_with_reference_ids(const std::string& reference_helper_field_name,
+    Option<filter_result_t> do_filtering_with_reference_ids(const std::string& field_name,
                                                             const std::string& ref_collection_name,
                                                             filter_result_t&& ref_filter_result) const;
 
@@ -1037,7 +1037,7 @@ public:
                                        std::vector<uint32_t>& outside_seq_ids);
 
     Option<bool> get_related_ids(const std::string& collection_name,
-                                 const std::string& reference_helper_field_name,
+                                 const std::string& field_name,
                                  const uint32_t& seq_id, std::vector<uint32_t>& result) const;
 
     Option<bool> get_object_array_related_id(const std::string& collection_name,
