@@ -272,19 +272,33 @@ const std::string EmbedderManager::get_absolute_config_path(const std::string& m
 }
 
 const bool EmbedderManager::check_md5(const std::string& file_path, const std::string& target_md5) {
-    std::ifstream stream(file_path);
-    if (stream.fail()) {
-        return false;
+    const size_t BUFF_SIZE = 4096 * 4;
+    std::ifstream infile(file_path, std::ifstream::binary);
+
+    EVP_MD_CTX* mdctx = EVP_MD_CTX_new();       // md5 context
+    const EVP_MD* md5Func = EVP_md5();          // use EVP md5 function
+    EVP_DigestInit_ex(mdctx, md5Func, NULL);    // Initializes digest type
+
+    // reads in values from buffer containing file pointer
+    char buff[BUFF_SIZE];
+    while(infile.good()) {
+        infile.read(buff, sizeof(buff));
+        EVP_DigestUpdate(mdctx, buff, infile.gcount());
     }
-    unsigned char md5[MD5_DIGEST_LENGTH];
-    std::stringstream ss,res;
-    ss << stream.rdbuf();
-    MD5((unsigned char*)ss.str().c_str(), ss.str().length(), md5);
+
+    unsigned int md_len;                            // hash length
+    unsigned char md5_value[EVP_MAX_MD_SIZE];       // actual hash value
+    EVP_DigestFinal_ex(mdctx, md5_value, &md_len);
+
+    std::stringstream res;
+
     // convert md5 to hex string with leading zeros
-    for(int i = 0; i < MD5_DIGEST_LENGTH; i++) {
-        res << std::hex << std::setfill('0') << std::setw(2) << (int)md5[i];
+    for (size_t i = 0; i < md_len; i++) {
+        res << std::hex << std::setfill('0') << std::setw(2) << (int)md5_value[i];
     }
-    return res.str() == target_md5;
+
+    std::string hash = res.str();
+    return hash == target_md5;
 }
 
 Option<bool> EmbedderManager::download_public_model(const text_embedding_model& model) {
