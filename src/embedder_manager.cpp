@@ -274,6 +274,9 @@ const std::string EmbedderManager::get_absolute_config_path(const std::string& m
 const bool EmbedderManager::check_md5(const std::string& file_path, const std::string& target_md5) {
     const size_t BUFF_SIZE = 4096 * 4;
     std::ifstream infile(file_path, std::ifstream::binary);
+    if(infile.fail()) {
+        return false;
+    }
 
     EVP_MD_CTX* mdctx = EVP_MD_CTX_new();       // md5 context
     const EVP_MD* md5Func = EVP_md5();          // use EVP md5 function
@@ -289,6 +292,7 @@ const bool EmbedderManager::check_md5(const std::string& file_path, const std::s
     unsigned int md_len;                            // hash length
     unsigned char md5_value[EVP_MAX_MD_SIZE];       // actual hash value
     EVP_DigestFinal_ex(mdctx, md5_value, &md_len);
+    EVP_MD_CTX_free(mdctx);
 
     std::stringstream res;
 
@@ -297,8 +301,7 @@ const bool EmbedderManager::check_md5(const std::string& file_path, const std::s
         res << std::hex << std::setfill('0') << std::setw(2) << (int)md5_value[i];
     }
 
-    std::string hash = res.str();
-    return hash == target_md5;
+    return res.str() == target_md5;
 }
 
 Option<bool> EmbedderManager::download_public_model(const text_embedding_model& model) {
