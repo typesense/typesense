@@ -176,12 +176,10 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& fi
     return Option<bool>(true);
 }
 
-Option<bool> Collection::add_reference_helper_fields(const std::string& coll_name,
-                                                     const uint32_t& seq_id, nlohmann::json& document,
+Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document,
                                                      const tsl::htrie_map<char, field>& schema,
                                                      const spp::sparse_hash_map<std::string, reference_info>& reference_fields,
                                                      tsl::htrie_set<char>& object_reference_helper_fields,
-                                                     const std::vector<std::pair<std::string, std::string>>& async_referenced_ins,
                                                      const bool& is_update) {
     tsl::htrie_set<char> flat_fields;
     if (!reference_fields.empty() && document.contains(".flat")) {
@@ -749,15 +747,14 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 !reference_fields.empty() || !async_referenced_ins.empty()) {
                 std::vector<field> new_fields;
 
-                Option<bool> new_fields_op = detect_new_fields(name, seq_id, record.doc, dirty_values,
+                Option<bool> new_fields_op = detect_new_fields(record.doc, dirty_values,
                                                                search_schema, dynamic_fields,
                                                                nested_fields,
                                                                fallback_field_type,
                                                                record.is_update,
                                                                new_fields,
                                                                enable_nested_fields,
-                                                               reference_fields, object_reference_helper_fields,
-                                                               async_referenced_ins);
+                                                               reference_fields, object_reference_helper_fields);
                 if(!new_fields_op.ok()) {
                     record.index_failure(new_fields_op.code(), new_fields_op.error());
                 }
@@ -6339,14 +6336,13 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
         if(!fallback_field_type.empty() || !new_dynamic_fields.empty() || !updated_nested_fields.empty()) {
             std::vector<field> new_fields;
-            Option<bool> new_fields_op = detect_new_fields(name, seq_id, document, DIRTY_VALUES::DROP,
+            Option<bool> new_fields_op = detect_new_fields(document, DIRTY_VALUES::DROP,
                                                            updated_search_schema, new_dynamic_fields,
                                                            updated_nested_fields,
                                                            fallback_field_type, false,
                                                            new_fields,
                                                            enable_nested_fields,
-                                                           reference_fields, object_reference_helper_fields,
-                                                           async_referenced_ins);
+                                                           reference_fields, object_reference_helper_fields);
             if(!new_fields_op.ok()) {
                 return new_fields_op;
             }
@@ -6522,8 +6518,7 @@ Option<bool> Collection::resolve_field_type(field& new_field,
     return Option<bool>(true);
 }
 
-Option<bool> Collection::detect_new_fields(const std::string& coll_name,
-                                           const uint32_t& seq_id, nlohmann::json& document,
+Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                                            const DIRTY_VALUES& dirty_values,
                                            const tsl::htrie_map<char, field>& schema,
                                            const std::unordered_map<std::string, field>& dyn_fields,
@@ -6533,8 +6528,7 @@ Option<bool> Collection::detect_new_fields(const std::string& coll_name,
                                            std::vector<field>& new_fields,
                                            const bool enable_nested_fields,
                                            const spp::sparse_hash_map<std::string, reference_info>& reference_fields,
-                                           tsl::htrie_set<char>& object_reference_helper_fields,
-                                           const std::vector<std::pair<std::string, std::string>>& async_referenced_ins) {
+                                           tsl::htrie_set<char>& object_reference_helper_fields) {
 
     auto kv = document.begin();
     while(kv != document.end()) {
@@ -6618,9 +6612,8 @@ Option<bool> Collection::detect_new_fields(const std::string& coll_name,
         }
     }
 
-    auto add_reference_helper_fields_op = add_reference_helper_fields(coll_name, seq_id, document, schema, reference_fields,
-                                                                      object_reference_helper_fields, async_referenced_ins,
-                                                                      is_update);
+    auto add_reference_helper_fields_op = add_reference_helper_fields(document, schema, reference_fields,
+                                                                      object_reference_helper_fields, is_update);
     if (!add_reference_helper_fields_op.ok()) {
         return add_reference_helper_fields_op;
     }

@@ -216,9 +216,7 @@ private:
                         bool& filter_curated_hits,
                         std::string& curated_sort_by, nlohmann::json& override_metadata) const;
 
-    static Option<bool> detect_new_fields(const std::string& coll_name,
-                                          const uint32_t& seq_id,
-                                          nlohmann::json& document,
+    static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
                                           const tsl::htrie_map<char, field>& schema,
                                           const std::unordered_map<std::string, field>& dyn_fields,
@@ -228,8 +226,7 @@ private:
                                           std::vector<field>& new_fields,
                                           bool enable_nested_fields,
                                           const spp::sparse_hash_map<std::string, reference_info>& reference_fields,
-                                          tsl::htrie_set<char>& object_reference_helper_fields,
-                                          const std::vector<std::pair<std::string, std::string>>& async_referenced_ins);
+                                          tsl::htrie_set<char>& object_reference_helper_fields);
 
     static bool facet_count_compare(const facet_count_t& a, const facet_count_t& b) {
         return std::tie(a.count, a.fhash) > std::tie(b.count, b.fhash);
@@ -446,12 +443,10 @@ public:
 
     void update_metadata(const nlohmann::json& meta);
 
-    static Option<bool> add_reference_helper_fields(const std::string& coll_name,
-                                                    const uint32_t& seq_id, nlohmann::json& document,
+    static Option<bool> add_reference_helper_fields(nlohmann::json& document,
                                                     const tsl::htrie_map<char, field>& schema,
                                                     const spp::sparse_hash_map<std::string, reference_info>& reference_fields,
                                                     tsl::htrie_set<char>& object_reference_helper_fields,
-                                                    const std::vector<std::pair<std::string, std::string>>& async_referenced_ins,
                                                     const bool& is_update);
 
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
