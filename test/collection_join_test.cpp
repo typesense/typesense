@@ -1164,6 +1164,10 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
             continue;
         }
 
+        ASSERT_EQ(1, doc.count(".ref"));
+        ASSERT_EQ(1, doc[".ref"].size());
+        ASSERT_EQ("object.reference_sequence_id", doc[".ref"][0]);
+
         ASSERT_EQ(1, doc.count("object.reference_sequence_id"));
         // Referenced documents don't exist yet, so dummy value is present in the reference helper field.
         ASSERT_EQ(UINT32_MAX, doc["object.reference_sequence_id"]);
@@ -1240,7 +1244,6 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
     ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
-    LOG(INFO) << res_obj.dump();
     ASSERT_EQ(3, res_obj["found"].get<size_t>());
     ASSERT_EQ(3, res_obj["hits"].size());
 
@@ -1349,6 +1352,51 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
     ASSERT_EQ(2, res_obj["hits"][2]["document"]["Customers"].size());
     ASSERT_EQ("0", res_obj["hits"][2]["document"]["Customers"][0]["id"]);
     ASSERT_EQ("2", res_obj["hits"][2]["document"]["Customers"][1]["id"]);
+
+    {
+        auto const& coll1 = collectionManager.get_collection_unsafe("coll1");
+
+        doc_json = R"({
+                        "coll_id": "d",
+                        "object": {
+                            "reference": "product_d"
+                        }
+                    })"_json;
+        add_doc_op = coll1->add(doc_json.dump());
+        ASSERT_TRUE(add_doc_op.ok());
+
+        auto doc = coll1->get("3").get();
+        ASSERT_EQ("3", doc["id"]);
+
+        ASSERT_EQ(1, doc.count(".ref"));
+        ASSERT_EQ(1, doc[".ref"].size());
+        ASSERT_EQ("object.reference_sequence_id", doc[".ref"][0]);
+
+        ASSERT_EQ(1, doc.count("object.reference_sequence_id"));
+        // product_d doesn't exist yet, so dummy value is present in the reference helper field.
+        ASSERT_EQ(UINT32_MAX, doc["object.reference_sequence_id"]);
+
+        doc_json = R"({
+                        "product_id": "product_d",
+                        "product_name": "hair oil",
+                        "product_description": "Revitalize your hair with our nourishing hair oil – nature's secret to lustrous, healthy locks.",
+                        "rating": "foo"
+                    })"_json;
+        add_doc_op = collection_create_op.get()->add(doc_json.dump());
+        ASSERT_FALSE(add_doc_op.ok());
+        ASSERT_EQ("Field `rating` must be an int32.", add_doc_op.error());
+
+        doc = coll1->get("3").get();
+        ASSERT_EQ("3", doc["id"]);
+
+        ASSERT_EQ(1, doc.count(".ref"));
+        ASSERT_EQ(1, doc[".ref"].size());
+        ASSERT_EQ("object.reference_sequence_id", doc[".ref"][0]);
+
+        ASSERT_EQ(1, doc.count("object.reference_sequence_id"));
+        // product_d was not indexed, reference helper field should remain unchanged.
+        ASSERT_EQ(UINT32_MAX, doc["object.reference_sequence_id"]);
+    }
 
 //    schema_json =
 //            R"({

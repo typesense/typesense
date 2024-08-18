@@ -135,6 +135,9 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& fi
         field = it.value();
     }
 
+    std::vector<std::string> buffer;
+    buffer.reserve(filter_result.count);
+
     if (field.is_singular()) {
         // Set reference helper field of all the docs that matched filter to `ref_seq_id`.
         for (uint32_t i = 0; i < filter_result.count; i++) {
@@ -160,11 +163,15 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& fi
             update_document[field_name] = existing_document[field_name];
             update_document[field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX] = ref_seq_id;
 
-            add(update_document.dump(), index_operation_t::UPDATE, id);
+            buffer.push_back(update_document.dump());
         }
     } else {
         // TODO: Handle async update of reference array field.
+        // Set reference helper field to `ref_seq_id` at the index corresponding to where reference field has value.
     }
+
+    nlohmann::json dummy;
+    add_many(buffer, dummy, index_operation_t::UPDATE);
 
     return Option<bool>(true);
 }
@@ -495,96 +502,6 @@ Option<bool> Collection::add_reference_helper_fields(const std::string& coll_nam
         }
     }
 
-    // Need to update the reference helper fields of other collections that have async_reference to this collection.
-    for (const auto &pair: async_referenced_ins) {
-        auto const& reference_collection_name = pair.first;
-        auto const& reference_field_name = pair.second;
-
-        auto& cm = CollectionManager::get_instance();
-        auto ref_coll = cm.get_collection(reference_collection_name);
-        if (ref_coll == nullptr) {
-            return Option<bool>(400, "Collection `" + reference_collection_name
-                                     + "` with async_reference to the collection `" += coll_name + "` not found.");
-        }
-
-        auto const& ref_fields = ref_coll->get_reference_fields();
-        auto const ref_field_it = ref_fields.find(reference_field_name);
-        if (ref_field_it == ref_fields.end()) {
-            return Option<bool>(400, "Field `" + reference_field_name + "` not found in the ref schema of `" +=
-                                        reference_collection_name + "` having async_reference to `" += coll_name +
-                                        "` collection.");
-        }
-
-        if (ref_field_it->second.collection != coll_name) {
-            return Option<bool>(400, "`" + reference_collection_name + "." += reference_field_name +
-                                        "` does not have a reference to `" += coll_name + "` collection.");
-        }
-
-        auto const& ref_schema = ref_coll->get_schema();
-        if (ref_schema.count(reference_field_name) == 0) {
-            return Option<bool>(400, "Field `" + reference_field_name + "` not found in the schema of `"
-                                        += reference_collection_name + "` having async_reference to `" += coll_name +
-                                        "` collection.");
-        }
-
-        auto const& field_name = ref_field_it->second.field;
-        if (field_name != "id" && schema.count(field_name) == 0) {
-            return Option<bool>(400, "Field `" + field_name + "`, referenced by `" += reference_collection_name + "." +=
-                                        reference_field_name + "`, not found in `" += coll_name + "` collection.");
-        }
-
-        auto const& optional = field_name != "id" && schema.at(field_name).optional;
-        auto is_required = !is_update && !optional;
-        if (is_required && document.count(field_name) != 1) {
-            return Option<bool>(400, "Missing the required field `" + field_name + "` in the document.");
-        } else if (document.count(field_name) != 1) {
-            continue;
-        }
-
-        // After collecting the value(s) present in the field referenced by the other collection(ref_coll), we will add
-        // this document's seq_id as a reference where the value(s) match.
-        std::string ref_filter_value;
-        if (document.at(field_name).is_array()) {
-            ref_filter_value = "[";
-
-            for (auto const& value: document[field_name]) {
-                if (value.is_number_integer()) {
-                    ref_filter_value += std::to_string(value.get<int64_t>());
-                } else if (value.is_string()) {
-                    ref_filter_value += value.get<std::string>();
-                } else {
-                    return Option<bool>(400, "Field `" + field_name + "` must only have string/int32/int64 values.");
-                }
-                ref_filter_value += ",";
-            }
-            if (ref_filter_value.size() == 1) {
-                continue;
-            }
-
-            ref_filter_value[ref_filter_value.size() - 1] = ']';
-        } else {
-            auto const& value = document[field_name];
-            if (value.is_number_integer()) {
-                ref_filter_value += std::to_string(value.get<int64_t>());
-            } else if (value.is_string()) {
-                ref_filter_value += value.get<std::string>();
-            } else {
-                return Option<bool>(400, "Field `" + field_name + "` must only have string/int32/int64 value.");
-            }
-        }
-
-        if (ref_filter_value.empty()) {
-            continue;
-        }
-
-        auto const ref_filter = reference_field_name + ":= " += ref_filter_value;
-        auto update_op = ref_coll->update_async_references_with_lock(ref_filter, seq_id, reference_field_name);
-        if (!update_op.ok()) {
-            return Option<bool>(400, "Error while updating async reference field `" + reference_field_name +
-                                        "` of collection `" += reference_collection_name + "`: " += update_op.error());
-        }
-    }
-
     return Option<bool>(true);
 }
 
@@ -885,6 +802,11 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 remove_flat_fields(document);
                 remove_reference_helper_fields(document);
             }
+
+            std::unique_lock lock(mutex);
+            // Need to update the reference helper fields of other collections that have async_reference to this collection.
+            update_async_references(index_records);
+
             index_records.clear();
             batch_doc_ids.clear();
         }
@@ -895,6 +817,111 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
     resp_summary["success"] = (num_indexed == json_lines.size());
 
     return resp_summary;
+}
+
+void Collection::update_async_references(std::vector<index_record>& index_records) {
+    for (const auto &pair: async_referenced_ins) {
+        auto const& reference_collection_name = pair.first;
+        auto const& reference_field_name = pair.second;
+
+        for (const auto& index_record: index_records) {
+            if (!index_record.indexed.ok() || index_record.is_update) {
+                continue;
+            }
+            auto const& document = index_record.doc;
+            auto const& is_update = index_record.is_update;
+            auto const& seq_id = index_record.seq_id;
+
+            auto& cm = CollectionManager::get_instance();
+            auto ref_coll = cm.get_collection(reference_collection_name);
+            if (ref_coll == nullptr) {
+                LOG(ERROR) << "Collection `" << reference_collection_name << "` with async_reference to the collection `"
+                           << name << "` not found.";
+                continue;
+            }
+
+            auto const& ref_fields = ref_coll->get_reference_fields();
+            auto const ref_field_it = ref_fields.find(reference_field_name);
+            if (ref_field_it == ref_fields.end()) {
+                LOG(ERROR) << "Field `" << reference_field_name << "` not found in the ref schema of `" <<
+                           reference_collection_name << "` having async_reference to `" << name << "` collection.";
+                continue;
+            }
+
+            if (ref_field_it->second.collection != name) {
+                LOG(ERROR) << "`" << reference_collection_name << "." << reference_field_name <<
+                           "` does not have a reference to `" << name << "` collection.";
+                continue;
+            }
+
+            auto const& ref_schema = ref_coll->get_schema();
+            if (ref_schema.count(reference_field_name) == 0) {
+                LOG(ERROR) << "Field `" << reference_field_name << "` not found in the schema of `" <<
+                           reference_collection_name << "` having async_reference to `" << name << "` collection.";
+                continue;
+            }
+
+            auto const& field_name = ref_field_it->second.field;
+            if (field_name != "id" && search_schema.count(field_name) == 0) {
+                LOG(ERROR) << "Field `" << field_name << "`, referenced by `" << reference_collection_name + "." <<
+                           reference_field_name << "`, not found in `" << name << "` collection.";
+                continue;
+            }
+
+            auto const& optional = field_name != "id" && search_schema.at(field_name).optional;
+            auto is_required = !is_update && !optional;
+            if (is_required && document.count(field_name) != 1) {
+                LOG(ERROR) << "Missing the required field `" << field_name << "` in the document.";
+            } else if (document.count(field_name) != 1) {
+                continue;
+            }
+
+            // After collecting the value(s) present in the field referenced by the other collection(ref_coll), we will add
+            // this document's seq_id as a reference where the value(s) match.
+            std::string ref_filter_value;
+            if (document.at(field_name).is_array()) {
+                ref_filter_value = "[";
+
+                for (auto const& value: document[field_name]) {
+                    if (value.is_number_integer()) {
+                        ref_filter_value += std::to_string(value.get<int64_t>());
+                    } else if (value.is_string()) {
+                        ref_filter_value += value.get<std::string>();
+                    } else {
+                        LOG(ERROR) << "Field `" << field_name << "` must only have string/int32/int64 values.";
+                        continue;
+                    }
+                    ref_filter_value += ",";
+                }
+                if (ref_filter_value.size() == 1) {
+                    continue;
+                }
+
+                ref_filter_value[ref_filter_value.size() - 1] = ']';
+            } else {
+                auto const& value = document[field_name];
+                if (value.is_number_integer()) {
+                    ref_filter_value += std::to_string(value.get<int64_t>());
+                } else if (value.is_string()) {
+                    ref_filter_value += value.get<std::string>();
+                } else {
+                    LOG(ERROR) << "Field `" << field_name << "` must only have string/int32/int64 values.";
+                    continue;
+                }
+            }
+
+            if (ref_filter_value.empty()) {
+                continue;
+            }
+
+            auto const ref_filter = reference_field_name + ":= " += ref_filter_value;
+            auto update_op = ref_coll->update_async_references_with_lock(ref_filter, seq_id, reference_field_name);
+            if (!update_op.ok()) {
+                LOG(ERROR) << "Error while updating async reference field `" << reference_field_name <<
+                           "` of collection `" << reference_collection_name << "`: " << update_op.error();
+            }
+        }
+    }
 }
 
 Option<nlohmann::json> Collection::update_matching_filter(const std::string& filter_query,
@@ -4753,6 +4780,9 @@ void Collection::cascade_remove_docs(const std::string& field_name, const uint32
         is_field_optional = it.value().optional;
     }
 
+    std::vector<std::string> buffer;
+    buffer.reserve(filter_result.count);
+
     if (is_field_singular) {
         // Delete all the docs where reference helper field has value `seq_id`.
         for (uint32_t i = 0; i < filter_result.count; i++) {
@@ -4783,7 +4813,7 @@ void Collection::cascade_remove_docs(const std::string& field_name, const uint32
                 update_document["id"] = id;
                 update_document[field_name] = nullptr;
 
-                add(update_document.dump(), index_operation_t::UPDATE, id);
+                buffer.push_back(update_document.dump());
             } else {
                 remove_document(existing_document, seq_id, remove_from_store);
             }
@@ -4810,9 +4840,6 @@ void Collection::cascade_remove_docs(const std::string& field_name, const uint32
                                  ref_field_name << "` is an array.";
             return;
         }
-
-        std::vector<std::string> buffer;
-        buffer.reserve(filter_result.count);
 
         // Delete all references to `seq_id` in the docs.
         for (uint32_t i = 0; i < filter_result.count; i++) {
@@ -4866,6 +4893,8 @@ void Collection::cascade_remove_docs(const std::string& field_name, const uint32
 
                 auto removed_ref_value_found = false;
 
+                // We assume here that the value in reference field at a particular index corresponds to the value
+                // present at the same index in the reference helper field.
                 for (uint32_t j = 0; j < existing_document[field_name].size(); j++) {
                     auto const& ref_value = existing_document[field_name][j];
                     if (ref_value == ref_doc.at(ref_field_name)) {
@@ -4900,10 +4929,10 @@ void Collection::cascade_remove_docs(const std::string& field_name, const uint32
                 remove_document(existing_document, seq_id, remove_from_store);
             }
         }
-
-        nlohmann::json dummy;
-        add_many(buffer, dummy, index_operation_t::UPDATE);
     }
+
+    nlohmann::json dummy;
+    add_many(buffer, dummy, index_operation_t::UPDATE);
 }
 
 Option<std::string> Collection::remove(const std::string & id, const bool remove_from_store) {
