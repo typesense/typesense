@@ -87,6 +87,14 @@ enum vector_distance_type_t {
     cosine
 };
 
+struct reference_pair_t {
+    std::string collection;
+    std::string field;
+
+    reference_pair_t(std::string collection, std::string field) : collection(std::move(collection)),
+                                                                  field(std::move(field)) {}
+};
+
 struct field {
     std::string name;
     std::string type;

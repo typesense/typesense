@@ -569,6 +569,10 @@ private:
                                      const index_record* record,
                                      const std::vector<embedding_res_t>& embedding_results,
                                      size_t& count, const field& the_field);
+
+    void update_async_references(const std::string& collection_name, const field& afield,
+                                 std::vector<index_record>& iter_batch,
+                                 const std::vector<reference_pair_t>& async_referenced_ins = {});
 public:
     // for limiting number of results on multiple candidates / query rewrites
     enum {TYPO_TOKENS_THRESHOLD = 1};
@@ -740,9 +744,14 @@ public:
                                      const size_t remote_embedding_timeout_ms = 60000,
                                      const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true,
                                      const bool use_addition_fields = false,
-                                     const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>());
+                                     const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>(),
+                                     const std::string& collection_name = "",
+                                     const spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>& async_referenced_ins =
+                                            spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>());
 
-    void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
+    void index_field_in_memory(const std::string& collection_name, const field& afield,
+                               std::vector<index_record>& iter_batch,
+                               const std::vector<reference_pair_t>& async_referenced_ins = {});
 
     template<class T>
     void iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func);

@@ -39,14 +39,6 @@ struct highlight_field_t {
     }
 };
 
-struct reference_pair_t {
-    std::string collection;
-    std::string field;
-
-    reference_pair_t(std::string collection, std::string field) : collection(std::move(collection)),
-                                                                    field(std::move(field)) {}
-};
-
 struct reference_info_t {
     std::string collection;
     std::string field;
