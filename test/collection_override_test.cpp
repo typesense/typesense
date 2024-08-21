@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include <core_api.h>
 
 class CollectionOverrideTest : public ::testing::Test {
 protected:
@@ -4433,4 +4434,88 @@ TEST_F(CollectionOverrideTest, AvoidTypoMatchingWhenOverlapWithCuratedData) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionOverrideTest, OverridesWithSemanticSearch) {
+    auto schema_json = R"({
+            "name": "products",
+            "fields":[
+            {
+                "name": "product_name",
+                        "type": "string"
+            },
+            {
+                "name": "embedding",
+                        "type": "float[]",
+                        "embed": {
+                    "from": [
+                    "product_name"
+                    ],
+                    "model_config": {
+                        "model_name": "ts/clip-vit-b-p32"
+                    }
+                }
+            }
+            ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto coll_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+
+    std::vector<std::string> products = {"Cell Phone", "Laptop", "Desktop", "Printer", "Keyboard", "Monitor", "Mouse"};
+    nlohmann::json doc;
+    for (auto product: products) {
+        doc["product_name"] = product;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    nlohmann::json search_body;
+    search_body["searches"] = nlohmann::json::array();
+
+    nlohmann::json search1;
+    search1["collection"] = "products";
+    search1["q"] = "phone";
+    search1["query_by"] = "embedding";
+    search1["exclude_fields"] = "embedding";
+
+    search_body["searches"].push_back(search1);
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->body = search_body.dump();
+    nlohmann::json embedded_params;
+    req->embedded_params_vec.push_back(embedded_params);
+
+    post_multi_search(req, res);
+    auto res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ(res_json["results"][0]["found"], 7);
+    LOG(INFO) << res_json.dump();
+
+    nlohmann::json override_json = {
+            {"id",   "exclude-rule"},
+            {
+             "rule", {
+                             {"query", "phone"},
+                             {"match", override_t::MATCH_CONTAINS}
+                     }
+            }
+    };
+    override_json["excludes"] = nlohmann::json::array();
+    override_json["excludes"][0] = nlohmann::json::object();
+    override_json["excludes"][0]["id"] = "0";
+
+    override_t override;
+    override_t::parse(override_json, "", override);
+
+    ASSERT_TRUE(coll->add_override(override).ok());
+
+    res->body.clear();
+    post_multi_search(req, res);
+    res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ(res_json["results"][0]["found"], 6);
+    LOG(INFO) << res_json.dump();
 }
