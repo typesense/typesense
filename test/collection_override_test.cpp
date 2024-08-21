@@ -4490,10 +4490,9 @@ TEST_F(CollectionOverrideTest, OverridesWithSemanticSearch) {
     nlohmann::json embedded_params;
     req->embedded_params_vec.push_back(embedded_params);
 
-    post_multi_search(req, res);
+    ASSERT_TRUE(post_multi_search(req, res));
     auto res_json = nlohmann::json::parse(res->body);
     ASSERT_EQ(res_json["results"][0]["found"], 7);
-    LOG(INFO) << res_json.dump();
 
     nlohmann::json override_json = {
             {"id",   "exclude-rule"},
@@ -4514,8 +4513,15 @@ TEST_F(CollectionOverrideTest, OverridesWithSemanticSearch) {
     ASSERT_TRUE(coll->add_override(override).ok());
 
     res->body.clear();
-    post_multi_search(req, res);
+    ASSERT_TRUE(post_multi_search(req, res));
+
     res_json = nlohmann::json::parse(res->body);
     ASSERT_EQ(res_json["results"][0]["found"], 6);
-    LOG(INFO) << res_json.dump();
+
+    ASSERT_EQ(res_json["results"][0]["hits"][0]["document"]["id"], "4");
+    ASSERT_EQ(res_json["results"][0]["hits"][1]["document"]["id"], "6");
+    ASSERT_EQ(res_json["results"][0]["hits"][2]["document"]["id"], "1");
+    ASSERT_EQ(res_json["results"][0]["hits"][3]["document"]["id"], "5");
+    ASSERT_EQ(res_json["results"][0]["hits"][4]["document"]["id"], "2");
+    ASSERT_EQ(res_json["results"][0]["hits"][5]["document"]["id"], "3");
 }
