@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
-#include <core_api.h>
 
 class CollectionOverrideTest : public ::testing::Test {
 protected:
@@ -4472,27 +4471,11 @@ TEST_F(CollectionOverrideTest, OverridesWithSemanticSearch) {
         ASSERT_TRUE(coll->add(doc.dump()).ok());
     }
 
-    nlohmann::json search_body;
-    search_body["searches"] = nlohmann::json::array();
+    auto results = coll->search("phone", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                {"embedding"}).get();
 
-    nlohmann::json search1;
-    search1["collection"] = "products";
-    search1["q"] = "phone";
-    search1["query_by"] = "embedding";
-    search1["exclude_fields"] = "embedding";
-
-    search_body["searches"].push_back(search1);
-
-    std::shared_ptr<http_req> req = std::make_shared<http_req>();
-    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
-
-    req->body = search_body.dump();
-    nlohmann::json embedded_params;
-    req->embedded_params_vec.push_back(embedded_params);
-
-    ASSERT_TRUE(post_multi_search(req, res));
-    auto res_json = nlohmann::json::parse(res->body);
-    ASSERT_EQ(res_json["results"][0]["found"], 7);
+    ASSERT_EQ(results["found"], 7);
 
     nlohmann::json override_json = {
             {"id",   "exclude-rule"},
@@ -4512,16 +4495,16 @@ TEST_F(CollectionOverrideTest, OverridesWithSemanticSearch) {
 
     ASSERT_TRUE(coll->add_override(override).ok());
 
-    res->body.clear();
-    ASSERT_TRUE(post_multi_search(req, res));
+    results = coll->search("phone", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                {"embedding"}).get();
 
-    res_json = nlohmann::json::parse(res->body);
-    ASSERT_EQ(res_json["results"][0]["found"], 6);
+    ASSERT_EQ(results["found"], 6);
 
-    ASSERT_EQ(res_json["results"][0]["hits"][0]["document"]["id"], "4");
-    ASSERT_EQ(res_json["results"][0]["hits"][1]["document"]["id"], "6");
-    ASSERT_EQ(res_json["results"][0]["hits"][2]["document"]["id"], "1");
-    ASSERT_EQ(res_json["results"][0]["hits"][3]["document"]["id"], "5");
-    ASSERT_EQ(res_json["results"][0]["hits"][4]["document"]["id"], "2");
-    ASSERT_EQ(res_json["results"][0]["hits"][5]["document"]["id"], "3");
+    ASSERT_EQ(results["hits"][0]["document"]["id"], "4");
+    ASSERT_EQ(results["hits"][1]["document"]["id"], "6");
+    ASSERT_EQ(results["hits"][2]["document"]["id"], "1");
+    ASSERT_EQ(results["hits"][3]["document"]["id"], "5");
+    ASSERT_EQ(results["hits"][4]["document"]["id"], "2");
+    ASSERT_EQ(results["hits"][5]["document"]["id"], "3");
 }
