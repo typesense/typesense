@@ -117,6 +117,7 @@ Option<int> ConversationModelManager::init(Store* store) {
     }
 
     int loaded_models = 0;
+
     for(auto& model_str : model_strs) {
         nlohmann::json model_json = nlohmann::json::parse(model_str);
         const std::string& model_id = model_json["id"];
@@ -127,7 +128,8 @@ Option<int> ConversationModelManager::init(Store* store) {
         // write to disk only when a migration has been done on model data
         auto add_op = add_model(model_json, model_id, has_migration);
         if(!add_op.ok()) {
-            return Option<int>(add_op.code(), add_op.error());
+            LOG(ERROR) << "Error while loading conversation model: " << model_id << ", error: " << add_op.error();
+            continue;
         }
 
         loaded_models++;
