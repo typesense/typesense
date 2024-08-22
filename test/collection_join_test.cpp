@@ -1396,6 +1396,49 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
         ASSERT_EQ(1, doc.count("object.reference_sequence_id"));
         // product_d was not indexed, reference helper field should remain unchanged.
         ASSERT_EQ(UINT32_MAX, doc["object.reference_sequence_id"]);
+
+        doc_json = R"({
+                        "product_id": "product_a",
+                        "product_name": "hair oil",
+                        "product_description": "Revitalize your hair with our nourishing hair oil – nature's secret to lustrous, healthy locks.",
+                        "rating": "4"
+                    })"_json;
+        add_doc_op = collection_create_op.get()->add(doc_json.dump());
+        ASSERT_FALSE(add_doc_op.ok());
+        // Singular reference field can only reference one document.
+        ASSERT_EQ("Error while updating async reference field `object.reference` of collection `coll1`: "
+                  "Document `id: 2` already has a reference to document `0` of `Products` collection, "
+                  "having reference value `product_a`.", add_doc_op.error());
+
+        doc = coll1->get("2").get();
+        ASSERT_EQ("2", doc["id"]);
+
+        ASSERT_EQ(1, doc.count(".ref"));
+        ASSERT_EQ(1, doc[".ref"].size());
+        ASSERT_EQ("object.reference_sequence_id", doc[".ref"][0]);
+
+        ASSERT_EQ(1, doc.count("object.reference_sequence_id"));
+        // product_a already existed, reference helper field should remain unchanged.
+        ASSERT_EQ(0, doc["object.reference_sequence_id"]);
+
+        doc_json = R"({
+                        "product_id": "product_d",
+                        "product_name": "hair oil",
+                        "product_description": "Revitalize your hair with our nourishing hair oil – nature's secret to lustrous, healthy locks.",
+                        "rating": "4"
+                    })"_json;
+        add_doc_op = collection_create_op.get()->add(doc_json.dump());
+        ASSERT_TRUE(add_doc_op.ok());
+
+        doc = coll1->get("3").get();
+        ASSERT_EQ("3", doc["id"]);
+
+        ASSERT_EQ(1, doc.count(".ref"));
+        ASSERT_EQ(1, doc[".ref"].size());
+        ASSERT_EQ("object.reference_sequence_id", doc[".ref"][0]);
+
+        ASSERT_EQ(1, doc.count("object.reference_sequence_id"));
+        ASSERT_EQ(5, doc["object.reference_sequence_id"]);
     }
 
 //    schema_json =

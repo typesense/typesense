@@ -114,8 +114,8 @@ Option<bool> single_value_filter_query(nlohmann::json& document, const std::stri
     return Option<bool>(true);
 }
 
-Option<bool> Collection::update_async_references_with_lock(const std::string& filter, const uint32_t ref_seq_id,
-                                                           const std::string& field_name) {
+Option<bool> Collection::update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
+                                                           const uint32_t ref_seq_id, const std::string& field_name) {
     // Update reference helper field of the docs matching the filter.
     filter_result_t filter_result;
     get_filter_ids(filter, filter_result);
@@ -158,10 +158,27 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& fi
 
             auto const id = existing_document["id"].get<std::string>();
 
+            auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+            if (existing_document.contains(reference_helper_field_name) &&
+                existing_document[reference_helper_field_name].is_number_integer()) {
+                const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name].get<int64_t>();
+                if (existing_ref_seq_id != Collection::reference_helper_sentinel_value &&
+                        existing_ref_seq_id != ref_seq_id) {
+                    return Option<bool>(400, "Document `id: " + id + "` already has a reference to document `" +=
+                                                std::to_string(existing_ref_seq_id) + "` of `" += ref_coll_name +
+                                                "` collection, having reference value `" +=
+                                                (existing_document[field_name].is_number_integer() ?
+                                                     std::to_string(existing_document[field_name].get<int64_t >()) :
+                                                     existing_document[field_name].get<std::string>()) + "`.");
+                } else if (existing_ref_seq_id == ref_seq_id) {
+                    continue;
+                }
+            }
+
             nlohmann::json update_document;
             update_document["id"] = id;
             update_document[field_name] = existing_document[field_name];
-            update_document[field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX] = ref_seq_id;
+            update_document[reference_helper_field_name] = ref_seq_id;
 
             buffer.push_back(update_document.dump());
         }

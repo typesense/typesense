@@ -1271,7 +1271,8 @@ void Index::update_async_references(const std::string& collection_name, const fi
             }
 
             auto const ref_filter = reference_field_name + ":= " += ref_filter_value;
-            auto update_op = ref_coll->update_async_references_with_lock(ref_filter, seq_id, reference_field_name);
+            auto update_op = ref_coll->update_async_references_with_lock(collection_name, ref_filter, seq_id,
+                                                                         reference_field_name);
             if (!update_op.ok()) {
                 record.index_failure(400, "Error while updating async reference field `" + reference_field_name +
                                          "` of collection `" += reference_collection_name + "`: " += update_op.error());

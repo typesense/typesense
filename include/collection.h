@@ -736,8 +736,8 @@ public:
     Option<bool> get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
                                            std::vector<uint32_t>& result) const;
 
-    Option<bool> update_async_references_with_lock(const std::string& filter, const uint32_t ref_seq_id,
-                                                   const std::string& field_name);
+    Option<bool> update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
+                                                   const uint32_t ref_seq_id, const std::string& field_name);
 
     void update_async_references(std::vector<index_record>& index_records);
 
