@@ -2966,16 +2966,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     pairs = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, vector_query.ef, &filterFunctor);
                 }
 
-                //remove excluded ids
-                auto iter = pairs.begin();
-                while(iter != pairs.end()) {
-                    if(!filterFunctor(iter->second)) {
-                        iter = pairs.erase(iter);
-                    } else {
-                        ++iter;
-                    }
-                }
-
                 std::sort(pairs.begin(), pairs.end(), [](auto& x, auto& y) {
                     return x.second < y.second;
                 });
