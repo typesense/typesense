@@ -2055,12 +2055,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
     }
 
-    // Set query to * if it is semantic search
-    if(!vector_query.field_name.empty() && processed_search_fields.empty()) {
-        query = "*";
-    }
-
-
     if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
         std::string error = "Vector query could not find any embedded fields.";
         return Option<nlohmann::json>(400, error);
@@ -2332,6 +2326,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         LOG(INFO) << "----";
     }
     */
+
+    // Set query to * if it is semantic search
+    if(!vector_query.field_name.empty() && processed_search_fields.empty()) {
+        query = "*";
+    }
 
     // validate sort fields and standardize
 
