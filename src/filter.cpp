@@ -54,6 +54,8 @@ Option<NUM_COMPARATOR> filter::extract_num_comparator(string &comp_and_value) {
         num_comparator = GREATER_THAN;
     }
 
+    // "=" case is handled upstream.
+
     else if(comp_and_value.find("..") != std::string::npos) {
         num_comparator = RANGE_INCLUSIVE;
     }
