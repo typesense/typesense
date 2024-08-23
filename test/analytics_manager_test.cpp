@@ -612,6 +612,23 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
 
     create_op = analyticsManager.create_rule(analytics_rule, true, true);
     ASSERT_TRUE(create_op.ok());
+
+    //try adding removed events
+    ASSERT_TRUE(analyticsManager.remove_rule("product_events").ok());
+
+    analytics_rule = R"({
+        "name": "product_events",
+        "type": "log",
+        "params": {
+            "source": {
+                "collections": ["titles"],
+                 "events":  [{"type": "click", "name": "AP"}, {"type": "visit", "name": "VP"}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
 }
 
 TEST_F(AnalyticsManagerTest, EventsPersist) {
