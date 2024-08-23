@@ -1730,6 +1730,40 @@ TEST_F(CollectionOverrideTest, PinnedHitsWithWildCardQuery) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionOverrideTest, HiddenHitsWithWildCardQuery) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 3, fields, "points").get();
+    }
+
+    for(size_t i=0; i<5; i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto hidden_hits = "1";
+
+    auto results = coll1->search("*", {"title"}, "", {}, {}, {0}, 30, 1, FREQUENCY,
+                                 {false}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10,
+                                 {}, hidden_hits, {}, {0}, "", "", {}).get();
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOverrideTest, PinnedHitsIdsHavingColon) {
     Collection *coll1;
 
