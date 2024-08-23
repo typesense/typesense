@@ -5656,13 +5656,28 @@ Option<bool> Collection::include_references(nlohmann::json& doc, const uint32_t&
             if (collection->object_reference_helper_fields.count(field_name) != 0) {
                 std::vector<std::string> keys;
                 StringUtils::split(field_name, keys, ".");
-                if (!doc.contains(keys[0])) {
-                    return Option<bool>(400, "Could not find `" + keys[0] +
-                                             "` in the document to include the referenced document.");
+                auto const& key = keys[0];
+
+                if (!doc.contains(key)) {
+                    nlohmann::json temp_doc;
+                    auto get_doc_op = collection->get_document_from_store(collection->get_seq_id_key(seq_id), temp_doc);
+                    if (!get_doc_op.ok() || !temp_doc.contains(key)) {
+                        return Option<bool>(400, "Could not find `" + key +
+                                                    "` key in the document to include the referenced document.");
+                    }
+
+                    // The key is excluded from the doc by the query, inserting empty object(s) so referenced doc can be
+                    // included in it.
+                    if (temp_doc[key].is_array()) {
+                        doc[key] = nlohmann::json::array();
+                        doc[key].insert(doc[key].begin(), temp_doc[key].size(), nlohmann::json::object());
+                    } else {
+                        doc[key] = nlohmann::json::object();
+                    }
                 }
 
-                if (doc[keys[0]].is_array()) {
-                    for (uint32_t i = 0; i < doc[keys[0]].size(); i++) {
+                if (doc[key].is_array()) {
+                    for (uint32_t i = 0; i < doc[key].size(); i++) {
                         uint32_t ref_doc_id;
                         auto op = collection->get_object_array_related_id(field_name, seq_id, i, ref_doc_id);
                         if (!op.ok()) {
@@ -5674,7 +5689,7 @@ Option<bool> Collection::include_references(nlohmann::json& doc, const uint32_t&
                         }
 
                         reference_filter_result_t result(1, new uint32_t[1]{ref_doc_id});
-                        prune_doc_op = prune_ref_doc(doc[keys[0]][i], result,
+                        prune_doc_op = prune_ref_doc(doc[key][i], result,
                                                      ref_include_fields_full, ref_exclude_fields_full,
                                                      false, ref_include_exclude);
                         if (!prune_doc_op.ok()) {
@@ -5688,7 +5703,7 @@ Option<bool> Collection::include_references(nlohmann::json& doc, const uint32_t&
                         continue;
                     }
                     reference_filter_result_t result(ids.size(), &ids[0]);
-                    prune_doc_op = prune_ref_doc(doc[keys[0]], result, ref_include_fields_full, ref_exclude_fields_full,
+                    prune_doc_op = prune_ref_doc(doc[key], result, ref_include_fields_full, ref_exclude_fields_full,
                                                  collection->search_schema.at(field_name).is_array(), ref_include_exclude);
                     result.docs = nullptr;
                 }
