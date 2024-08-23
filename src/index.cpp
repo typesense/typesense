@@ -67,10 +67,11 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
             continue;
         }
 
-        if(a_field.num_dim > 0) {
+        if(a_field.is_vector_type()) {
             auto num_dim = a_field.num_dim;
             if(a_field.is_bool()) {
-                num_dim = num_dim / (8 * sizeof(float)) + (num_dim % (8 * sizeof(float)) == 0 ? 0 : 1);
+                //as we are packing and storing binary[] as float[], need to compress dimenstions too
+                num_dim = a_field.compact_num_dims(sizeof(float));
             }
 
             auto hnsw_index = new hnsw_index_t(num_dim, 16, a_field.vec_dist, a_field.is_bool(), a_field.hnsw_params["M"].get<uint32_t>(), a_field.hnsw_params["ef_construction"].get<uint32_t>());
@@ -963,102 +964,85 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
             });
         } else if(afield.is_array()) {
             // handle vector index first
-            if(afield.num_dim > 0 && (afield.type == field_types::FLOAT_ARRAY || afield.type == field_types::BOOL_ARRAY)) {
-                auto vec_index = vector_index[afield.name]->vecdex;
-                size_t curr_ele_count = vec_index->getCurrentElementCount();
-                if(curr_ele_count + iter_batch.size() > vec_index->getMaxElements()) {
-                    vec_index->resizeIndex((curr_ele_count + iter_batch.size()) * 1.3);
-                }
-
-                const size_t num_threads = std::min<size_t>(4, iter_batch.size());
-                const size_t window_size = (num_threads == 0) ? 0 :
-                                           (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
-                size_t num_processed = 0;
-                std::mutex m_process;
-                std::condition_variable cv_process;
-
-                size_t num_queued = 0;
-                size_t result_index = 0;
-
-                for(size_t thread_id = 0; thread_id < num_threads && result_index < iter_batch.size(); thread_id++) {
-                    size_t batch_len = window_size;
-
-                    if(result_index + window_size > iter_batch.size()) {
-                        batch_len = iter_batch.size() - result_index;
+                if(afield.is_vector_type()) {
+                    auto vec_index = vector_index[afield.name]->vecdex;
+                    size_t curr_ele_count = vec_index->getCurrentElementCount();
+                    if (curr_ele_count + iter_batch.size() > vec_index->getMaxElements()) {
+                        vec_index->resizeIndex((curr_ele_count + iter_batch.size()) * 1.3);
                     }
 
-                    num_queued++;
+                    const size_t num_threads = std::min<size_t>(4, iter_batch.size());
+                    const size_t window_size = (num_threads == 0) ? 0 :
+                                               (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
+                    size_t num_processed = 0;
+                    std::mutex m_process;
+                    std::condition_variable cv_process;
 
-                    thread_pool->enqueue([thread_id, &afield, &vec_index, &records = iter_batch,
-                                          result_index, batch_len, &num_processed, &m_process, &cv_process]() {
+                    size_t num_queued = 0;
+                    size_t result_index = 0;
 
-                        size_t batch_counter = 0;
-                        while(batch_counter < batch_len) {
-                            auto& record = records[result_index + batch_counter];
-                            if(record.doc.count(afield.name) == 0 || !record.indexed.ok()) {
-                                batch_counter++;
-                                continue;
-                            }
+                    for (size_t thread_id = 0;
+                         thread_id < num_threads && result_index < iter_batch.size(); thread_id++) {
+                        size_t batch_len = window_size;
 
-                            try {
-                                std::vector<float> vals;
-                                if (afield.type == field_types::FLOAT_ARRAY) {
-                                    vals = record.doc[afield.name].get<std::vector<float>>();
+                        if (result_index + window_size > iter_batch.size()) {
+                            batch_len = iter_batch.size() - result_index;
+                        }
+
+                        num_queued++;
+
+                        thread_pool->enqueue([thread_id, &afield, &vec_index, &records = iter_batch,
+                                                     result_index, batch_len, &num_processed, &m_process, &cv_process]() {
+
+                            size_t batch_counter = 0;
+                            while (batch_counter < batch_len) {
+                                auto &record = records[result_index + batch_counter];
+                                if (record.doc.count(afield.name) == 0 || !record.indexed.ok()) {
+                                    batch_counter++;
+                                    continue;
+                                }
+
+                                try {
+                                    std::vector<float> vals = record.doc[afield.name].get<std::vector<float>>();
                                     if (vals.size() != afield.num_dim) {
                                         record.index_failure(400, "Vector size mismatch.");
                                     }
-                                } else if (afield.type == field_types::BOOL_ARRAY) {
-                                    const std::vector<bool> &bool_vals = record.doc[afield.name].get<std::vector<bool>>();
-                                    if (bool_vals.size() != afield.num_dim) {
-                                        record.index_failure(400, "Vector size mismatch.");
-                                    }
 
-                                    //convert bool[] to float[] by packing 4 values into 1
-                                    unsigned num = 0;
-                                    bool vals_end = false;
-                                    for(int i = 0, j = 1; i < bool_vals.size(); ++i, ++j) {
-                                        num = num | ((unsigned int) bool_vals[i] << i);
-                                        vals_end = false;
-
-                                        if(j % (8*sizeof(float)) == 0) {
-                                            vals.push_back(num);
-                                            num = 0;
-                                            vals_end = true;
+                                    if (afield.type == field_types::BOOL_ARRAY) {
+                                        //convert bool[] to float[] by packing
+                                        auto op = VectorQueryOps::pack_binary_vals_to_float(vals);
+                                        if (!op.ok()) {
+                                            record.index_failure(op.code(), op.error());
                                         }
                                     }
 
-                                    if(!vals_end) {
-                                        //push last remained num
-                                        vals.push_back(num);
+                                    if (afield.vec_dist == cosine && !afield.is_bool()) {
+                                        std::vector<float> normalized_vals(afield.num_dim);
+                                        hnsw_index_t::normalize_vector(vals, normalized_vals);
+                                        vec_index->addPoint(normalized_vals.data(), (size_t) record.seq_id,
+                                                            true);
+                                    } else {
+                                        vec_index->addPoint(vals.data(), (size_t) record.seq_id, true);
                                     }
+                                } catch (const std::exception &e) {
+                                    record.index_failure(400, e.what());
                                 }
 
-                                if (afield.vec_dist == cosine && !afield.is_bool()) {
-                                    std::vector<float> normalized_vals(afield.num_dim);
-                                    hnsw_index_t::normalize_vector(vals, normalized_vals);
-                                    vec_index->addPoint(normalized_vals.data(), (size_t) record.seq_id, true);
-                                } else {
-                                    vec_index->addPoint(vals.data(), (size_t) record.seq_id, true);
-                                }
-                            } catch(const std::exception &e) {
-                                record.index_failure(400, e.what());
+                                batch_counter++;
                             }
 
-                            batch_counter++;
-                        }
+                            std::unique_lock<std::mutex> lock(m_process);
+                            num_processed++;
+                            cv_process.notify_one();
+                        });
 
-                        std::unique_lock<std::mutex> lock(m_process);
-                        num_processed++;
-                        cv_process.notify_one();
-                    });
+                        result_index += batch_len;
+                    }
 
-                    result_index += batch_len;
+                    std::unique_lock<std::mutex> lock_process(m_process);
+                    cv_process.wait(lock_process, [&]() { return num_processed == num_queued; });
+                    return;
                 }
-
-                std::unique_lock<std::mutex> lock_process(m_process);
-                cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
-                return;
-            }
 
             // all other numerical arrays
             auto num_tree = afield.range_index ? nullptr : numerical_index.at(afield.name);
@@ -7060,10 +7044,11 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
 
         search_schema.emplace(new_field.name, new_field);
 
-        if(new_field.num_dim > 0 && (new_field.type == field_types::FLOAT_ARRAY || new_field.type == field_types::BOOL_ARRAY)) {
+        if(new_field.is_vector_type()) {
             auto num_dim = new_field.num_dim;
             if(new_field.is_bool()) {
-                num_dim = num_dim / (8 * sizeof(float)) + (num_dim % (8 *sizeof(float)) == 0 ? 0 : 1);
+                //as we are packing and storing binary[] as float[], need to compress dimenstions too
+                num_dim = new_field.compact_num_dims(sizeof(float));
             }
 
             auto hnsw_index = new hnsw_index_t(num_dim, 16, new_field.vec_dist, new_field.is_bool(), new_field.hnsw_params["M"].get<uint32_t>(), new_field.hnsw_params["ef_construction"].get<uint32_t>());

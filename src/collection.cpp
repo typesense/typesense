@@ -7055,27 +7055,14 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
         }
     }
 
-    //pack bool values to float
-    if(search_schema.at(vector_query.field_name).is_bool()) {
-        unsigned num = 0;
-        std::vector<float> packed_values;
-        bool vals_end = false;
-        for(int i = 0, j = 1; i < vector_query.values.size(); ++i, ++j) {
-            num = num | ((unsigned int) vector_query.values[i] << i);
-            vals_end = false;
-
-            if (j % (8 * sizeof(float)) == 0) {
-                packed_values.push_back(num);
-                num = 0;
-                vals_end = true;
-            }
-        }
-        if(!vals_end) {
-            //push remaining vals
-            packed_values.push_back(num);
+    if(!vector_query.field_name.empty() && search_schema.count(vector_query.field_name) != 0 &&
+        search_schema.at(vector_query.field_name).is_bool()) {
+        //pack bool values to float
+        auto op = VectorQueryOps::pack_binary_vals_to_float(vector_query.values);
+        if(!op.ok()) {
+            return Option<bool>(op.code(), op.error());
         }
 
-        vector_query.values = packed_values;
         vector_query.is_boolean = true;
     }
 

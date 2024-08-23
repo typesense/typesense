@@ -892,3 +892,8 @@ Option<bool> field::fields_to_json_fields(const std::vector<field>& fields, cons
 
     return Option<bool>(true);
 }
+
+size_t field::compact_num_dims(size_t type_size) const {
+    type_size *= 8;
+    return  num_dim / (type_size) + (num_dim % (type_size) == 0 ? 0 : 1);
+}
