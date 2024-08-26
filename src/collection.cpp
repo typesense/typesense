@@ -114,7 +114,24 @@ Option<bool> single_value_filter_query(nlohmann::json& document, const std::stri
     return Option<bool>(true);
 }
 
+inline std::string get_field_value(const nlohmann::json& doc, const std::string& field_name) {
+    return doc[field_name].is_number_integer() ?
+                std::to_string(doc[field_name].get<int64_t>()) :
+           doc[field_name].is_string() ?
+                doc[field_name].get<std::string>() :
+                doc[field_name].dump();
+}
+
+inline std::string get_array_field_value(const nlohmann::json& doc, const std::string& field_name, const size_t& index) {
+    return doc[field_name][index].is_number_integer() ?
+                std::to_string(doc[field_name][index].get<int64_t>()) :
+           doc[field_name][index].is_string() ?
+                doc[field_name][index].get<std::string>() :
+                doc[field_name][index].dump();
+}
+
 Option<bool> Collection::update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
+                                                           const std::set<std::string>& filter_values,
                                                            const uint32_t ref_seq_id, const std::string& field_name) {
     // Update reference helper field of the docs matching the filter.
     filter_result_t filter_result;
@@ -138,53 +155,95 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
     std::vector<std::string> buffer;
     buffer.reserve(filter_result.count);
 
-    if (field.is_singular()) {
-        // Set reference helper field of all the docs that matched filter to `ref_seq_id`.
-        for (uint32_t i = 0; i < filter_result.count; i++) {
-            auto const& seq_id = filter_result.docs[i];
+    for (uint32_t i = 0; i < filter_result.count; i++) {
+        auto const& seq_id = filter_result.docs[i];
 
-            nlohmann::json existing_document;
-            auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
-
-            if (!get_doc_op.ok()) {
-                if (get_doc_op.code() == 404) {
-                    LOG(ERROR) << "`" << name << "` collection: Sequence ID `" << seq_id << "` exists, but document is missing.";
-                    continue;
-                }
-
-                LOG(ERROR) << "`" << name << "` collection: " << get_doc_op.error();
+        nlohmann::json existing_document;
+        auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
+        if (!get_doc_op.ok()) {
+            if (get_doc_op.code() == 404) {
+                LOG(ERROR) << "`" << name << "` collection: Sequence ID `" << seq_id << "` exists, but document is missing.";
                 continue;
             }
 
-            auto const id = existing_document["id"].get<std::string>();
+            LOG(ERROR) << "`" << name << "` collection: " << get_doc_op.error();
+            continue;
+        }
+        auto const id = existing_document["id"].get<std::string>();
+        auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
 
-            auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+        if (field.is_singular()) {
+            // Referenced value must be unique.
             if (existing_document.contains(reference_helper_field_name) &&
                 existing_document[reference_helper_field_name].is_number_integer()) {
                 const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name].get<int64_t>();
                 if (existing_ref_seq_id != Collection::reference_helper_sentinel_value &&
-                        existing_ref_seq_id != ref_seq_id) {
+                    existing_ref_seq_id != ref_seq_id) {
                     return Option<bool>(400, "Document `id: " + id + "` already has a reference to document `" +=
                                                 std::to_string(existing_ref_seq_id) + "` of `" += ref_coll_name +
                                                 "` collection, having reference value `" +=
-                                                (existing_document[field_name].is_number_integer() ?
-                                                     std::to_string(existing_document[field_name].get<int64_t >()) :
-                                                     existing_document[field_name].get<std::string>()) + "`.");
+                                                get_field_value(existing_document, field_name) + "`.");
                 } else if (existing_ref_seq_id == ref_seq_id) {
                     continue;
                 }
             }
 
+            // Set reference helper field of all the docs that matched filter to `ref_seq_id`.
             nlohmann::json update_document;
             update_document["id"] = id;
             update_document[field_name] = existing_document[field_name];
             update_document[reference_helper_field_name] = ref_seq_id;
 
             buffer.push_back(update_document.dump());
+        } else {
+            if (!existing_document.contains(field_name) || !existing_document[field_name].is_array()) {
+                return Option<bool>(400, "Expected document `id: " + id + "` to have `" += field_name + "` array field "
+                                            "that is `" += get_field_value(existing_document, field_name) + "` instead.");
+            } else if (!existing_document.contains(reference_helper_field_name) ||
+                        !existing_document[reference_helper_field_name].is_array()) {
+                return Option<bool>(400, "Expected document `id: " + id + "` to have `" += reference_helper_field_name +
+                                            "` array field that is `" += get_field_value(existing_document, field_name) +
+                                            "` instead.");
+            } else if (existing_document[field_name].size() != existing_document[reference_helper_field_name].size()) {
+                return Option<bool>(400, "Expected document `id: " + id + "` to have equal count of elements in `" +=
+                                            field_name + ": " += get_field_value(existing_document, field_name) +
+                                            "` field and `" += reference_helper_field_name + ": " +=
+                                            get_field_value(existing_document, reference_helper_field_name) + "` field.");
+            }
+
+            nlohmann::json update_document;
+            update_document["id"] = id;
+            update_document[field_name] = existing_document[field_name];
+            update_document[reference_helper_field_name] = existing_document[reference_helper_field_name];
+
+            auto should_update = false;
+            for (uint32_t j = 0; j < existing_document[field_name].size(); j++) {
+                auto const& ref_value = get_array_field_value(existing_document, field_name, j);
+                if (filter_values.count(ref_value) == 0) {
+                    continue;
+                }
+
+                const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name][j].get<int64_t>();
+                if (existing_ref_seq_id != Collection::reference_helper_sentinel_value &&
+                    existing_ref_seq_id != ref_seq_id) {
+                    return Option<bool>(400, "Document `id: " + id + "` at `" += field_name +
+                                                "` reference array field and index `" + std::to_string(j) +
+                                                "` already has a reference to document `" += std::to_string(existing_ref_seq_id) +
+                                                "` of `" += ref_coll_name + "` collection, having reference value `" +=
+                                                get_array_field_value(existing_document, field_name, j) + "`.");
+                } else if (existing_ref_seq_id == ref_seq_id) {
+                    continue;
+                }
+
+                should_update = true;
+                // Set reference helper field to `ref_seq_id` at the index corresponding to where reference field has value.
+                update_document[reference_helper_field_name][j] = ref_seq_id;
+            }
+
+            if (should_update) {
+                buffer.push_back(update_document.dump());
+            }
         }
-    } else {
-        // TODO: Handle async update of reference array field.
-        // Set reference helper field to `ref_seq_id` at the index corresponding to where reference field has value.
     }
 
     nlohmann::json dummy;
@@ -5619,6 +5678,9 @@ Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
         nlohmann::json ref_doc;
         auto get_doc_op = ref_collection->get_document_from_store(ref_doc_seq_id, ref_doc);
         if (!get_doc_op.ok()) {
+            if (ref_doc_seq_id == Collection::reference_helper_sentinel_value) {
+                return Option<bool>(true);
+            }
             return Option<bool>(get_doc_op.code(), error_prefix + get_doc_op.error());
         }
 
@@ -5670,8 +5732,15 @@ Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
         auto ref_doc_seq_id = references.docs[i];
 
         nlohmann::json ref_doc;
+        std::string key;
+        auto const& nest_ref_doc = (strategy == ref_include::nest || strategy == ref_include::nest_array);
+
         auto get_doc_op = ref_collection->get_document_from_store(ref_doc_seq_id, ref_doc);
         if (!get_doc_op.ok()) {
+            // Referenced document is not yet indexed.
+            if (ref_doc_seq_id == Collection::reference_helper_sentinel_value) {
+                continue;
+            }
             return Option<bool>(get_doc_op.code(), error_prefix + get_doc_op.error());
         }
 
@@ -5683,14 +5752,12 @@ Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
             return Option<bool>(prune_op.code(), error_prefix + prune_op.error());
         }
 
-        std::string key;
-        auto const& nest_ref_doc = (strategy == ref_include::nest || strategy == ref_include::nest_array);
         if (!ref_doc.empty()) {
             if (nest_ref_doc) {
                 key = alias.empty() ? ref_collection_name : alias;
                 if (doc.contains(key) && !doc[key].is_array()) {
                     return Option<bool>(400, "Could not include the reference document of `" + ref_collection_name +
-                                             "` collection. Expected `" + key + "` to be an array. Try " +
+                                             "` collection. Expected `" += key + "` to be an array. Try " +
                                              (alias.empty() ? "adding an" : "renaming the") + " alias.");
                 }
 
@@ -5701,8 +5768,8 @@ Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
                     key = alias + ref_doc_key;
                     if (doc.contains(key) && !doc[key].is_array()) {
                         return Option<bool>(400, "Could not include the value of `" + ref_doc_key +
-                                                 "` key of the reference document of `" + ref_collection_name +
-                                                 "` collection. Expected `" + key + "` to be an array. Try " +
+                                                 "` key of the reference document of `" += ref_collection_name +
+                                                 "` collection. Expected `" += key + "` to be an array. Try " +
                                                  (alias.empty() ? "adding an" : "renaming the") + " alias.");
                     }
 

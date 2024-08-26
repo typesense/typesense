@@ -1235,43 +1235,48 @@ void Index::update_async_references(const std::string& collection_name, const fi
             // After collecting the value(s) present in the field referenced by the other collection(ref_coll), we will add
             // this document's seq_id as a reference where the value(s) match.
             std::string ref_filter_value;
+            std::set<std::string> values;
             if (document.at(field_name).is_array()) {
                 ref_filter_value = "[";
 
                 for (auto const& value: document[field_name]) {
                     if (value.is_number_integer()) {
-                        ref_filter_value += std::to_string(value.get<int64_t>());
+                        auto const& v = std::to_string(value.get<int64_t>());
+                        ref_filter_value += v;
+                        values.insert(v);
                     } else if (value.is_string()) {
-                        ref_filter_value += value.get<std::string>();
+                        auto const& v = value.get<std::string>();
+                        ref_filter_value += v;
+                        values.insert(v);
                     } else {
                         record.index_failure(400, "Field `" + field_name + "` must only have string/int32/int64 values.");
                         continue;
                     }
                     ref_filter_value += ",";
                 }
-                if (ref_filter_value.size() == 1) {
-                    continue;
-                }
-
                 ref_filter_value[ref_filter_value.size() - 1] = ']';
             } else {
                 auto const& value = document[field_name];
                 if (value.is_number_integer()) {
-                    ref_filter_value += std::to_string(value.get<int64_t>());
+                    auto const& v = std::to_string(value.get<int64_t>());
+                    ref_filter_value += v;
+                    values.insert(v);
                 } else if (value.is_string()) {
-                    ref_filter_value += value.get<std::string>();
+                    auto const& v = value.get<std::string>();
+                    ref_filter_value += v;
+                    values.insert(v);
                 } else {
                     record.index_failure(400, "Field `" + field_name + "` must only have string/int32/int64 values.");
                     continue;
                 }
             }
 
-            if (ref_filter_value.empty()) {
+            if (values.empty()) {
                 continue;
             }
 
             auto const ref_filter = reference_field_name + ":= " += ref_filter_value;
-            auto update_op = ref_coll->update_async_references_with_lock(collection_name, ref_filter, seq_id,
+            auto update_op = ref_coll->update_async_references_with_lock(collection_name, ref_filter, values, seq_id,
                                                                          reference_field_name);
             if (!update_op.ok()) {
                 record.index_failure(400, "Error while updating async reference field `" + reference_field_name +

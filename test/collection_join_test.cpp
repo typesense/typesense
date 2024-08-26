@@ -1441,93 +1441,179 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
         ASSERT_EQ(5, doc["object.reference_sequence_id"]);
     }
 
-//    schema_json =
-//            R"({
-//                "name": "songs",
-//                "fields": [
-//                    { "name": "title", "type": "string" },
-//                    { "name": "genres", "type": "string[]", "reference": "genres.id", "async_reference": true}
-//                ]
-//           })"_json;
-//    documents = {
-//            R"({"title":"Dil De Rani", "genres":[]})"_json,
-//            R"({"title":"Corduroy", "genres":["0"]})"_json,
-//    };
-//    collection_create_op = collectionManager.create_collection(schema_json);
-//    ASSERT_TRUE(collection_create_op.ok());
-//    for (auto const &json: documents) {
-//        auto add_op = collection_create_op.get()->add(json.dump());
-//        if (!add_op.ok()) {
-//            LOG(INFO) << add_op.error();
-//        }
-//        ASSERT_TRUE(add_op.ok());
-//    }
-//
-//    {
-//        auto doc = collection_create_op.get()->get("0").get();
-//        ASSERT_EQ("0", doc["id"]);
-//        ASSERT_EQ(1, doc.count(".ref"));
-//        ASSERT_EQ(1, doc[".ref"].size());
-//        ASSERT_EQ("genres_sequence_id", doc[".ref"][0]);
-//
-//        ASSERT_EQ(1, doc.count("genres_sequence_id"));
-//        ASSERT_TRUE(doc["genres"].size() == doc["genres_sequence_id"].size());
-//        ASSERT_EQ(0, doc["genres_sequence_id"].size());
-//
-//        doc = collection_create_op.get()->get("1").get();
-//        ASSERT_EQ("1", doc["id"]);
-//        ASSERT_EQ(1, doc.count(".ref"));
-//        ASSERT_EQ(1, doc[".ref"].size());
-//        ASSERT_EQ("genres_sequence_id", doc[".ref"][0]);
-//
-//        ASSERT_EQ(1, doc.count("genres_sequence_id"));
-//        ASSERT_EQ(0, doc["genres_sequence_id"].size());
-//    }
-//
-//    schema_json =
-//            R"({
-//                "name": "genres",
-//                "fields": [
-//                    { "name": "id", "type": "string" },
-//                    { "name": "name", "type": "string" }
-//                ]
-//            })"_json;
-//    documents = {
-//            R"({"id":"0","name":"Grunge"})"_json,
-//            R"({"id":"1","name":"Arena rock"})"_json,
-//            R"({"id":"2","name":"Blues"})"_json
-//    };
-//    collection_create_op = collectionManager.create_collection(schema_json);
-//    ASSERT_TRUE(collection_create_op.ok());
-//    for (auto const &json: documents) {
-//        auto add_op = collection_create_op.get()->add(json.dump());
-//        if (!add_op.ok()) {
-//            LOG(INFO) << add_op.error();
-//        }
-//        ASSERT_TRUE(add_op.ok());
-//    }
-//
-//    req_params = {
-//            {"collection", "songs"},
-//            {"q", "*"},
-//            {"include_fields", "$genres(name, strategy:merge) as genre"}
-//    };
-//
-//    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-//    ASSERT_TRUE(search_op.ok());
-//
-//    res_obj = nlohmann::json::parse(json_res);
-//    ASSERT_EQ(2, res_obj["found"].get<size_t>());
-//    ASSERT_EQ(2, res_obj["hits"].size());
-//
-//    ASSERT_EQ("Corduroy", res_obj["hits"][0]["document"]["title"].get<std::string>());
-//    ASSERT_EQ(1, res_obj["hits"][0]["document"]["genre.name"].size());
-//    ASSERT_EQ("Grunge", res_obj["hits"][0]["document"]["genre.name"][0]);
-//
-//    ASSERT_EQ("Dil De Rani", res_obj["hits"][1]["document"]["title"].get<std::string>());
-//    ASSERT_EQ(0, res_obj["hits"][1]["document"]["genre.name"].size());
+    schema_json =
+            R"({
+                "name": "songs",
+                "fields": [
+                    { "name": "title", "type": "string" },
+                    { "name": "genres", "type": "string[]", "reference": "genres.id", "async_reference": true}
+                ]
+           })"_json;
+    documents = {
+            R"({"title":"Dil De Rani", "genres":[]})"_json,
+            R"({"title":"Corduroy", "genres":["1"]})"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
 
-//    R"({"title":"Achilles Last Stand", "genres":["1","2"]})"_json
+    {
+        auto doc = collection_create_op.get()->get("0").get();
+        ASSERT_EQ("0", doc["id"]);
+        ASSERT_EQ(1, doc.count(".ref"));
+        ASSERT_EQ(1, doc[".ref"].size());
+        ASSERT_EQ("genres_sequence_id", doc[".ref"][0]);
+
+        ASSERT_EQ(1, doc.count("genres_sequence_id"));
+        ASSERT_TRUE(doc["genres"].size() == doc["genres_sequence_id"].size());
+        ASSERT_EQ(0, doc["genres_sequence_id"].size());
+
+        doc = collection_create_op.get()->get("1").get();
+        ASSERT_EQ("1", doc["id"]);
+        ASSERT_EQ(1, doc.count(".ref"));
+        ASSERT_EQ(1, doc[".ref"].size());
+        ASSERT_EQ("genres_sequence_id", doc[".ref"][0]);
+
+        ASSERT_EQ(1, doc.count("genres_sequence_id"));
+        ASSERT_TRUE(doc["genres"].size() == doc["genres_sequence_id"].size());
+        ASSERT_EQ(1, doc["genres_sequence_id"].size());
+        ASSERT_EQ(UINT32_MAX, doc["genres_sequence_id"][0]);
+    }
+
+    schema_json =
+            R"({
+                "name": "genres",
+                "fields": [
+                    { "name": "id", "type": "string" },
+                    { "name": "name", "type": "string" }
+                ]
+            })"_json;
+    documents = {
+            R"({"id":"0","name":"Grunge"})"_json,
+            R"({"id":"1","name":"Arena rock"})"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "songs"},
+            {"q", "*"},
+            {"include_fields", "$genres(name, strategy:nest) as genre"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+
+    ASSERT_EQ("Corduroy", res_obj["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["genre"].size());
+    ASSERT_EQ("Arena rock", res_obj["hits"][0]["document"]["genre"][0]["name"]);
+
+    ASSERT_EQ("Dil De Rani", res_obj["hits"][1]["document"]["title"].get<std::string>());
+    ASSERT_EQ(0, res_obj["hits"][1]["document"]["genre"].size());
+
+    {
+        auto const& songs_coll = collectionManager.get_collection_unsafe("songs");
+
+        doc_json = R"({"title":"Achilles Last Stand", "genres":["3","0","2"]})"_json;
+        add_doc_op = songs_coll->add(doc_json.dump());
+        ASSERT_TRUE(add_doc_op.ok());
+
+        auto doc = songs_coll->get("2").get();
+        ASSERT_EQ("2", doc["id"]);
+        ASSERT_EQ(1, doc.count(".ref"));
+        ASSERT_EQ(1, doc[".ref"].size());
+        ASSERT_EQ("genres_sequence_id", doc[".ref"][0]);
+
+        ASSERT_EQ(1, doc.count("genres_sequence_id"));
+        ASSERT_TRUE(doc["genres"].size() == doc["genres_sequence_id"].size());
+        ASSERT_EQ(3, doc["genres_sequence_id"].size());
+
+        ASSERT_EQ("3", doc["genres"][0]);
+        ASSERT_EQ(UINT32_MAX, doc["genres_sequence_id"][0]);
+        ASSERT_EQ("0", doc["genres"][1]);
+        ASSERT_EQ(0, doc["genres_sequence_id"][1]);
+
+        ASSERT_EQ("2", doc["genres"][2]);
+        ASSERT_EQ(UINT32_MAX, doc["genres_sequence_id"][2]);
+
+        auto remove_op = collection_create_op.get()->remove("0");
+        ASSERT_TRUE(remove_op.ok());
+
+        doc = songs_coll->get("2").get();
+        ASSERT_EQ("2", doc["id"]);
+        ASSERT_EQ(1, doc.count(".ref"));
+        ASSERT_EQ(1, doc[".ref"].size());
+        ASSERT_EQ("genres_sequence_id", doc[".ref"][0]);
+
+        ASSERT_EQ(1, doc.count("genres_sequence_id"));
+        ASSERT_TRUE(doc["genres"].size() == doc["genres_sequence_id"].size());
+        ASSERT_EQ(2, doc["genres_sequence_id"].size());
+        ASSERT_EQ("3", doc["genres"][0]);
+        ASSERT_EQ(UINT32_MAX, doc["genres_sequence_id"][0]);
+
+        ASSERT_EQ("2", doc["genres"][1]);
+        ASSERT_EQ(UINT32_MAX, doc["genres_sequence_id"][1]);
+
+        doc_json = R"({"id":"2","name":"Blues"})"_json;
+        add_doc_op = collection_create_op.get()->add(doc_json.dump());
+        ASSERT_TRUE(add_doc_op.ok());
+
+        doc = songs_coll->get("2").get();
+        ASSERT_EQ("2", doc["id"]);
+        ASSERT_EQ(1, doc.count(".ref"));
+        ASSERT_EQ(1, doc[".ref"].size());
+        ASSERT_EQ("genres_sequence_id", doc[".ref"][0]);
+
+        ASSERT_EQ(1, doc.count("genres_sequence_id"));
+        ASSERT_TRUE(doc["genres"].size() == doc["genres_sequence_id"].size());
+        ASSERT_EQ(2, doc["genres_sequence_id"].size());
+        ASSERT_EQ("3", doc["genres"][0]);
+        ASSERT_EQ(UINT32_MAX, doc["genres_sequence_id"][0]);
+
+        ASSERT_EQ("2", doc["genres"][1]);
+        ASSERT_EQ(2, doc["genres_sequence_id"][1]);
+    }
+
+    req_params = {
+            {"collection", "songs"},
+            {"q", "*"},
+            {"include_fields", "$genres(name, strategy:nest) as genre"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+
+    ASSERT_EQ("Achilles Last Stand", res_obj["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["genre"].size());
+    ASSERT_EQ("Blues", res_obj["hits"][0]["document"]["genre"][0]["name"]);
+
+    ASSERT_EQ("Corduroy", res_obj["hits"][1]["document"]["title"].get<std::string>());
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["genre"].size());
+    ASSERT_EQ("Arena rock", res_obj["hits"][1]["document"]["genre"][0]["name"]);
+
+    ASSERT_EQ("Dil De Rani", res_obj["hits"][2]["document"]["title"].get<std::string>());
+    ASSERT_EQ(0, res_obj["hits"][2]["document"]["genre"].size());
 }
 
 TEST_F(CollectionJoinTest, UpdateDocumentHavingReferenceField) {
