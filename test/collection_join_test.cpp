@@ -1614,6 +1614,80 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
 
     ASSERT_EQ("Dil De Rani", res_obj["hits"][2]["document"]["title"].get<std::string>());
     ASSERT_EQ(0, res_obj["hits"][2]["document"]["genre"].size());
+
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+    ASSERT_TRUE(load_op.ok());
+
+    req_params = {
+            {"collection", "songs"},
+            {"q", "*"},
+            {"include_fields", "$genres(name, strategy:nest) as genre"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+
+    ASSERT_EQ("Achilles Last Stand", res_obj["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["genre"].size());
+    ASSERT_EQ("Blues", res_obj["hits"][0]["document"]["genre"][0]["name"]);
+
+    ASSERT_EQ("Corduroy", res_obj["hits"][1]["document"]["title"].get<std::string>());
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["genre"].size());
+    ASSERT_EQ("Arena rock", res_obj["hits"][1]["document"]["genre"][0]["name"]);
+
+    ASSERT_EQ("Dil De Rani", res_obj["hits"][2]["document"]["title"].get<std::string>());
+    ASSERT_EQ(0, res_obj["hits"][2]["document"]["genre"].size());
+
+    {
+        auto const& songs_coll = collectionManager.get_collection_unsafe("songs");
+        auto doc = songs_coll->get("2").get();
+        ASSERT_EQ("2", doc["id"]);
+        ASSERT_EQ(1, doc.count(".ref"));
+        ASSERT_EQ(1, doc[".ref"].size());
+        ASSERT_EQ("genres_sequence_id", doc[".ref"][0]);
+
+        ASSERT_EQ(1, doc.count("genres_sequence_id"));
+        ASSERT_TRUE(doc["genres"].size() == doc["genres_sequence_id"].size());
+        ASSERT_EQ(2, doc["genres_sequence_id"].size());
+        ASSERT_EQ("3", doc["genres"][0]);
+        ASSERT_EQ(UINT32_MAX, doc["genres_sequence_id"][0]);
+
+        ASSERT_EQ("2", doc["genres"][1]);
+        ASSERT_EQ(2, doc["genres_sequence_id"][1]);
+
+        auto const& genres_coll = collectionManager.get_collection_unsafe("genres");
+        doc_json = R"({"id":"3","name":"Metal"})"_json;
+        add_doc_op = genres_coll->add(doc_json.dump());
+        ASSERT_TRUE(add_doc_op.ok());
+
+        doc = songs_coll->get("2").get();
+        ASSERT_EQ("2", doc["id"]);
+        ASSERT_EQ(1, doc.count(".ref"));
+        ASSERT_EQ(1, doc[".ref"].size());
+        ASSERT_EQ("genres_sequence_id", doc[".ref"][0]);
+
+        ASSERT_EQ(1, doc.count("genres_sequence_id"));
+        ASSERT_TRUE(doc["genres"].size() == doc["genres_sequence_id"].size());
+        ASSERT_EQ(2, doc["genres_sequence_id"].size());
+        ASSERT_EQ("3", doc["genres"][0]);
+        ASSERT_EQ(3, doc["genres_sequence_id"][0]);
+
+        ASSERT_EQ("2", doc["genres"][1]);
+        ASSERT_EQ(2, doc["genres_sequence_id"][1]);
+    }
 }
 
 TEST_F(CollectionJoinTest, UpdateDocumentHavingReferenceField) {
