@@ -740,8 +740,6 @@ public:
                                                    const std::set<std::string>& filter_values,
                                                    const uint32_t ref_seq_id, const std::string& field_name);
 
-    void update_async_references(std::vector<index_record>& index_records);
-
     Option<uint32_t> get_sort_index_value_with_lock(const std::string& field_name, const uint32_t& seq_id) const;
 
     static void hide_credential(nlohmann::json& json, const std::string& credential_name);

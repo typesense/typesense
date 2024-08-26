@@ -876,10 +876,6 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 remove_reference_helper_fields(document);
             }
 
-            std::unique_lock lock(mutex);
-            // Need to update the reference helper fields of other collections that have async_reference to this collection.
-            update_async_references(index_records);
-
             index_records.clear();
             batch_doc_ids.clear();
         }
@@ -890,10 +886,6 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
     resp_summary["success"] = (num_indexed == json_lines.size());
 
     return resp_summary;
-}
-
-void Collection::update_async_references(std::vector<index_record>& index_records) {
-
 }
 
 Option<nlohmann::json> Collection::update_matching_filter(const std::string& filter_query,
