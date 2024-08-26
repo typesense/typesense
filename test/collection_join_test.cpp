@@ -3913,8 +3913,8 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
     auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
 
-    auto search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op_bool.ok());
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
 
     auto res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(2, res_obj["found"].get<size_t>());
@@ -3932,13 +3932,38 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
     ASSERT_EQ(0, res_obj["hits"][1]["document"]["object"].size());
 
     req_params = {
+            {"collection", "coll1"},
+            {"q", "*"},
+            {"include_fields", "$Products(product_id)"},
+            {"exclude_fields", "object"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(3, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("object"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["object"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["object"].count("Products"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["object"]["Products"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["object"]["Products"].count("product_id"));
+    ASSERT_EQ("product_c", res_obj["hits"][0]["document"]["object"]["Products"]["product_id"]);
+    ASSERT_EQ(3, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"].count("object"));
+    ASSERT_EQ(0, res_obj["hits"][1]["document"]["object"].size());
+
+    req_params = {
             {"collection", "Products"},
             {"q", "*"},
             {"filter_by", "$coll1(id: *)"},
             {"include_fields", "$coll1(coll_id)"}
     };
-    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op_bool.ok());
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
@@ -3988,8 +4013,8 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
             {"q", "*"},
             {"include_fields", "$Products(product_id)"}
     };
-    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op_bool.ok());
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(2, res_obj["found"].get<size_t>());
@@ -4010,13 +4035,40 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
     ASSERT_EQ(0, res_obj["hits"][1]["document"]["object"].size());
 
     req_params = {
+            {"collection", "coll2"},
+            {"q", "*"},
+            {"include_fields", "$Products(product_id)"},
+            {"exclude_fields", "object"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(3, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("object"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["object"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["object"].count("Products"));
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["object"]["Products"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["object"]["Products"][0].count("product_id"));
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"]["object"]["Products"][0]["product_id"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["object"]["Products"][1].count("product_id"));
+    ASSERT_EQ("product_b", res_obj["hits"][0]["document"]["object"]["Products"][1]["product_id"]);
+    ASSERT_EQ(3, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"].count("object"));
+    ASSERT_EQ(0, res_obj["hits"][1]["document"]["object"].size());
+
+    req_params = {
             {"collection", "Products"},
             {"q", "*"},
             {"filter_by", "$coll2(id: *)"},
             {"include_fields", "$coll2(coll_id)"}
     };
-    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op_bool.ok());
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(2, res_obj["found"].get<size_t>());
@@ -4071,8 +4123,8 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
             {"q", "*"},
             {"include_fields", "$Products(product_id)"}
     };
-    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op_bool.ok());
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(2, res_obj["found"].get<size_t>());
@@ -4098,8 +4150,8 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
             {"filter_by", "$coll3(id: *)"},
             {"include_fields", "$coll3(coll_id)"}
     };
-    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op_bool.ok());
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(2, res_obj["found"].get<size_t>());
@@ -4206,8 +4258,8 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
             {"q", "*"},
             {"include_fields", "$Portions(*, strategy:merge)"}
     };
-    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op_bool.ok());
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(2, res_obj["found"].get<size_t>());
@@ -4245,6 +4297,45 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
     ASSERT_EQ("g", res_obj["hits"][1]["document"]["portions"][0].at("unit"));
     ASSERT_EQ(10 , res_obj["hits"][1]["document"]["portions"][0].at("count"));
 
+    req_params = {
+            {"collection", "Foods"},
+            {"q", "*"},
+            {"include_fields", "$Portions(*, strategy:merge)"},
+            {"exclude_fields", "portions"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(3, res_obj["hits"][0]["document"].size());
+
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("portions"));
+    ASSERT_EQ(3, res_obj["hits"][0]["document"]["portions"].size());
+
+    ASSERT_EQ(4, res_obj["hits"][0]["document"]["portions"][0].size());
+    ASSERT_EQ("portion_b", res_obj["hits"][0]["document"]["portions"][0].at("portion_id"));
+    ASSERT_EQ(1 , res_obj["hits"][0]["document"]["portions"][0].at("quantity"));
+    ASSERT_EQ("lt", res_obj["hits"][0]["document"]["portions"][0].at("unit"));
+
+    ASSERT_EQ(0, res_obj["hits"][0]["document"]["portions"][1].size());
+
+    ASSERT_EQ(4, res_obj["hits"][0]["document"]["portions"][2].size());
+    ASSERT_EQ("portion_c", res_obj["hits"][0]["document"]["portions"][2].at("portion_id"));
+    ASSERT_EQ(500 , res_obj["hits"][0]["document"]["portions"][2].at("quantity"));
+    ASSERT_EQ("ml", res_obj["hits"][0]["document"]["portions"][2].at("unit"));
+
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"].count("portions"));
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["portions"].size());
+
+    ASSERT_EQ(4, res_obj["hits"][1]["document"]["portions"][0].size());
+    ASSERT_EQ("portion_a", res_obj["hits"][1]["document"]["portions"][0].at("portion_id"));
+    ASSERT_EQ(500 , res_obj["hits"][1]["document"]["portions"][0].at("quantity"));
+    ASSERT_EQ("g", res_obj["hits"][1]["document"]["portions"][0].at("unit"));
+
     // recreate collection manager to ensure that it initializes `object_reference_helper_fields` correctly.
     collectionManager.dispose();
     delete store;
@@ -4263,8 +4354,8 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
             {"q", "*"},
             {"include_fields", "$Portions(*, strategy:merge)"}
     };
-    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op_bool.ok());
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(2, res_obj["found"].get<size_t>());
@@ -4321,8 +4412,8 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
             {"q", "*"},
             {"include_fields", "$Portions(*, strategy:merge)"}
     };
-    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op_bool.ok());
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(2, res_obj["found"].get<size_t>());

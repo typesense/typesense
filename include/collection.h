@@ -467,7 +467,8 @@ public:
 
     static Option<bool> include_references(nlohmann::json& doc, const uint32_t& seq_id, Collection *const collection,
                                            const std::map<std::string, reference_filter_result_t>& reference_filter_results,
-                                           const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec);
+                                           const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
+                                           const nlohmann::json& original_doc);
 
     Option<bool> prune_doc_with_lock(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                      const tsl::htrie_set<char>& exclude_names,
