@@ -2658,7 +2658,7 @@ TEST_F(CollectionSortingTest, TestVectorQueryDistanceThresholdSorting) {
                     "product_name"
                     ],
                     "model_config": {
-                        "model_name": "ts/clip-vit-b-p32"
+                        "model_name": "ts/e5-small"
                     }
                 }
             }
@@ -2696,7 +2696,7 @@ TEST_F(CollectionSortingTest, TestVectorQueryDistanceThresholdSorting) {
 
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ("Mobile Phone", res["hits"][0]["document"]["product_name"]);
-    ASSERT_EQ(0.03797226771712303, res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_EQ(0.07853113859891891, res["hits"][0]["vector_distance"].get<float>());
     ASSERT_EQ("Cell Phone", res["hits"][1]["document"]["product_name"]);
-    ASSERT_EQ(0.04402225837111473, res["hits"][1]["vector_distance"].get<float>());
+    ASSERT_EQ(0.08472149819135666, res["hits"][1]["vector_distance"].get<float>());
 }

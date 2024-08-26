@@ -970,7 +970,7 @@ bool parse_nested_join_sort_by_str(const std::string& sort_by_str, uint32_t& ind
 bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields) {
     std::string sort_field_expr;
     char prev_non_space_char = '`';
-    unsigned brace_open_count = 0;
+    int brace_open_count = 0;
 
     for(uint32_t i=0; i < sort_by_str.size(); i++) {
         if (sort_field_expr.empty()) {
