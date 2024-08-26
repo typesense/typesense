@@ -970,6 +970,7 @@ bool parse_nested_join_sort_by_str(const std::string& sort_by_str, uint32_t& ind
 bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields) {
     std::string sort_field_expr;
     char prev_non_space_char = '`';
+    unsigned brace_open_count = 0;
 
     for(uint32_t i=0; i < sort_by_str.size(); i++) {
         if (sort_field_expr.empty()) {
@@ -1055,7 +1056,9 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
             }
         }
 
-        if(i == sort_by_str.size()-1 || (sort_by_str[i] == ',' && !isdigit(prev_non_space_char))) {
+        if(i == sort_by_str.size()-1 || (sort_by_str[i] == ',' && !isdigit(prev_non_space_char)
+            && brace_open_count == 0)) {
+
             if(i == sort_by_str.size()-1) {
                 sort_field_expr += sort_by_str[i];
             }
@@ -1089,6 +1092,12 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
                 i++;
             }
         } else {
+            if(sort_by_str[i] == '(') {
+                brace_open_count++;
+            } else if(sort_by_str[i] == ')') {
+                brace_open_count--;
+            }
+
             sort_field_expr += sort_by_str[i];
         }
 
