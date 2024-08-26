@@ -5448,7 +5448,11 @@ Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
                                        const tsl::htrie_set<char>& ref_exclude_fields_full,
                                        const bool& is_reference_array,
                                        const ref_include_exclude_fields& ref_include_exclude) {
-    nlohmann::json original_doc = doc;
+    nlohmann::json original_doc;
+    if (!ref_include_exclude.nested_join_includes.empty()) {
+        original_doc = doc;
+    }
+
     auto const& ref_collection_name = ref_include_exclude.collection_name;
     auto& cm = CollectionManager::get_instance();
     auto ref_collection = cm.get_collection(ref_collection_name);
@@ -5779,7 +5783,10 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
                                    const std::map<std::string, reference_filter_result_t>& reference_filter_results,
                                    Collection *const collection, const uint32_t& seq_id,
                                    const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
-    nlohmann::json original_doc = doc;
+    nlohmann::json original_doc;
+    if (!ref_include_exclude_fields_vec.empty()) {
+        original_doc = doc;
+    }
 
     // doc can only be an object
     auto it = doc.begin();
