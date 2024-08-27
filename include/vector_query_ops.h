@@ -12,6 +12,7 @@ struct vector_query_t {
     size_t flat_search_cutoff = 0;
     float distance_threshold = 2.01;
     std::vector<float> values;
+    bool is_boolean = false;
 
     uint32_t seq_id = 0;
     bool query_doc_given = false;
@@ -39,4 +40,6 @@ public:
                                                const bool is_wildcard_query,
                                                const Collection* coll,
                                                const bool allow_empty_query);
+
+    static Option<bool> pack_binary_vals_to_float(std::vector<float>& float_vec);
 };

@@ -65,7 +65,7 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
 
             for(auto& svalue: svalues) {
                 if(!StringUtils::is_float(svalue)) {
-                    return Option<bool>(400, "Malformed vector query string: one of the vector values is not a float.");
+                    return Option<bool>(400, "Malformed vector query string: one of the vector values is not a float or bool.");
                 }
 
                 vector_query.values.push_back(std::stof(svalue));
@@ -252,4 +252,30 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
     }
 
     return Option<bool>(400, "Malformed vector query string.");
+}
+
+Option<bool> VectorQueryOps::pack_binary_vals_to_float(std::vector<float> &vals) {
+    unsigned num = 0;
+    bool vals_end = false;
+    std::vector<float> results;
+
+    for (int i = 0, j = 1; i < vals.size(); ++i, ++j) {
+        num = num | ((unsigned int) vals[i] << i);
+        vals_end = false;
+
+        if (j % (8 * sizeof(float)) == 0) {
+            results.push_back(num);
+            num = 0;
+            vals_end = true;
+        }
+    }
+
+    if (!vals_end) {
+        //push last remained num
+        results.push_back(num);
+    }
+
+    vals = results;
+
+    return Option<bool>(true);
 }

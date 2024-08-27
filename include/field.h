@@ -282,6 +282,10 @@ struct field {
         return true;
     }
 
+    bool is_vector_type() const {
+        return (num_dim > 0 && (type == field_types::FLOAT_ARRAY || type == field_types::BOOL_ARRAY));
+    }
+
     std::string faceted_name() const {
         return (facet && !is_string()) ? "_fstr_" + name : name;
     }
@@ -372,6 +376,8 @@ struct field {
                                     bool is_update, std::vector<field>& flattened_fields);
 
     static void compact_nested_fields(tsl::htrie_map<char, field>& nested_fields);
+
+    size_t compact_num_dims(size_t type_size) const;
 };
 
 enum index_operation_t {

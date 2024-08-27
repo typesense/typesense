@@ -1458,7 +1458,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                 sort_field_std.vector_query.vector_index = vector_index_map.at(sort_field_std.vector_query.query.field_name);
 
-                if(sort_field_std.vector_query.vector_index->distance_type == cosine) {
+                if(sort_field_std.vector_query.vector_index->distance_type == cosine && !sort_field_std.vector_query.query.is_boolean) {
                     std::vector<float> normalized_values(sort_field_std.vector_query.query.values.size());
                     hnsw_index_t::normalize_vector(sort_field_std.vector_query.query.values, normalized_values);
                     sort_field_std.vector_query.query.values = normalized_values;
@@ -7077,6 +7077,17 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
             return Option<bool>(400, "Query field `" + vector_query.field_name + "` must have " +
                                                 std::to_string(vector_field_it.value().num_dim) + " dimensions.");
         }
+    }
+
+    if(!vector_query.field_name.empty() && search_schema.count(vector_query.field_name) != 0 &&
+        search_schema.at(vector_query.field_name).is_bool()) {
+        //pack bool values to float
+        auto op = VectorQueryOps::pack_binary_vals_to_float(vector_query.values);
+        if(!op.ok()) {
+            return Option<bool>(op.code(), op.error());
+        }
+
+        vector_query.is_boolean = true;
     }
 
     return Option<bool>(true);
