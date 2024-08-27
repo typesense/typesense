@@ -20,6 +20,7 @@
 #include "tokenizer.h"
 #include "synonym_index.h"
 #include "vq_model_manager.h"
+#include "join.h"
 
 struct doc_seq_id_t {
     uint32_t seq_id;
@@ -36,22 +37,6 @@ struct highlight_field_t {
     highlight_field_t(const std::string& name, bool fully_highlighted, bool infix, bool is_string):
             name(name), fully_highlighted(fully_highlighted), infix(infix), is_string(is_string) {
 
-    }
-};
-
-struct reference_info_t {
-    std::string collection;
-    std::string field;
-    bool is_async;
-
-    std::string referenced_field_name;
-
-    reference_info_t(std::string collection, std::string field, bool is_async, std::string referenced_field_name = "") :
-            collection(std::move(collection)), field(std::move(field)), is_async(is_async),
-            referenced_field_name(std::move(referenced_field_name)) {}
-
-    bool operator < (const reference_info_t& pair) const {
-        return collection < pair.collection;
     }
 };
 
@@ -339,13 +324,6 @@ private:
 
     Option<std::string> get_referenced_in_field(const std::string& collection_name) const;
 
-    Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
-                                 std::vector<uint32_t>& result) const;
-
-    Option<bool> get_object_array_related_id(const std::string& ref_field_name,
-                                             const uint32_t& seq_id, const uint32_t& object_index,
-                                             uint32_t& result) const;
-
     void remove_embedding_field(const std::string& field_name);
 
     Option<bool> parse_and_validate_vector_query(const std::string& vector_query_str,
@@ -447,12 +425,6 @@ public:
 
     void update_metadata(const nlohmann::json& meta);
 
-    static Option<bool> add_reference_helper_fields(nlohmann::json& document,
-                                                    const tsl::htrie_map<char, field>& schema,
-                                                    const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
-                                                    tsl::htrie_set<char>& object_reference_helper_fields,
-                                                    const bool& is_update);
-
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation,
                                 const DIRTY_VALUES dirty_values,
@@ -471,18 +443,6 @@ public:
     static void remove_flat_fields(nlohmann::json& document);
 
     static void remove_reference_helper_fields(nlohmann::json& document);
-
-    static Option<bool> prune_ref_doc(nlohmann::json& doc,
-                                      const reference_filter_result_t& references,
-                                      const tsl::htrie_set<char>& ref_include_fields_full,
-                                      const tsl::htrie_set<char>& ref_exclude_fields_full,
-                                      const bool& is_reference_array,
-                                      const ref_include_exclude_fields& ref_include_exclude);
-
-    static Option<bool> include_references(nlohmann::json& doc, const uint32_t& seq_id, Collection *const collection,
-                                           const std::map<std::string, reference_filter_result_t>& reference_filter_results,
-                                           const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
-                                           const nlohmann::json& original_doc);
 
     Option<bool> prune_doc_with_lock(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                      const tsl::htrie_set<char>& exclude_names,
@@ -751,6 +711,13 @@ public:
     void expand_search_query(const std::string& raw_query, size_t offset, size_t total, const search_args* search_params,
                              const std::vector<std::vector<KV*>>& result_group_kvs,
                              const std::vector<std::string>& raw_search_fields, std::string& first_q) const;
+
+    Option<bool> get_object_array_related_id(const std::string& ref_field_name,
+                                             const uint32_t& seq_id, const uint32_t& object_index,
+                                             uint32_t& result) const;
+
+    Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
+                                 std::vector<uint32_t>& result) const;
 };
 
 template<class T>
