@@ -3972,7 +3972,9 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
             }
         }
 
-    } else {
+    }
+
+    if(!is_infix_search || match_indices.empty()) {
 
         /*std::string qtok_buff;
         for(auto it = qtoken_leaves.begin(); it != qtoken_leaves.end(); ++it) {
