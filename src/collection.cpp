@@ -2646,7 +2646,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::string first_q = raw_query;
     expand_search_query(raw_query, offset, total, search_params, result_group_kvs, raw_search_fields, first_q);
 
-    if(sort_fields_std[0].random_sort.is_random_sort_enabled) {
+    if(!sort_fields_std.empty() && sort_fields_std[0].random_sort.is_random_sort_enabled) {
         //as random sort is not allowed with other clause, it'll exist alone in sort params
         std::seed_seq seed{sort_fields_std[0].random_sort.seed};
         std::mt19937 eng(seed);
