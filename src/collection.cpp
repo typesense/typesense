@@ -1465,7 +1465,20 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 }
 
                 sort_field_std.name = actual_field_name;
+            } else if(actual_field_name == sort_field_const::random_order) {
+                const std::string &random_sort_str = sort_field_std.name.substr(paran_start + 1,
+                                                                                sort_field_std.name.size() -
+                                                                                 paran_start -2);
 
+                if (!random_sort_str.empty()) {
+                    if(random_sort_str[0] == '-') {
+                        return Option<bool>(400, "Only positive seed value is allowed.");
+                    }
+
+                    sort_field_std.random_sort.seed = static_cast<uint32_t>(std::stoul(random_sort_str));
+                }
+                sort_field_std.random_sort.is_random_sort_enabled = true;
+                sort_field_std.name = actual_field_name;
             } else {
                 if(field_it == search_schema.end()) {
                     std::string error = "Could not find a field named `" + actual_field_name + "` in the schema for sorting.";
@@ -1592,7 +1605,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
         if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval &&
             sort_field_std.name != sort_field_const::seq_id && sort_field_std.name != sort_field_const::group_found && sort_field_std.name != sort_field_const::vector_distance &&
-            sort_field_std.name != sort_field_const::vector_query) {
+            sort_field_std.name != sort_field_const::vector_query && sort_field_std.name != sort_field_const::random_order) {
             const auto field_it = search_schema.find(sort_field_std.name);
             if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
                 std::string error = "Could not find a field named `" + sort_field_std.name +
@@ -2633,6 +2646,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::string first_q = raw_query;
     expand_search_query(raw_query, offset, total, search_params, result_group_kvs, raw_search_fields, first_q);
 
+    if(sort_fields_std[0].random_sort.is_random_sort_enabled) {
+        //as random sort is not allowed with other clause, it'll exist alone in sort params
+        std::seed_seq seed{sort_fields_std[0].random_sort.seed};
+        std::mt19937 eng(seed);
+        std::shuffle(result_group_kvs.begin(), result_group_kvs.end(), eng);
+    }
     // construct results array
     for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
         const std::vector<KV*> & kv_group = result_group_kvs[result_kvs_index];

@@ -407,6 +407,8 @@ namespace sort_field_const {
 
     static const std::string vector_distance = "_vector_distance";
     static const std::string vector_query = "_vector_query";
+
+    static const std::string random_order = "_rand";
 }
 
 namespace ref_include {
@@ -449,6 +451,11 @@ struct sort_vector_query_t {
         hnsw_index_t* vector_index;
 }; 
 
+struct sort_random_t {
+    bool is_random_sort_enabled = false;
+    uint32_t seed = time(0);
+};
+
 struct sort_by {
     enum missing_values_t {
         first,
@@ -482,6 +489,8 @@ struct sort_by {
     std::string reference_collection_name;
     std::vector<std::string> nested_join_collection_names;
     sort_vector_query_t vector_query;
+
+    sort_random_t random_sort;
 
     sort_by(const std::string & name, const std::string & order):
             name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
@@ -518,6 +527,7 @@ struct sort_by {
         reference_collection_name = other.reference_collection_name;
         nested_join_collection_names = other.nested_join_collection_names;
         vector_query = other.vector_query;
+        random_sort = other.random_sort;
     }
 
     sort_by& operator=(const sort_by& other) {

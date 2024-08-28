@@ -2700,3 +2700,127 @@ TEST_F(CollectionSortingTest, TestVectorQueryDistanceThresholdSorting) {
     ASSERT_EQ("Cell Phone", res["hits"][1]["document"]["product_name"]);
     ASSERT_EQ(0.08472149819135666, res["hits"][1]["vector_distance"].get<float>());
 }
+
+TEST_F(CollectionSortingTest, TestSortByRandomOrder) {
+    auto schema_json = R"({
+            "name": "digital_products",
+            "fields":[
+            {
+                "name": "product_name","type": "string"
+            }]
+    })"_json;
+
+
+    auto coll_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+
+    std::vector<std::string> products = {"Mobile Phone", "Cell Phone", "Telephone", "Mouse", "Printer", "Keyboard", "Monitor"};
+    nlohmann::json doc;
+    for (auto product: products) {
+        doc["product_name"] = product;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    sort_fields = {
+            sort_by("_rand(5)", "asc"),
+    };
+
+    auto results = coll->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 32767, 32767, 2,
+                           false, true, "").get();
+
+
+    ASSERT_EQ(7, results["hits"].size());
+    ASSERT_EQ("6", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"]);
+    ASSERT_EQ("3", results["hits"][3]["document"]["id"]);
+    ASSERT_EQ("0", results["hits"][4]["document"]["id"]);
+    ASSERT_EQ("4", results["hits"][5]["document"]["id"]);
+    ASSERT_EQ("1", results["hits"][6]["document"]["id"]);
+
+    sort_fields = {
+            sort_by("_rand(8)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "").get();
+
+    ASSERT_EQ(7, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("6", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"]);
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"]);
+    ASSERT_EQ("3", results["hits"][4]["document"]["id"]);
+    ASSERT_EQ("4", results["hits"][5]["document"]["id"]);
+    ASSERT_EQ("5", results["hits"][6]["document"]["id"]);
+
+    //without seed value it takes current time as seed
+    sort_fields = {
+            sort_by("_rand()", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 32767, 32767, 2,
+                           false, true, "").get();
+
+    ASSERT_EQ(7, results["hits"].size());
+
+    //negative seed value is not allowed
+    sort_fields = {
+            sort_by("_rand(-1)", "asc"),
+    };
+
+    auto results_op = coll->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 32767, 32767, 2,
+                           false, true, "");
+
+    ASSERT_EQ("Only positive seed value is allowed.", results_op.error());
+
+    //typos
+    sort_fields = {
+            sort_by("rand()", "asc"),
+    };
+
+    results_op = coll->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10, {}, {}, {}, 0,
+                                   "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                   4, {off}, 32767, 32767, 2,
+                                   false, true, "");
+
+    ASSERT_EQ("Could not find a field named `rand` in the schema for sorting.", results_op.error());
+
+    sort_fields = {
+            sort_by("_random()", "asc"),
+    };
+
+    results_op = coll->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                              spp::sparse_hash_set<std::string>(),
+                              spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                              "", 10, {}, {}, {}, 0,
+                              "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                              4, {off}, 32767, 32767, 2,
+                              false, true, "");
+
+    ASSERT_EQ("Could not find a field named `_random` in the schema for sorting.", results_op.error());
+}
