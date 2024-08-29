@@ -3552,9 +3552,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     std::vector<uint32_t> top_k_result_ids, top_k_curated_result_ids;
     std::vector<facet> top_k_facets;
 
-    get_top_k_result_ids(raw_result_kvs, top_k_result_ids);
-    get_top_k_result_ids(override_result_kvs, top_k_curated_result_ids);
-
     delete [] exclude_token_ids;
     delete [] excluded_result_ids;
 
@@ -3617,6 +3614,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         //auto beginF = std::chrono::high_resolution_clock::now();
 
         if(top_k_facets.size() >  0) {
+            get_top_k_result_ids(raw_result_kvs, top_k_result_ids);
+
             do_facets(top_k_facets, facet_query, estimate_facets, facet_sample_percent,
                       facet_infos, group_limit, group_by_fields, group_missing_values, top_k_result_ids.data(),
                       top_k_result_ids.size(), max_facet_values, is_wildcard_no_filter_query,
@@ -3745,6 +3744,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
               facet_index_types);
 
     if(top_k_facets.size() >  0) {
+        get_top_k_result_ids(override_result_kvs, top_k_curated_result_ids);
         do_facets(top_k_facets, facet_query, estimate_facets, facet_sample_percent,
                   facet_infos, group_limit, group_by_fields, group_missing_values, top_k_curated_result_ids.data(),
                   top_k_curated_result_ids.size(), max_facet_values, is_wildcard_no_filter_query,

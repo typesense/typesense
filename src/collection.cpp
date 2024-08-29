@@ -6531,7 +6531,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                         std::vector<std::string> results;
                         StringUtils::split(top_k_str, results, ":");
 
-                        if(results.size() != 2 || ((results[1] != "true") && (results[1] != "false"))) {
+                        if(results.size() != 2 || (results[1] != "true" && results[1] != "false")) {
                             return Option<bool>(400, "top_k string format is invalid.");
                         }
 
@@ -6689,7 +6689,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         if(top_k_pos != std::string::npos) {
             auto p = top_k_pos;
             auto colon_pos = 0;
-            while((facet_field[p] != ',') && (facet_field[p] != ')')) {
+            while(facet_field[p] != ',' && facet_field[p] != ')') {
                 if(facet_field[p] == ':') {
                     colon_pos = p;
                 }
