@@ -1465,7 +1465,21 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 }
 
                 sort_field_std.name = actual_field_name;
+            } else if(actual_field_name == sort_field_const::random_order) {
+                const std::string &random_sort_str = sort_field_std.name.substr(paran_start + 1,
+                                                                                sort_field_std.name.size() -
+                                                                                 paran_start -2);
 
+                uint32_t seed = time(nullptr);
+                if (!random_sort_str.empty()) {
+                    if(random_sort_str[0] == '-' || !StringUtils::is_uint32_t(random_sort_str)) {
+                        return Option<bool>(400, "Only positive integer seed value is allowed.");
+                    }
+
+                    seed = static_cast<uint32_t>(std::stoul(random_sort_str));
+                }
+                sort_field_std.random_sort.initialize(seed);
+                sort_field_std.name = actual_field_name;
             } else {
                 if(field_it == search_schema.end()) {
                     std::string error = "Could not find a field named `" + actual_field_name + "` in the schema for sorting.";
@@ -1592,7 +1606,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
         if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval &&
             sort_field_std.name != sort_field_const::seq_id && sort_field_std.name != sort_field_const::group_found && sort_field_std.name != sort_field_const::vector_distance &&
-            sort_field_std.name != sort_field_const::vector_query) {
+            sort_field_std.name != sort_field_const::vector_query && sort_field_std.name != sort_field_const::random_order) {
             const auto field_it = search_schema.find(sort_field_std.name);
             if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
                 std::string error = "Could not find a field named `" + sort_field_std.name +

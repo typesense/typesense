@@ -2700,3 +2700,92 @@ TEST_F(CollectionSortingTest, TestVectorQueryDistanceThresholdSorting) {
     ASSERT_EQ("Cell Phone", res["hits"][1]["document"]["product_name"]);
     ASSERT_EQ(0.08472149819135666, res["hits"][1]["vector_distance"].get<float>());
 }
+
+TEST_F(CollectionSortingTest, TestSortByRandomOrder) {
+    auto schema_json = R"({
+            "name": "digital_products",
+            "fields":[
+            {
+                "name": "product_name","type": "string"
+            }]
+    })"_json;
+
+
+    auto coll_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+
+    std::vector<std::string> products = {"Samsung Smartphone", "Vivo SmartPhone", "Oneplus Smartphone", "Pixel Smartphone", "Moto Smartphone"};
+    nlohmann::json doc;
+    for (auto product: products) {
+        doc["product_name"] = product;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    sort_fields = {
+            sort_by("_rand(5)", "asc"),
+    };
+
+    auto results = coll->search("smartphone", {"product_name"}, "", {}, sort_fields, {0}).get();
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("4", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"]);
+    ASSERT_EQ("3", results["hits"][3]["document"]["id"]);
+    ASSERT_EQ("2", results["hits"][4]["document"]["id"]);
+
+
+
+    sort_fields = {
+            sort_by("_rand(8)", "asc"),
+    };
+
+    results = coll->search("smartphone", {"product_name"}, "", {}, sort_fields, {0}).get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("3", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ("4", results["hits"][2]["document"]["id"]);
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"]);
+    ASSERT_EQ("2", results["hits"][4]["document"]["id"]);
+
+
+    //without seed value it takes current time as seed
+    sort_fields = {
+            sort_by("_rand()", "asc"),
+    };
+
+    results = coll->search("smartphone", {"product_name"}, "", {}, sort_fields, {0}).get();
+    ASSERT_EQ(5, results["hits"].size());
+
+
+    //negative seed value is not allowed
+    sort_fields = {
+            sort_by("_rand(-1)", "asc"),
+    };
+
+    auto results_op = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("Only positive integer seed value is allowed.", results_op.error());
+
+    sort_fields = {
+            sort_by("_rand(sadkjkj)", "asc"),
+    };
+
+    results_op = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("Only positive integer seed value is allowed.", results_op.error());
+
+    //typos
+    sort_fields = {
+            sort_by("rand()", "asc"),
+    };
+
+    results_op = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("Could not find a field named `rand` in the schema for sorting.", results_op.error());
+
+    sort_fields = {
+            sort_by("_random()", "asc"),
+    };
+
+    results_op = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("Could not find a field named `_random` in the schema for sorting.", results_op.error());
+}
