@@ -2641,3 +2641,62 @@ TEST_F(CollectionSortingTest, TestVectorQueryQsSorting) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"]);
     ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
 }
+
+TEST_F(CollectionSortingTest, TestVectorQueryDistanceThresholdSorting) {
+    auto schema_json = R"({
+            "name": "products",
+            "fields":[
+            {
+                "name": "product_name",
+                        "type": "string"
+            },
+            {
+                "name": "embedding",
+                        "type": "float[]",
+                        "embed": {
+                    "from": [
+                    "product_name"
+                    ],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                }
+            }
+            ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto coll_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+
+    std::vector<std::string> products = {"Mobile Phone", "Cell Phone", "Telephone"};
+    nlohmann::json doc;
+    for (auto product: products) {
+        doc["product_name"] = product;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    // when eval condition is empty
+    std::map<std::string, std::string> req_params = {
+            {"collection", "products"},
+            {"q", "phone"},
+            {"query_by", "product_name"},
+            {"sort_by", "_text_match:desc,_vector_query(embedding:([],distance_threshold:0.3)):asc"},
+            {"exclude_fields", "embedding"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+
+    auto res = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ("Mobile Phone", res["hits"][0]["document"]["product_name"]);
+    ASSERT_EQ(0.07853113859891891, res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_EQ("Cell Phone", res["hits"][1]["document"]["product_name"]);
+    ASSERT_EQ(0.08472149819135666, res["hits"][1]["vector_distance"].get<float>());
+}

@@ -1730,6 +1730,40 @@ TEST_F(CollectionOverrideTest, PinnedHitsWithWildCardQuery) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionOverrideTest, HiddenHitsWithWildCardQuery) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 3, fields, "points").get();
+    }
+
+    for(size_t i=0; i<5; i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto hidden_hits = "1";
+
+    auto results = coll1->search("*", {"title"}, "", {}, {}, {0}, 30, 1, FREQUENCY,
+                                 {false}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10,
+                                 {}, hidden_hits, {}, {0}, "", "", {}).get();
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOverrideTest, PinnedHitsIdsHavingColon) {
     Collection *coll1;
 
@@ -4433,4 +4467,78 @@ TEST_F(CollectionOverrideTest, AvoidTypoMatchingWhenOverlapWithCuratedData) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionOverrideTest, OverridesWithSemanticSearch) {
+    auto schema_json = R"({
+            "name": "products",
+            "fields":[
+            {
+                "name": "product_name",
+                        "type": "string"
+            },
+            {
+                "name": "embedding",
+                        "type": "float[]",
+                        "embed": {
+                    "from": [
+                    "product_name"
+                    ],
+                    "model_config": {
+                        "model_name": "ts/clip-vit-b-p32"
+                    }
+                }
+            }
+            ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto coll_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+
+    std::vector<std::string> products = {"Cell Phone", "Laptop", "Desktop", "Printer", "Keyboard", "Monitor", "Mouse"};
+    nlohmann::json doc;
+    for (auto product: products) {
+        doc["product_name"] = product;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    auto results = coll->search("phone", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                {"embedding"}).get();
+
+    ASSERT_EQ(results["found"], 7);
+
+    nlohmann::json override_json = {
+            {"id",   "exclude-rule"},
+            {
+             "rule", {
+                             {"query", "phone"},
+                             {"match", override_t::MATCH_CONTAINS}
+                     }
+            }
+    };
+    override_json["excludes"] = nlohmann::json::array();
+    override_json["excludes"][0] = nlohmann::json::object();
+    override_json["excludes"][0]["id"] = "0";
+
+    override_t override;
+    override_t::parse(override_json, "", override);
+
+    ASSERT_TRUE(coll->add_override(override).ok());
+
+    results = coll->search("phone", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                {"embedding"}).get();
+
+    ASSERT_EQ(results["found"], 6);
+
+    ASSERT_EQ(results["hits"][0]["document"]["id"], "4");
+    ASSERT_EQ(results["hits"][1]["document"]["id"], "6");
+    ASSERT_EQ(results["hits"][2]["document"]["id"], "1");
+    ASSERT_EQ(results["hits"][3]["document"]["id"], "5");
+    ASSERT_EQ(results["hits"][4]["document"]["id"], "2");
+    ASSERT_EQ(results["hits"][5]["document"]["id"], "3");
 }

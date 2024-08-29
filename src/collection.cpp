@@ -84,8 +84,6 @@ Collection::~Collection() {
             VQModelManager::get_instance().delete_model(vq_model->get_model_name());
         }
     }
-
-    ConversationManager::get_instance().remove_history_collection(name);
 }
 
 uint32_t Collection::get_next_seq_id() {
@@ -899,6 +897,9 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                 res["embedding_error"] = index_record.embedding_res;
             }
             res["code"] = index_record.indexed.code();
+            if (return_id && index_record.doc.contains("id")) {
+                res["id"] = index_record.doc["id"];
+            }
         }
 
         json_out[index_record.position] = res.dump(-1, ' ', false,
@@ -2054,12 +2055,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
     }
 
-    // Set query to * if it is semantic search
-    if(!vector_query.field_name.empty() && processed_search_fields.empty()) {
-        query = "*";
-    }
-
-
     if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
         std::string error = "Vector query could not find any embedded fields.";
         return Option<nlohmann::json>(400, error);
@@ -2328,6 +2323,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         LOG(INFO) << "----";
     }
     */
+
+    // Set query to * if it is semantic search
+    if(!vector_query.field_name.empty() && processed_search_fields.empty()) {
+        query = "*";
+    }
 
     // validate sort fields and standardize
 
@@ -2910,7 +2910,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         conversation_history.push_back(formatted_question_op.get());
         conversation_history.push_back(formatted_answer_op.get());
 
-        auto add_conversation_op = ConversationManager::get_instance().add_conversation(conversation_history, conversation_model["history_collection"].get<std::string>(), conversation_id);
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(conversation_history, conversation_model, conversation_id);
         if(!add_conversation_op.ok()) {
             return Option<nlohmann::json>(add_conversation_op.code(), add_conversation_op.error());
         }
@@ -3962,7 +3962,9 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
             }
         }
 
-    } else {
+    }
+
+    if(!is_infix_search || match_indices.empty()) {
 
         /*std::string qtok_buff;
         for(auto it = qtoken_leaves.begin(); it != qtoken_leaves.end(); ++it) {
@@ -5438,6 +5440,11 @@ Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
                                        const tsl::htrie_set<char>& ref_exclude_fields_full,
                                        const bool& is_reference_array,
                                        const ref_include_exclude_fields& ref_include_exclude) {
+    nlohmann::json original_doc;
+    if (!ref_include_exclude.nested_join_includes.empty()) {
+        original_doc = doc;
+    }
+
     auto const& ref_collection_name = ref_include_exclude.collection_name;
     auto& cm = CollectionManager::get_instance();
     auto ref_collection = cm.get_collection(ref_collection_name);
@@ -5493,7 +5500,7 @@ Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
                                                                 ref_collection.get(),
                                                                 references.coll_to_references == nullptr ? refs :
                                                                                         references.coll_to_references[0],
-                                                                ref_include_exclude.nested_join_includes);
+                                                                ref_include_exclude.nested_join_includes, original_doc);
             if (!nested_include_exclude_op.ok()) {
                 return nested_include_exclude_op;
             }
@@ -5558,7 +5565,7 @@ Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
                                                                 ref_collection.get(),
                                                                 references.coll_to_references == nullptr ? refs :
                                                                                         references.coll_to_references[i],
-                                                                ref_include_exclude.nested_join_includes);
+                                                                ref_include_exclude.nested_join_includes, original_doc);
             if (!nested_include_exclude_op.ok()) {
                 return nested_include_exclude_op;
             }
@@ -5570,7 +5577,8 @@ Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
 
 Option<bool> Collection::include_references(nlohmann::json& doc, const uint32_t& seq_id, Collection *const collection,
                                             const std::map<std::string, reference_filter_result_t>& reference_filter_results,
-                                            const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
+                                            const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
+                                            const nlohmann::json& original_doc) {
     for (auto const& ref_include_exclude: ref_include_exclude_fields_vec) {
         auto ref_collection_name = ref_include_exclude.collection_name;
 
@@ -5646,13 +5654,26 @@ Option<bool> Collection::include_references(nlohmann::json& doc, const uint32_t&
             if (collection->object_reference_helper_fields.count(field_name) != 0) {
                 std::vector<std::string> keys;
                 StringUtils::split(field_name, keys, ".");
-                if (!doc.contains(keys[0])) {
-                    return Option<bool>(400, "Could not find `" + keys[0] +
-                                             "` in the document to include the referenced document.");
+                auto const& key = keys[0];
+
+                if (!doc.contains(key)) {
+                    if (!original_doc.contains(key)) {
+                        return Option<bool>(400, "Could not find `" + key +
+                                                 "` key in the document to include the referenced document.");
+                    }
+
+                    // The key is excluded from the doc by the query, inserting empty object(s) so referenced doc can be
+                    // included in it.
+                    if (original_doc[key].is_array()) {
+                        doc[key] = nlohmann::json::array();
+                        doc[key].insert(doc[key].begin(), original_doc[key].size(), nlohmann::json::object());
+                    } else {
+                        doc[key] = nlohmann::json::object();
+                    }
                 }
 
-                if (doc[keys[0]].is_array()) {
-                    for (uint32_t i = 0; i < doc[keys[0]].size(); i++) {
+                if (doc[key].is_array()) {
+                    for (uint32_t i = 0; i < doc[key].size(); i++) {
                         uint32_t ref_doc_id;
                         auto op = collection->get_object_array_related_id(field_name, seq_id, i, ref_doc_id);
                         if (!op.ok()) {
@@ -5664,7 +5685,7 @@ Option<bool> Collection::include_references(nlohmann::json& doc, const uint32_t&
                         }
 
                         reference_filter_result_t result(1, new uint32_t[1]{ref_doc_id});
-                        prune_doc_op = prune_ref_doc(doc[keys[0]][i], result,
+                        prune_doc_op = prune_ref_doc(doc[key][i], result,
                                                      ref_include_fields_full, ref_exclude_fields_full,
                                                      false, ref_include_exclude);
                         if (!prune_doc_op.ok()) {
@@ -5678,7 +5699,7 @@ Option<bool> Collection::include_references(nlohmann::json& doc, const uint32_t&
                         continue;
                     }
                     reference_filter_result_t result(ids.size(), &ids[0]);
-                    prune_doc_op = prune_ref_doc(doc[keys[0]], result, ref_include_fields_full, ref_exclude_fields_full,
+                    prune_doc_op = prune_ref_doc(doc[key], result, ref_include_fields_full, ref_exclude_fields_full,
                                                  collection->search_schema.at(field_name).is_array(), ref_include_exclude);
                     result.docs = nullptr;
                 }
@@ -5754,6 +5775,11 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
                                    const std::map<std::string, reference_filter_result_t>& reference_filter_results,
                                    Collection *const collection, const uint32_t& seq_id,
                                    const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
+    nlohmann::json original_doc;
+    if (!ref_include_exclude_fields_vec.empty()) {
+        original_doc = doc;
+    }
+
     // doc can only be an object
     auto it = doc.begin();
     while(it != doc.end()) {
@@ -5829,7 +5855,8 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
         it++;
     }
 
-    return include_references(doc, seq_id, collection, reference_filter_results, ref_include_exclude_fields_vec);
+    return include_references(doc, seq_id, collection, reference_filter_results, ref_include_exclude_fields_vec,
+                              original_doc);
 }
 
 Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,

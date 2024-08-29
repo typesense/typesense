@@ -15,7 +15,7 @@ const std::string get_model_namespace(const std::string& model_name) {
 }
 
 Option<bool> ConversationModel::validate_model(const nlohmann::json& model_config) {
-    // check model_name is exists and it is a string
+    // check model_name exists and it is a string
     if(model_config.count("model_name") == 0 || !model_config["model_name"].is_string()) {
         return Option<bool>(400, "Property `model_name` is not provided or not a string.");
     }
@@ -24,17 +24,22 @@ Option<bool> ConversationModel::validate_model(const nlohmann::json& model_confi
         return Option<bool>(400, "Property `system_prompt` is not a string.");
     }
 
+    if(model_config.count("history_collection") == 0 || !model_config["history_collection"].is_string()) {
+        return Option<bool>(400, "Property `history_collection` is missing or is not a string.");
+    }
+
     if(model_config.count("max_bytes") == 0 || !model_config["max_bytes"].is_number_unsigned() || model_config["max_bytes"].get<size_t>() == 0) {
         return Option<bool>(400, "Property `max_bytes` is not provided or not a positive integer.");
     }
 
-    if(model_config.count("history_collection") == 0 || !model_config["history_collection"].is_string()) {
-        return Option<bool>(400, "Property `history_collection` is not provided or not a string.");
-    }
-
-    auto validate_converson_collection_op = ConversationManager::get_instance().validate_conversation_store_collection(model_config["history_collection"].get<std::string>());
+    auto validate_converson_collection_op = ConversationManager::get_instance()
+            .validate_conversation_store_collection(model_config["history_collection"].get<std::string>());
     if(!validate_converson_collection_op.ok()) {
         return Option<bool>(400, validate_converson_collection_op.error());
+    }
+
+    if(model_config.count("ttl") != 0 && !model_config["ttl"].is_number_unsigned()) {
+        return Option<bool>(400, "Property `ttl` is not a positive integer.");
     }
 
     const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());

@@ -146,6 +146,8 @@ private:
 
     bool isRateLimitEnabled = true;
 
+    uint32_t analytics_minute_rate_limit;
+
     AnalyticsManager() {}
 
     ~AnalyticsManager();
@@ -177,7 +179,7 @@ public:
     AnalyticsManager(AnalyticsManager const&) = delete;
     void operator=(AnalyticsManager const&) = delete;
 
-    void init(Store* store, Store* analytics_store);
+    void init(Store* store, Store* analytics_store, uint32_t analytics_minute_rate_limit);
 
     void run(ReplicationState* raft_server);
 
@@ -221,7 +223,7 @@ public:
 
     bool write_to_db(const nlohmann::json& payload);
 
-    void get_last_N_events(const std::string& userid, const std::string& event_type, uint32_t N, std::vector<std::string>& values);
+    void get_last_N_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values);
 
 #ifdef TEST_BUILD
     std::unordered_map<std::string, std::vector<event_t>> get_log_events() {

@@ -34,16 +34,17 @@ protected:
             "fields": [
                 {
                     "name": "conversation_id",
-                    "type": "string",
-                    "facet": true
+                    "type": "string"
                 },
                 {
                     "name": "role",
-                    "type": "string"
+                    "type": "string",
+                    "index": false
                 },
                 {
                     "name": "message",
-                    "type": "string"
+                    "type": "string",
+                    "index": false
                 },
                 {
                     "name": "timestamp",
@@ -54,7 +55,6 @@ protected:
         })"_json;
 
         collectionManager.create_collection(schema_json);
-        ConversationManager::get_instance().add_history_collection("conversation_store");
     }
 
     virtual void SetUp() {
@@ -1341,20 +1341,6 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
     auto req = std::make_shared<http_req>();
     auto resp = std::make_shared<http_res>(nullptr);
 
-    req->params["id"] = "0";
-
-    get_conversations(req, resp);
-
-    ASSERT_EQ(200, resp->status_code);
-
-    nlohmann::json res_json = nlohmann::json::parse(resp->body);
-    ASSERT_TRUE(res_json.is_array());
-    ASSERT_EQ(0, res_json.size());
-
-    get_conversation(req, resp);
-
-    ASSERT_EQ(404, resp->status_code);
-
     auto schema_json =
         R"({
         "name": "Products",
@@ -1414,59 +1400,30 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
 
     model_config["api_key"] = api_key;
 
-    auto add_model_op = ConversationModelManager::add_model(model_config);
+    auto add_model_op = ConversationModelManager::add_model(model_config, "", true);
 
     ASSERT_TRUE(add_model_op.ok());
 
-    LOG(INFO) << "Model id: " << add_model_op.get();
+    LOG(INFO) << "Model id: " << model_config["id"];
 
-    auto model_id = add_model_op.get()["id"].get<std::string>();
+    auto model_id = model_config["id"].get<std::string>();
 
     auto results_op = coll->search("how many products are there for clothing category?", {"embedding"},
                                  "", {}, {}, {2}, 10,
                                  1, FREQUENCY, {true},
-                                 0, spp::sparse_hash_set<std::string>(), {},
+                                 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
                                  10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
                                  true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
                                  true, 0, max_score, 100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, true, model_id);
     
     ASSERT_TRUE(results_op.ok());
 
-    get_conversations(req, resp);
+    auto id = results_op.get()["conversation"]["id"].get<std::string>();
 
-    ASSERT_EQ(200, resp->status_code);
-
-    res_json = nlohmann::json::parse(resp->body);
-
-    ASSERT_TRUE(res_json.is_array());
-    ASSERT_EQ(1, res_json.size());
-
-    ASSERT_TRUE(res_json[0]["conversation"].is_array());
-    ASSERT_EQ(2, res_json[0]["conversation"].size());
-    ASSERT_EQ("how many products are there for clothing category?", res_json[0]["conversation"][0]["user"].get<std::string>());
-
-    req->params["id"] = res_json[0]["id"].get<std::string>();
-    get_conversation(req, resp);
-
-    ASSERT_EQ(200, resp->status_code);
-
-    res_json = nlohmann::json::parse(resp->body);
-
-    ASSERT_TRUE(res_json.is_object());
-    ASSERT_TRUE(res_json["conversation"].is_array());
-    ASSERT_EQ(2, res_json["conversation"].size());
-    ASSERT_EQ("how many products are there for clothing category?", res_json["conversation"][0]["user"].get<std::string>());
-
-    del_conversation(req, resp);
-    ASSERT_EQ(200, resp->status_code);
-
-    get_conversations(req, resp);
-    ASSERT_EQ(200, resp->status_code);
-
-    res_json = nlohmann::json::parse(resp->body);
-    ASSERT_TRUE(res_json.is_array());
-    ASSERT_EQ(0, res_json.size());
-
+    auto history_collection = ConversationManager::get_instance()
+            .get_history_collection(model_config["history_collection"].get<std::string>()).get();
+    auto history_search_res = history_collection->search(id, {"conversation_id"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(2, history_search_res["hits"].size());
     auto del_res = ConversationModelManager::delete_model(model_id);
 }
 
