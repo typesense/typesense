@@ -5049,7 +5049,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             }
         } else {
             if(is_random_sort) {
-                scores[0] = default_score;
+                scores[0] = sort_fields[0].random_sort.generate_random();
             } else if (!is_reference_sort || reference_found) {
                 auto it = field_values[0]->find(is_reference_sort ? ref_seq_id : seq_id);
                 scores[0] = (it == field_values[0]->end()) ? default_score : it->second;

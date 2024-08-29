@@ -1470,14 +1470,15 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                                                                                 sort_field_std.name.size() -
                                                                                  paran_start -2);
 
+                uint32_t seed = time(nullptr);
                 if (!random_sort_str.empty()) {
                     if(random_sort_str[0] == '-') {
                         return Option<bool>(400, "Only positive seed value is allowed.");
                     }
 
-                    sort_field_std.random_sort.seed = static_cast<uint32_t>(std::stoul(random_sort_str));
+                    seed = static_cast<uint32_t>(std::stoul(random_sort_str));
                 }
-                sort_field_std.random_sort.is_random_sort_enabled = true;
+                sort_field_std.random_sort.initialize(seed);
                 sort_field_std.name = actual_field_name;
             } else {
                 if(field_it == search_schema.end()) {
@@ -2646,12 +2647,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::string first_q = raw_query;
     expand_search_query(raw_query, offset, total, search_params, result_group_kvs, raw_search_fields, first_q);
 
-    if(!sort_fields_std.empty() && sort_fields_std[0].random_sort.is_random_sort_enabled) {
-        //as random sort is not allowed with other clause, it'll exist alone in sort params
-        std::seed_seq seed{sort_fields_std[0].random_sort.seed};
-        std::mt19937 eng(seed);
-        std::shuffle(result_group_kvs.begin(), result_group_kvs.end(), eng);
-    }
     // construct results array
     for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
         const std::vector<KV*> & kv_group = result_group_kvs[result_kvs_index];

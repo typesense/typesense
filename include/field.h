@@ -453,7 +453,17 @@ struct sort_vector_query_t {
 
 struct sort_random_t {
     bool is_random_sort_enabled = false;
-    uint32_t seed = time(0);
+    mutable std::mt19937 rng;
+
+    void initialize(uint32_t seed) {
+        rng.seed(seed);
+        is_random_sort_enabled = true;
+    }
+
+    uint32_t generate_random() const {
+        std::uniform_int_distribution<uint32_t> distrib(0, UINT32_MAX);
+        return distrib(rng);
+    }
 };
 
 struct sort_by {
