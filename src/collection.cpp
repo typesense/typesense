@@ -1472,8 +1472,8 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                 uint32_t seed = time(nullptr);
                 if (!random_sort_str.empty()) {
-                    if(random_sort_str[0] == '-') {
-                        return Option<bool>(400, "Only positive seed value is allowed.");
+                    if(random_sort_str[0] == '-' || !StringUtils::is_uint32_t(random_sort_str)) {
+                        return Option<bool>(400, "Only positive integer seed value is allowed.");
                     }
 
                     seed = static_cast<uint32_t>(std::stoul(random_sort_str));

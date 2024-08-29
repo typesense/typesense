@@ -2765,7 +2765,14 @@ TEST_F(CollectionSortingTest, TestSortByRandomOrder) {
     };
 
     auto results_op = coll->search("*", {}, "", {}, sort_fields, {0});
-    ASSERT_EQ("Only positive seed value is allowed.", results_op.error());
+    ASSERT_EQ("Only positive integer seed value is allowed.", results_op.error());
+
+    sort_fields = {
+            sort_by("_rand(sadkjkj)", "asc"),
+    };
+
+    results_op = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("Only positive integer seed value is allowed.", results_op.error());
 
     //typos
     sort_fields = {
