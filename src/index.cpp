@@ -4954,7 +4954,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
     if (sort_fields.size() > 0) {
         auto reference_found = true;
         auto const& is_reference_sort = !sort_fields[0].reference_collection_name.empty();
-        auto is_random_sort = sort_fields[0].random_sort.is_random_sort_enabled;
+        auto is_random_sort = sort_fields[0].random_sort.is_enabled;
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
         if (is_reference_sort) {
