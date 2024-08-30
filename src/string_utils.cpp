@@ -378,18 +378,34 @@ Option<bool> parse_multi_valued_geopoint_filter(const std::string& filter_query,
     return Option<bool>(true);
 }
 
-Option<bool> parse_reference_filter(const std::string& filter_query, std::queue<std::string>& tokens, size_t& index) {
-    auto error = Option<bool>(400, "Could not parse the reference filter.");
-    if (filter_query[index] != '$') {
+Option<bool> parse_reference_filter(const std::string& filter_query, std::queue<std::string>& tokens, size_t& index,
+                                    std::set<std::string>& ref_collection_names) {
+    auto error = Option<bool>(400, "Could not parse the reference filter: `" + filter_query.substr(index) + "`.");
+
+    if (index >= filter_query.size() || filter_query[index] != '$') {
         return error;
     }
 
-    size_t start_index = index;
+    auto const start_index = index;
     auto size = filter_query.size();
-    while(++index < size && filter_query[index] != '(') {}
-
-    if (index >= size) {
+    auto parenthesis_pos = filter_query.find('(', index + 1);
+    if (parenthesis_pos == std::string::npos) {
         return error;
+    }
+
+    index = parenthesis_pos;
+    std::string ref_coll_name = filter_query.substr(start_index + 1, parenthesis_pos - start_index - 1);
+    StringUtils::trim(ref_coll_name);
+    auto it = ref_collection_names.find(ref_coll_name);
+    if (it == ref_collection_names.end()) {
+        ref_collection_names.insert(ref_coll_name);
+    } else {
+        return Option<bool>(400, "More than one joins found for collection `" + ref_coll_name + "` in the `filter_by`." +=
+                                    " Instead of providing separate join conditions like "
+                                    "`$customer_product_prices(customer_id:=customer_a) && "
+                                                                        "$customer_product_prices(custom_price:<100)`,"
+                                    " the join condition should be provided as a single filter expression like"
+                                    " `$customer_product_prices(customer_id:=customer_a && custom_price:<100)`");
     }
 
     // The reference filter could have parenthesis inside it. $Foo((X && Y) || Z)
@@ -411,6 +427,7 @@ Option<bool> parse_reference_filter(const std::string& filter_query, std::queue<
 }
 
 Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
+    std::set<std::string> ref_collection_names;
     auto size = filter_query.size();
     for (size_t i = 0; i < size;) {
         auto c = filter_query[i];
@@ -440,7 +457,7 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
         } else {
             // Reference filter would start with $ symbol.
             if (c == '$') {
-                auto op = parse_reference_filter(filter_query, tokens, i);
+                auto op = parse_reference_filter(filter_query, tokens, i, ref_collection_names);
                 if (!op.ok()) {
                     return op;
                 }

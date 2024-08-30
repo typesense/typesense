@@ -1517,12 +1517,12 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     auto search_op = coll->search("s", {"product_name"}, "$foo:=customer_a", {}, {}, {0},
                                10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD);
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ(search_op.error(), "Could not parse the reference filter.");
+    ASSERT_EQ(search_op.error(), "Could not parse the reference filter: `$foo:=customer_a`.");
 
     search_op = coll->search("s", {"product_name"}, "$foo(:=customer_a", {}, {}, {0},
                                   10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD);
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ(search_op.error(), "Could not parse the reference filter.");
+    ASSERT_EQ(search_op.error(), "Could not parse the reference filter: `$foo(:=customer_a`.");
 
     search_op = coll->search("s", {"product_name"}, "$foo(:=customer_a)", {}, {}, {0},
                                   10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD);
@@ -1539,6 +1539,15 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ(search_op.error(), "Failed to join on `Customers` collection: Could not find a filter "
                                  "field named `foo` in the schema.");
+
+    search_op = coll->search("s", {"product_name"}, "$Customers (customer_id:=customer_a) && $Customers(product_price:<100)", {}, {}, {0},
+                             10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(search_op.error(), "More than one joins found for collection `Customers` in the `filter_by`. Instead of "
+                                 "providing separate join conditions like `$customer_product_prices(customer_id:=customer_a)"
+                                 " && $customer_product_prices(custom_price:<100)`, the join condition should be"
+                                 " provided as a single filter expression like `$customer_product_prices(customer_id:=customer_a"
+                                 " && custom_price:<100)`");
 
     auto result = coll->search("s", {"product_name"}, "$Customers(customer_id:=customer_a && product_price:<100)", {},
                                {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD).get();
