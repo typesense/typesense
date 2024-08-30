@@ -60,6 +60,7 @@ namespace fields {
     static const std::string num_dim = "num_dim";
     static const std::string vec_dist = "vec_dist";
     static const std::string reference = "reference";
+    static const std::string async_reference = "async_reference";
     static const std::string embed = "embed";
     static const std::string from = "from";
     static const std::string model_name = "model_name";
@@ -84,6 +85,14 @@ namespace fields {
 enum vector_distance_type_t {
     ip,
     cosine
+};
+
+struct reference_pair_t {
+    std::string collection;
+    std::string field;
+
+    reference_pair_t(std::string collection, std::string field) : collection(std::move(collection)),
+                                                                  field(std::move(field)) {}
 };
 
 struct field {
@@ -112,6 +121,7 @@ struct field {
     static constexpr int VAL_UNKNOWN = 2;
 
     std::string reference;      // Foo.bar (reference to bar field in Foo collection).
+    bool is_async_reference = false;
 
     bool range_index;
 
@@ -127,10 +137,13 @@ struct field {
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
           int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine,
-          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false, const bool store = true, const bool stem = false, const nlohmann::json hnsw_params = nlohmann::json()) :
+          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false,
+          const bool store = true, const bool stem = false, const nlohmann::json hnsw_params = nlohmann::json(),
+          const bool async_reference = false) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
-            embed(embed), range_index(range_index), store(store), stem(stem), hnsw_params(hnsw_params) {
+            embed(embed), range_index(range_index), store(store), stem(stem), hnsw_params(hnsw_params),
+            is_async_reference(async_reference) {
 
         set_computed_defaults(sort, infix);
 

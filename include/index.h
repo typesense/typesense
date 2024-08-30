@@ -569,6 +569,10 @@ private:
                                      const index_record* record,
                                      const std::vector<embedding_res_t>& embedding_results,
                                      size_t& count, const field& the_field);
+
+    void update_async_references(const std::string& collection_name, const field& afield,
+                                 std::vector<index_record>& iter_batch,
+                                 const std::vector<reference_pair_t>& async_referenced_ins = {});
 public:
     // for limiting number of results on multiple candidates / query rewrites
     enum {TYPO_TOKENS_THRESHOLD = 1};
@@ -740,9 +744,14 @@ public:
                                      const size_t remote_embedding_timeout_ms = 60000,
                                      const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true,
                                      const bool use_addition_fields = false,
-                                     const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>());
+                                     const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>(),
+                                     const std::string& collection_name = "",
+                                     const spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>& async_referenced_ins =
+                                            spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>());
 
-    void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
+    void index_field_in_memory(const std::string& collection_name, const field& afield,
+                               std::vector<index_record>& iter_batch,
+                               const std::vector<reference_pair_t>& async_referenced_ins = {});
 
     template<class T>
     void iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func);
@@ -762,9 +771,9 @@ public:
     Option<bool> do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
                                                   filter_result_t& filter_result,
                                                   const std::string& ref_collection_name,
-                                                  const std::string& reference_helper_field_name) const;
+                                                  const std::string& field_name) const;
 
-    Option<filter_result_t> do_filtering_with_reference_ids(const std::string& reference_helper_field_name,
+    Option<filter_result_t> do_filtering_with_reference_ids(const std::string& field_name,
                                                             const std::string& ref_collection_name,
                                                             filter_result_t&& ref_filter_result) const;
 
@@ -1037,7 +1046,7 @@ public:
                                        std::vector<uint32_t>& outside_seq_ids);
 
     Option<bool> get_related_ids(const std::string& collection_name,
-                                 const std::string& reference_helper_field_name,
+                                 const std::string& field_name,
                                  const uint32_t& seq_id, std::vector<uint32_t>& result) const;
 
     Option<bool> get_object_array_related_id(const std::string& collection_name,
