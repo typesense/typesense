@@ -1090,7 +1090,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetParseTest){
 
 TEST_F(CollectionOptimizedFacetingTest, RangeFacetTest) {
     std::vector<field> fields = {field("place", field_types::STRING, false),
-                                 field("state", field_types::STRING, false),
+                                 field("state", field_types::STRING, true),
                                  field("visitors", field_types::INT32, true),
                                  field("trackingFrom", field_types::INT32, true),};
     Collection* coll1 = collectionManager.create_collection(
@@ -1376,7 +1376,7 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetTypo) {
                                  4UL, 7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
                                  "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, "top_values");
 
-    ASSERT_STREQ("Error splitting the facet range values.", results2.error().c_str());
+    ASSERT_STREQ("Invalid facet param `VeryBusy`.", results2.error().c_str());
 
     auto results3 = coll1->search("TamilNadu", {"state"},
                                   "", {"visitors(Busy:[0, 200000] VeryBusy:[200000, 500000])"}, //missing ',' between ranges
@@ -1389,7 +1389,7 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetTypo) {
                                  4UL, 7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
                                  "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, "top_values");
 
-    ASSERT_STREQ("Error splitting the facet range values.", results3.error().c_str());
+    ASSERT_STREQ("Invalid facet format.", results3.error().c_str());
 
     auto results4 = coll1->search("TamilNadu", {"state"},
                                   "", {"visitors(Busy:[0 200000], VeryBusy:[200000, 500000])"}, //missing ',' between first ranges values
@@ -1415,7 +1415,7 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetTypo) {
                                  4UL, 7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
                                  "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, "top_values");
 
-    ASSERT_STREQ("Facet range value is not valid.", results5.error().c_str());
+    ASSERT_STREQ("Error splitting the facet range values.", results5.error().c_str());
 
     collectionManager.drop_collection("coll1");
 }
@@ -2478,7 +2478,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortValidation) {
                               {}, {2});
 
     ASSERT_EQ(400, search_op.code());
-    ASSERT_EQ("Invalid sort format.", search_op.error());
+    ASSERT_EQ("Invalid facet param `sort`.", search_op.error());
 
     //invalid param
     search_op = coll1->search("*", {}, "", {"phone(sort_by:_alpha:foo)"},
@@ -3177,7 +3177,7 @@ TEST_F(CollectionOptimizedFacetingTest, TopKFacetValidation) {
                                  2, 2, false, "", true, 0, max_score, 100, 0, 0, "top_values");
 
     ASSERT_FALSE(results.ok());
-    ASSERT_EQ("top_k string format is invalid.", results.error());
+    ASSERT_EQ("Invalid facet format.", results.error());
 
     //typo in top_k
     results = coll2->search("jeans", {"name"}, "",
@@ -3191,7 +3191,7 @@ TEST_F(CollectionOptimizedFacetingTest, TopKFacetValidation) {
                             2, 2, false, "", true, 0, max_score, 100, 0, 0, "top_values");
 
     ASSERT_FALSE(results.ok());
-    ASSERT_EQ("top_k string format is invalid.", results.error());
+    ASSERT_EQ("Invalid facet param `top-k`.", results.error());
 
     results = coll2->search("jeans", {"name"}, "",
                             {"name(topk:true)"}, {}, {2},
@@ -3204,7 +3204,7 @@ TEST_F(CollectionOptimizedFacetingTest, TopKFacetValidation) {
                             2, 2, false, "", true, 0, max_score, 100, 0, 0, "top_values");
 
     ASSERT_FALSE(results.ok());
-    ASSERT_EQ("top_k string format is invalid.", results.error());
+    ASSERT_EQ("Invalid facet param `topk`.", results.error());
 
     //value should be boolean
     results = coll2->search("jeans", {"name"}, "",
@@ -3293,4 +3293,30 @@ TEST_F(CollectionOptimizedFacetingTest, TopKFacetValidation) {
                             6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX,
                             2, 2, false, "", true, 0, max_score, 100, 0, 0, "top_values");
     ASSERT_TRUE(results.ok());
+
+    //missing , seperator
+    results = coll2->search("jeans", {"name"}, "",
+                            {"price(economic:[0, 30], Luxury:[30, 50] top_k:true)"}, {}, {2},
+                            10, 1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000,
+                            true, false, true, "", true,
+                            6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                            2, 2, false, "", true, 0, max_score, 100, 0, 0, "top_values");
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("Invalid facet format.", results.error());
+
+    results = coll2->search("jeans", {"name"}, "",
+                            {"name(top_k:false sort_by:_alpha:desc)"}, {}, {2},
+                            10, 1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000,
+                            true, false, true, "", true,
+                            6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                            2, 2, false, "", true, 0, max_score, 100, 0, 0, "top_values");
+
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("top_k string format is invalid.", results.error());
 }

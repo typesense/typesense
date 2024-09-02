@@ -6460,179 +6460,262 @@ bool Collection::get_enable_nested_fields() {
 }
 
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const {
-    const std::regex base_pattern(".+\\(.*\\)");
-    const std::regex range_pattern(
-            "[[:print:]]+:\\[([+-]?([[:digit:]]*[.])?[[:digit:]]*)\\,\\s*([+-]?([[:digit:]]*[.])?[[:digit:]]*)\\]");
     const std::string _alpha = "_alpha";
     bool top_k = false;
+    std::string facet_field_name, param_str;
+    bool paran_open = false; //for (
+    bool brace_open = false; //for [
+    std::string order = "";
+    bool sort_alpha = false;
+    std::string sort_field = "";
+    bool colon_found = false;
+    bool top_k_found = false;
+    bool sort_found = false;
+    unsigned facet_param_count = 0;
+    unsigned commaCount = 0;
+    bool is_wildcard = false;
 
-    if((facet_field.find("[") != std::string::npos)
-       && (facet_field.find("sort_by") == std::string::npos)) { //range based facet
+    std::vector<std::tuple<int64_t, int64_t, std::string>> tupVec;
 
-        if(!std::regex_match(facet_field, base_pattern)) {
-            std::string error = "Facet range value is not valid.";
-            return Option<bool>(400, error);
-        }
+    for(int i = 0; i < facet_field.size(); ) {
+        if(facet_field[i] == '(') {
+            //facet field name complete, check validity
+            if(search_schema.count(facet_field_name) == 0 || !search_schema.at(facet_field_name).facet) {
+                std::string error = "Could not find a facet field named `" + facet_field_name + "` in the schema.";
+                return Option<bool>(404, error);
+            }
 
-        auto startpos = facet_field.find("(");
-        auto field_name = facet_field.substr(0, startpos);
+            paran_open = true;
+            i++;
+            continue;
+        } else if(facet_field[i] == '*') {
+            if(i == facet_field.size() - 1) {
+                auto prefix = facet_field.substr(0, facet_field.size() - 1);
+                auto pair = search_schema.equal_prefix_range(prefix);
 
-        if(search_schema.count(field_name) == 0) {
-            std::string error = "Could not find a facet field named `" + field_name + "` in the schema.";
-            return Option<bool>(404, error);
-        }
-
-        if((field_name.find("sort") == std::string::npos)
-           && (facet_field.find("sort") != std::string::npos)) {
-            //sort keyword is found in facet string but not in facet field
-            std::string error = "Invalid sort format.";
-            return Option<bool>(400, error);
-        }
-
-        const field& a_field = search_schema.at(field_name);
-
-        if(!a_field.is_integer() && !a_field.is_float()) {
-            std::string error = "Range facet is restricted to only integer and float fields.";
-            return Option<bool>(400, error);
-        }
-
-        if(!a_field.sort) {
-            return Option<bool>(400, "Range facets require sort enabled for the field.");
-        }
-
-        facet a_facet(field_name, facets.size());
-
-        //starting after "(" and excluding ")"
-        auto range_string = std::string(facet_field.begin() + startpos + 1, facet_field.end() - 1);
-
-        //split the ranges
-        std::vector<std::string> result;
-        startpos = 0;
-        int index = 0;
-        int commaFound = 0, rangeFound = 0;
-        bool range_open = false;
-        while(index < range_string.size()) {
-            if(range_string[index] == ']') {
-                if(range_open == true) {
-                    std::string range = range_string.substr(startpos, index + 1 - startpos);
-                    range = StringUtils::trim(range);
-                    result.emplace_back(range);
-                    rangeFound++;
-                    range_open = false;
-                } else {
-                    result.clear();
-                    break;
+                if(pair.first == pair.second) {
+                    // not found
+                    std::string error = "Could not find a facet field for `" + facet_field + "` in the schema.";
+                    return Option<bool>(404, error);
                 }
-            } else if(range_string[index] == ',' && range_open == false) {
-                if(index > 0 && range_string[index - 1] != ']') {
-                    //top_k string value
-                    auto top_k_str = range_string.substr(startpos, index - startpos);
-                    if(top_k_str.find("top_k") != std::string::npos) {
-                        std::vector<std::string> results;
-                        StringUtils::split(top_k_str, results, ":");
 
-                        if(results.size() != 2 || (results[1] != "true" && results[1] != "false")) {
-                            return Option<bool>(400, "top_k string format is invalid.");
-                        }
-
-                        if(results[1] == "true") {
-                            top_k = true;
-                        }
-                        commaFound--;
+                // Collect the fields that match the prefix and are marked as facet.
+                for(auto field = pair.first; field != pair.second; field++) {
+                    if(field->facet) {
+                        facets.emplace_back(facet(field->name, facets.size()));
+                        facets.back().is_wildcard_match = true;
                     }
                 }
-                startpos = index + 1;
-                commaFound++;
-            } else if(range_string[index] == '[') {
-                if((commaFound == rangeFound) && range_open == false) {
-                    range_open = true;
-                } else {
-                    result.clear();
-                    break;
-                }
-            }
-
-            index++;
-        }
-
-        if((result.empty()) || (range_open == true)) {
-            std::string error = "Error splitting the facet range values.";
-            return Option<bool>(400, error);
-        }
-
-        std::vector<std::tuple<int64_t, int64_t, std::string>> tupVec;
-
-        auto& range_map = a_facet.facet_range_map;
-        range_map.clear();
-        for(const auto& range: result) {
-            //validate each range syntax
-            if(!std::regex_match(range, range_pattern)) {
-                std::string error = "Facet range value is not valid.";
-                return Option<bool>(400, error);
-            }
-            auto pos1 = range.find(":");
-            std::string range_val = range.substr(0, pos1);
-
-            auto pos2 = range.find(",");
-            auto pos3 = range.find("]");
-
-            int64_t lower_range, upper_range;
-
-            if(a_field.is_integer()) {
-                auto start = pos1 + 2;
-                auto end = pos2 - start;
-                auto lower_range_str = range.substr(start, end);
-                StringUtils::trim(lower_range_str);
-                if(lower_range_str.empty()) {
-                    lower_range = INT64_MIN;
-                } else {
-                    lower_range = std::stoll(lower_range_str);
-                }
-
-                start = pos2 + 1;
-                end = pos3 - start;
-                auto upper_range_str = range.substr(start, end);
-                StringUtils::trim(upper_range_str);
-                if(upper_range_str.empty()) {
-                    upper_range = INT64_MAX;
-                } else {
-                    upper_range = std::stoll(upper_range_str);
-                }
+                i++;
+                is_wildcard = true;
+                continue;
             } else {
-                auto start = pos1 + 2;
-                auto end = pos2 - start;
-                auto lower_range_str = range.substr(start, end);
-                StringUtils::trim(lower_range_str);
-                if(lower_range_str.empty()) {
-                    lower_range = INT64_MIN;
-                } else {
-                    float val = std::stof(lower_range_str);
-                    lower_range = Index::float_to_int64_t(val);
+                return Option<bool>(404, "Only prefix matching with a wildcard is allowed.");
+            }
+        } else if(facet_field[i] == ')') {
+            if(paran_open == true && (facet_param_count == commaCount + 1)) {
+                if(!colon_found && !top_k_found) {
+                    return Option<bool>(400, "Invalid facet param `" + param_str + "`.");
                 }
 
-                start = pos2 + 1;
-                end = pos3 - start;
-                auto upper_range_str = range.substr(start, end);
-                StringUtils::trim(upper_range_str);
-                if(upper_range_str.empty()) {
-                    upper_range = INT64_MAX;
-                } else {
-                    float val = std::stof(upper_range_str);
-                    upper_range = Index::float_to_int64_t(val);
+                paran_open = false;
+                commaCount = facet_param_count;
+                break;
+            } else {
+                return Option<bool>(400, "Invalid facet format.");
+            }
+        } else if(facet_field[i] == ':') {
+            if(paran_open == false || facet_param_count != commaCount) {
+                return Option<bool>(400, "Invalid facet format.");
+            }
+            colon_found = true;
+            StringUtils::trim(param_str);
+
+            if(param_str == "sort_by") { //sort_by params
+                sort_found = true;
+                for(i; facet_field.size(); i++) {
+                    if(facet_field[i] == ',' || facet_field[i] == ')') {
+                        break;
+                    } else {
+                        param_str+=facet_field[i];
+                    }
                 }
+
+                std::vector<std::string> tokens;
+                StringUtils::split(param_str, tokens, ":");
+
+                if(tokens.size() != 3) {
+                    std::string error = "Invalid sort format.";
+                    return Option<bool>(400, error);
+                }
+
+                if(tokens[1] == _alpha) {
+                    const field& a_field = search_schema.at(facet_field_name);
+                    if(!a_field.is_string()) {
+                        std::string error = "Facet field should be string type to apply alpha sort.";
+                        return Option<bool>(400, error);
+                    }
+                    sort_alpha = true;
+                } else { //sort_field based sort
+                    sort_field = tokens[1];
+
+                    if(search_schema.count(sort_field) == 0 || !search_schema.at(sort_field).facet) {
+                        std::string error = "Could not find a facet field named `" + sort_field + "` in the schema.";
+                        return Option<bool>(404, error);
+                    }
+
+                    const field& a_field = search_schema.at(sort_field);
+                    if(a_field.is_string()) {
+                        std::string error = "Sort field should be non string type to apply sort.";
+                        return Option<bool>(400, error);
+                    }
+                }
+
+                if(tokens[2] == "asc") {
+                    order = "asc";
+                } else if(tokens[2] == "desc") {
+                    order = "desc";
+                } else {
+                    std::string error = "Invalid sort param.";
+                    return Option<bool>(400, error);
+                }
+                facet_param_count++;
+            } else if(param_str == "top_k") { //top_k param
+                top_k_found = true;
+                param_str.clear();
+                i++; //skip :
+                for(i; i < facet_field.size(); i++) {
+                    if(facet_field[i] == ',' || facet_field[i] == ')') {
+                        break;
+                    }
+                    param_str+=facet_field[i];
+                }
+
+                if(param_str.empty() || (param_str != "true" && param_str != "false")) {
+                    return Option<bool>(400, "top_k string format is invalid.");
+                }
+
+                if(param_str == "true") {
+                    top_k = true;
+                }
+                facet_param_count++;
+            } else if((i + 1) < facet_field.size() && facet_field[i+1] == '[') { //range params
+                const field& a_field = search_schema.at(facet_field_name);
+                if(tupVec.empty()) {
+                    if(!a_field.is_integer() && !a_field.is_float()) {
+                        std::string error = "Range facet is restricted to only integer and float fields.";
+                        return Option<bool>(400, error);
+                    }
+
+                    if(!a_field.sort) {
+                        return Option<bool>(400, "Range facets require sort enabled for the field.");
+                    }
+                }
+                auto range_val = param_str;
+                StringUtils::trim(range_val);
+                if(range_val.empty()) {
+                    return Option<bool>(400, "Facet range value is not valid.");
+                }
+
+                std::string lower, upper;
+                int64_t lower_range, upper_range;
+
+                brace_open = true;
+                auto commaFound = 0;
+                i+=2; //skip : and [
+                param_str.clear();
+                while(i < facet_field.size()) {
+                    if(facet_field[i]== ',') {
+                        if(commaFound == 1) {
+                            return Option<bool>(400, "Error splitting the facet range values.");
+                        }
+
+                        lower = param_str;
+                        StringUtils::trim(lower);
+                        param_str.clear();
+                        commaFound++;
+                    } else if(facet_field[i] == ']') {
+                        brace_open = false;
+                        upper = param_str;
+                        StringUtils::trim(upper);
+                        i++; //skip ] and break loop
+                        break;
+                    } else if(facet_field[i] == ')') {
+                        return Option<bool>(400, "Error splitting the facet range values.");
+                    } else {
+                        param_str += facet_field[i];
+                    }
+                    i++;
+                }
+
+                if(lower.empty()) {
+                    lower_range = INT64_MIN;
+                } else if(a_field.is_integer() && StringUtils::is_int64_t(lower)) {
+                    lower_range = std::stoll(lower);
+                } else if(a_field.is_float() && StringUtils::is_float(lower)) {
+                    float val = std::stof(lower);
+                    lower_range = Index::float_to_int64_t(val);
+                } else {
+                    return Option<bool>(400, "Facet range value is not valid.");
+                }
+
+                if(upper.empty()) {
+                    upper_range = INT64_MAX;
+                } else if(a_field.is_integer() && StringUtils::is_int64_t(upper)) {
+                    upper_range = std::stoll(upper);
+                } else if(a_field.is_float() && StringUtils::is_float(upper)) {
+                    float val = std::stof(upper);
+                    upper_range = Index::float_to_int64_t(val);
+                } else {
+                    return Option<bool>(400, "Facet range value is not valid.");
+                }
+
+                tupVec.emplace_back(lower_range, upper_range, range_val);
+                facet_param_count++;
+            } else {
+                return Option<bool>(400, "Invalid facet param `" + param_str + "`.");
             }
 
-            tupVec.emplace_back(lower_range, upper_range, range_val);
+            continue;
+        } else if(facet_field[i] == ',') {
+            param_str.clear();
+            commaCount++;
+            i++;
+            continue;
         }
 
-        //sort the range values so that we can check continuity
+        if(!paran_open) {
+            facet_field_name+=facet_field[i];
+        } else {
+            param_str+=facet_field[i];
+        }
+        i++;
+    }
+
+    if(paran_open || brace_open || facet_param_count != commaCount) {
+        return Option<bool>(400, "Invalid facet format.");
+    }
+
+    if(facet_param_count == 0 && !is_wildcard) {
+        //facets with params will be validated while parsing
+        // for normal facets need to perform check
+        if(search_schema.count(facet_field_name) == 0 || !search_schema.at(facet_field_name).facet) {
+            std::string error = "Could not find a facet field named `" + facet_field_name + "` in the schema.";
+            return Option<bool>(404, error);
+        }
+    }
+
+    if(!tupVec.empty()) { //add range facets
         sort(tupVec.begin(), tupVec.end());
 
-        for(const auto& tup: tupVec) {
+        facet a_facet(facet_field_name, facets.size());
+        auto& range_map = a_facet.facet_range_map;
 
+        for(const auto& tup: tupVec) {
             const auto& lower_range = std::get<0>(tup);
             const auto& upper_range = std::get<1>(tup);
             const std::string& range_val = std::get<2>(tup);
+
             //check if ranges are continous or not
             if((!range_map.empty()) && (range_map.find(lower_range) == range_map.end())) {
                 std::string error = "Ranges in range facet syntax should be continous.";
@@ -6641,129 +6724,12 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
             range_map[upper_range] = range_specs_t{range_val, lower_range};
         }
-
         a_facet.is_range_query = true;
         a_facet.is_top_k = top_k;
 
         facets.emplace_back(std::move(a_facet));
-    } else if(facet_field.find('*') != std::string::npos) { // Wildcard
-        if(facet_field[facet_field.size() - 1] != '*') {
-            return Option<bool>(404, "Only prefix matching with a wildcard is allowed.");
-        }
-
-        // Trim * from the end.
-        auto prefix = facet_field.substr(0, facet_field.size() - 1);
-        auto pair = search_schema.equal_prefix_range(prefix);
-
-        if(pair.first == pair.second) {
-            // not found
-            std::string error = "Could not find a facet field for `" + facet_field + "` in the schema.";
-            return Option<bool>(404, error);
-        }
-
-        // Collect the fields that match the prefix and are marked as facet.
-        for(auto field = pair.first; field != pair.second; field++) {
-            if(field->facet) {
-                facets.emplace_back(facet(field->name, facets.size()));
-                facets.back().is_wildcard_match = true;
-            }
-        }
-    } else {
-        // normal facet
-        std::string order = "";
-        bool sort_alpha = false;
-        std::string sort_field = "";
-        std::string facet_field_copy = facet_field;
-        auto pos = facet_field_copy.find("(");
-        if(pos != std::string::npos) {
-            facet_field_copy = facet_field_copy.substr(0, pos);
-        }
-
-        if(search_schema.count(facet_field_copy) == 0 || !search_schema.at(facet_field_copy).facet) {
-            std::string error = "Could not find a facet field named `" + facet_field_copy + "` in the schema.";
-            return Option<bool>(404, error);
-        }
-
-        std::string facet_str = facet_field;
-        auto top_k_pos = facet_field.find("top_k");
-        if(top_k_pos != std::string::npos) {
-            auto p = top_k_pos;
-            auto colon_pos = 0;
-            while(facet_field[p] != ',' && facet_field[p] != ')') {
-                if(facet_field[p] == ':') {
-                    colon_pos = p;
-                }
-                p++;
-            }
-            std::string_view top_k_val = facet_field.substr(colon_pos + 1, p - colon_pos -1);
-            if(top_k_val.empty() || ((top_k_val != "true") && (top_k_val != "false"))) {
-                return Option<bool>(400, "top_k string format is invalid.");
-            }
-
-            if(top_k_val == "true") {
-                top_k = true;
-            }
-
-            if(facet_field.find("sort_by") != std::string::npos) {
-                if(facet_field[top_k_pos - 1] == '(') { //top_k at beginning
-                    auto len = facet_field.size() - 1;  //ignore last ')'
-                    facet_str = facet_field.substr(p + 1, len);
-                } else if(facet_field[top_k_pos - 1] == ',') { //top_k at end
-                    facet_str = facet_field.substr(pos + 1, top_k_pos - 2); //ignore before ','
-                }
-            } else { //only top_k param with facet
-                facet_str = facet_field_copy;
-            }
-        }
-
-        if(facet_str.find("sort_by") != std::string::npos) { //sort params are supplied with facet
-            std::vector<std::string> tokens;
-            StringUtils::split(facet_str, tokens, ":");
-
-            if(tokens.size() != 3) {
-                std::string error = "Invalid sort format.";
-                return Option<bool>(400, error);
-            }
-
-            if(tokens[1] == _alpha) {
-                const field& a_field = search_schema.at(facet_field_copy);
-                if(!a_field.is_string()) {
-                    std::string error = "Facet field should be string type to apply alpha sort.";
-                    return Option<bool>(400, error);
-                }
-                sort_alpha = true;
-            } else { //sort_field based sort
-                sort_field = tokens[1];
-
-                if(search_schema.count(sort_field) == 0 || !search_schema.at(sort_field).facet) {
-                    std::string error = "Could not find a facet field named `" + sort_field + "` in the schema.";
-                    return Option<bool>(404, error);
-                }
-
-                const field& a_field = search_schema.at(sort_field);
-                if(a_field.is_string()) {
-                    std::string error = "Sort field should be non string type to apply sort.";
-                    return Option<bool>(400, error);
-                }
-            }
-
-            if(tokens[2].find("asc") != std::string::npos) {
-                order = "asc";
-            } else if(tokens[2].find("desc") != std::string::npos) {
-                order = "desc";
-            } else {
-                std::string error = "Invalid sort param.";
-                return Option<bool>(400, error);
-            }
-        } else if(facet_str != facet_field_copy) {
-            if(facet_str.find("top") != std::string::npos) {
-                return Option<bool>(400, "top_k string format is invalid.");
-            }
-
-            return Option<bool>(400, "Invalid sort format.");
-        }
-
-        facets.emplace_back(facet(facet_field_copy, facets.size(), top_k, {}, false, sort_alpha,
+    } else if(!is_wildcard) { //add other facet types, wildcard facets are already added while parsing
+        facets.emplace_back(facet(facet_field_name, facets.size(), top_k, {}, false, sort_alpha,
                                   order, sort_field));
     }
 
