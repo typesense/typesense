@@ -7,6 +7,11 @@ class ConversationTest : public ::testing::Test {
         CollectionManager & collectionManager = CollectionManager::get_instance();
         Store* store;
         std::atomic<bool> quit = false;
+        nlohmann::json model = R"({
+            "id": "0",
+            "history_collection": "conversation_store",
+            "ttl": 86400
+        })"_json;
         void SetUp() override {
             std::string state_dir_path = "/tmp/typesense_test/conversation_test";
             system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
@@ -20,31 +25,35 @@ class ConversationTest : public ::testing::Test {
                 "fields": [
                     {
                         "name": "conversation_id",
-                        "type": "string",
-                        "facet": true
+                        "type": "string"
                     },
                     {
                         "name": "role",
-                        "type": "string"
+                        "type": "string",
+                        "index": false
                     },
                     {
                         "name": "message",
-                        "type": "string"
+                        "type": "string",
+                        "index": false
                     },
                     {
                         "name": "timestamp",
                         "type": "int32",
                         "sort": true
+                    },
+                    {
+                        "name": "model_id",
+                        "type": "string"
                     }
                 ]
             })"_json;
 
             collectionManager.create_collection(schema_json);
-            ConversationManager::get_instance().add_history_collection("conversation_store");
+            ConversationModelManager::insert_model_for_testing("0", model);
         }
 
         void TearDown() override {
-            ConversationManager::get_instance().remove_history_collection("conversation_store");
             collectionManager.dispose();
             delete store;
         }
@@ -53,7 +62,7 @@ class ConversationTest : public ::testing::Test {
 
 TEST_F(ConversationTest, CreateConversation) {
     nlohmann::json conversation = nlohmann::json::array();
-    auto create_res = ConversationManager::get_instance().add_conversation(conversation, "conversation_store");
+    auto create_res = ConversationManager::get_instance().add_conversation(conversation, model);
     ASSERT_TRUE(create_res.ok());
 }
 
@@ -77,12 +86,12 @@ TEST_F(ConversationTest, AppendConversation) {
     nlohmann::json message = nlohmann::json::object();
     message["user"] = "Hello";
     conversation.push_back(message);
-    auto create_res = ConversationManager::get_instance().add_conversation(conversation, "conversation_store");
+    auto create_res = ConversationManager::get_instance().add_conversation(conversation, model);
 
     ASSERT_TRUE(create_res.ok());
     std::string conversation_id = create_res.get();
-
-    auto append_res = ConversationManager::get_instance().add_conversation(conversation, "conversation_store", conversation_id);
+    LOG(INFO) << conversation_id;
+    auto append_res = ConversationManager::get_instance().add_conversation(conversation, model, conversation_id);
     ASSERT_TRUE(append_res.ok());
     ASSERT_EQ(append_res.get(), conversation_id);
     
@@ -101,14 +110,14 @@ TEST_F(ConversationTest, AppendInvalidConversation) {
     nlohmann::json conversation = nlohmann::json::array();
     nlohmann::json message = nlohmann::json::object();
     message["user"] = "Hello";
-    auto create_res = ConversationManager::get_instance().add_conversation(conversation, "conversation_store");
+    auto create_res = ConversationManager::get_instance().add_conversation(conversation, model);
 
     ASSERT_TRUE(create_res.ok());
     std::string conversation_id = create_res.get();
 
     message = "invalid";
 
-    auto append_res = ConversationManager::get_instance().add_conversation(message, "conversation_store", conversation_id);
+    auto append_res = ConversationManager::get_instance().add_conversation(message, model, conversation_id);
     ASSERT_FALSE(append_res.ok());
     ASSERT_EQ(append_res.code(), 400);
     ASSERT_EQ(append_res.error(), "Conversation is not an array");
@@ -119,7 +128,7 @@ TEST_F(ConversationTest, DeleteConversation) {
     nlohmann::json message = nlohmann::json::object();
     message["user"] = "Hello";
     conversation.push_back(message);
-    auto create_res = ConversationManager::get_instance().add_conversation(conversation, "conversation_store");
+    auto create_res = ConversationManager::get_instance().add_conversation(conversation, model);
     ASSERT_TRUE(create_res.ok());
     std::string conversation_id = create_res.get();
     LOG(INFO) << conversation_id;
@@ -187,7 +196,7 @@ TEST_F(ConversationTest, TestConversationExpire) {
     nlohmann::json message = nlohmann::json::object();
     message["user"] = "Hello";
     conversation.push_back(message);
-    auto create_res = ConversationManager::get_instance().add_conversation(conversation, "conversation_store");
+    auto create_res = ConversationManager::get_instance().add_conversation(conversation, model);
 
     ASSERT_TRUE(create_res.ok());
     std::string conversation_id = create_res.get();
@@ -213,128 +222,6 @@ TEST_F(ConversationTest, TestConversationExpire) {
     ConversationManager::get_instance()._set_ttl_offset(0);
 }
 
-TEST_F(ConversationTest, TestRemoveConversationCollection) {
-    nlohmann::json schema_json = R"({
-        "name": "conversation_store2",
-        "fields": [
-            {
-                "name": "conversation_id",
-                "type": "string",
-                "facet": true
-            },
-            {
-                "name": "role",
-                "type": "string"
-            },
-            {
-                "name": "message",
-                "type": "string"
-            },
-            {
-                "name": "timestamp",
-                "type": "int32",
-                "sort": true
-            }
-        ]
-    })"_json;
-    LOG(INFO) << "Creating collection";
-    collectionManager.create_collection(schema_json);
-    ConversationManager::get_instance().add_history_collection("conversation_store2");
-    LOG(INFO) << "Collection created";
-    nlohmann::json conversation = nlohmann::json::array();
-    nlohmann::json message = nlohmann::json::object();
-    message["user"] = "Hello";
-    conversation.push_back(message);
-
-    LOG(INFO) << "Adding conversation";
-    auto create_res = ConversationManager::get_instance().add_conversation(conversation, "conversation_store2");
-    ASSERT_TRUE(create_res.ok());
-
-    LOG(INFO) << "Getting conversation";
-    auto get_res = ConversationManager::get_instance().get_conversation(create_res.get());
-    ASSERT_TRUE(get_res.ok());
-    ASSERT_EQ(get_res.get()["conversation"].size(), 1);
-    
-
-    LOG(INFO) << "Removing collection";
-    auto remove_res = ConversationManager::get_instance().remove_history_collection("conversation_store2");
-    ASSERT_TRUE(remove_res.ok());
-
-    LOG(INFO) << "Getting conversation";
-    get_res = ConversationManager::get_instance().get_conversation(create_res.get());
-    ASSERT_FALSE(get_res.ok());
-    ASSERT_EQ(get_res.code(), 404);
-    ASSERT_EQ(get_res.error(), "Conversation not found");
-
-    LOG(INFO) << "Adding collection again";
-    ConversationManager::get_instance().add_history_collection("conversation_store2");
-
-
-    LOG(INFO) << "Adding conversation";
-    get_res = ConversationManager::get_instance().get_conversation(create_res.get());
-    ASSERT_TRUE(get_res.ok());
-    ASSERT_EQ(get_res.get()["conversation"].size(), 1);
-
-    LOG(INFO) << "Dropping collection";
-    collectionManager.drop_collection("conversation_store2");
-
-    LOG(INFO) << "Getting conversation";
-    get_res = ConversationManager::get_instance().get_conversation(create_res.get());
-    ASSERT_FALSE(get_res.ok());
-    ASSERT_EQ(get_res.code(), 404);
-    ASSERT_EQ(get_res.error(), "Conversation not found");
-
-    LOG(INFO) << "TestRemoveConversationCollection done";
-}
-
-TEST_F(ConversationTest, TestMultipleRefConversationCollection) {
-    nlohmann::json schema_json = R"({
-        "name": "conversation_store2",
-        "fields": [
-            {
-                "name": "conversation_id",
-                "type": "string",
-                "facet": true
-            },
-            {
-                "name": "role",
-                "type": "string"
-            },
-            {
-                "name": "message",
-                "type": "string"
-            },
-            {
-                "name": "timestamp",
-                "type": "int32",
-                "sort": true
-            }
-        ]
-    })"_json;
-
-    collectionManager.create_collection(schema_json);
-    ConversationManager::get_instance().add_history_collection("conversation_store2");
-    ConversationManager::get_instance().add_history_collection("conversation_store2");
-
-    nlohmann::json conversation = nlohmann::json::array();
-    nlohmann::json message = nlohmann::json::object();
-    message["user"] = "Hello";
-    conversation.push_back(message);
-
-    auto create_res = ConversationManager::get_instance().add_conversation(conversation, "conversation_store2");
-    ASSERT_TRUE(create_res.ok());
-
-    auto get_res = ConversationManager::get_instance().get_conversation(create_res.get());
-    ASSERT_TRUE(get_res.ok());
-    ASSERT_EQ(get_res.get()["conversation"].size(), 1);
-
-    auto remove_res = ConversationManager::get_instance().remove_history_collection("conversation_store2");
-    ASSERT_TRUE(remove_res.ok());
-
-    get_res = ConversationManager::get_instance().get_conversation(create_res.get());
-    ASSERT_TRUE(get_res.ok());
-    ASSERT_EQ(get_res.get()["conversation"].size(), 1);
-}
 
 TEST_F(ConversationTest, TestInvalidConversationCollection) {
     nlohmann::json schema_json = R"({
@@ -347,9 +234,10 @@ TEST_F(ConversationTest, TestInvalidConversationCollection) {
         ]
     })"_json;
 
-    collectionManager.create_collection(schema_json);
-    auto res = ConversationManager::get_instance().add_history_collection("conversation_store2");
+    auto coll = collectionManager.create_collection(schema_json).get();
+    auto res = ConversationManager::get_instance().validate_conversation_store_schema(coll);
     ASSERT_FALSE(res.ok());
     ASSERT_EQ(res.code(), 400);
     ASSERT_EQ(res.error(), "Schema is missing `conversation_id` field");
 }
+

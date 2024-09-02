@@ -18,6 +18,7 @@ protected:
     std::vector<sort_by> sort_fields;
 
     AnalyticsManager& analyticsManager = AnalyticsManager::get_instance();
+    uint32_t analytics_minute_rate_limit = 5;
 
     void setupCollection() {
         state_dir_path = "/tmp/typesense_test/analytics_manager_test";
@@ -36,7 +37,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        analyticsManager.init(store, analytic_store);
+        analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
         analyticsManager.resetToggleRateLimit(false);
     }
 
@@ -595,6 +596,39 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     })"_json;
     req->body = event9.dump();
     ASSERT_TRUE(post_create_event(req, res));
+
+    //for log events source collections is optional
+    req->params["name"] = "product_events2";
+    ASSERT_TRUE(del_analytics_rules(req, res));
+    analytics_rule = R"({
+        "name": "product_events2",
+        "type": "log",
+        "params": {
+            "source": {
+                 "events":  [{"type": "custom", "name": "CP"}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    //try adding removed events
+    ASSERT_TRUE(analyticsManager.remove_rule("product_events").ok());
+
+    analytics_rule = R"({
+        "name": "product_events",
+        "type": "log",
+        "params": {
+            "source": {
+                "collections": ["titles"],
+                 "events":  [{"type": "click", "name": "AP"}, {"type": "visit", "name": "VP"}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
 }
 
 TEST_F(AnalyticsManagerTest, EventsPersist) {
@@ -714,6 +748,60 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     ASSERT_EQ("13", parsed_json["user_id"]);
     ASSERT_EQ("21", parsed_json["doc_id"]);
     ASSERT_EQ("technology", parsed_json["query"]);
+
+    //create rule without source collections
+    analytics_rule = R"({
+        "name": "product_click_events2",
+        "type": "log",
+        "params": {
+            "source": {
+                 "events":  [{"type": "click", "name": "APCT"}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    event = R"({
+        "type": "click",
+        "name": "APCT",
+        "data": {
+            "q": "technology",
+            "doc_id": "10",
+            "user_id": "1"
+        }
+    })"_json;
+
+    req->body = event.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    //get events
+    payload.clear();
+    collection_events_map = analyticsManager.get_log_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto& collection = events_collection_it.first;
+        for(const auto& event: events_collection_it.second) {
+            event.to_json(event_data, collection);
+            payload.push_back(event_data);
+        }
+    }
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    values.clear();
+    analyticsManager.get_last_N_events("1", "*", 5, values);
+    ASSERT_EQ(1, values.size());
+
+    parsed_json = nlohmann::json::parse(values[0]);
+
+    //events will be fetched in LIFO order
+    ASSERT_EQ("APCT", parsed_json["name"]);
+    ASSERT_EQ("generic", parsed_json["collection"]); //without source collections events are classified into generic collection
+    ASSERT_EQ("1", parsed_json["user_id"]);
+    ASSERT_EQ("10", parsed_json["doc_id"]);
+    ASSERT_EQ("technology", parsed_json["query"]);
 }
 
 TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
@@ -762,6 +850,53 @@ TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
     }
 
     //as rate limit is 5, adding one more event above that should trigger rate limit
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"event rate limit reached.\"}", res->body);
+
+    analyticsManager.resetToggleRateLimit(false);
+
+
+    //try with different limit
+    //restart analytics manager as fresh
+    analyticsManager.dispose();
+    analyticsManager.stop();
+
+    analytics_minute_rate_limit = 20;
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
+
+    analytics_rule = R"({
+        "name": "product_events2",
+        "type": "log",
+        "params": {
+            "source": {
+                "collections": ["titles"],
+                 "events":  [{"type": "click", "name": "AB"}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    event1 = R"({
+        "type": "click",
+        "name": "AB",
+        "data": {
+            "q": "technology",
+            "doc_id": "21",
+            "user_id": "13"
+        }
+    })"_json;
+
+    //reset the LRU cache to test the rate limit
+    analyticsManager.resetToggleRateLimit(true);
+
+    for(auto i = 0; i < 20; ++i) {
+        req->body = event1.dump();
+        ASSERT_TRUE(post_create_event(req, res));
+    }
+
+    //as rate limit is 20, adding one more event above that should trigger rate limit
     ASSERT_FALSE(post_create_event(req, res));
     ASSERT_EQ("{\"message\": \"event rate limit reached.\"}", res->body);
 
@@ -1174,7 +1309,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     //restart analytics manager as fresh
     analyticsManager.dispose();
     analyticsManager.stop();
-    analyticsManager.init(store, analytic_store);
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     nlohmann::json products_schema = R"({
             "name": "books",
@@ -1536,7 +1671,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 
     analyticsManager.dispose();
     analyticsManager.stop();
-    analyticsManager.init(store, analytic_store);
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     analytics_rule = R"({
         "name": "books_popularity3",
@@ -1584,7 +1719,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
     system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
 
     analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
-    analyticsManager.init(store, analytic_store);
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     auto analytics_rule = R"({
         "name": "product_events2",
@@ -1663,7 +1798,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
 
     analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
-    analyticsManager.init(store, analytic_store);
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     auto analytics_rule = R"({
         "name": "product_events2",
@@ -1793,7 +1928,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //get last 5 visit events for user_id 14
     values.clear();
-    analyticsManager.get_last_N_events("14", "visit", 5, values);
+    analyticsManager.get_last_N_events("14", "AV", 5, values);
     ASSERT_EQ(5, values.size());
     for(int i = 0; i < 5; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);
@@ -1803,7 +1938,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //get last 5 click events for user_id 14
     values.clear();
-    analyticsManager.get_last_N_events("14", "click", 5, values);
+    analyticsManager.get_last_N_events("14", "AB", 5, values);
     ASSERT_EQ(5, values.size());
     for(int i = 0; i < 5; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);
@@ -1836,7 +1971,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     values.clear();
-    analyticsManager.get_last_N_events("14", "click", 10, values);
+    analyticsManager.get_last_N_events("14", "AB", 10, values);
     ASSERT_EQ(10, values.size());
     for(int i = 0; i < 10; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);
@@ -1871,7 +2006,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     values.clear();
-    analyticsManager.get_last_N_events("14_U1", "click", 10, values);
+    analyticsManager.get_last_N_events("14_U1", "AB", 10, values);
     ASSERT_EQ(5, values.size());
     for(int i = 0; i < 5; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);

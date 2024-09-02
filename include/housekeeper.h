@@ -10,6 +10,7 @@ private:
 
     std::atomic<bool> quit = false;
     std::atomic<uint32_t> hnsw_repair_interval_s = 1800;
+    std::atomic<uint32_t> remove_expired_keys_interval_s = 3600;
 
     HouseKeeper() {}
 

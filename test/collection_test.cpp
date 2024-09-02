@@ -1192,7 +1192,9 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
                     R"({"id": "5", "points": 60, "cast":["Logan Lerman","Alexandra Daddario"],"starring":"Ron Perlman","starring_facet":"Ron Perlman","title":"Percy Jackson: Sea of Monsters"})",
                     R"({"id": "24", "starring": "John", "cast": ["John Kim"], "points": 11})"};   // missing fields
 
-    import_response = coll_mul_fields->add_many(more_records, document, UPSERT);
+    bool return_id = true;
+    import_response = coll_mul_fields->add_many(more_records, document, UPSERT, "",
+                                                DIRTY_VALUES::COERCE_OR_REJECT, false, return_id);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(2, import_response["num_imported"].get<int>());
@@ -1202,6 +1204,11 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_FALSE(import_results[3]["success"].get<bool>());
     ASSERT_STREQ("Field `points` has been declared as a default sorting field, but is not found in the document.", import_results[1]["error"].get<std::string>().c_str());
     ASSERT_STREQ("Field `title` has been declared in the schema, but is not found in the document.", import_results[3]["error"].get<std::string>().c_str());
+
+    ASSERT_EQ("1", import_results[0]["id"].get<std::string>());
+    ASSERT_EQ("90", import_results[1]["id"].get<std::string>());
+    ASSERT_EQ("5", import_results[2]["id"].get<std::string>());
+    ASSERT_EQ("24", import_results[3]["id"].get<std::string>());
 
     // try to duplicate records without upsert option
 

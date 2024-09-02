@@ -697,11 +697,19 @@ TEST_F(CollectionSynonymsTest, SynonymFieldOrdering) {
 }
 
 TEST_F(CollectionSynonymsTest, DeleteAndUpsertDuplicationOfSynonms) {
-    coll_mul_fields->add_synonym(R"({"id": "ipod-synonyms", "root": "ipod", "synonyms": ["i pod", "ipod"]})"_json);
+    coll_mul_fields->add_synonym(R"({"id": "ipod-synonyms", "synonyms": ["i pod", "Apple Phone"]})"_json);
+    coll_mul_fields->add_synonym(R"({"id": "case-synonyms", "root": "Cases", "synonyms": ["phone cover", "mobile protector"]})"_json);
     coll_mul_fields->add_synonym(R"({"id": "samsung-synonyms", "root": "s3", "synonyms": ["s3 phone", "samsung"]})"_json);
 
-    ASSERT_EQ(2, coll_mul_fields->get_synonyms().get().size());
+    ASSERT_EQ(3, coll_mul_fields->get_synonyms().get().size());
     coll_mul_fields->remove_synonym("ipod-synonyms");
+    coll_mul_fields->remove_synonym("case-synonyms");
+
+    auto res_op = coll_mul_fields->search("apple phone", {"starring"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+
+    res_op = coll_mul_fields->search("cases", {"starring"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
 
     auto synonyms = coll_mul_fields->get_synonyms().get();
     ASSERT_EQ(1, synonyms.size());
