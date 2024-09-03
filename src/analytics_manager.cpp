@@ -84,6 +84,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
 
             const std::string &src_collection = coll.get<std::string>();
             suggestion_config.query_collections.push_back(src_collection);
+            suggestion_collection = src_collection;
         }
     } else if(payload["type"] == POPULAR_QUERIES_TYPE || payload["type"] == NOHITS_QUERIES_TYPE) {
         //for popular and nohits queries, source collection is mandatory

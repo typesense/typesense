@@ -172,6 +172,19 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithExpandedQuery) {
 }
 
 TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Cool trousers";
+    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
+
     nlohmann::json analytics_rule = R"({
         "name": "top_search_queries",
         "type": "popular_queries",
@@ -1721,6 +1734,19 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
     analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
     analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Cool trousers";
+    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
+
     auto analytics_rule = R"({
         "name": "product_events2",
         "type": "log",
@@ -1799,6 +1825,19 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
     analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
+
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Cool trousers";
+    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
 
     auto analytics_rule = R"({
         "name": "product_events2",
