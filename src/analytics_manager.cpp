@@ -67,6 +67,10 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     suggestion_config.expand_query = expand_query;
     suggestion_config.rule_type = payload["type"];
 
+    if (payload["type"] == LOG_TYPE && !params["source"].contains("collections")) {
+        return Option<bool>(400, "`collections` is required for log type rule");
+    }
+
     //for counter events source collections are not needed
     if(params["source"].contains("collections")) {
         if(!params["source"]["collections"].is_array()) {
@@ -172,7 +176,16 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     }
 
     std::map<std::string, uint16_t> event_weight_map;
-    bool log_to_store = payload["type"] == LOG_TYPE ? true : false;
+    bool log_to_store = payload["type"] == LOG_TYPE;
+
+    if(log_to_store) {
+        for (const std::string coll: suggestion_config.query_collections) {
+            if(query_collection_events.count(coll) == 0) {
+                std::vector<event_t> vec;
+                query_collection_events.emplace(coll, vec);
+            }
+        }
+    }
 
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
         QueryAnalytics* popularQueries = new QueryAnalytics(limit, enable_auto_aggregation);
@@ -391,7 +404,21 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
         return Option<bool>(400, "event_type mismatch in analytic rules.");
     }
 
-    const auto& query_collection = event_collection_map_it->second.collection;
+    std::string query_collection;
+    if (event_collection_map_it->second.log_to_store) {
+        if(event_type == SEARCH_EVENT) {
+            query_collection = event_collection_map_it->second.collection;
+        } else {
+            query_collection = event_json["collection"].get<std::string>();
+            const auto& rule_it = suggestion_configs.find(event_collection_map_it->second.analytic_rule);
+            const auto& query_collections = rule_it->second.query_collections;
+            if(std::find(query_collections.begin(), query_collections.end(),query_collection) == query_collections.end()) {
+                return Option<bool>(400, query_collection + " not found in the rule " + event_name);
+            }
+        }
+    } else {
+        query_collection = event_collection_map_it->second.collection;
+    }
 
     const auto& query_collection_events_it = query_collection_events.find(query_collection);
     if(query_collection_events_it != query_collection_events.end()) {
@@ -484,6 +511,8 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
                 LOG(ERROR) << "collection " << query_collection << " not found in analytics rule.";
             }
         }
+    } else {
+        return Option<bool>(500, "Failure in adding an event.");
     }
     return Option<bool>(true);
 }

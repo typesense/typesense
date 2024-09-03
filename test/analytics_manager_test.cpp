@@ -356,6 +356,20 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     ASSERT_FALSE(post_create_event(req, res));
     ASSERT_EQ("{\"message\": \"key `name` not found.\"}", res->body);
 
+    //missing collection
+    event1 = R"({
+        "type": "click",
+        "name": "AP",
+        "data": {
+            "doc_id": "21",
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event1.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"event should have 'collection' as a string value.\"}", res->body);
+
     //should be string type
     nlohmann::json event3 = R"({
         "type": "conversion",
@@ -377,13 +391,14 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "data": {
             "q": "technology",
             "doc_id": "21",
+            "collection": "titles",
             "user_id": 12
         }
     })"_json;
 
     req->body = event3.dump();
     ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"'user_id' should be a string value.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"event should have 'user_id' as string value.\"}", res->body);
 
     event3 = R"({
         "type": "conversion",
@@ -391,7 +406,8 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "data": {
             "q": 1245,
             "doc_id": "21",
-            "user_id": "13"
+            "user_id": "13",
+            "collection": "titles"
         }
     })"_json;
 
@@ -422,6 +438,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "data": {
             "q": "technology",
             "doc_id": "21",
+            "collection": "titles",
             "user_id": "11"
         }
     })"_json;
@@ -436,6 +453,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "data": {
             "q": "technology",
             "doc_id": "21",
+            "collection": "titles",
             "user_id": "13"
         }
     })"_json;
@@ -449,6 +467,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "data": {
             "q": "technology",
             "doc_id": "21",
+            "collection": "titles",
             "user_id": "11"
         }
     })"_json;
@@ -463,6 +482,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "data": {
             "q": "technology",
             "doc_id": "21",
+            "collection": "titles",
             "user_id": "11"
         }
     })"_json;
@@ -494,6 +514,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
             "user_id": "11",
             "label1": "foo",
             "label2": "bar",
+            "collection": "titles",
             "info": "xyz"
         }
     })"_json;
@@ -516,18 +537,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
 
     create_op = analyticsManager.create_rule(analytics_rule, true, true);
     ASSERT_TRUE(create_op.ok());
-
-    // log based event should be created with only doc_id
-    event5 = R"({
-        "type": "click",
-        "name": "AP",
-        "data": {
-            "doc_id": "21"
-        }
-    })"_json;
-
-    req->body = event5.dump();
-    ASSERT_TRUE(post_create_event(req, res));
 
     //search events validation
 
@@ -610,7 +619,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     req->body = event9.dump();
     ASSERT_TRUE(post_create_event(req, res));
 
-    //for log events source collections is optional
+    //for log events source collections is mandatory
     req->params["name"] = "product_events2";
     ASSERT_TRUE(del_analytics_rules(req, res));
     analytics_rule = R"({
@@ -624,7 +633,8 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     })"_json;
 
     create_op = analyticsManager.create_rule(analytics_rule, true, true);
-    ASSERT_TRUE(create_op.ok());
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("`collections` is required for log type rule", create_op.error());
 
     //try adding removed events
     ASSERT_TRUE(analyticsManager.remove_rule("product_events").ok());
@@ -680,7 +690,8 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
         "data": {
             "q": "technology",
             "doc_id": "21",
-            "user_id": "13"
+            "user_id": "13",
+            "collection": "titles"
         }
     })"_json;
 
@@ -720,6 +731,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
         "data": {
             "q": "technology",
             "doc_id": "12",
+            "collection": "titles",
             "user_id": "13"
         }
     })"_json;
@@ -763,58 +775,58 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     ASSERT_EQ("technology", parsed_json["query"]);
 
     //create rule without source collections
-    analytics_rule = R"({
-        "name": "product_click_events2",
-        "type": "log",
-        "params": {
-            "source": {
-                 "events":  [{"type": "click", "name": "APCT"}]
-            }
-        }
-    })"_json;
-
-    create_op = analyticsManager.create_rule(analytics_rule, true, true);
-    ASSERT_TRUE(create_op.ok());
-
-    event = R"({
-        "type": "click",
-        "name": "APCT",
-        "data": {
-            "q": "technology",
-            "doc_id": "10",
-            "user_id": "1"
-        }
-    })"_json;
-
-    req->body = event.dump();
-    ASSERT_TRUE(post_create_event(req, res));
-
-    //get events
-    payload.clear();
-    collection_events_map = analyticsManager.get_log_events();
-    for (auto &events_collection_it: collection_events_map) {
-        const auto& collection = events_collection_it.first;
-        for(const auto& event: events_collection_it.second) {
-            event.to_json(event_data, collection);
-            payload.push_back(event_data);
-        }
-    }
-
-    //manually trigger write to db
-    ASSERT_TRUE(analyticsManager.write_to_db(payload));
-
-    values.clear();
-    analyticsManager.get_last_N_events("1", "*", 5, values);
-    ASSERT_EQ(1, values.size());
-
-    parsed_json = nlohmann::json::parse(values[0]);
-
-    //events will be fetched in LIFO order
-    ASSERT_EQ("APCT", parsed_json["name"]);
-    ASSERT_EQ("generic", parsed_json["collection"]); //without source collections events are classified into generic collection
-    ASSERT_EQ("1", parsed_json["user_id"]);
-    ASSERT_EQ("10", parsed_json["doc_id"]);
-    ASSERT_EQ("technology", parsed_json["query"]);
+//    analytics_rule = R"({
+//        "name": "product_click_events2",
+//        "type": "log",
+//        "params": {
+//            "source": {
+//                 "events":  [{"type": "click", "name": "APCT"}]
+//            }
+//        }
+//    })"_json;
+//
+//    create_op = analyticsManager.create_rule(analytics_rule, true, true);
+//    ASSERT_TRUE(create_op.ok());
+//
+//    event = R"({
+//        "type": "click",
+//        "name": "APCT",
+//        "data": {
+//            "q": "technology",
+//            "doc_id": "10",
+//            "user_id": "1"
+//        }
+//    })"_json;
+//
+//    req->body = event.dump();
+//    ASSERT_TRUE(post_create_event(req, res));
+//
+//    //get events
+//    payload.clear();
+//    collection_events_map = analyticsManager.get_log_events();
+//    for (auto &events_collection_it: collection_events_map) {
+//        const auto& collection = events_collection_it.first;
+//        for(const auto& event: events_collection_it.second) {
+//            event.to_json(event_data, collection);
+//            payload.push_back(event_data);
+//        }
+//    }
+//
+//    //manually trigger write to db
+//    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+//
+//    values.clear();
+//    analyticsManager.get_last_N_events("1", "*", 5, values);
+//    ASSERT_EQ(1, values.size());
+//
+//    parsed_json = nlohmann::json::parse(values[0]);
+//
+//    //events will be fetched in LIFO order
+//    ASSERT_EQ("APCT", parsed_json["name"]);
+//    ASSERT_EQ("generic", parsed_json["collection"]); //without source collections events are classified into generic collection
+//    ASSERT_EQ("1", parsed_json["user_id"]);
+//    ASSERT_EQ("10", parsed_json["doc_id"]);
+//    ASSERT_EQ("technology", parsed_json["query"]);
 }
 
 TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
@@ -850,7 +862,8 @@ TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
         "data": {
             "q": "technology",
             "doc_id": "21",
-            "user_id": "13"
+            "user_id": "13",
+            "collection": "titles"
         }
     })"_json;
 
@@ -897,6 +910,7 @@ TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
         "data": {
             "q": "technology",
             "doc_id": "21",
+            "collection": "titles",
             "user_id": "13"
         }
     })"_json;
@@ -1193,7 +1207,8 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
         "data": {
             "q": "trousers",
             "doc_id": "1",
-            "user_id": "13"
+            "user_id": "13",
+            "collection": "products"
         }
     })"_json;
 
@@ -1206,7 +1221,8 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
         "data": {
             "q": "shorts",
             "doc_id": "3",
-            "user_id": "11"
+            "user_id": "11",
+            "collection": "products"
         }
     })"_json;
 
@@ -1228,7 +1244,8 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
         "data": {
             "q": "shorts",
             "doc_id": "1",
-            "user_id": "11"
+            "user_id": "11",
+            "collection": "products"
         }
     })"_json;
 
@@ -1241,7 +1258,8 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
         "data": {
             "q": "shorts",
             "doc_id": "3",
-            "user_id": "11"
+            "user_id": "11",
+            "collection": "products"
         }
     })"_json;
 
@@ -1290,7 +1308,8 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
         "data": {
             "q": "shorts",
             "doc_id": "3",
-            "user_id": "11"
+            "user_id": "11",
+            "collection": "products"
         }
     })"_json;
     req->body = event5.dump();
@@ -1302,20 +1321,20 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     ASSERT_EQ(1, popular_clicks["products"].docid_counts.size());
 
     //add with only doc_id
-    event5 = R"({
-        "type": "conversion",
-        "name": "CNV1",
-        "data": {
-            "doc_id": "5"
-        }
-    })"_json;
-    req->body = event5.dump();
-    ASSERT_TRUE(post_create_event(req, res));
-
-    popular_clicks = analyticsManager.get_popular_clicks();
-    ASSERT_EQ(1, popular_clicks.size());
-    ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
-    ASSERT_EQ(2, popular_clicks["products"].docid_counts.size());
+//    event5 = R"({
+//        "type": "conversion",
+//        "name": "CNV1",
+//        "data": {
+//            "doc_id": "5"
+//        }
+//    })"_json;
+//    req->body = event5.dump();
+//    ASSERT_TRUE(post_create_event(req, res));
+//
+//    popular_clicks = analyticsManager.get_popular_clicks();
+//    ASSERT_EQ(1, popular_clicks.size());
+//    ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
+//    ASSERT_EQ(2, popular_clicks["products"].docid_counts.size());
 }
 
 TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
@@ -1498,7 +1517,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
-                 "events":  [{"type": "click", "weight": 1, "name" : "CLK4"}, {"type": "conversion", "weight": 5, "name": "CNV4", "log_to_store" : true} ]
+                 "events":  [{"type": "conversion", "weight": 5, "name": "CNV4", "log_to_store" : true},{"type": "click", "weight": 1, "name" : "CLK4"}]
             },
             "destination": {
                 "collection": "books",
@@ -1522,7 +1541,8 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "data": {
             "q": "shorts",
             "doc_id": "1",
-            "user_id": "11"
+            "user_id": "11",
+            "collection": "books"
         }
     })"_json;
     req->body = event.dump();
@@ -1605,7 +1625,8 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "data": {
             "q": "technology",
             "doc_id": "21",
-            "user_id": "13"
+            "user_id": "13",
+            "collection": "books"
         }
     })"_json;
 
@@ -1625,7 +1646,8 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "data": {
             "q": "shorts",
             "doc_id": "1",
-            "user_id": "11"
+            "user_id": "11",
+            "collection": "books"
         }
     })"_json;
     req->body = event.dump();
@@ -1709,7 +1731,8 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "data": {
             "q": "shorts",
             "doc_id": "1",
-            "user_id": "11"
+            "user_id": "11",
+            "collection": "books"
         }
     })"_json;
     req->body = event.dump();
