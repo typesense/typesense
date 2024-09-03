@@ -72,16 +72,18 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
         if(!params["source"]["collections"].is_array()) {
             return Option<bool>(400, "Must contain a valid list of source collections.");
         }
-
+        CollectionManager & cm = CollectionManager::get_instance();
         for(const auto& coll: params["source"]["collections"]) {
             if (!coll.is_string()) {
                 return Option<bool>(400, "Must contain a valid list of source collection names.");
             }
+            auto collection = cm.get_collection(coll.get<std::string>());
+            if (collection == nullptr) {
+                return Option<bool>(404, "Collection `" + coll.get<std::string>() + "` is not found");
+            }
 
             const std::string &src_collection = coll.get<std::string>();
             suggestion_config.query_collections.push_back(src_collection);
-
-            suggestion_collection = src_collection;
         }
     } else if(payload["type"] == POPULAR_QUERIES_TYPE || payload["type"] == NOHITS_QUERIES_TYPE) {
         //for popular and nohits queries, source collection is mandatory
