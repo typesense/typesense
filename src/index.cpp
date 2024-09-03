@@ -3682,6 +3682,14 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     process_search_results:
 
+    topster->sort();
+    curated_topster->sort();
+
+    Collection::populate_result_kvs(topster, raw_result_kvs, groups_processed, sort_fields_std);
+    Collection::populate_result_kvs(curated_topster, override_result_kvs, groups_processed, sort_fields_std);
+    std::vector<uint32_t> top_k_result_ids, top_k_curated_result_ids;
+    std::vector<facet> top_k_facets;
+
     delete [] exclude_token_ids;
     delete [] excluded_result_ids;
 
@@ -3705,15 +3713,22 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
         std::vector<std::vector<facet>> facet_batches(num_threads);
         std::vector<std::vector<facet>> value_facets(concurrency);
+
         size_t num_value_facets = 0;
 
         for(size_t i = 0; i < facets.size(); i++) {
             const auto& this_facet = facets[i];
+            //process facets separately which has top_k set to true
+            if(this_facet.is_top_k) {
+                top_k_facets.emplace_back(this_facet.field_name, this_facet.orig_index, this_facet.is_top_k, this_facet.facet_range_map,
+                                          this_facet.is_range_query, this_facet.is_sort_by_alpha, this_facet.sort_order, this_facet.sort_field);
+                continue;
+            }
 
             if(facet_infos[i].use_value_index) {
                 // value based faceting on a single thread
                 value_facets[num_value_facets % num_threads].emplace_back(this_facet.field_name, this_facet.orig_index,
-                                          this_facet.facet_range_map,
+                                          this_facet.is_top_k, this_facet.facet_range_map,
                                           this_facet.is_range_query, this_facet.is_sort_by_alpha,
                                           this_facet.sort_order, this_facet.sort_field);
                 num_value_facets++;
@@ -3721,9 +3736,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
 
             for(size_t j = 0; j < num_threads; j++) {
-                facet_batches[j].emplace_back(this_facet.field_name, this_facet.orig_index, this_facet.facet_range_map,
-                                              this_facet.is_range_query, this_facet.is_sort_by_alpha,
-                                              this_facet.sort_order, this_facet.sort_field);
+                facet_batches[j].emplace_back(this_facet.field_name, this_facet.orig_index, this_facet.is_top_k,
+                                              this_facet.facet_range_map, this_facet.is_range_query,
+                                              this_facet.is_sort_by_alpha, this_facet.sort_order, this_facet.sort_field);
             }
         }
 
@@ -3735,6 +3750,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         auto parent_search_cutoff = search_cutoff;
 
         //auto beginF = std::chrono::high_resolution_clock::now();
+
+        if(top_k_facets.size() >  0) {
+            get_top_k_result_ids(raw_result_kvs, top_k_result_ids);
+
+            do_facets(top_k_facets, facet_query, estimate_facets, facet_sample_percent,
+                      facet_infos, group_limit, group_by_fields, group_missing_values, top_k_result_ids.data(),
+                      top_k_result_ids.size(), max_facet_values, is_wildcard_no_filter_query,
+                      facet_index_types);
+        }
 
         for(size_t thread_id = 0; thread_id < num_threads && result_index < all_result_ids_len; thread_id++) {
             size_t batch_res_len = window_size;
@@ -3857,6 +3881,14 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
               included_ids_vec.size(), max_facet_values, is_wildcard_no_filter_query,
               facet_index_types);
 
+    if(top_k_facets.size() >  0) {
+        get_top_k_result_ids(override_result_kvs, top_k_curated_result_ids);
+        do_facets(top_k_facets, facet_query, estimate_facets, facet_sample_percent,
+                  facet_infos, group_limit, group_by_fields, group_missing_values, top_k_curated_result_ids.data(),
+                  top_k_curated_result_ids.size(), max_facet_values, is_wildcard_no_filter_query,
+                  facet_index_types);
+    }
+
     all_result_ids_len += curated_topster->size;
 
     if(!included_ids_map.empty() && group_limit != 0) {
@@ -3872,6 +3904,14 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             if (estimate_facets) {
                 acc_facet.sampled = true;
             }
+        }
+    }
+
+    //copy top_k facets data
+    if(!top_k_facets.empty()) {
+        for(auto& this_facet : top_k_facets) {
+            auto& acc_facet = facets[this_facet.orig_index];
+            aggregate_facet(group_limit, this_facet, acc_facet);
         }
     }
 
@@ -7919,6 +7959,17 @@ float Index::get_distance(const string& geo_field_name, const uint32_t& seq_id,
     return std::round(dist * 1000.0) / 1000.0;
 }
 
+void Index::get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs,
+                                 std::vector<uint32_t>& result_ids) const{
+
+    for(const auto& group_kv : raw_result_kvs) {
+        for(const auto& kv : group_kv) {
+            result_ids.push_back(kv->key);
+        }
+    }
+
+    std::sort(result_ids.begin(), result_ids.end());
+}
 /*
 // https://stackoverflow.com/questions/924171/geo-fencing-point-inside-outside-polygon
 // NOTE: polygon and point should have been transformed with `transform_for_180th_meridian`
