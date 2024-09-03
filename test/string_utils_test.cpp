@@ -3,6 +3,7 @@
 #include <iconv.h>
 #include <unicode/translit.h>
 #include <json.hpp>
+#include <join.h>
 
 TEST(StringUtilsTest, ShouldJoinString) {
     std::vector<std::string> parts = {"foo", "bar", "baz", "bazinga"};
@@ -452,28 +453,28 @@ TEST(StringUtilsTest, SplitIncludeExcludeFields) {
 TEST(StringUtilsTest, SplitReferenceIncludeExcludeFields) {
     std::string include_fields = "$retailer(id,title,strategy:merge) as retailer_info, strategy:merge)  as variants, foo", token;
     size_t index = 0;
-    auto tokenize_op = StringUtils::split_reference_include_exclude_fields(include_fields, index, token);
+    auto tokenize_op = Join::split_reference_include_exclude_fields(include_fields, index, token);
     ASSERT_TRUE(tokenize_op.ok());
     ASSERT_EQ("$retailer(id,title,strategy:merge) as retailer_info", token);
     ASSERT_EQ(", strategy:merge)  as variants, foo", include_fields.substr(index));
 
     include_fields = "$inventory(qty,sku,$retailer(id,title, strategy : merge) as retailer_info)  as inventory)  as variants, foo";
     index = 0;
-    tokenize_op = StringUtils::split_reference_include_exclude_fields(include_fields, index, token);
+    tokenize_op = Join::split_reference_include_exclude_fields(include_fields, index, token);
     ASSERT_TRUE(tokenize_op.ok());
     ASSERT_EQ("$inventory(qty,sku,$retailer(id,title, strategy : merge) as retailer_info) as inventory", token);
     ASSERT_EQ(")  as variants, foo", include_fields.substr(index));
 
     std::string exclude_fields = "$Collection(title), $product_variants(id,$inventory(qty,sku,$retailer(id,title)))";
     index = 0;
-    tokenize_op = StringUtils::split_reference_include_exclude_fields(exclude_fields, index, token);
+    tokenize_op = Join::split_reference_include_exclude_fields(exclude_fields, index, token);
     ASSERT_TRUE(tokenize_op.ok());
     ASSERT_EQ("$Collection(title)", token);
     ASSERT_EQ(", $product_variants(id,$inventory(qty,sku,$retailer(id,title)))", exclude_fields.substr(index));
 
     exclude_fields = "$inventory(qty,sku,$retailer(id,title)), foo)";
     index = 0;
-    tokenize_op = StringUtils::split_reference_include_exclude_fields(exclude_fields, index, token);
+    tokenize_op = Join::split_reference_include_exclude_fields(exclude_fields, index, token);
     ASSERT_TRUE(tokenize_op.ok());
     ASSERT_EQ("$inventory(qty,sku,$retailer(id,title))", token);
     ASSERT_EQ(", foo)", exclude_fields.substr(index));

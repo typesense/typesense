@@ -23,6 +23,15 @@ struct reference_info_t {
     }
 };
 
+struct ref_include_collection_names_t {
+    std::set<std::string> collection_names;
+    ref_include_collection_names_t* nested_include = nullptr;
+
+    ~ref_include_collection_names_t() {
+        delete nested_include;
+    }
+};
+
 class Join {
 public:
 
@@ -43,4 +52,18 @@ public:
                                            const std::map<std::string, reference_filter_result_t>& reference_filter_results,
                                            const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
                                            const nlohmann::json& original_doc);
+
+    static Option<bool> parse_reference_filter(const std::string& filter_query, std::queue<std::string>& tokens, size_t& index,
+                                               std::set<std::string>& ref_collection_names);
+
+    static Option<bool> split_reference_include_exclude_fields(const std::string& include_exclude_fields,
+                                                               size_t& index, std::string& token);
+
+    static void get_reference_collection_names(const std::string& filter_query, ref_include_collection_names_t*& ref_include);
+
+    // Separate out the reference includes and excludes into `ref_include_exclude_fields_vec`.
+    static Option<bool> initialize_ref_include_exclude_fields_vec(const std::string& filter_query,
+                                                                  std::vector<std::string>& include_fields_vec,
+                                                                  std::vector<std::string>& exclude_fields_vec,
+                                                                  std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec);
 };
