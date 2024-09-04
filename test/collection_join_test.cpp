@@ -7238,6 +7238,133 @@ TEST_F(CollectionJoinTest, FilterByReferenceAlias) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers_alias"].count("product_price"));
 }
 
+TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
+    std::string embedded_filter = "$Customers(customer_id:customer_a)",
+                query_filter = "$Customers(product_price:<100)";
+    ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+    ASSERT_TRUE(embedded_filter.empty());
+    ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+
+//    embedded_filter = "$Customers(customer_id:customer_a) && field:foo";
+//    query_filter = "$Customers(product_price:<100)";
+//    ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+//    ASSERT_EQ("field:foo", embedded_filter);
+//    ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string"},
+                    {"name": "product_description", "type": "string"},
+                    {"name": "rating", "type": "int32"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair.",
+                "rating": "2"
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "soap",
+                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients.",
+                "rating": "4"
+            })"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "customer_id", "type": "string"},
+                    {"name": "customer_name", "type": "string"},
+                    {"name": "product_price", "type": "float"},
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product_price": 143,
+                "product_id": "product_a"
+            })"_json,
+            R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product_price": 73.5,
+                "product_id": "product_b"
+            })"_json,
+            R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product_price": 75,
+                "product_id": "product_a"
+            })"_json,
+            R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product_price": 140,
+                "product_id": "product_b"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "$Customers(product_price:<100)"},
+    };
+    nlohmann::json embedded_params = R"({
+                                        "filter_by": "$Customers(customer_id:customer_a) "
+                                     })"_json;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    nlohmann::json res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    // No fields are mentioned in `include_fields`, should include all fields of Products and Customers by default.
+    ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_description"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("rating"));
+    // Default strategy of reference includes is nest. No alias was provided, collection name becomes the field name.
+    ASSERT_EQ(5, res_obj["hits"][0]["document"]["Customers"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("customer_id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("customer_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_price"));
+}
+
 TEST_F(CollectionJoinTest, QueryByReference) {
     auto schema_json =
             R"({

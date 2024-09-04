@@ -66,4 +66,6 @@ public:
                                                                   std::vector<std::string>& include_fields_vec,
                                                                   std::vector<std::string>& exclude_fields_vec,
                                                                   std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec);
+
+    [[nodiscard]] static bool merge_join_conditions(string& embedded_filter, string& query_filter);
 };

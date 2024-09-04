@@ -1,6 +1,7 @@
 #include "auth_manager.h"
 #include <openssl/evp.h>
 #include <regex>
+#include <join.h>
 
 constexpr const char* AuthManager::DOCUMENTS_SEARCH_ACTION;
 constexpr const uint64_t api_key_t::FAR_FUTURE_TIMESTAMP;
@@ -402,6 +403,17 @@ bool AuthManager::add_item_to_params(std::map<std::string, std::string>& req_par
     if(req_params.count(item.key()) == 0) {
         req_params[item.key()] = str_value;
     } else if(item.key() == "filter_by") {
+        auto& embedded_param = str_value;
+        auto& query_param = req_params[item.key()];
+
+        // Join follows $collection_name(<join_condition>) pattern. There might be false-positive matches with this
+        // regular expression like, "(field: foo$) || (field: bar)" but that is acceptable.
+        const std::regex join_pattern(R"(\$.+\(.+\))");
+        if (std::regex_search(embedded_param, join_pattern) && std::regex_search(query_param, join_pattern) &&
+            !Join::merge_join_conditions(embedded_param, query_param)) {
+            return false;
+        }
+
         if(!req_params[item.key()].empty() && !str_value.empty()) {
             req_params[item.key()] = "(" + req_params[item.key()] + ") && (" + str_value + ")";
         } else if(req_params[item.key()].empty() && !str_value.empty()) {

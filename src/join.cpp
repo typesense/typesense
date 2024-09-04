@@ -687,8 +687,8 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
     return Option<bool>(true);
 }
 
-Option<bool> Join::parse_reference_filter(const std::string& filter_query, std::queue<std::string>& tokens, size_t& index,
-                                          std::set<std::string>& ref_collection_names) {
+Option<bool> parse_reference_filter_helper(const std::string& filter_query, size_t& index, std::string& ref_coll_name,
+                                           std::string& join) {
     auto error = Option<bool>(400, "Could not parse the reference filter: `" + filter_query.substr(index) + "`.");
 
     if (index >= filter_query.size() || filter_query[index] != '$') {
@@ -703,19 +703,8 @@ Option<bool> Join::parse_reference_filter(const std::string& filter_query, std::
     }
 
     index = parenthesis_pos;
-    std::string ref_coll_name = filter_query.substr(start_index + 1, parenthesis_pos - start_index - 1);
+    ref_coll_name = filter_query.substr(start_index + 1, parenthesis_pos - start_index - 1);
     StringUtils::trim(ref_coll_name);
-    auto it = ref_collection_names.find(ref_coll_name);
-    if (it == ref_collection_names.end()) {
-        ref_collection_names.insert(ref_coll_name);
-    } else {
-        return Option<bool>(400, "More than one joins found for collection `" + ref_coll_name + "` in the `filter_by`." +=
-                " Instead of providing separate join conditions like "
-                "`$customer_product_prices(customer_id:=customer_a) && "
-                "$customer_product_prices(custom_price:<100)`,"
-                " the join condition should be provided as a single filter expression like"
-                " `$customer_product_prices(customer_id:=customer_a && custom_price:<100)`");
-    }
 
     // The reference filter could have parenthesis inside it. $Foo((X && Y) || Z)
     int parenthesis_count = 1;
@@ -731,14 +720,38 @@ Option<bool> Join::parse_reference_filter(const std::string& filter_query, std::
         return error;
     }
 
-    tokens.push(filter_query.substr(start_index, index - start_index));
+    join = filter_query.substr(start_index, index - start_index);
+    return Option<bool>(true);
+}
+
+Option<bool> Join::parse_reference_filter(const std::string& filter_query, std::queue<std::string>& tokens, size_t& index,
+                                          std::set<std::string>& ref_collection_names) {
+    std::string ref_coll_name, join;
+    auto parse_op = parse_reference_filter_helper(filter_query, index, ref_coll_name, join);
+    if (!parse_op.ok()) {
+        return parse_op;
+    }
+
+    auto it = ref_collection_names.find(ref_coll_name);
+    if (it == ref_collection_names.end()) {
+        ref_collection_names.insert(ref_coll_name);
+    } else {
+        return Option<bool>(400, "More than one joins found for collection `" + ref_coll_name + "` in the `filter_by`." +=
+                                    " Instead of providing separate join conditions like "
+                                    "`$customer_product_prices(customer_id:=customer_a) && "
+                                    "$customer_product_prices(custom_price:<100)`,"
+                                    " the join condition should be provided as a single filter expression like"
+                                    " `$customer_product_prices(customer_id:=customer_a && custom_price:<100)`");
+    }
+
+    tokens.push(join);
     return Option<bool>(true);
 }
 
 Option<bool> Join::split_reference_include_exclude_fields(const std::string& include_exclude_fields,
                                                           size_t& index, std::string& token) {
     auto ref_include_error = Option<bool>(400, "Invalid reference `" + include_exclude_fields + "` in include_fields/"
-                                                                                                "exclude_fields, expected `$CollectionName(fieldA, ...)`.");
+                                                    "exclude_fields, expected `$CollectionName(fieldA, ...)`.");
     auto const& size = include_exclude_fields.size();
     size_t start_index = index;
     while(++index < size && include_exclude_fields[index] != '(') {}
@@ -782,63 +795,26 @@ Option<bool> Join::split_reference_include_exclude_fields(const std::string& inc
     return Option<bool>(true);
 }
 
-void Join::get_reference_collection_names(const std::string& filter_query,
-                                          ref_include_collection_names_t*& ref_include) {
-    if (ref_include == nullptr) {
-        ref_include = new ref_include_collection_names_t();
-    }
-
-    auto size = filter_query.size();
-    for (uint32_t i = 0; i < size;) {
+// Returns tri-state: Error while parsing filter_query (-1), Join not found (0), Join found (1)
+int8_t skip_index_to_join(const std::string& filter_query, size_t& i) {
+    auto const size = filter_query.size();
+    while (i < size) {
         auto c = filter_query[i];
         if (c == ' ' || c == '(' || c == ')') {
             i++;
         } else if (c == '&' || c == '|') {
-            if (i + 1 >= size || (c == '&' && filter_query[i+1] != '&') || (c == '|' && filter_query[i+1] != '|')) {
-                ref_include->collection_names.clear();
-                return;
+            if (i + 1 >= size || (c == '&' && filter_query[i + 1] != '&') || (c == '|' && filter_query[i + 1] != '|')) {
+                return -1;
             }
             i += 2;
         } else {
             // Reference filter would start with $ symbol.
             if (c == '$') {
-                auto open_paren_pos = filter_query.find('(', ++i);
-                if (open_paren_pos == std::string::npos) {
-                    ref_include->collection_names.clear();
-                    return;
-                }
-
-                auto reference_collection_name = filter_query.substr(i, open_paren_pos - i);
-                StringUtils::trim(reference_collection_name);
-                if (!reference_collection_name.empty()) {
-                    ref_include->collection_names.insert(reference_collection_name);
-                }
-
-                i = open_paren_pos;
-                int parenthesis_count = 1;
-                while (++i < size && parenthesis_count > 0) {
-                    if (filter_query[i] == '(') {
-                        parenthesis_count++;
-                    } else if (filter_query[i] == ')') {
-                        parenthesis_count--;
-                    }
-                }
-
-                if (parenthesis_count != 0) {
-                    ref_include->collection_names.clear();
-                    return;
-                }
-
-                // Need to process the filter expression inside parenthesis in case of nested join.
-                auto sub_filter_query = filter_query.substr(open_paren_pos + 1, i - open_paren_pos - 2);
-                if (sub_filter_query.find('$') != std::string::npos) {
-                    get_reference_collection_names(sub_filter_query, ref_include->nested_include);
-                }
+                return 1;
             } else {
                 while (i + 1 < size && filter_query[++i] != ':');
                 if (i >= size) {
-                    ref_include->collection_names.clear();
-                    return;
+                    return -1;
                 }
 
                 bool in_backtick = false;
@@ -850,6 +826,63 @@ void Join::get_reference_collection_names(const std::string& filter_query,
                 } while (i < size && (in_backtick || (c != '(' && c != ')' &&
                                                       !(c == '&' && filter_query[i + 1] == '&') &&
                                                       !(c == '|' && filter_query[i + 1] == '|'))));
+            }
+        }
+    }
+
+    return 0;
+}
+
+void Join::get_reference_collection_names(const std::string& filter_query,
+                                          ref_include_collection_names_t*& ref_include) {
+    if (ref_include == nullptr) {
+        ref_include = new ref_include_collection_names_t();
+    }
+
+    auto size = filter_query.size();
+    for (size_t i = 0; i < size;) {
+        auto const result = skip_index_to_join(filter_query, i);
+        if (result == -1) {
+            ref_include->collection_names.clear();
+            return;
+        } else if (result == 0) {
+            break;
+        }
+
+        auto c = filter_query[i];
+        // Reference filter would start with $ symbol.
+        if (c == '$') {
+            auto open_paren_pos = filter_query.find('(', ++i);
+            if (open_paren_pos == std::string::npos) {
+                ref_include->collection_names.clear();
+                return;
+            }
+
+            auto reference_collection_name = filter_query.substr(i, open_paren_pos - i);
+            StringUtils::trim(reference_collection_name);
+            if (!reference_collection_name.empty()) {
+                ref_include->collection_names.insert(reference_collection_name);
+            }
+
+            i = open_paren_pos;
+            int parenthesis_count = 1;
+            while (++i < size && parenthesis_count > 0) {
+                if (filter_query[i] == '(') {
+                    parenthesis_count++;
+                } else if (filter_query[i] == ')') {
+                    parenthesis_count--;
+                }
+            }
+
+            if (parenthesis_count != 0) {
+                ref_include->collection_names.clear();
+                return;
+            }
+
+            // Need to process the filter expression inside parenthesis in case of nested join.
+            auto sub_filter_query = filter_query.substr(open_paren_pos + 1, i - open_paren_pos - 2);
+            if (sub_filter_query.find('$') != std::string::npos) {
+                get_reference_collection_names(sub_filter_query, ref_include->nested_include);
             }
         }
     }
@@ -1171,4 +1204,95 @@ Option<bool> Join::initialize_ref_include_exclude_fields_vec(const std::string& 
     exclude_fields_vec = std::move(result_exclude_fields_vec);
 
     return Option<bool>(true);
+}
+
+// If joins to the same collection are found in both `embedded_filter` and `query_filter`, remove the join from
+// `embedded_filter` and merge its join condition with the `query_filter` join in the following manner:
+// `$JoinCollectionName((<embedded_join_condition>) && (<query_join_condition>))`
+bool Join::merge_join_conditions(string& embedded_filter, string& query_filter) {
+    std::unordered_map<std::string, std::string> coll_name_to_embedded_join;
+    for (size_t i = 0; i < embedded_filter.size();) {
+        auto const result = skip_index_to_join(embedded_filter, i);
+        if (result == -1) {
+            return false;
+        } else if (result == 0) {
+            break;
+        }
+
+        std::string ref_coll_name, join;
+        if (!parse_reference_filter_helper(embedded_filter, i, ref_coll_name, join).ok()) {
+            return false;
+        }
+
+        if (coll_name_to_embedded_join.find(ref_coll_name) != coll_name_to_embedded_join.end()) {
+            // Multiple joins to the same collection found.
+            return false;
+        }
+
+        coll_name_to_embedded_join[ref_coll_name] = join;
+    }
+
+    if (coll_name_to_embedded_join.empty()) { // No join found in the embedded filter_by.
+        return true;
+    }
+
+    std::set<std::string> query_join_coll_names;
+    for (size_t i = 0; i < query_filter.size();) {
+        auto const result = skip_index_to_join(query_filter, i);
+        if (result == -1) {
+            return false;
+        } else if (result == 0) {
+            break;
+        }
+
+        // Merge join conditions
+        {
+            auto const join_start_index = i;
+            auto size = query_filter.size();
+            auto const q_parenthesis_pos = query_filter.find('(', i + 1);
+            if (q_parenthesis_pos == std::string::npos) {
+                return false;
+            }
+
+            auto ref_coll_name = query_filter.substr(join_start_index + 1, q_parenthesis_pos - join_start_index - 1);
+            StringUtils::trim(ref_coll_name);
+            if (query_join_coll_names.find(ref_coll_name) != query_join_coll_names.end()) {
+                // Multiple joins to the same collection found.
+                return false;
+            }
+
+            auto it = coll_name_to_embedded_join.find(ref_coll_name);
+            if (it != coll_name_to_embedded_join.end()) {
+                auto const& embedded_join = it->second;
+
+                auto const e_parenthesis_pos = embedded_join.find('(');
+                if (e_parenthesis_pos == std::string::npos) {
+                    return false;
+                }
+                auto const embedded_join_condition = embedded_join.substr(e_parenthesis_pos + 1,
+                                                                          embedded_join.size() - e_parenthesis_pos - 2);
+                query_filter.insert(q_parenthesis_pos + 1, ("(" + embedded_join_condition + ") && "));
+
+                query_join_coll_names.insert(ref_coll_name);
+            }
+        }
+
+        std::string ref_coll_name, join;
+        if (!parse_reference_filter_helper(query_filter, i, ref_coll_name, join).ok()) {
+            return false;
+        }
+    }
+
+    // Erase the embedded joins that were merged into query filter.
+    for (const auto& ref_coll_name: query_join_coll_names) {
+        auto it = coll_name_to_embedded_join.find(ref_coll_name);
+        if (it == coll_name_to_embedded_join.end()) {
+            return false;
+        }
+
+        embedded_filter.erase(embedded_filter.find(it->second), it->second.size());
+    }
+
+    StringUtils::trim(embedded_filter);
+    return true;
 }
