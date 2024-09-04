@@ -60,6 +60,7 @@ namespace fields {
     static const std::string num_dim = "num_dim";
     static const std::string vec_dist = "vec_dist";
     static const std::string reference = "reference";
+    static const std::string async_reference = "async_reference";
     static const std::string embed = "embed";
     static const std::string from = "from";
     static const std::string model_name = "model_name";
@@ -84,6 +85,14 @@ namespace fields {
 enum vector_distance_type_t {
     ip,
     cosine
+};
+
+struct reference_pair_t {
+    std::string collection;
+    std::string field;
+
+    reference_pair_t(std::string collection, std::string field) : collection(std::move(collection)),
+                                                                  field(std::move(field)) {}
 };
 
 struct field {
@@ -112,6 +121,7 @@ struct field {
     static constexpr int VAL_UNKNOWN = 2;
 
     std::string reference;      // Foo.bar (reference to bar field in Foo collection).
+    bool is_async_reference = false;
 
     bool range_index;
 
@@ -127,10 +137,13 @@ struct field {
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
           int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine,
-          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false, const bool store = true, const bool stem = false, const nlohmann::json hnsw_params = nlohmann::json()) :
+          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false,
+          const bool store = true, const bool stem = false, const nlohmann::json hnsw_params = nlohmann::json(),
+          const bool async_reference = false) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
-            embed(embed), range_index(range_index), store(store), stem(stem), hnsw_params(hnsw_params) {
+            embed(embed), range_index(range_index), store(store), stem(stem), hnsw_params(hnsw_params),
+            is_async_reference(async_reference) {
 
         set_computed_defaults(sort, infix);
 
@@ -663,6 +676,8 @@ struct facet {
 
     uint32_t orig_index;
 
+    bool is_top_k = false;
+
     bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair) {
         if(facet_range_map.empty()) {
             LOG (ERROR) << "Facet range is not defined!!!";
@@ -683,12 +698,12 @@ struct facet {
         return false;
     }
 
-    explicit facet(const std::string& field_name, uint32_t orig_index, std::map<int64_t, range_specs_t> facet_range = {},
+    explicit facet(const std::string& field_name, uint32_t orig_index, bool is_top_k = false, std::map<int64_t, range_specs_t> facet_range = {},
                    bool is_range_q = false, bool sort_by_alpha=false, const std::string& order="",
                    const std::string& sort_by_field="")
                    : field_name(field_name), facet_range_map(facet_range),
                    is_range_query(is_range_q), is_sort_by_alpha(sort_by_alpha), sort_order(order),
-                   sort_field(sort_by_field), orig_index(orig_index) {
+                   sort_field(sort_by_field), orig_index(orig_index), is_top_k(is_top_k) {
     }
 };
 
