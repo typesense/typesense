@@ -2758,6 +2758,13 @@ TEST_F(CollectionSortingTest, TestSortByRandomOrder) {
     results = coll->search("smartphone", {"product_name"}, "", {}, sort_fields, {0}).get();
     ASSERT_EQ(5, results["hits"].size());
 
+    sort_fields = {
+            sort_by("_rand", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
+    ASSERT_EQ(5, results["hits"].size());
+
 
     //negative seed value is not allowed
     sort_fields = {

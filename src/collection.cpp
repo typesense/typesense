@@ -1128,6 +1128,13 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
             eval_sort_count++;
             continue;
+        } else if(_sort_field.name == sort_field_const::random_order) {
+            sort_fields_std.emplace_back(_sort_field.name, _sort_field.order);
+            auto& sort_field_std = sort_fields_std.back();
+
+            uint32_t seed = time(nullptr);
+            sort_field_std.random_sort.initialize(seed);
+            continue;
         }
 
         sort_by sort_field_std(_sort_field.name, _sort_field.order);
