@@ -1985,6 +1985,29 @@ TEST_F(CollectionSortingTest, WildcardSearchSequenceIdSort) {
     ASSERT_EQ(30, res["found"].get<size_t>());
 }
 
+TEST_F(CollectionSortingTest, DefaultSortingFieldNotIndexed) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "category", "type": "string", "sort": true, "index": false}
+        ],
+        "default_sorting_field": "category"
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["category"] = "Shoes";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {};
+
+    auto res_op = coll1->search("*", {}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Default sorting field not found in the schema or it has been marked as a "
+              "non-indexed field.", res_op.error());
+}
+
 TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     std::string coll_schema = R"(
         {
