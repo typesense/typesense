@@ -1475,6 +1475,12 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
         }
 
         if(!default_sorting_field.empty()) {
+            auto def_it = search_schema.find(default_sorting_field);
+            if(def_it == search_schema.end() || !def_it->index) {
+                return Option<bool>(400, "Default sorting field not found in the schema or it has been marked as a "
+                                         "non-indexed field.");
+            }
+
             sort_fields_std.emplace_back(default_sorting_field, sort_field_const::desc);
         } else {
             sort_fields_std.emplace_back(sort_field_const::seq_id, sort_field_const::desc);
