@@ -4946,3 +4946,58 @@ TEST_F(CollectionVectorTest, TestRestoringImages) {
 
     ASSERT_EQ(1, coll->get_summary_json()["num_documents"]);
 }
+
+TEST_F(CollectionVectorTest, TestDistanceThresholdWithIP) {
+    auto schema_json = R"({
+            "name": "products",
+            "fields":[
+                {"name": "name","type": "string"},
+                {"name": "rank_score", "type": "float"},
+                {"name": "embedding","type": "float[]", "num_dim":5, "optinal":true, "vec_dist": "ip"}
+            ],
+            "default_sorting_field": "rank_score"
+    })"_json;
+
+
+    auto coll_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+
+    std::mt19937 rng;
+    rng.seed(47);
+    std::uniform_real_distribution<> distrib(-1,1);
+    std::uniform_int_distribution<>distrib2(0,100);
+
+    nlohmann::json doc;
+    for (auto i = 0; i < 5; ++i) {
+        std::vector<float> vector(5);
+        std::generate(vector.begin(), vector.end(), [&](){ return distrib(rng); });
+
+        doc["name"] = "document_" + std::to_string(i);
+        doc["rank_score"] = distrib2(rng);
+        doc["embedding"] = vector;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "products"},
+            {"q", "document"},
+            {"query_by", "*"},
+            {"sort_by", "_text_match:desc,_vector_query(embedding:([0.11731103425347378, -0.6694758317235057, -0.6211945774857595, -0.27966758971688255, -0.4683744007950299],distance_threshold:1)):asc,rank_score:desc"},
+            {"exclude_fields", "embedding"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    auto res = nlohmann::json::parse(json_res);
+
+
+    ASSERT_EQ(2, res["found"].get<size_t>());
+    ASSERT_EQ(93, res["hits"][0]["document"]["rank_score"].get<size_t>());
+    ASSERT_EQ(0.2189185470342636, res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_EQ(51, res["hits"][1]["document"]["rank_score"].get<size_t>());
+    ASSERT_EQ(0.7371898889541626, res["hits"][1]["vector_distance"].get<float>());
+
+}
