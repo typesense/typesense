@@ -60,6 +60,7 @@ namespace fields {
     static const std::string num_dim = "num_dim";
     static const std::string vec_dist = "vec_dist";
     static const std::string reference = "reference";
+    static const std::string async_reference = "async_reference";
     static const std::string embed = "embed";
     static const std::string from = "from";
     static const std::string model_name = "model_name";
@@ -84,6 +85,14 @@ namespace fields {
 enum vector_distance_type_t {
     ip,
     cosine
+};
+
+struct reference_pair_t {
+    std::string collection;
+    std::string field;
+
+    reference_pair_t(std::string collection, std::string field) : collection(std::move(collection)),
+                                                                  field(std::move(field)) {}
 };
 
 struct field {
@@ -112,6 +121,7 @@ struct field {
     static constexpr int VAL_UNKNOWN = 2;
 
     std::string reference;      // Foo.bar (reference to bar field in Foo collection).
+    bool is_async_reference = false;
 
     bool range_index;
 
@@ -127,10 +137,13 @@ struct field {
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
           int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine,
-          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false, const bool store = true, const bool stem = false, const nlohmann::json hnsw_params = nlohmann::json()) :
+          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false,
+          const bool store = true, const bool stem = false, const nlohmann::json hnsw_params = nlohmann::json(),
+          const bool async_reference = false) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
-            embed(embed), range_index(range_index), store(store), stem(stem), hnsw_params(hnsw_params) {
+            embed(embed), range_index(range_index), store(store), stem(stem), hnsw_params(hnsw_params),
+            is_async_reference(async_reference) {
 
         set_computed_defaults(sort, infix);
 
@@ -407,6 +420,8 @@ namespace sort_field_const {
 
     static const std::string vector_distance = "_vector_distance";
     static const std::string vector_query = "_vector_query";
+
+    static const std::string random_order = "_rand";
 }
 
 namespace ref_include {
@@ -449,6 +464,29 @@ struct sort_vector_query_t {
         hnsw_index_t* vector_index;
 }; 
 
+struct sort_random_t {
+    bool is_enabled = false;
+    mutable std::mt19937 rng;
+    mutable std::uniform_int_distribution<uint32_t> distrib;
+
+    sort_random_t() : distrib(0, UINT32_MAX) {};
+
+    sort_random_t& operator=(const sort_random_t& other) {
+        rng = other.rng;
+        distrib = other.distrib;
+        is_enabled = other.is_enabled;
+    }
+
+    void initialize(uint32_t seed) {
+        rng.seed(seed);
+        is_enabled = true;
+    }
+
+    uint32_t generate_random() const {
+        return distrib(rng);
+    }
+};
+
 struct sort_by {
     enum missing_values_t {
         first,
@@ -482,6 +520,8 @@ struct sort_by {
     std::string reference_collection_name;
     std::vector<std::string> nested_join_collection_names;
     sort_vector_query_t vector_query;
+
+    sort_random_t random_sort;
 
     sort_by(const std::string & name, const std::string & order):
             name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
@@ -518,6 +558,7 @@ struct sort_by {
         reference_collection_name = other.reference_collection_name;
         nested_join_collection_names = other.nested_join_collection_names;
         vector_query = other.vector_query;
+        random_sort = other.random_sort;
     }
 
     sort_by& operator=(const sort_by& other) {
@@ -635,6 +676,8 @@ struct facet {
 
     uint32_t orig_index;
 
+    bool is_top_k = false;
+
     bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair) {
         if(facet_range_map.empty()) {
             LOG (ERROR) << "Facet range is not defined!!!";
@@ -655,12 +698,12 @@ struct facet {
         return false;
     }
 
-    explicit facet(const std::string& field_name, uint32_t orig_index, std::map<int64_t, range_specs_t> facet_range = {},
+    explicit facet(const std::string& field_name, uint32_t orig_index, bool is_top_k = false, std::map<int64_t, range_specs_t> facet_range = {},
                    bool is_range_q = false, bool sort_by_alpha=false, const std::string& order="",
                    const std::string& sort_by_field="")
                    : field_name(field_name), facet_range_map(facet_range),
                    is_range_query(is_range_q), is_sort_by_alpha(sort_by_alpha), sort_order(order),
-                   sort_field(sort_by_field), orig_index(orig_index) {
+                   sort_field(sort_by_field), orig_index(orig_index), is_top_k(is_top_k) {
     }
 };
 

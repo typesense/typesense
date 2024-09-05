@@ -81,6 +81,18 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         field_json[fields::reference] = "";
     }
 
+    if (field_json.count(fields::async_reference) == 0) {
+        field_json[fields::async_reference] = false;
+    } else if (!field_json.at(fields::async_reference).is_boolean()) {
+        return Option<bool>(400, std::string("The `async_reference` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+    } else if (field_json[fields::async_reference].get<bool>() &&
+                field_json[fields::reference].get<std::string>().empty()) {
+        return Option<bool>(400, std::string("The `async_reference` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` is only applicable if "
+                                                                                           "`reference` is specified."));
+    }
+
     if(field_json.count(fields::stem) != 0) {
         if(!field_json.at(fields::stem).is_boolean()) {
             return Option<bool>(400, std::string("The `stem` property of the field `") +
@@ -411,7 +423,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
                   field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
                   field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], 
-                  field_json[fields::store], field_json[fields::stem], field_json[fields::hnsw_params])
+                  field_json[fields::store], field_json[fields::stem], field_json[fields::hnsw_params],
+                  field_json[fields::async_reference])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
@@ -812,6 +825,7 @@ Option<bool> field::fields_to_json_fields(const std::vector<field>& fields, cons
 
         if (!field.reference.empty()) {
             field_val[fields::reference] = field.reference;
+            field_val[fields::async_reference] = field.is_async_reference;
         }
 
         fields_json.push_back(field_val);

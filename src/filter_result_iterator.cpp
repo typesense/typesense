@@ -837,8 +837,8 @@ void filter_result_iterator_t::init() {
                 return;
             }
 
-            auto const& reference_helper_field_name = get_reference_field_op.get();
-            auto op = index->do_filtering_with_reference_ids(reference_helper_field_name, ref_collection_name,
+            auto const& ref_field_name = get_reference_field_op.get();
+            auto op = index->do_filtering_with_reference_ids(ref_field_name, ref_collection_name,
                                                              std::move(result));
             if (!op.ok()) {
                 status = Option<bool>(op.code(), op.error());
