@@ -7245,11 +7245,109 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
     ASSERT_TRUE(embedded_filter.empty());
     ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
 
-//    embedded_filter = "$Customers(customer_id:customer_a) && field:foo";
-//    query_filter = "$Customers(product_price:<100)";
-//    ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
-//    ASSERT_EQ("field:foo", embedded_filter);
-//    ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+    {
+        embedded_filter = "($Customers(customer_id:customer_a) )";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_TRUE(embedded_filter.empty());
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+
+        embedded_filter = " ( $Customers(customer_id:customer_a) ) ";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_TRUE(embedded_filter.empty());
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+    }
+
+    {
+        embedded_filter = "$Customers(customer_id:customer_a)  && field:foo";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_EQ("field:foo", embedded_filter);
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+
+        embedded_filter = "( $Customers(customer_id:customer_a) ) && field:foo";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_EQ("field:foo", embedded_filter);
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+
+        embedded_filter = "($Customers(customer_id:customer_a))&&field:foo";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_EQ("field:foo", embedded_filter);
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+
+        embedded_filter = "($Customers(customer_id:customer_a)&&field:foo)";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_EQ("(field:foo)", embedded_filter);
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+    }
+
+    {
+        embedded_filter = "field:foo &&  $Customers(customer_id:customer_a)  ";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_EQ("field:foo", embedded_filter);
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+
+        embedded_filter = "field:foo && ( $Customers(customer_id:customer_a) )";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_EQ("field:foo", embedded_filter);
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+
+        embedded_filter = "field:foo&&($Customers(customer_id:customer_a) )";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_EQ("field:foo", embedded_filter);
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+    }
+
+    {
+        embedded_filter = " ( $Customers(customer_id:customer_a) && $foo(field:value))";
+        query_filter = "$Customers(product_price:<100) && $foo(bar:baz)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_TRUE(embedded_filter.empty());
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100) && $foo((field:value) && bar:baz)", query_filter);
+
+        embedded_filter = "$Customers(customer_id:customer_a) && $foo(field:value)";
+        query_filter = "$Customers(product_price:<100) && $foo(bar:baz)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_TRUE(embedded_filter.empty());
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100) && $foo((field:value) && bar:baz)", query_filter);
+
+        embedded_filter = "$Customers(customer_id:customer_a)&&$foo( field:value )";
+        query_filter = "$Customers(product_price:<100) && $foo(bar:baz)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_TRUE(embedded_filter.empty());
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100) && $foo(( field:value ) && bar:baz)", query_filter);
+    }
+
+    {
+        embedded_filter = "field:value && ( $Customers(customer_id:customer_a) ) && foo:bar";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_EQ("field:value && foo:bar", embedded_filter);
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+
+        embedded_filter = "field:value&&$Customers(customer_id:customer_a)&&foo:bar";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_EQ("field:value&&foo:bar", embedded_filter);
+        ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+    }
+
+    {
+        embedded_filter = " (( $Customers(customer_id:customer_a) )) ";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
+
+        embedded_filter = "field:value && $Customers(customer_id:customer_a) || foo:bar";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
+    }
 
     auto schema_json =
             R"({
@@ -7358,11 +7456,11 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("rating"));
     // Default strategy of reference includes is nest. No alias was provided, collection name becomes the field name.
     ASSERT_EQ(5, res_obj["hits"][0]["document"]["Customers"].size());
-    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("customer_id"));
+    ASSERT_EQ("customer_a", res_obj["hits"][0]["document"]["Customers"]["customer_id"]);
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("customer_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_id"));
-    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_price"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["Customers"]["product_price"]);
 }
 
 TEST_F(CollectionJoinTest, QueryByReference) {

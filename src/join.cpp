@@ -1208,7 +1208,7 @@ Option<bool> Join::initialize_ref_include_exclude_fields_vec(const std::string& 
 
 // If joins to the same collection are found in both `embedded_filter` and `query_filter`, remove the join from
 // `embedded_filter` and merge its join condition with the `query_filter` join in the following manner:
-// `$JoinCollectionName((<embedded_join_condition>) && (<query_join_condition>))`
+// `$JoinCollectionName((<embedded_join_condition>) && <query_join_condition>)`
 bool Join::merge_join_conditions(string& embedded_filter, string& query_filter) {
     std::unordered_map<std::string, std::string> coll_name_to_embedded_join;
     for (size_t i = 0; i < embedded_filter.size();) {
@@ -1247,8 +1247,7 @@ bool Join::merge_join_conditions(string& embedded_filter, string& query_filter) 
 
         // Merge join conditions
         {
-            auto const join_start_index = i;
-            auto size = query_filter.size();
+            auto const& join_start_index = i;
             auto const q_parenthesis_pos = query_filter.find('(', i + 1);
             if (q_parenthesis_pos == std::string::npos) {
                 return false;
@@ -1290,9 +1289,77 @@ bool Join::merge_join_conditions(string& embedded_filter, string& query_filter) 
             return false;
         }
 
-        embedded_filter.erase(embedded_filter.find(it->second), it->second.size());
+        auto const& embedded_join = it->second;
+        // In a complex embedded filter expression, there can be following cases:
+        // (Join && ...          /  (Join || ...
+        // ... && Join)          /  ... || Join)
+        // ... && (Join) && ...  /  ... || (Join) || ...
+        auto const& join_start_index = embedded_filter.find(embedded_join);
+        if (join_start_index == std::string::npos) {
+            return false;
+        }
+
+        size_t i = join_start_index, j = join_start_index + embedded_join.size() - 1;
+        while (i > 0 && embedded_filter[--i] == ' ');
+        while (j < embedded_filter.size() && embedded_filter[++j] == ' ');
+
+        if (i == 0 && j >= embedded_filter.size()) {
+            // Embedded filter had only one expression.
+            embedded_filter.clear();
+            continue;
+        }
+
+        bool is_join_enclosed = embedded_filter[i] == '(' && embedded_filter[j] == ')';
+        if (is_join_enclosed) {
+            while (i > 0 && embedded_filter[--i] == ' ');
+            while (j < embedded_filter.size() && embedded_filter[++j] == ' ');
+
+            if (i == 0 && j >= embedded_filter.size()) {
+                // Embedded join was enclosed within parentheses.
+                embedded_filter.clear();
+                continue;
+            } else if (embedded_filter[i] == '(' && embedded_filter[j] == ')') {
+                // Join enclosed inside multiple parenthesis.
+                return false;
+            }
+        }
+
+        if ((i == 0 || embedded_filter[i] == '(') && j + 4 < embedded_filter.size()) {
+            if ((embedded_filter[j] == '&' && embedded_filter[j + 1] == '&') ||
+                (embedded_filter[j] == '|' && embedded_filter[j + 1] == '|')) {
+                j++;
+                while (j < embedded_filter.size() && embedded_filter[++j] == ' ');
+
+                (is_join_enclosed || embedded_filter[i] == '$') ? embedded_filter.erase(0, j) :
+                                                                    embedded_filter.erase(i + 1, j - i - 1);
+            } else {
+                return false;
+            }
+        } else if ((j >= embedded_filter.size() || embedded_filter[j] == ')') && i > 4) {
+            if ((embedded_filter[i] == '&' && embedded_filter[i - 1] == '&') ||
+                (embedded_filter[i] == '|' && embedded_filter[i - 1] == '|')) {
+                i--;
+                while (i > 0 && embedded_filter[--i] == ' ');
+
+                embedded_filter.erase(i + 1, j - i - 1);
+            } else {
+                return false;
+            }
+        } else if (i > 4 && j + 4) {
+            if ((embedded_filter[i] == '&' && embedded_filter[i - 1] == '&' &&
+                 embedded_filter[j] == '&' && embedded_filter[j + 1] == '&') ||
+                (embedded_filter[i] == '|' && embedded_filter[i - 1] == '|' &&
+                 embedded_filter[j] == '|' && embedded_filter[j + 1] == '|')) {
+                j++;
+
+                embedded_filter.erase(i + 1, j - i);
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
     }
 
-    StringUtils::trim(embedded_filter);
     return true;
 }
