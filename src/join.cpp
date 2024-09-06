@@ -1363,7 +1363,7 @@ bool Join::merge_join_conditions(string& embedded_filter, string& query_filter) 
 
         // Case 3.
         // Join is in between filter expressions like, ... && Join && ...
-        else if (i > 4 && j + 4) {
+        else if (i > 4 && j + 4 < embedded_filter.size()) {
             if ((embedded_filter[i] == '&' && embedded_filter[i - 1] == '&' &&
                  embedded_filter[j] == '&' && embedded_filter[j + 1] == '&') ||
                 (embedded_filter[i] == '|' && embedded_filter[i - 1] == '|' &&
