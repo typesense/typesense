@@ -112,15 +112,6 @@ public:
     CollectionManager(CollectionManager const&) = delete;
     void operator=(CollectionManager const&) = delete;
 
-    struct ref_include_collection_names_t {
-        std::set<std::string> collection_names;
-        ref_include_collection_names_t* nested_include = nullptr;
-
-        ~ref_include_collection_names_t() {
-            delete nested_include;
-        }
-    };
-
     static Collection* init_collection(const nlohmann::json & collection_meta,
                                        const uint32_t collection_next_seq_id,
                                        Store* store,
@@ -226,15 +217,6 @@ public:
     Option<bool> upsert_preset(const std::string & preset_name, const nlohmann::json& preset_config);
 
     Option<bool> delete_preset(const std::string & preset_name);
-
-    static void _get_reference_collection_names(const std::string& filter_query,
-                                                ref_include_collection_names_t*& reference_collection_names);
-
-    // Separate out the reference includes and excludes into `ref_include_exclude_fields_vec`.
-    static Option<bool> initialize_ref_include_exclude_fields_vec(const std::string& filter_query,
-                                                                  std::vector<std::string>& include_fields_vec,
-                                                                  std::vector<std::string>& exclude_fields_vec,
-                                                                  std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec);
 
     void add_referenced_in_backlog(const std::string& collection_name, reference_info_t&& ref_info);
 
