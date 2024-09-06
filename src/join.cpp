@@ -1246,37 +1246,35 @@ bool Join::merge_join_conditions(string& embedded_filter, string& query_filter) 
         }
 
         // Merge join conditions
-        {
-            auto const& join_start_index = i;
-            auto const q_parenthesis_pos = query_filter.find('(', i + 1);
-            if (q_parenthesis_pos == std::string::npos) {
-                return false;
-            }
-
-            auto ref_coll_name = query_filter.substr(join_start_index + 1, q_parenthesis_pos - join_start_index - 1);
-            StringUtils::trim(ref_coll_name);
-            if (query_join_coll_names.find(ref_coll_name) != query_join_coll_names.end()) {
-                // Multiple joins to the same collection found.
-                return false;
-            }
-
-            auto it = coll_name_to_embedded_join.find(ref_coll_name);
-            if (it != coll_name_to_embedded_join.end()) {
-                auto const& embedded_join = it->second;
-
-                auto const e_parenthesis_pos = embedded_join.find('(');
-                if (e_parenthesis_pos == std::string::npos) {
-                    return false;
-                }
-                auto const embedded_join_condition = embedded_join.substr(e_parenthesis_pos + 1,
-                                                                          embedded_join.size() - e_parenthesis_pos - 2);
-                query_filter.insert(q_parenthesis_pos + 1, ("(" + embedded_join_condition + ") && "));
-
-                query_join_coll_names.insert(ref_coll_name);
-            }
+        auto const& join_start_index = i;
+        auto const q_parenthesis_pos = query_filter.find('(', i + 1);
+        if (q_parenthesis_pos == std::string::npos) {
+            return false;
         }
 
-        std::string ref_coll_name, join;
+        auto ref_coll_name = query_filter.substr(join_start_index + 1, q_parenthesis_pos - join_start_index - 1);
+        StringUtils::trim(ref_coll_name);
+        if (query_join_coll_names.find(ref_coll_name) != query_join_coll_names.end()) {
+            // Multiple joins to the same collection found.
+            return false;
+        }
+
+        auto it = coll_name_to_embedded_join.find(ref_coll_name);
+        if (it != coll_name_to_embedded_join.end()) {
+            auto const& embedded_join = it->second;
+
+            auto const e_parenthesis_pos = embedded_join.find('(');
+            if (e_parenthesis_pos == std::string::npos) {
+                return false;
+            }
+            auto const embedded_join_condition = embedded_join.substr(e_parenthesis_pos + 1,
+                                                                      embedded_join.size() - e_parenthesis_pos - 2);
+            query_filter.insert(q_parenthesis_pos + 1, ("(" + embedded_join_condition + ") && "));
+
+            query_join_coll_names.insert(ref_coll_name);
+        }
+
+        std::string join;
         if (!parse_reference_filter_helper(query_filter, i, ref_coll_name, join).ok()) {
             return false;
         }
@@ -1291,14 +1289,16 @@ bool Join::merge_join_conditions(string& embedded_filter, string& query_filter) 
 
         auto const& embedded_join = it->second;
         // In a complex embedded filter expression, there can be following cases:
-        // (Join && ...          /  (Join || ...
-        // ... && Join)          /  ... || Join)
-        // ... && (Join) && ...  /  ... || (Join) || ...
+        // 1.  (Join && ...          /  (Join || ...
+        // 2.  ... && Join)          /  ... || Join)
+        // 3.  ... && (Join) && ...  /  ... || (Join) || ...
         auto const& join_start_index = embedded_filter.find(embedded_join);
         if (join_start_index == std::string::npos) {
             return false;
         }
 
+        // i and j point to start and end index of the join respectively. We will move i to left and j to right to probe
+        // the embedded filter expression to check which case this join falls into.
         size_t i = join_start_index, j = join_start_index + embedded_join.size() - 1;
         while (i > 0 && embedded_filter[--i] == ' ');
         while (j < embedded_filter.size() && embedded_filter[++j] == ' ');
@@ -1311,6 +1311,8 @@ bool Join::merge_join_conditions(string& embedded_filter, string& query_filter) 
 
         bool is_join_enclosed = embedded_filter[i] == '(' && embedded_filter[j] == ')';
         if (is_join_enclosed) {
+            // ... ( Join ) ...
+            // Still need to move both i and j.
             while (i > 0 && embedded_filter[--i] == ' ');
             while (j < embedded_filter.size() && embedded_filter[++j] == ' ');
 
@@ -1324,6 +1326,13 @@ bool Join::merge_join_conditions(string& embedded_filter, string& query_filter) 
             }
         }
 
+        // Smallest filter expression will have both field name and value that are only 1 character long like, f:v
+        // So there has to be at least 5 characters after join in a complex filter expression like, &&f:v or before
+        // join like, f:v||
+
+        // Case 1.
+        // Either join is the first expression in embedded filter like, Join ...
+        // or it is the first expression in a sub-expression like, ... ( Join ... ) ...
         if ((i == 0 || embedded_filter[i] == '(') && j + 4 < embedded_filter.size()) {
             if ((embedded_filter[j] == '&' && embedded_filter[j + 1] == '&') ||
                 (embedded_filter[j] == '|' && embedded_filter[j + 1] == '|')) {
@@ -1335,7 +1344,12 @@ bool Join::merge_join_conditions(string& embedded_filter, string& query_filter) 
             } else {
                 return false;
             }
-        } else if ((j >= embedded_filter.size() || embedded_filter[j] == ')') && i > 4) {
+        }
+
+        // Case 2.
+        // Either join is the last expression in embedded filter like, ... Join
+        // or it is the last expression in a sub-expression like, ... ( ... Join ) ...
+        else if ((j >= embedded_filter.size() || embedded_filter[j] == ')') && i > 4) {
             if ((embedded_filter[i] == '&' && embedded_filter[i - 1] == '&') ||
                 (embedded_filter[i] == '|' && embedded_filter[i - 1] == '|')) {
                 i--;
@@ -1345,7 +1359,11 @@ bool Join::merge_join_conditions(string& embedded_filter, string& query_filter) 
             } else {
                 return false;
             }
-        } else if (i > 4 && j + 4) {
+        }
+
+        // Case 3.
+        // Join is in between filter expressions like, ... && Join && ...
+        else if (i > 4 && j + 4) {
             if ((embedded_filter[i] == '&' && embedded_filter[i - 1] == '&' &&
                  embedded_filter[j] == '&' && embedded_filter[j + 1] == '&') ||
                 (embedded_filter[i] == '|' && embedded_filter[i - 1] == '|' &&

@@ -7257,6 +7257,12 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
         ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
         ASSERT_TRUE(embedded_filter.empty());
         ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
+
+        embedded_filter = " ( $Customers((x:2 || y:4) && z: 10) ) ";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+        ASSERT_TRUE(embedded_filter.empty());
+        ASSERT_EQ("$Customers(((x:2 || y:4) && z: 10) && product_price:<100)", query_filter);
     }
 
     {
