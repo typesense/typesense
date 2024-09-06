@@ -1084,10 +1084,8 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             }
         }
 
-        auto initialize_op = CollectionManager::initialize_ref_include_exclude_fields_vec(filter_query,
-                                                                                          include_fields_vec,
-                                                                                          exclude_fields_vec,
-                                                                                          export_state->ref_include_exclude_fields_vec);
+        auto initialize_op = Join::initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec, exclude_fields_vec,
+                                                                             export_state->ref_include_exclude_fields_vec);
         if (!initialize_op.ok()) {
             res->set(initialize_op.code(), initialize_op.error());
             req->last_chunk_aggregate = true;
