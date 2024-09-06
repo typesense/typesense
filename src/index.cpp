@@ -5256,7 +5256,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
     if(sort_fields.size() > 1) {
         auto reference_found = true;
         auto const& is_reference_sort = !sort_fields[1].reference_collection_name.empty();
-
+        auto is_random_sort = sort_fields[1].random_sort.is_enabled;
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
         if (is_reference_sort) {
             auto const& ref_compute_op = ref_compute_sort_scores(sort_fields[1], seq_id, ref_seq_id, reference_found,
@@ -5346,7 +5346,9 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             }
 
         } else {
-            if (!is_reference_sort || reference_found) {
+            if(is_random_sort) {
+                scores[1] = sort_fields[1].random_sort.generate_random();
+            } else if (!is_reference_sort || reference_found) {
                 auto it = field_values[1]->find(is_reference_sort ? ref_seq_id : seq_id);
                 scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
             } else {
@@ -5367,6 +5369,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
     if(sort_fields.size() > 2) {
         auto reference_found = true;
         auto const& is_reference_sort = !sort_fields[2].reference_collection_name.empty();
+        auto is_random_sort = sort_fields[2].random_sort.is_enabled;
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
         if (is_reference_sort) {
@@ -5456,7 +5459,9 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 // do nothing
             }
         } else {
-            if (!is_reference_sort || reference_found) {
+            if(is_random_sort) {
+                scores[2] = sort_fields[2].random_sort.generate_random();
+            } else if (!is_reference_sort || reference_found) {
                 auto it = field_values[2]->find(is_reference_sort ? ref_seq_id : seq_id);
                 scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
             } else {

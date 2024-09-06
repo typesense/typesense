@@ -2788,6 +2788,30 @@ TEST_F(CollectionSortingTest, TestSortByRandomOrder) {
     results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
     ASSERT_EQ(5, results["hits"].size());
 
+    //should work with other sort params as tie breaker for first param
+    sort_fields = {
+            sort_by("_text_match", "desc"),
+            sort_by("_rand(5)", "asc")
+    };
+    results = coll->search("smartphone", {"product_name"}, "", {}, sort_fields, {0}).get();
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("4", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"]);
+    ASSERT_EQ("3", results["hits"][3]["document"]["id"]);
+    ASSERT_EQ("2", results["hits"][4]["document"]["id"]);
+
+    sort_fields = {
+            sort_by("_text_match", "desc"),
+            sort_by("_rand(8)", "asc")
+    };
+    results = coll->search("smartphone", {"product_name"}, "", {}, sort_fields, {0}).get();
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("3", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ("4", results["hits"][2]["document"]["id"]);
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"]);
+    ASSERT_EQ("2", results["hits"][4]["document"]["id"]);
 
     //negative seed value is not allowed
     sort_fields = {
@@ -2818,21 +2842,4 @@ TEST_F(CollectionSortingTest, TestSortByRandomOrder) {
 
     results_op = coll->search("*", {}, "", {}, sort_fields, {0});
     ASSERT_EQ("Could not find a field named `_random` in the schema for sorting.", results_op.error());
-
-    //random sort is not allowed in association with other sort types
-    sort_fields = {
-            sort_by("_rand", "asc"),
-            sort_by("_text_match", "asc")
-    };
-
-    results_op = coll->search("*", {}, "", {}, sort_fields, {0});
-    ASSERT_EQ("random sort is not supported with other sort params.", results_op.error());
-
-    sort_fields = {
-            sort_by("_text_match", "asc"),
-            sort_by("_rand(5)", "asc")
-    };
-
-    results_op = coll->search("*", {}, "", {}, sort_fields, {0});
-    ASSERT_EQ("random sort is not supported with other sort params.", results_op.error());
 }
