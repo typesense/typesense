@@ -1273,7 +1273,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         }
 
         // overwrite = true as embedded params have higher priority
-        AuthManager::add_item_to_params(req_params, item, true);
+        if (!AuthManager::add_item_to_params(req_params, item, true)) {
+            return Option<bool>(400, "Error while applying embedded parameters.");
+        }
     }
 
     const auto preset_it = req_params.find("preset");

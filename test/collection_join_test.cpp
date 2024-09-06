@@ -7345,13 +7345,34 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
         ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
     }
 
+    // Malformed inputs
     {
         embedded_filter = " (( $Customers(customer_id:customer_a) )) ";
         query_filter = "$Customers(product_price:<100)";
         ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
 
+        embedded_filter = "$Customers(customer_id:customer_a)&&";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
+
+        embedded_filter = "$Customers(customer_id)&&";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
+
+        embedded_filter = "$Customers(custo";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
+
         embedded_filter = "field:value && $Customers(customer_id:customer_a) || foo:bar";
         query_filter = "$Customers(product_price:<100)";
+        ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
+
+        embedded_filter = "field:value && $Customers(customer_id:customer_a) || $Customers(foo:bar)";
+        query_filter = "$Customers(product_price:<100)";
+        ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
+
+        embedded_filter = "field:value && $Customers(customer_id:customer_a) || foo:bar";
+        query_filter = "$Customers(product_price:<100) || $Customers(foo:bar)";
         ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
     }
 
@@ -7467,6 +7488,33 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_id"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["Customers"]["product_price"]);
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "$Customers(product_price:<100)"},
+    };
+    embedded_params = R"({
+                        "filter_by": "$Customers(customer_id:customer_a) || $Customers(customer_id:customer_a) "
+                     })"_json;
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Error while applying embedded parameters.", search_op.error());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "$Customers(customer_id:customer_a) && $Customers(product_price:<100)"},
+    };
+    embedded_params.clear();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("More than one joins found for collection `Customers` in the `filter_by`. Instead of providing separate "
+              "join conditions like `$customer_product_prices(customer_id:=customer_a) && "
+              "$customer_product_prices(custom_price:<100)`, the join condition should be provided as a single filter "
+              "expression like `$customer_product_prices(customer_id:=customer_a && custom_price:<100)`", search_op.error());
 }
 
 TEST_F(CollectionJoinTest, QueryByReference) {
