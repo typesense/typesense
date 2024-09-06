@@ -1129,6 +1129,10 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             eval_sort_count++;
             continue;
         } else if(_sort_field.name == sort_field_const::random_order) {
+            if(sort_fields.size() != 1) {
+                return Option<bool>(400, "random sort is not supported with other sort params.");
+            }
+
             sort_fields_std.emplace_back(_sort_field.name, _sort_field.order);
             auto& sort_field_std = sort_fields_std.back();
 
@@ -1303,6 +1307,10 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                 sort_field_std.name = actual_field_name;
             } else if(actual_field_name == sort_field_const::random_order) {
+                if(sort_fields.size() != 1) {
+                    return Option<bool>(400, "random sort is not supported with other sort params.");
+                }
+
                 const std::string &random_sort_str = sort_field_std.name.substr(paran_start + 1,
                                                                                 sort_field_std.name.size() -
                                                                                  paran_start -2);

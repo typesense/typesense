@@ -2818,4 +2818,21 @@ TEST_F(CollectionSortingTest, TestSortByRandomOrder) {
 
     results_op = coll->search("*", {}, "", {}, sort_fields, {0});
     ASSERT_EQ("Could not find a field named `_random` in the schema for sorting.", results_op.error());
+
+    //random sort is not allowed in association with other sort types
+    sort_fields = {
+            sort_by("_rand", "asc"),
+            sort_by("_text_match", "asc")
+    };
+
+    results_op = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("random sort is not supported with other sort params.", results_op.error());
+
+    sort_fields = {
+            sort_by("_text_match", "asc"),
+            sort_by("_rand(5)", "asc")
+    };
+
+    results_op = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("random sort is not supported with other sort params.", results_op.error());
 }
