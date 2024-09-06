@@ -150,25 +150,20 @@ Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model
         return Option<bool>(408, "OpenAI API timeout.");
     }
 
+    nlohmann::json models_json;
+
     if (res_code != 200) {
-        nlohmann::json json_res;
         try {
-            json_res = nlohmann::json::parse(res);
+            models_json = nlohmann::json::parse(res);
         } catch (const std::exception& e) {
             return Option<bool>(400, "OpenAI API error: " + res);
         }
-        if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
+        if(models_json.count("error") == 0 || models_json["error"].count("message") == 0) {
             return Option<bool>(400, "OpenAI API error: " + res);
         }
-        return Option<bool>(400, "OpenAI API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+        return Option<bool>(400, "OpenAI API error: " + models_json["error"]["message"].get<std::string>());
     }
 
-    nlohmann::json models_json;
-    try {
-        models_json = nlohmann::json::parse(res);
-    } catch (const std::exception& e) {
-        return Option<bool>(400, "Got malformed response from OpenAI API.");
-    }
     bool found = false;
     // extract model name by removing "openai/" prefix
     auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
@@ -191,8 +186,8 @@ Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model
             "content":"hello"
         }
     ])"_json;
-    std::string chat_res;
 
+    std::string chat_res;
     res_code = RemoteEmbedder::call_remote_api("POST", OPENAI_CHAT_COMPLETION, req_body.dump(), chat_res, res_headers, headers);
 
     if(res_code == 408) {
@@ -209,7 +204,7 @@ Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model
         if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
             return Option<bool>(400, "OpenAI API error: " + chat_res);
         }
-        return Option<bool>(400, "OpenAI API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+        return Option<bool>(400, "OpenAI API error: " + json_res["error"]["message"].get<std::string>());
     }
 
     return Option<bool>(true);
