@@ -370,6 +370,12 @@ int run_server(const Config & config, const std::string & version, void (*master
         return 1;
     }
 
+    if (config.get_enable_search_analytics() && !config.get_analytics_dir().empty() && !directory_exists(config.get_analytics_dir())) {
+        LOG(ERROR) << "Typesense failed to start. " << "Analytics directory " << config.get_analytics_dir()
+                 << " does not exist.";
+        return 1;
+    }
+
     if(!config.get_master().empty()) {
         LOG(ERROR) << "The --master option has been deprecated. Please use clustering for high availability. "
                    << "Look for the --nodes configuration in the documentation.";

@@ -10,7 +10,8 @@
 
 struct event_type_collection {
     std::string event_type;
-    std::string collection;
+    std::string destination_collection;
+    std::vector<std::string> src_collections;
     bool log_to_store = false;
     std::string analytic_rule;
     QueryAnalytics* queries_ptr = nullptr;
@@ -90,8 +91,8 @@ private:
 
     struct suggestion_config_t {
         std::string name;
-        std::string suggestion_collection;
-        std::vector<std::string> query_collections;
+        std::string destination_collection;
+        std::vector<std::string> src_collections;
         size_t limit;
         std::string rule_type;
         bool expand_query = false;
@@ -103,8 +104,8 @@ private:
             obj["type"] = rule_type;
             obj["params"] = nlohmann::json::object();
             obj["params"]["limit"] = limit;
-            obj["params"]["source"]["collections"] = query_collections;
-            obj["params"]["destination"]["collection"] = suggestion_collection;
+            obj["params"]["source"]["collections"] = src_collections;
+            obj["params"]["destination"]["collection"] = destination_collection;
 
             if(rule_type == POPULAR_QUERIES_TYPE) {
                 obj["params"]["expand_query"] = expand_query;
