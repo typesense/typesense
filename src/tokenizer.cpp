@@ -29,12 +29,7 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
 
     cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
 
-    if(stemmer) {
-        auto stemmed_input = stemmer->stem(input);
-        init(stemmed_input);
-    } else {
-        init(input);
-    }
+    init(input);
 }
 
 
@@ -221,7 +216,12 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             }
         }
 
-        token = out;
+        if(stemmer) {
+            token = stemmer->stem(out);
+        } else {
+            token = out;
+        }
+
         out.clear();
         start_index = utf8_start_index;
         end_index = text.size() - 1;
@@ -249,7 +249,12 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                     continue;
                 }
 
-                token = out;
+                if(stemmer) {
+                    token = stemmer->stem(out);
+                } else {
+                    token = out;
+                }
+
                 out.clear();
 
                 token_index = token_counter++;
@@ -320,7 +325,12 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
         }
     }
 
-    token = out;
+    if(stemmer) {
+        token = stemmer->stem(out);
+    } else {
+        token = out;
+    }
+
     out.clear();
     end_index = i - 1;
 
