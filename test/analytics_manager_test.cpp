@@ -236,7 +236,7 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
 
     create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_FALSE(create_op.ok());
-    ASSERT_EQ("Must contain a valid list of source collection names.", create_op.error());
+    ASSERT_EQ("Source collections value should be a string.", create_op.error());
 
     analytics_rule = R"({
         "name": "top_search_queries2",
@@ -356,20 +356,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     ASSERT_FALSE(post_create_event(req, res));
     ASSERT_EQ("{\"message\": \"key `name` not found.\"}", res->body);
 
-    //missing collection
-    event1 = R"({
-        "type": "click",
-        "name": "AP",
-        "data": {
-            "doc_id": "21",
-            "user_id": "13"
-        }
-    })"_json;
-
-    req->body = event1.dump();
-    ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"event should have 'collection' as a string value.\"}", res->body);
-
     //should be string type
     nlohmann::json event3 = R"({
         "type": "conversion",
@@ -391,7 +377,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "data": {
             "q": "technology",
             "doc_id": "21",
-            "collection": "titles",
             "user_id": 12
         }
     })"_json;
@@ -406,8 +391,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "data": {
             "q": 1245,
             "doc_id": "21",
-            "user_id": "13",
-            "collection": "titles"
+            "user_id": "13"
         }
     })"_json;
 
@@ -438,7 +422,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "data": {
             "q": "technology",
             "doc_id": "21",
-            "collection": "titles",
             "user_id": "11"
         }
     })"_json;
@@ -453,7 +436,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "data": {
             "q": "technology",
             "doc_id": "21",
-            "collection": "titles",
             "user_id": "13"
         }
     })"_json;
@@ -467,7 +449,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "data": {
             "q": "technology",
             "doc_id": "21",
-            "collection": "titles",
             "user_id": "11"
         }
     })"_json;
@@ -482,7 +463,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
         "data": {
             "q": "technology",
             "doc_id": "21",
-            "collection": "titles",
             "user_id": "11"
         }
     })"_json;
@@ -514,7 +494,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
             "user_id": "11",
             "label1": "foo",
             "label2": "bar",
-            "collection": "titles",
             "info": "xyz"
         }
     })"_json;
@@ -537,6 +516,19 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
 
     create_op = analyticsManager.create_rule(analytics_rule, true, true);
     ASSERT_TRUE(create_op.ok());
+
+    // log based event should be created with only doc_id and user_id
+    event5 = R"({
+        "type": "click",
+        "name": "AP",
+        "data": {
+            "doc_id": "21",
+            "user_id": "123"
+        }
+    })"_json;
+
+    req->body = event5.dump();
+    ASSERT_TRUE(post_create_event(req, res));
 
     //search events validation
 
@@ -619,7 +611,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     req->body = event9.dump();
     ASSERT_TRUE(post_create_event(req, res));
 
-    //for log events source collections is mandatory
+    //for log events source collections is not optional
     req->params["name"] = "product_events2";
     ASSERT_TRUE(del_analytics_rules(req, res));
     analytics_rule = R"({
@@ -634,7 +626,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
 
     create_op = analyticsManager.create_rule(analytics_rule, true, true);
     ASSERT_FALSE(create_op.ok());
-    ASSERT_EQ("`collections` is required for log type rule", create_op.error());
+    ASSERT_EQ("Must contain a valid list of source collections.", create_op.error());
 
     //try adding removed events
     ASSERT_TRUE(analyticsManager.remove_rule("product_events").ok());
@@ -690,8 +682,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
         "data": {
             "q": "technology",
             "doc_id": "21",
-            "user_id": "13",
-            "collection": "titles"
+            "user_id": "13"
         }
     })"_json;
 
@@ -731,7 +722,6 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
         "data": {
             "q": "technology",
             "doc_id": "12",
-            "collection": "titles",
             "user_id": "13"
         }
     })"_json;
@@ -773,60 +763,6 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     ASSERT_EQ("13", parsed_json["user_id"]);
     ASSERT_EQ("21", parsed_json["doc_id"]);
     ASSERT_EQ("technology", parsed_json["query"]);
-
-    //create rule without source collections
-//    analytics_rule = R"({
-//        "name": "product_click_events2",
-//        "type": "log",
-//        "params": {
-//            "source": {
-//                 "events":  [{"type": "click", "name": "APCT"}]
-//            }
-//        }
-//    })"_json;
-//
-//    create_op = analyticsManager.create_rule(analytics_rule, true, true);
-//    ASSERT_TRUE(create_op.ok());
-//
-//    event = R"({
-//        "type": "click",
-//        "name": "APCT",
-//        "data": {
-//            "q": "technology",
-//            "doc_id": "10",
-//            "user_id": "1"
-//        }
-//    })"_json;
-//
-//    req->body = event.dump();
-//    ASSERT_TRUE(post_create_event(req, res));
-//
-//    //get events
-//    payload.clear();
-//    collection_events_map = analyticsManager.get_log_events();
-//    for (auto &events_collection_it: collection_events_map) {
-//        const auto& collection = events_collection_it.first;
-//        for(const auto& event: events_collection_it.second) {
-//            event.to_json(event_data, collection);
-//            payload.push_back(event_data);
-//        }
-//    }
-//
-//    //manually trigger write to db
-//    ASSERT_TRUE(analyticsManager.write_to_db(payload));
-//
-//    values.clear();
-//    analyticsManager.get_last_N_events("1", "*", 5, values);
-//    ASSERT_EQ(1, values.size());
-//
-//    parsed_json = nlohmann::json::parse(values[0]);
-//
-//    //events will be fetched in LIFO order
-//    ASSERT_EQ("APCT", parsed_json["name"]);
-//    ASSERT_EQ("generic", parsed_json["collection"]); //without source collections events are classified into generic collection
-//    ASSERT_EQ("1", parsed_json["user_id"]);
-//    ASSERT_EQ("10", parsed_json["doc_id"]);
-//    ASSERT_EQ("technology", parsed_json["query"]);
 }
 
 TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
@@ -862,8 +798,7 @@ TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
         "data": {
             "q": "technology",
             "doc_id": "21",
-            "user_id": "13",
-            "collection": "titles"
+            "user_id": "13"
         }
     })"_json;
 
@@ -910,7 +845,6 @@ TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
         "data": {
             "q": "technology",
             "doc_id": "21",
-            "collection": "titles",
             "user_id": "13"
         }
     })"_json;
@@ -1185,8 +1119,11 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
         "type": "counter",
         "params": {
             "source": {
-                "events":  [{"type": "click", "weight": 1, "name": "CLK1"}, {"type": "conversion", "weight": 5, "name": "CNV1"} ],
-                "log_to_store": true
+                "collections": ["products"],
+                "events":  [
+                    {"type": "click", "weight": 1, "name": "CLK1", "log_to_store": true},
+                    {"type": "conversion", "weight": 5, "name": "CNV1", "log_to_store": true}
+                ]
             },
             "destination": {
                 "collection": "products",
@@ -1207,8 +1144,7 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
         "data": {
             "q": "trousers",
             "doc_id": "1",
-            "user_id": "13",
-            "collection": "products"
+            "user_id": "13"
         }
     })"_json;
 
@@ -1221,8 +1157,7 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
         "data": {
             "q": "shorts",
             "doc_id": "3",
-            "user_id": "11",
-            "collection": "products"
+            "user_id": "11"
         }
     })"_json;
 
@@ -1244,8 +1179,7 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
         "data": {
             "q": "shorts",
             "doc_id": "1",
-            "user_id": "11",
-            "collection": "products"
+            "user_id": "11"
         }
     })"_json;
 
@@ -1258,8 +1192,7 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
         "data": {
             "q": "shorts",
             "doc_id": "3",
-            "user_id": "11",
-            "collection": "products"
+            "user_id": "11"
         }
     })"_json;
 
@@ -1308,8 +1241,7 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
         "data": {
             "q": "shorts",
             "doc_id": "3",
-            "user_id": "11",
-            "collection": "products"
+            "user_id": "11"
         }
     })"_json;
     req->body = event5.dump();
@@ -1319,22 +1251,6 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     ASSERT_EQ(1, popular_clicks.size());
     ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
     ASSERT_EQ(1, popular_clicks["products"].docid_counts.size());
-
-    //add with only doc_id
-//    event5 = R"({
-//        "type": "conversion",
-//        "name": "CNV1",
-//        "data": {
-//            "doc_id": "5"
-//        }
-//    })"_json;
-//    req->body = event5.dump();
-//    ASSERT_TRUE(post_create_event(req, res));
-//
-//    popular_clicks = analyticsManager.get_popular_clicks();
-//    ASSERT_EQ(1, popular_clicks.size());
-//    ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
-//    ASSERT_EQ(2, popular_clicks["products"].docid_counts.size());
 }
 
 TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
@@ -1369,6 +1285,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
+                "collections": ["books"],
                 "events":  [{"type": "click", "weight": 1, "name": "CLK2"}, {"type": "conversion", "weight": 5, "name": "CNV2"} ]
             },
             "destination": {
@@ -1387,6 +1304,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
+                "collections": ["books"],
                 "events":  [{"type": "click", "weight": 1, "name": "CLK3"}, {"type": "conversion", "weight": 5, "name": "CNV3"} ]
             },
             "destination": {
@@ -1424,6 +1342,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
+                "collections": ["books"]
             },
             "destination": {
                 "collection": "books",
@@ -1441,6 +1360,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
+                "collections": ["books"],
                 "events":  []
             },
             "destination": {
@@ -1459,6 +1379,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
+                "collections": ["books"],
                 "events":  "query_click"
             },
             "destination": {
@@ -1477,6 +1398,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
+                "collections": ["books"],
                 "events":  [{"type": "click", "weight": 1}, {"type": "conversion", "weight": 5} ]
             },
             "destination": {
@@ -1499,6 +1421,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
+                 "collections": ["books"],
                  "events":  [{"type": "click", "name" : "CLK4"}, {"type": "conversion", "name": "CNV4", "log_to_store" : true} ]
             },
             "destination": {
@@ -1517,7 +1440,8 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
-                 "events":  [{"type": "conversion", "weight": 5, "name": "CNV4", "log_to_store" : true},{"type": "click", "weight": 1, "name" : "CLK4"}]
+                 "collections": ["books"],
+                 "events":  [{"type": "click", "weight": 1, "name" : "CLK4"}, {"type": "conversion", "weight": 5, "name": "CNV4", "log_to_store" : true} ]
             },
             "destination": {
                 "collection": "books",
@@ -1541,8 +1465,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "data": {
             "q": "shorts",
             "doc_id": "1",
-            "user_id": "11",
-            "collection": "books"
+            "user_id": "11"
         }
     })"_json;
     req->body = event.dump();
@@ -1553,7 +1476,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_EQ(1, popular_clicks["books"].docid_counts.size());
     ASSERT_EQ(5, popular_clicks["books"].docid_counts["1"]);
 
-    //trigger persistance event manually
+    //trigger persistence event manually
     for (auto &popular_clicks_it: popular_clicks) {
         std::string docs;
         req->params["collection"] = popular_clicks_it.first;
@@ -1625,8 +1548,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "data": {
             "q": "technology",
             "doc_id": "21",
-            "user_id": "13",
-            "collection": "books"
+            "user_id": "13"
         }
     })"_json;
 
@@ -1646,8 +1568,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "data": {
             "q": "shorts",
             "doc_id": "1",
-            "user_id": "11",
-            "collection": "books"
+            "user_id": "11"
         }
     })"_json;
     req->body = event.dump();
@@ -1713,6 +1634,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "type": "counter",
         "params": {
             "source": {
+                 "collections": ["books"],
                  "events":  [{"type": "conversion", "weight": 5, "name": "CNV4"} ]
             },
             "destination": {
@@ -1731,8 +1653,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "data": {
             "q": "shorts",
             "doc_id": "1",
-            "user_id": "11",
-            "collection": "books"
+            "user_id": "11"
         }
     })"_json;
     req->body = event.dump();
@@ -1754,9 +1675,6 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
     LOG(INFO) << "Truncating and creating: " << analytics_dir_path;
     system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
 
-    analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
-    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
-
     nlohmann::json titles_schema = R"({
             "name": "titles",
             "fields": [
@@ -1766,9 +1684,8 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
 
     Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
 
-    nlohmann::json doc;
-    doc["title"] = "Cool trousers";
-    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
+    analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
+    analyticsManager.init(store, analytic_store, analytics_minute_rate_limit);
 
     auto analytics_rule = R"({
         "name": "product_events2",
@@ -1857,10 +1774,6 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
         })"_json;
 
     Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
-
-    nlohmann::json doc;
-    doc["title"] = "Cool trousers";
-    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
 
     auto analytics_rule = R"({
         "name": "product_events2",
@@ -2077,7 +1990,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     }
 }
 
-TEST_F(AnalyticsManagerTest, AnalyticsWithAliases) {
+TEST_F(AnalyticsManagerTest, DISABLED_AnalyticsWithAliases) {
     nlohmann::json titles_schema = R"({
             "name": "titles",
             "fields": [

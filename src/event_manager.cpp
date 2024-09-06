@@ -55,8 +55,8 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
                     return Option<bool>(500, "event should have 'doc_id' as string value.");
                 }
 
-                if(!event_data_val.contains("collection") || !event_data_val["collection"].is_string()) {
-                    return Option<bool>(400, "event should have 'collection' as a string value.");
+                if(event_data_val.contains("collection") && !event_data_val["collection"].is_string()) {
+                    return Option<bool>(400, "'collection' should be a  string value.");
                 }
 
                 if(!event_data_val.contains("user_id") || !event_data_val["user_id"].is_string()) {
