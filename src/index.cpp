@@ -3175,13 +3175,18 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 int64_t scores[3] = {0};
                 int64_t match_score_index = -1;
+                bool should_skip = false;
 
                 auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
                                                                   geopoint_indices, seq_id, references, eval_filter_indexes,
-                                                                  0, scores, match_score_index, vec_dist_score,
+                                                                  0, scores, match_score_index, should_skip, vec_dist_score,
                                                                   collection_name);
                 if (!compute_sort_scores_op.ok()) {
                     return compute_sort_scores_op;
+                }
+
+                if(should_skip) {
+                    continue;
                 }
 
                 KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores, std::move(references));
@@ -3606,13 +3611,18 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                 ((1.0 / (seq_id_to_rank[seq_id] + 1)) * VECTOR_SEARCH_WEIGHT));
                         int64_t match_score_index = -1;
                         int64_t scores[3] = {0};
+                        bool should_skip = false;
 
                         auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
                                                                           geopoint_indices, seq_id, references, eval_filter_indexes,
-                                                                          match_score, scores, match_score_index,
+                                                                          match_score, scores, match_score_index, should_skip,
                                                                           vec_result.second, collection_name);
                         if (!compute_sort_scores_op.ok()) {
                             return compute_sort_scores_op;
+                        }
+
+                        if(should_skip) {
+                            continue;
                         }
 
                         for(int i = 0; i < 3; i++) {
@@ -3627,13 +3637,18 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         int64_t scores[3] = {0};
                         int64_t match_score = float_to_int64_t((1.0 / (seq_id_to_rank[seq_id] + 1)) * VECTOR_SEARCH_WEIGHT);
                         int64_t match_score_index = -1;
+                        bool should_skip = false;
 
                         auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
                                                                           geopoint_indices, seq_id, references, eval_filter_indexes,
-                                                                          match_score, scores, match_score_index,
+                                                                          match_score, scores, match_score_index, should_skip,
                                                                           vec_result.second, collection_name);
                         if (!compute_sort_scores_op.ok()) {
                             return compute_sort_scores_op;
+                        }
+
+                        if(should_skip) {
+                            continue;
                         }
 
                         uint64_t distinct_id = seq_id;
@@ -4725,12 +4740,17 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
 
         int64_t scores[3] = {0};
         int64_t match_score_index = -1;
+        bool should_skip = false;
 
         auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices,
                                                           seq_id, references, eval_filter_indexes, best_field_match_score,
-                                                          scores, match_score_index, 0, collection_name);
+                                                          scores, match_score_index, should_skip, 0, collection_name);
         if (!compute_sort_scores_op.ok()) {
             status = Option<bool>(compute_sort_scores_op.code(), compute_sort_scores_op.error());
+            return;
+        }
+
+        if(should_skip) {
             return;
         }
 
@@ -5034,7 +5054,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                                         const std::vector<size_t>& geopoint_indices,
                                         uint32_t seq_id, const std::map<basic_string<char>, reference_filter_result_t>& references,
                                         std::vector<uint32_t>& filter_indexes, int64_t max_field_match_score, int64_t* scores,
-                                        int64_t& match_score_index, float vector_distance,
+                                        int64_t& match_score_index, bool& should_skip, float vector_distance,
                                         const std::string& collection_name) const {
 
     int64_t geopoint_distances[3];
@@ -5182,7 +5202,12 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 const auto& values = sort_fields[0].vector_query.vector_index->vecdex->getDataByLabel<float>(seq_id);
                 const auto& dist_func = sort_fields[0].vector_query.vector_index->space->get_dist_func();
                 float dist = dist_func(sort_fields[0].vector_query.query.values.data(), values.data(), &sort_fields[0].vector_query.vector_index->num_dim);
-                
+
+                if(dist > sort_fields[0].vector_query.query.distance_threshold) {
+                    //if computed distance is more then distance_thershold then we wont add that to results
+                    should_skip = true;
+                }
+
                 scores[0] = float_to_int64_t(dist);
             } catch(...) {
                 // probably not found
@@ -5295,7 +5320,12 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 const auto& values = sort_fields[1].vector_query.vector_index->vecdex->getDataByLabel<float>(seq_id);
                 const auto& dist_func = sort_fields[1].vector_query.vector_index->space->get_dist_func();
                 float dist = dist_func(sort_fields[1].vector_query.query.values.data(), values.data(), &sort_fields[1].vector_query.vector_index->num_dim);
-                
+
+                if(dist > sort_fields[1].vector_query.query.distance_threshold) {
+                    //if computed distance is more then distance_thershold then we wont add that to results
+                    should_skip = true;
+                }
+
                 scores[1] = float_to_int64_t(dist);
             } catch(...) {
                 // probably not found
@@ -5406,7 +5436,12 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 const auto& values = sort_fields[2].vector_query.vector_index->vecdex->getDataByLabel<float>(seq_id);
                 const auto& dist_func = sort_fields[2].vector_query.vector_index->space->get_dist_func();
                 float dist = dist_func(sort_fields[2].vector_query.query.values.data(), values.data(), &sort_fields[2].vector_query.vector_index->num_dim);
-                
+
+                if(dist > sort_fields[2].vector_query.query.distance_threshold) {
+                    //if computed distance is more then distance_thershold then we wont add that to results
+                    should_skip = true;
+                }
+
                 scores[2] = float_to_int64_t(dist);
             } catch(...) {
                 // probably not found
@@ -5578,12 +5613,17 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         int64_t match_score = phrase_match_id_scores[seq_id];
         int64_t scores[3] = {0};
         int64_t match_score_index = -1;
+        bool should_skip = false;
 
         auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices,
                                                           seq_id, references, eval_filter_indexes, match_score, scores,
-                                                          match_score_index, 0, collection_name);
+                                                          match_score_index, should_skip, 0, collection_name);
         if (!compute_sort_scores_op.ok()) {
             return compute_sort_scores_op;
+        }
+
+        if(should_skip) {
+            continue;
         }
 
         uint64_t distinct_id = seq_id;
@@ -5752,13 +5792,18 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
 
                     int64_t scores[3] = {0};
                     int64_t match_score_index = -1;
+                    bool should_skip = false;
 
                     auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values,
                                                                       geopoint_indices, seq_id, references,
                                                                       eval_filter_indexes, 100, scores, match_score_index,
-                                                                      0, collection_name);
+                                                                      should_skip, 0, collection_name);
                     if (!compute_sort_scores_op.ok()) {
                         return compute_sort_scores_op;
+                    }
+
+                    if(should_skip) {
+                        continue;
                     }
 
                     uint64_t distinct_id = seq_id;
@@ -6179,13 +6224,18 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
                 int64_t scores[3] = {0};
                 int64_t match_score_index = -1;
+                bool should_skip = false;
 
                 auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices,
                                                                   seq_id, references, filter_indexes, 100, scores,
-                                                                  match_score_index, 0, collection_name);
+                                                                  match_score_index, should_skip, 0, collection_name);
                 if (!compute_sort_scores_op.ok()) {
                     compute_sort_score_status = new Option<bool>(compute_sort_scores_op.code(), compute_sort_scores_op.error());
                     break;
+                }
+
+                if(should_skip) {
+                    continue;
                 }
 
                 uint64_t distinct_id = seq_id;
