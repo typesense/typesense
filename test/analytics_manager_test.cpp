@@ -309,6 +309,15 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
 
     Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
 
+    nlohmann::json titles1_schema = R"({
+            "name": "titles_1",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles1_coll = collectionManager.create_collection(titles1_schema).get();
+
     std::shared_ptr<http_req> req = std::make_shared<http_req>();
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
 
@@ -644,6 +653,44 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
 
     create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_TRUE(create_op.ok());
+
+    analytics_rule = R"({
+        "name": "product_events2",
+        "type": "log",
+        "params": {
+            "source": {
+                 "collections": ["titles", "titles_1"],
+                 "events":  [{"type": "click", "name": "CP"}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    event9 = R"({
+        "type": "click",
+        "name": "CP",
+        "data": {
+            "doc_id": "12",
+            "user_id": "11"
+        }
+    })"_json;
+    req->body = event9.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"Multiple source collections. 'collection' should be specified\"}", res->body);
+
+    event9 = R"({
+        "type": "click",
+        "name": "CP",
+        "data": {
+            "doc_id": "12",
+            "user_id": "11",
+            "collection": "titles"
+        }
+    })"_json;
+    req->body = event9.dump();
+    ASSERT_TRUE(post_create_event(req, res));
 }
 
 TEST_F(AnalyticsManagerTest, EventsPersist) {

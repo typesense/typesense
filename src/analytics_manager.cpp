@@ -399,6 +399,8 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
     std::string src_collection;
     if (!event_json.contains("collection") && src_collections.size() == 1) {
         src_collection = src_collections[0];
+    } else if(!event_json.contains("collection") && src_collections.size() > 1) {
+        return Option<bool>(400, "Multiple source collections. 'collection' should be specified");
     } else if (event_json.contains("collection")) {
         if(std::find(src_collections.begin(), src_collections.end(), event_json["collection"]) == src_collections.end()) {
             return Option<bool>(400, event_json["collection"].get<std::string>() + " not found in the rule " + event_name);
