@@ -139,6 +139,13 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 }
             } else if(normalize && is_cyrillic(locale)) {
                 auto raw_text = unicode_text.tempSubStringBetween(start_pos, end_pos);
+                if(stemmer) {
+                    std::string stemmed_word;
+                    raw_text.toUTF8String(stemmed_word);
+                    stemmed_word = stemmer->stem(stemmed_word);
+                    raw_text = icu::UnicodeString::fromUTF8(stemmed_word);
+                }
+
                 transliterator->transliterate(raw_text);
                 raw_text.toUTF8String(word);
                 StringUtils::replace_all(word, "\"", "");
@@ -216,7 +223,8 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             }
         }
 
-        if(stemmer) {
+        if(stemmer && !is_cyrillic(locale)) {
+            // cyrillic is already stemmed prior to transliteration
             token = stemmer->stem(out);
         } else {
             token = out;

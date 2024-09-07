@@ -2820,7 +2820,7 @@ TEST_F(CollectionSpecificMoreTest, DisableHighlightForLongFields) {
     ASSERT_EQ(1, res_op.get()["hits"][0]["highlight"].size());
 }
 
-TEST_F(CollectionSpecificMoreTest, TestStemming) {
+TEST_F(CollectionSpecificMoreTest, StemmingEnglish) {
     nlohmann::json schema = R"({
         "name": "test",
         "fields": [
@@ -2829,7 +2829,6 @@ TEST_F(CollectionSpecificMoreTest, TestStemming) {
     })"_json;
 
     auto coll_stem_res = collectionManager.create_collection(schema);
-    LOG(INFO) << coll_stem_res.error();
     ASSERT_TRUE(coll_stem_res.ok());
 
     auto coll_stem = coll_stem_res.get();
@@ -2842,25 +2841,122 @@ TEST_F(CollectionSpecificMoreTest, TestStemming) {
     })"_json;
 
     auto coll_no_stem_res = collectionManager.create_collection(schema);
-    LOG(INFO) << coll_no_stem_res.error();
     ASSERT_TRUE(coll_no_stem_res.ok());
-
     auto coll_no_stem = coll_no_stem_res.get();
 
     nlohmann::json doc;
-
     doc["name"] = "running";
+
     ASSERT_TRUE(coll_stem->add(doc.dump()).ok());
     ASSERT_TRUE(coll_no_stem->add(doc.dump()).ok());
 
     auto stem_res = coll_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
     ASSERT_TRUE(stem_res.ok());
     ASSERT_EQ(1, stem_res.get()["hits"].size());
-    ASSERT_EQ("run", stem_res.get()["hits"][0]["highlight"]["name"]["matched_tokens"][0].get<std::string>());
+    ASSERT_EQ("running", stem_res.get()["hits"][0]["highlight"]["name"]["matched_tokens"][0].get<std::string>());
+    ASSERT_EQ("<mark>running</mark>", stem_res.get()["hits"][0]["highlight"]["name"]["snippet"].get<std::string>());
 
     auto no_stem_res = coll_no_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
     ASSERT_TRUE(no_stem_res.ok());
     ASSERT_EQ(0, no_stem_res.get()["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingEnglishWithCaps) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {
+                "facet": false,
+                "index": true,
+                "infix": true,
+                "locale": "",
+                "name": "name",
+                "optional": false,
+                "sort": false,
+                "stem": false,
+                "store": true,
+                "type": "string"
+            },
+            {
+                "facet": true,
+                "index": true,
+                "infix": true,
+                "locale": "",
+                "name": "subClass",
+                "optional": true,
+                "sort": false,
+                "stem": true,
+                "store": true,
+                "type": "string"
+            }
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "Onion Coo Usa";
+    doc["subClass"] = "ONIONS";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = "Mccormick Onion Dip Mix";
+    doc["subClass"] = "GRAVY/SAUCE PACKETS";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {};
+
+    auto res = coll1->search("onions", {"subClass","name"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_STREQ("0", res["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", res["hits"][1]["document"]["id"].get<std::string>().c_str());
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingEnglishHighlights) {
+    nlohmann::json schema = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string", "stem": true}
+        ]
+    })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+
+    auto coll_stem = coll_stem_res.get();
+
+    nlohmann::json doc;
+    doc["name"] = "Running runs";
+
+    ASSERT_TRUE(coll_stem->add(doc.dump()).ok());
+
+    auto res = coll_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(2, res["hits"][0]["highlight"]["name"]["matched_tokens"].size());
+    ASSERT_EQ("Running", res["hits"][0]["highlight"]["name"]["matched_tokens"][0].get<std::string>());
+    ASSERT_EQ("runs", res["hits"][0]["highlight"]["name"]["matched_tokens"][1].get<std::string>());
+    ASSERT_EQ("<mark>Running</mark> <mark>runs</mark>", res["hits"][0]["highlight"]["name"]["snippet"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingCyrilic) {
+    nlohmann::json schema = R"({
+         "name": "words",
+         "fields": [
+           {"name": "word", "type": "string", "stem": true, "locale": "ru"}
+         ]
+       })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+    auto coll_stem = coll_stem_res.get();
+
+    ASSERT_TRUE(coll_stem->add(R"({"word": "доверенное"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "доверенные"})"_json.dump()).ok());
+
+    auto res = coll_stem->search("доверенное", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, res["hits"].size());
 }
 
 TEST_F(CollectionSpecificMoreTest, NumDroppedTokensTest) {
@@ -3096,23 +3192,4 @@ TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
     ASSERT_EQ("A-136/14", res["hits"][2]["document"]["title"].get<std::string>());
     ASSERT_EQ("(136)214", res["hits"][3]["document"]["title"].get<std::string>());
     ASSERT_EQ("13/14", res["hits"][4]["document"]["title"].get<std::string>());
-}
-
-TEST_F(CollectionSpecificMoreTest, TestStemmingCyrilic) {
-    nlohmann::json schema = R"({
-         "name": "words",
-         "fields": [
-           {"name": "word", "type": "string", "stem": true, "locale": "ru"}
-         ]
-       })"_json;
-
-    auto coll_stem_res = collectionManager.create_collection(schema);
-    ASSERT_TRUE(coll_stem_res.ok());
-    auto coll_stem = coll_stem_res.get();
-
-    ASSERT_TRUE(coll_stem->add(R"({"word": "доверенное"})"_json.dump()).ok());
-    ASSERT_TRUE(coll_stem->add(R"({"word": "доверенные"})"_json.dump()).ok());
-
-    auto res = coll_stem->search("доверенное", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
-    ASSERT_EQ(2, res["hits"].size());
 }
