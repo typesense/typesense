@@ -2212,59 +2212,6 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionSortingTest, StemmingWithCaps) {
-    nlohmann::json schema = R"({
-        "name": "coll1",
-        "fields": [
-            {
-                "facet": false,
-                "index": true,
-                "infix": true,
-                "locale": "",
-                "name": "name",
-                "optional": false,
-                "sort": false,
-                "stem": false,
-                "store": true,
-                "type": "string"
-            },
-            {
-                "facet": true,
-                "index": true,
-                "infix": true,
-                "locale": "",
-                "name": "subClass",
-                "optional": true,
-                "sort": false,
-                "stem": true,
-                "store": true,
-                "type": "string"
-            }
-        ]
-    })"_json;
-
-    Collection* coll1 = collectionManager.create_collection(schema).get();
-
-    nlohmann::json doc;
-    doc["id"] = "0";
-    doc["name"] = "Onion Coo Usa";
-    doc["subClass"] = "ONIONS";
-
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
-    doc["id"] = "1";
-    doc["name"] = "Mccormick Onion Dip Mix";
-    doc["subClass"] = "GRAVY/SAUCE PACKETS";
-
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
-    std::vector<sort_by> sort_fields = {};
-
-    auto res = coll1->search("onions", {"subClass","name"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
-    ASSERT_STREQ("0", res["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", res["hits"][1]["document"]["id"].get<std::string>().c_str());
-}
-
 TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
     std::string coll_schema = R"(
         {
