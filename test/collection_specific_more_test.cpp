@@ -2914,6 +2914,54 @@ TEST_F(CollectionSpecificMoreTest, StemmingEnglishWithCaps) {
     ASSERT_STREQ("1", res["hits"][1]["document"]["id"].get<std::string>().c_str());
 }
 
+TEST_F(CollectionSpecificMoreTest, StemmingEnglishPrefixHighlight) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {
+                "facet": false,
+                "index": true,
+                "infix": true,
+                "locale": "",
+                "name": "name",
+                "optional": false,
+                "sort": false,
+                "stem": false,
+                "store": true,
+                "type": "string"
+            },
+            {
+                "facet": true,
+                "index": true,
+                "infix": true,
+                "locale": "",
+                "name": "subClass",
+                "optional": true,
+                "sort": false,
+                "stem": true,
+                "store": true,
+                "type": "string"
+            }
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "Generic Red Onions";
+    doc["subClass"] = "ONIONS";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {};
+    auto res = coll1->search("onions", {"subClass","name"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("Generic Red <mark>Onions</mark>", res["hits"][0]["highlight"]["name"]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>ONIONS</mark>", res["hits"][0]["highlight"]["subClass"]["snippet"].get<std::string>());
+}
+
 TEST_F(CollectionSpecificMoreTest, StemmingEnglishHighlights) {
     nlohmann::json schema = R"({
         "name": "test",
