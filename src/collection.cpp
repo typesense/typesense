@@ -4151,6 +4151,11 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
                     }
                 }
 
+                if(num_letters < prefix_token_num_chars) {
+                    // can happen in the case of stemming
+                    prefix_end = tok_start + num_letters;
+                }
+
                 size_t char_diff = num_letters - prefix_letters;
                 auto new_tok_end = (char_diff <= 2 && qtoken_it.value().num_typos != 0) ? tok_end : prefix_end;
                 token_offsets.emplace(tok_start, new_tok_end);
