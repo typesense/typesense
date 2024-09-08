@@ -416,14 +416,16 @@ int run_server(const Config & config, const std::string & version, void (*master
     // meta DB for storing house keeping things
     Store meta_store(meta_dir, 24*60*60, 1024, false);
 
-    //analytics DB for storing analytics events
-    Store analytics_store(analytics_dir, 24*60*60, 1024, true, analytics_db_ttl);
+    Store* analytics_store = nullptr;
+    if(!analytics_dir.empty()) {
+        //analytics DB for storing analytics events
+        analytics_store = new Store(analytics_dir, 24*60*60, 1024, true, analytics_db_ttl);
+        AnalyticsManager::get_instance().init(&store, analytics_store, analytics_minute_rate_limit);
+    }
 
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
     httpClient.init(config.get_api_key());
-
-    AnalyticsManager::get_instance().init(&store, &analytics_store, analytics_minute_rate_limit);
 
     server = new HttpServer(
         version,
@@ -466,8 +468,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     // first we start the peering service
 
-    auto analytics_store_ptr = analytics_dir.empty() ? nullptr : &analytics_store;
-    ReplicationState replication_state(server, batch_indexer, &store, analytics_store_ptr,
+    ReplicationState replication_state(server, batch_indexer, &store, analytics_store,
                                        &replication_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled,
                                        &config,
@@ -578,6 +579,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     VQModelManager::get_instance().delete_all_models();
 
     CollectionManager::get_instance().dispose();
+
+    delete analytics_store;
 
     LOG(INFO) << "Bye.";
 
