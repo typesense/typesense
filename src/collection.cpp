@@ -115,7 +115,7 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
                                                            const uint32_t ref_seq_id, const std::string& field_name) {
     // Update reference helper field of the docs matching the filter.
     filter_result_t filter_result;
-    get_filter_ids(filter, filter_result);
+    get_filter_ids(filter, filter_result, false);
 
     if (filter_result.count == 0) {
         return Option<bool>(true);
@@ -602,7 +602,7 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
         delete it;
     } else {
         filter_result_t filter_result;
-        auto filter_ids_op = get_filter_ids(_filter_query, filter_result);
+        auto filter_ids_op = get_filter_ids(_filter_query, filter_result, false);
         if(!filter_ids_op.ok()) {
             return Option<nlohmann::json>(filter_ids_op.code(), filter_ids_op.error());
         }
@@ -3575,7 +3575,8 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
     }
 }
 
-Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_result_t& filter_result) const {
+Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_result_t& filter_result,
+                                        const bool& should_timeout) const {
     std::shared_lock lock(mutex);
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
@@ -3588,7 +3589,7 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
         return filter_op;
     }
 
-    return index->do_filtering_with_lock(filter_tree_root, filter_result, name);
+    return index->do_filtering_with_lock(filter_tree_root, filter_result, name, should_timeout);
 }
 
 Option<bool> Collection::get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
@@ -4397,7 +4398,7 @@ void Collection::cascade_remove_docs(const std::string& field_name, const uint32
     auto const ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
 
     filter_result_t filter_result;
-    get_filter_ids(ref_helper_field_name + ":" + std::to_string(ref_seq_id), filter_result);
+    get_filter_ids(ref_helper_field_name + ":" + std::to_string(ref_seq_id), filter_result, false);
 
     if (filter_result.count == 0) {
         return;
