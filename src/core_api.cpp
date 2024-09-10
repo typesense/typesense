@@ -1113,7 +1113,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             export_state->iter_upper_bound = new rocksdb::Slice(export_state->iter_upper_bound_key);
             export_state->it = collectionManager.get_store()->scan(seq_id_prefix, export_state->iter_upper_bound);
         } else {
-            auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result);
+            auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result, false);
 
             if(!filter_ids_op.ok()) {
                 res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -1750,9 +1750,8 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         // destruction of data is managed by req destructor
         req->data = deletion_state;
 
-        search_stop_us = UINT64_MAX; // Filtering shouldn't timeout during delete operation.
         filter_result_t filter_result;
-        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result);
+        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false);
 
         if(!filter_ids_op.ok()) {
             res->set(filter_ids_op.code(), filter_ids_op.error());

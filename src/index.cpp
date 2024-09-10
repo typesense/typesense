@@ -1801,11 +1801,12 @@ bool Index::field_is_indexed(const std::string& field_name) const {
 
 Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root,
                                            filter_result_t& filter_result,
-                                           const std::string& collection_name) const {
+                                           const std::string& collection_name,
+                                           const bool& should_timeout) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root,
-                                                           search_begin_us, search_stop_us);
+                                                           search_begin_us, should_timeout ? search_stop_us : UINT64_MAX);
     auto filter_init_op = filter_result_iterator.init_status();
     if (!filter_init_op.ok()) {
         return filter_init_op;

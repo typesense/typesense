@@ -766,7 +766,8 @@ public:
 
     Option<bool> do_filtering_with_lock(filter_node_t* const filter_tree_root,
                                         filter_result_t& filter_result,
-                                        const std::string& collection_name = "") const;
+                                        const std::string& collection_name = "",
+                                        const bool& should_timeout = true) const;
 
     Option<bool> do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
                                                   filter_result_t& filter_result,
