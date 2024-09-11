@@ -63,6 +63,7 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
 }
 
 Option<bool> EmbedderManager::update_remote_model_apikey(const nlohmann::json &model_config, const std::string& new_apikey) {
+    std::unique_lock<std::mutex> lock(text_embedders_mutex);
     const auto& model_key = RemoteEmbedder::get_model_key(model_config);
 
     if(text_embedders.find(model_key) == text_embedders.end()) {

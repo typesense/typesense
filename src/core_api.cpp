@@ -355,7 +355,12 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         }
 
         //update in collection metadata and store in db
-        collectionManager.update_collection_metadata(req->params["collection"], req_json["metadata"]);
+        auto op = collectionManager.update_collection_metadata(req->params["collection"], req_json["metadata"]);
+        if(!op.ok()) {
+            res->set(op.code(), op.error());
+            alter_in_progress = false;
+            return false;
+        }
     }
 
     if(req_json.contains("fields")) {

@@ -2268,8 +2268,12 @@ bool CollectionManager::is_valid_api_key_collection(const std::vector<std::strin
     return api_collections.size() > 0 ? false : true;
 }
 
-bool CollectionManager::update_collection_metadata(const std::string& collection, const nlohmann::json& metadata) {
+Option<bool> CollectionManager::update_collection_metadata(const std::string& collection, const nlohmann::json& metadata) {
     auto collection_ptr = get_collection(collection);
+    if (collection_ptr == nullptr) {
+        return Option<bool>(400, "failed to get collection.");
+    }
+
     collection_ptr->update_metadata(metadata);
 
     std::string collection_meta_str;
@@ -2281,13 +2285,22 @@ bool CollectionManager::update_collection_metadata(const std::string& collection
 
     collection_meta_json[Collection::COLLECTION_METADATA] = metadata;
 
-    return store->insert(collection_metakey, collection_meta_json.dump());
+    if(store->insert(collection_metakey, collection_meta_json.dump())) {
+        return Option<bool>(true);
+    }
+
+    return Option<bool>(400, "failed to insert into store.");
 }
 
 Option<bool> CollectionManager::update_model_apikey(const std::string& collection, const nlohmann::json& model_config) {
-    auto op = get_collection(collection)->update_apikey(model_config);
+    auto collection_ptr = get_collection(collection);
+    if (collection_ptr == nullptr) {
+        return Option<bool>(400, "failed to get collection.");
+    }
 
-    if(!op.ok()){
+    auto op = collection_ptr->update_apikey(model_config);
+
+    if (!op.ok()) {
         return op;
     }
 
