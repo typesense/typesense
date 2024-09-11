@@ -2269,7 +2269,11 @@ bool CollectionManager::is_valid_api_key_collection(const std::vector<std::strin
 }
 
 bool CollectionManager::update_collection_metadata(const std::string& collection, const nlohmann::json& metadata) {
+    auto collection_ptr = get_collection(collection);
+    collection_ptr->update_metadata(metadata);
+
     std::string collection_meta_str;
+
     auto collection_metakey = Collection::get_meta_key(collection);
     store->get(collection_metakey, collection_meta_str);
 
@@ -2278,4 +2282,14 @@ bool CollectionManager::update_collection_metadata(const std::string& collection
     collection_meta_json[Collection::COLLECTION_METADATA] = metadata;
 
     return store->insert(collection_metakey, collection_meta_json.dump());
+}
+
+Option<bool> CollectionManager::update_model_apikey(const std::string& collection, const nlohmann::json& model_config) {
+    auto op = get_collection(collection)->update_apikey(model_config);
+
+    if(!op.ok()){
+        return op;
+    }
+
+    return Option<bool>(true);
 }

@@ -62,6 +62,22 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
     return Option<bool>(true);
 }
 
+Option<bool> EmbedderManager::update_remote_model_apikey(const nlohmann::json &model_config, const std::string& new_apikey) {
+    const auto& model_key = RemoteEmbedder::get_model_key(model_config);
+
+    if(text_embedders.find(model_key) == text_embedders.end()) {
+        return Option<bool>(404, "Text embedder was not found.");
+    }
+
+    if(!text_embedders[model_key]->is_remote()) {
+        return Option<bool>(400, "Text embedder is not valid.");
+    }
+
+    text_embedders[model_key]->update_remote_embedder_apikey(new_apikey);
+
+    return Option<bool>(true);
+}
+
 Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json& model_config, size_t& num_dims) {
     const std::string& model_name = model_config["model_name"].get<std::string>();
     Option<bool> public_model_op = EmbedderManager::get_instance().init_public_model(model_name);

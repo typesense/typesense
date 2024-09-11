@@ -425,6 +425,8 @@ public:
 
     void update_metadata(const nlohmann::json& meta);
 
+    Option<bool> update_apikey(const nlohmann::json& model_config);
+
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation,
                                 const DIRTY_VALUES dirty_values,

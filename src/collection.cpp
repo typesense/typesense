@@ -4808,6 +4808,43 @@ void Collection::update_metadata(const nlohmann::json& meta) {
     metadata = meta;
 }
 
+Option<bool> Collection::update_apikey(const nlohmann::json& model_config) {
+    const auto& model_name = model_config["model_name"];
+    const auto& api_key = model_config["api_key"];
+
+    for(auto& coll_field : fields) {
+        if (coll_field.embed.count(fields::from) != 0) {
+            if(coll_field.embed.contains("model_config")) {
+                auto& coll_model_config = coll_field.embed["model_config"];
+                if (coll_model_config.contains("model_name") && coll_model_config["model_name"] == model_name) {
+                    if(!coll_model_config.contains("api_key")) {
+                        return Option<bool>(400, "Invalid model for api_key updation.");
+                    }
+
+                    if(coll_model_config["api_key"] == api_key) {
+                        return Option<bool>(400, "trying to update with same api_key.");
+                    }
+
+                    //update in remote embedder first the in collection
+                    auto update_op = EmbedderManager::get_instance().update_remote_model_apikey(coll_model_config, api_key);
+
+                    if(!update_op.ok()) {
+                        return update_op;
+                    }
+
+                    coll_model_config["api_key"] = api_key;
+
+                    auto persist_op = persist_collection_meta();
+                    if(!persist_op.ok()) {
+                        return persist_op;
+                    }
+                }
+            }
+        }
+    }
+    return Option<bool>(true);
+}
+
 Option<bool> Collection::get_document_from_store(const uint32_t& seq_id,
                                                  nlohmann::json& document, bool raw_doc) const {
     return get_document_from_store(get_seq_id_key(seq_id), document, raw_doc);

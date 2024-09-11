@@ -313,7 +313,7 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
 
 bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
-    std::set<std::string> allowed_keys = {"metadata", "fields"};
+    std::set<std::string> allowed_keys = {"metadata", "fields", "model_config"};
 
     try {
         req_json = nlohmann::json::parse(req->body);
@@ -332,7 +332,7 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
 
     for(auto it : req_json.items()) {
         if(allowed_keys.count(it.key()) == 0) {
-            res->set_400("Only `fields` and `metadata` can be updated at the moment.");
+            res->set_400("Only `fields`, `model_config`, and `metadata` can be updated at the moment.");
             alter_in_progress = false;
             return false;
         }
@@ -354,9 +354,7 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
             return false;
         }
 
-        collection->update_metadata(req_json["metadata"]);
-
-        //update in db
+        //update in collection metadata and store in db
         collectionManager.update_collection_metadata(req->params["collection"], req_json["metadata"]);
     }
 
@@ -366,6 +364,22 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         auto alter_op = collection->alter(alter_payload);
         if(!alter_op.ok()) {
             res->set(alter_op.code(), alter_op.error());
+            alter_in_progress = false;
+            return false;
+        }
+    }
+
+    if(req_json.contains("model_config")) {
+        const auto& model_config = req_json["model_config"];
+        if(!model_config.is_object() || !model_config.contains("model_name") || !model_config.contains("api_key")) {
+            res->set(400, "model_config should be object consisting model_name and api_key.");
+            alter_in_progress = false;
+            return false;
+        }
+
+        auto op = collectionManager.update_model_apikey(req->params["collection"], model_config);
+        if(!op.ok()) {
+            res->set(op.code(), op.error());
             alter_in_progress = false;
             return false;
         }

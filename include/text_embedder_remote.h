@@ -39,6 +39,7 @@ class RemoteEmbedder {
             raft_server = rs;
         }
         virtual ~RemoteEmbedder() = default;
+        virtual bool update_api_key(const std::string& api_key) = 0;
 
 };
 
@@ -62,6 +63,11 @@ class OpenAIEmbedder : public RemoteEmbedder {
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
         nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) override;
         static std::string get_model_key(const nlohmann::json& model_config);
+
+        bool update_api_key(const std::string& apikey) override {
+            api_key = apikey;
+            return true;
+        }
 };
 
 
@@ -81,6 +87,10 @@ class GoogleEmbedder : public RemoteEmbedder {
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
         nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) override;
         static std::string get_model_key(const nlohmann::json& model_config);
+        bool update_api_key(const std::string& apikey) override {
+            google_api_key = apikey;
+            return true;
+        }
 };
 
 
@@ -110,6 +120,9 @@ class GCPEmbedder : public RemoteEmbedder {
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
         nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) override;
         static std::string get_model_key(const nlohmann::json& model_config);
+        bool update_api_key(const std::string& api_key) override {
+            return true;
+        }
 };
 
 
