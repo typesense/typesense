@@ -1556,9 +1556,9 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
     bool field_found = false;
 
     for(auto kv = prefix_it.first; kv != prefix_it.second; ++kv) {
-        bool exact_key_match = (kv.key().size() == field_name.size());
-        bool exact_primitive_match = exact_key_match && !kv.value().is_object();
-        bool text_embedding = kv.value().type == field_types::FLOAT_ARRAY && kv.value().num_dim > 0;
+        const bool exact_key_match = (kv.key().size() == field_name.size());
+        const bool exact_primitive_match = exact_key_match && !kv.value().is_object();
+        const bool text_embedding = kv.value().type == field_types::FLOAT_ARRAY && kv.value().num_dim > 0;
 
         if(extract_only_string_fields && !kv.value().is_string() && !text_embedding) {
             if(exact_primitive_match && !is_wildcard) {
@@ -1569,7 +1569,11 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
             continue;
         }
 
-        if(!exact_key_match && text_embedding) {
+        // Prefix matches should only be included if it is a wildcard field name or if the matched field is nested.
+        // If we have the fields `title`, `title_ko`, and `title.foo`, and `title` is passed, it should only match `title`
+        // and `title.foo` fields. `title*` should match all the fields.
+        const bool is_nested_field = kv.value().nested;
+        if(!exact_key_match && !is_wildcard && !is_nested_field) {
             continue;
         }
 
