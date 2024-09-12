@@ -3241,3 +3241,67 @@ TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
     ASSERT_EQ("(136)214", res["hits"][3]["document"]["title"].get<std::string>());
     ASSERT_EQ("13/14", res["hits"][4]["document"]["title"].get<std::string>());
 }
+
+TEST_F(CollectionSpecificMoreTest, PopulateIncludeExcludeFields) {
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string", "infix": true},
+                    {"name": "product_description", "type": "string"},
+                    {"name": "product_embedding", "type":"float[]", "embed":{"from": ["product_description"], "model_config": {"model_name": "ts/e5-small"}}},
+                    {"name": "rating", "type": "int32"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair.",
+                "rating": "2"
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "soap",
+                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients.",
+                "rating": "4"
+            })"_json
+    };
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto products_coll = collection_create_op.get();
+
+    spp::sparse_hash_set<std::string> input_include_fields;
+    spp::sparse_hash_set<std::string> input_exclude_fields;
+    tsl::htrie_set<char> output_include_fields;
+    tsl::htrie_set<char> output_exclude_fields;
+
+    input_include_fields = {"product_*"};
+    products_coll->populate_include_exclude_fields_lk(input_include_fields, input_exclude_fields, output_include_fields,
+                                                      output_exclude_fields);
+    std::vector<std::string> expected = {"product_id", "product_name", "product_description"};
+
+    for (const auto& item: expected) {
+        ASSERT_EQ(1, output_include_fields.count(item));
+    }
+
+    input_include_fields = {"product_*"};
+    products_coll->populate_include_exclude_fields_lk(input_include_fields, input_exclude_fields, output_include_fields,
+                                                      output_exclude_fields);
+    expected = {"product_id", "product_name", "product_description", "product_embedding"};
+    for (const auto& item: expected) {
+        ASSERT_EQ(1, output_include_fields.count(item));
+    }
+}
