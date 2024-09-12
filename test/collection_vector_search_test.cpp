@@ -4983,7 +4983,7 @@ TEST_F(CollectionVectorTest, TestDistanceThresholdWithIP) {
     std::map<std::string, std::string> req_params = {
             {"collection", "products"},
             {"q", "document"},
-            {"query_by", "*"},
+            {"query_by", "name"},
             {"sort_by", "_text_match:desc,_vector_query(embedding:([0.11731103425347378, -0.6694758317235057, -0.6211945774857595, -0.27966758971688255, -0.4683744007950299],distance_threshold:1)):asc,rank_score:desc"},
             {"exclude_fields", "embedding"}
     };
@@ -5005,7 +5005,7 @@ TEST_F(CollectionVectorTest, TestDistanceThresholdWithIP) {
     req_params = {
             {"collection", "products"},
             {"q", "document"},
-            {"query_by", "*"},
+            {"query_by", "name"},
             {"sort_by", "_text_match:desc,_vector_query(embedding:([-100,-100,-100,-100,-100])):asc,rank_score:desc"},
             {"exclude_fields", "embedding"}
     };
