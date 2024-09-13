@@ -27,7 +27,9 @@ void QueryAnalytics::add(const std::string& key, const std::string& expanded_key
         if(queries.size() < 100) {
             // only live queries could send expanded queries
             const std::string& actual_key = expand_query ? expanded_key : key;
-            queries.emplace_back(actual_key.substr(0, max_query_length), now_ts_us);
+            if(actual_key.size() < max_query_length) {
+                queries.emplace_back(actual_key, now_ts_us);
+            }
         }
 
         umutex.unlock();
@@ -42,9 +44,9 @@ void QueryAnalytics::add(const std::string& key, const std::string& expanded_key
 
         if(it != local_counts.end()) {
             it.value()++;
-        } else if(local_counts.size() < max_size) {
+        } else if(local_counts.size() < max_size && key.size() < max_query_length) {
             // skip count when map has become too large (to prevent abuse)
-            local_counts.emplace(key.substr(0, max_query_length), 1);
+            local_counts.emplace(key, 1);
         }
 
         lmutex.unlock();
