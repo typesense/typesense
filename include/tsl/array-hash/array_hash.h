@@ -631,9 +631,9 @@ class array_bucket {
    *
    * Start search from buffer_ptr_in_out.
    */
-  bool find_or_end_of_bucket_impl(const CharT* key, size_type key_size,
-                                  const CharT*& buffer_ptr_in_out) const
-      noexcept {
+  bool find_or_end_of_bucket_impl(
+      const CharT* key, size_type key_size,
+      const CharT*& buffer_ptr_in_out) const noexcept {
     while (!is_end_of_bucket(buffer_ptr_in_out)) {
       const key_size_type buffer_key_size = read_key_size(buffer_ptr_in_out);
       const CharT* buffer_str =
@@ -1334,7 +1334,8 @@ class array_hash : private value_container<T>,
   float max_load_factor() const { return m_max_load_factor; }
 
   void max_load_factor(float ml) {
-    m_max_load_factor = std::max(0.1f, ml);
+    const float min_max_load_factor = MIN_MAX_LOAD_FACTOR;
+    m_max_load_factor = std::max(min_max_load_factor, ml);
     m_load_threshold = size_type(float(bucket_count()) * m_max_load_factor);
   }
 
@@ -1765,6 +1766,7 @@ class array_hash : private value_container<T>,
   static const size_type DEFAULT_INIT_BUCKET_COUNT = 0;
   static constexpr float DEFAULT_MAX_LOAD_FACTOR = 2.0f;
   static const size_type MAX_KEY_SIZE = array_bucket::MAX_KEY_SIZE;
+  static constexpr float MIN_MAX_LOAD_FACTOR = 0.1f;
 
  private:
   /**
