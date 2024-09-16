@@ -4808,37 +4808,18 @@ void Collection::update_metadata(const nlohmann::json& meta) {
     metadata = meta;
 }
 
-Option<bool> Collection::update_apikey(const nlohmann::json& model_config) {
-    const auto& model_name = model_config["model_name"];
-    const auto& api_key = model_config["api_key"];
+Option<bool> Collection::update_apikey(const field& f) {
+    const auto &field_name = f.name;
+    const auto &api_key = f.embed[fields::api_key];
 
-    for(auto& coll_field : fields) {
-        if (coll_field.embed.count(fields::from) != 0) {
-            if(coll_field.embed.contains("model_config")) {
-                auto& coll_model_config = coll_field.embed["model_config"];
-                if (coll_model_config.contains("model_name") && coll_model_config["model_name"] == model_name) {
-                    if(!coll_model_config.contains("api_key")) {
-                        return Option<bool>(400, "Invalid model for api_key updation.");
-                    }
+    for (const auto &coll_field: fields) {
+        if (coll_field.name == field_name) {
+            const auto& model_config = coll_field.embed[fields::model_config];
+            //update in remote embedder
+            auto update_op = EmbedderManager::get_instance().update_remote_model_apikey(model_config, api_key);
 
-                    if(coll_model_config["api_key"] == api_key) {
-                        return Option<bool>(400, "trying to update with same api_key.");
-                    }
-
-                    //update in remote embedder first the in collection
-                    auto update_op = EmbedderManager::get_instance().update_remote_model_apikey(coll_model_config, api_key);
-
-                    if(!update_op.ok()) {
-                        return update_op;
-                    }
-
-                    coll_model_config["api_key"] = api_key;
-
-                    auto persist_op = persist_collection_meta();
-                    if(!persist_op.ok()) {
-                        return persist_op;
-                    }
-                }
+            if (!update_op.ok()) {
+                return update_op;
             }
         }
     }
@@ -5078,7 +5059,8 @@ Option<bool> Collection::persist_collection_meta() {
 
 Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields,
                                           const std::vector<field>& del_fields,
-                                          const std::string& this_fallback_field_type) {
+                                          const std::string& this_fallback_field_type,
+                                          bool is_update_op) {
     // Update schema with additions (deletions can only be made later)
     std::vector<field> new_fields;
     tsl::htrie_map<char, field> schema_additions;
@@ -5120,7 +5102,17 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             embedding_fields.emplace(f.name, f);
         }
 
-        fields.push_back(f);
+        if(!is_update_op) {
+            fields.push_back(f);
+        } else {
+            //find and overwrite existing field with updated field
+            for(auto i = 0; i < fields.size(); ++i) {
+                if(fields[i].name == f.name) {
+                    fields[i] = f;
+                    break;
+                }
+            }
+        }
     }
 
     field::compact_nested_fields(nested_fields);
@@ -5273,11 +5265,12 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     std::vector<field> del_fields;
     std::vector<field> addition_fields;
     std::vector<field> reindex_fields;
+    std::vector<field> update_fields;
 
     std::string this_fallback_field_type;
 
     auto validate_op = validate_alter_payload(alter_payload, addition_fields, reindex_fields,
-                                              del_fields, this_fallback_field_type);
+                                              del_fields, update_fields, this_fallback_field_type);
     if(!validate_op.ok()) {
         LOG(INFO) << "Alter failed validation: " << validate_op.error();
         return validate_op;
@@ -5308,7 +5301,27 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
 
     if(!reindex_fields.empty()) {
         LOG(INFO) << "Processing field modifications now...";
-        batch_alter_op = batch_alter_data(reindex_fields, {}, fallback_field_type);
+        auto batch_alter_op = batch_alter_data(reindex_fields, {}, fallback_field_type);
+        if(!batch_alter_op.ok()) {
+            LOG(INFO) << "Alter failed during alter data: " << batch_alter_op.error();
+            return batch_alter_op;
+        }
+    }
+
+    if(!update_fields.empty()) {
+        LOG(INFO) << "Processing field updation now...";
+
+        for(const auto& field : update_fields) {
+            if(field.embed.count(fields::from) != 0) {
+                //update remote model api key
+                auto update_op = update_apikey(field);
+                if(!update_op.ok()) {
+                    return update_op;
+                }
+            }
+        }
+
+        auto batch_alter_op = batch_alter_data(update_fields, {}, fallback_field_type, true);
         if(!batch_alter_op.ok()) {
             LOG(INFO) << "Alter failed during alter data: " << batch_alter_op.error();
             return batch_alter_op;
@@ -5454,6 +5467,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                 std::vector<field>& addition_fields,
                                                 std::vector<field>& reindex_fields,
                                                 std::vector<field>& del_fields,
+                                                std::vector<field>& update_fields,
                                                 std::string& fallback_field_type) {
     if(!schema_changes.is_object()) {
         return Option<bool>(400, "Bad JSON.");
@@ -5582,13 +5596,14 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             // add or update existing field
             auto is_addition = (!found_field && !found_dyn_field);
             auto is_reindex = (delete_field_names.count(field_name) != 0);
+            auto is_update = (found_field && !is_reindex);
 
-            if(is_addition && is_reindex) {
+            if((is_addition + is_reindex + is_update) != 1) {
                 return Option<bool>(400, "Field `" + field_name +
-                                    "` cannot be added and deleted at the same time.");
+                                    "` cannot be added, deleted, and updated at the same time.");
             }
 
-            if(is_addition || is_reindex) {
+            //if(is_addition || is_reindex || is_update) {
                 // must validate fields
                 auto parse_op = field::json_field_to_field(enable_nested_fields, kv.value(), diff_fields,
                                                            fallback_field_type, num_auto_detect_fields);
@@ -5605,17 +5620,42 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
 
                 if(!f.embed.empty()) {
-                    auto validate_res = field::validate_and_init_embed_field(search_schema, schema_changes["fields"][json_array_index], schema_changes["fields"], f);
+                    if(is_update) {
+                        if (field_it.value().embed[fields::model_config][fields::model_name]
+                                != kv.value()[fields::model_config][fields::model_name]) {
+                            return Option < bool > (400, "`model_name` mismatch with existing field.");
+                        }
 
-                    if(!validate_res.ok()) {
-                        return validate_res;
+                        if(kv.value()[fields::model_config][fields::api_key]
+                            == field_it.value().embed[fields::model_config][fields::api_key]) {
+                            return Option<bool>(400, "trying to update with same api_key.");
+                        }
+
+                        //first update in remote embedder
+                        auto update_op = update_apikey(f);
+                        if(!update_op.ok()) {
+                            return update_op;
+                        }
+
+                        updated_embedding_fields.at(field_name).embed[fields::model_config][fields::api_key] = kv.value()[fields::model_config][fields::api_key];
+                        f = updated_embedding_fields.at(field_name);
+                    } else {
+                        auto validate_res = field::validate_and_init_embed_field(search_schema,
+                                                                                 schema_changes["fields"][json_array_index],
+                                                                                 schema_changes["fields"], f);
+
+                        if (!validate_res.ok()) {
+                            return validate_res;
+                        }
                     }
                 }
 
                 if(is_reindex) {
                     reindex_fields.push_back(f);
-                } else {
+                } else if(is_addition) {
                     addition_fields.push_back(f);
+                } else if(is_update) {
+                    update_fields.push_back(f);
                 }
 
                 if(f.embed.count(fields::from) != 0) {
@@ -5646,14 +5686,11 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                         }
                     }
                 }
-
-
-
-            } else {
-                // partial update is not supported for now
-                return Option<bool>(400, "Field `" + field_name + "` is already part of the schema: To "
-                                         "change this field, drop it first before adding it back to the schema.");
-            }
+//            } else {
+//                // partial update is not supported for now
+//                return Option<bool>(400, "Field `" + field_name + "` is already part of the schema: To "
+//                                         "change this field, drop it first before adding it back to the schema.");
+//            }
         }
     }
 
