@@ -2904,7 +2904,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
 #else
 
-    if (!enable_lazy_filter || filter_result_iterator->approx_filter_ids_length < 25'000) {
+    if (!enable_lazy_filter || filter_result_iterator->approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
         filter_result_iterator->compute_iterators();
     }
 #endif

@@ -760,15 +760,19 @@ void filter_result_iterator_t::init() {
 
     if (filter_node->isOperator) {
         if (filter_node->filter_operator == AND) {
-            and_filter_iterators();
             approx_filter_ids_length = std::min(left_it->approx_filter_ids_length, right_it->approx_filter_ids_length);
+            if (approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
+                compute_iterators();
+            } else {
+                and_filter_iterators();
+            }
         } else {
             or_filter_iterators();
             approx_filter_ids_length = std::max(left_it->approx_filter_ids_length, right_it->approx_filter_ids_length);
         }
 
         // Rearranging the subtree in hope to reduce computation if/when compute_iterators() is called.
-        if (left_it->approx_filter_ids_length > right_it->approx_filter_ids_length) {
+        if (!is_filter_result_initialized && left_it->approx_filter_ids_length > right_it->approx_filter_ids_length) {
             std::swap(left_it, right_it);
         }
 
