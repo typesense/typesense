@@ -1805,7 +1805,7 @@ Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root
                                            const bool& should_timeout) const {
     std::shared_lock lock(mutex);
 
-    auto filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root,
+    auto filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root, false,
                                                            search_begin_us, should_timeout ? search_stop_us : UINT64_MAX);
     auto filter_init_op = filter_result_iterator.init_status();
     if (!filter_init_op.ok()) {
@@ -1865,7 +1865,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
                                                      const std::string& field_name) const {
     std::shared_lock lock(mutex);
 
-    auto ref_filter_result_iterator = filter_result_iterator_t(ref_collection_name, this, filter_tree_root,
+    auto ref_filter_result_iterator = filter_result_iterator_t(ref_collection_name, this, filter_tree_root, false,
                                                                search_begin_us, search_stop_us);
     auto filter_init_op = ref_filter_result_iterator.init_status();
     if (!filter_init_op.ok()) {
@@ -2889,7 +2889,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
-                                                               search_begin_us, search_stop_us);
+                                                               enable_lazy_filter, search_begin_us, search_stop_us);
     std::unique_ptr<filter_result_iterator_t> filter_iterator_guard(filter_result_iterator);
 
     auto filter_init_op = filter_result_iterator->init_status();
@@ -2904,7 +2904,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
 #else
 
-    if (!enable_lazy_filter || filter_result_iterator->approx_filter_ids_length < 25'000) {
+    if (!enable_lazy_filter || filter_result_iterator->approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
         filter_result_iterator->compute_iterators();
     }
 #endif
@@ -6367,7 +6367,7 @@ Option<bool> Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& 
             auto& eval_exp = sort_fields_std[i].eval;
             auto count = sort_fields_std[i].eval_expressions.size();
             for (uint32_t j = 0; j < count; j++) {
-                auto filter_result_iterator = filter_result_iterator_t("", this, eval_exp.filter_trees[j],
+                auto filter_result_iterator = filter_result_iterator_t("", this, eval_exp.filter_trees[j], false,
                                                                        search_begin_us, search_stop_us);
                 auto filter_init_op = filter_result_iterator.init_status();
                 if (!filter_init_op.ok()) {
