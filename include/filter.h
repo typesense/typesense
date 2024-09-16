@@ -6,6 +6,8 @@
 #include "json.hpp"
 #include "store.h"
 
+constexpr uint32_t COMPUTE_FILTER_ITERATOR_THRESHOLD = 25'000;
+
 enum NUM_COMPARATOR {
     LESS_THAN,
     LESS_THAN_EQUALS,
