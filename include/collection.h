@@ -260,14 +260,12 @@ private:
 
     Option<bool> batch_alter_data(const std::vector<field>& alter_fields,
                                   const std::vector<field>& del_fields,
-                                  const std::string& this_fallback_field_type,
-                                  bool is_update_op = false);
+                                  const std::string& this_fallback_field_type);
 
     Option<bool> validate_alter_payload(nlohmann::json& schema_changes,
                                         std::vector<field>& addition_fields,
                                         std::vector<field>& reindex_fields,
                                         std::vector<field>& del_fields,
-                                        std::vector<field>& update_fields,
                                         std::string& fallback_field_type);
 
     void process_filter_overrides(std::vector<const override_t*>& filter_overrides,
@@ -427,7 +425,7 @@ public:
 
     void update_metadata(const nlohmann::json& meta);
 
-    Option<bool> update_apikey(const field& f);
+    Option<bool> update_apikey(const nlohmann::json& model_config);
 
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation,

@@ -26,13 +26,6 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                                  "`name`, `type`, `optional` and `facet` properties.");
     }
 
-    auto const& type = field_json["type"];
-    if(!field::has_valid_type(type)) {
-        return Option<bool>(400, "Field `" + field_json["name"].get<std::string>() +
-                                 "` has an invalid data type `" + field_json["type"].get<std::string>() +
-                                 "`, see docs for supported data types.");
-    }
-
     if(field_json.count("store") != 0 && !field_json.at("store").is_boolean()) {
         return Option<bool>(400, std::string("The `store` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
@@ -132,6 +125,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                                      std::string("` should be a boolean."));
         }
 
+        auto const& type = field_json["type"];
         if (field_json[fields::range_index] &&
             type != field_types::INT32 && type != field_types::INT32_ARRAY &&
             type != field_types::INT64 && type != field_types::INT64_ARRAY &&

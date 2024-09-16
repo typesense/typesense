@@ -398,8 +398,8 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
 
     auto alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
-    ASSERT_EQ("Schema change is incompatible with the type of documents already stored in this collection."
-              " Existing data for field `title` cannot be coerced into an array.",alter_op.error());
+    ASSERT_EQ("Field `title` is already part of the schema: To change this field, drop it first before adding it "
+              "back to the schema.",alter_op.error());
 
     // 2. Bad field format
     schema_changes = R"({
@@ -509,26 +509,6 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
     alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
     ASSERT_EQ("Field `id` cannot be altered.", alter_op.error());
-
-    //update non facet field to facet field
-    schema_changes = R"({
-        "fields": [
-            {"name": "title", "type": "string", "facet":true}
-        ]
-    })"_json;
-
-    alter_op = coll1->alter(schema_changes);
-    ASSERT_TRUE(alter_op.ok());
-
-    //update non facet field to facet field
-    schema_changes = R"({
-        "fields": [
-            {"name": "title", "type": "string", "facet":true}
-        ]
-    })"_json;
-
-    alter_op = coll1->alter(schema_changes);
-    ASSERT_TRUE(alter_op.ok());
 
     collectionManager.drop_collection("coll1");
 }

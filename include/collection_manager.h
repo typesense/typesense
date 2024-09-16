@@ -233,4 +233,6 @@ public:
     bool is_valid_api_key_collection(const std::vector<std::string>& api_key_collections, Collection* coll) const;
 
     Option<bool> update_collection_metadata(const std::string& collection, const nlohmann::json& metadata);
+
+    Option<bool> update_model_apikey(const std::string& collection, const nlohmann::json& model_config);
 };

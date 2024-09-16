@@ -295,23 +295,6 @@ struct field {
         return true;
     }
 
-    static bool has_valid_type(const std::string& type) {
-        if(type == field_types::STRING || type == field_types::STRING_ARRAY ||
-            type == field_types::INT32 || type == field_types::INT32_ARRAY ||
-            type == field_types::INT64 || type == field_types::INT64_ARRAY ||
-            type == field_types::FLOAT || type == field_types::FLOAT_ARRAY ||
-            type == field_types::BOOL || type == field_types::BOOL_ARRAY ||
-            type == field_types::GEOPOINT || type == field_types::GEOPOINT_ARRAY ||
-            type == field_types::OBJECT || type == field_types::OBJECT_ARRAY ||
-            type == field_types::AUTO || type == field_types::IMAGE ||
-            field_types::is_string_or_array(type)) {
-
-            return true;
-        }
-
-        return false;
-    }
-
     std::string faceted_name() const {
         return (facet && !is_string()) ? "_fstr_" + name : name;
     }
