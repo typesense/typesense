@@ -266,6 +266,7 @@ private:
                                         std::vector<field>& addition_fields,
                                         std::vector<field>& reindex_fields,
                                         std::vector<field>& del_fields,
+                                        std::vector<field>& update_fields,
                                         std::string& fallback_field_type);
 
     void process_filter_overrides(std::vector<const override_t*>& filter_overrides,

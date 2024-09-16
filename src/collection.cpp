@@ -5273,11 +5273,12 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     std::vector<field> del_fields;
     std::vector<field> addition_fields;
     std::vector<field> reindex_fields;
+    std::vector<field> update_fields;
 
     std::string this_fallback_field_type;
 
     auto validate_op = validate_alter_payload(alter_payload, addition_fields, reindex_fields,
-                                              del_fields, this_fallback_field_type);
+                                              del_fields, update_fields, this_fallback_field_type);
     if(!validate_op.ok()) {
         LOG(INFO) << "Alter failed validation: " << validate_op.error();
         return validate_op;
@@ -5312,6 +5313,18 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         if(!batch_alter_op.ok()) {
             LOG(INFO) << "Alter failed during alter data: " << batch_alter_op.error();
             return batch_alter_op;
+        }
+    }
+
+    if(!update_fields.empty()) {
+        for(const auto& f : update_fields) {
+            if(f.embed.count(fields::from) != 0) {
+                //it's an embed field
+                auto op = update_apikey(f.embed[fields::model_name], f.name);
+                if(!op.ok()) {
+                    return op;
+                }
+            }
         }
     }
 
@@ -5454,6 +5467,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                 std::vector<field>& addition_fields,
                                                 std::vector<field>& reindex_fields,
                                                 std::vector<field>& del_fields,
+                                                std::vector<field>& update_fields,
                                                 std::string& fallback_field_type) {
     if(!schema_changes.is_object()) {
         return Option<bool>(400, "Bad JSON.");
@@ -5646,21 +5660,23 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                         }
                     }
                 }
-            } else if (found_field && field_it->embed.count("from") != 0) {
+            } else if (found_field && field_it->embed.count(fields::from) != 0) {
                 //embedded field, only api key updation is supported
-                if (!kv.value().contains("model_config") || !kv.value()["model_config"].is_object()) {
+                if (!kv.value().contains(fields::model_config) || !kv.value()[fields::model_config].is_object()) {
                     return Option<bool>(400,
                                         "`model_config` should be an object containing `model_name` and `api_key`.");
                 }
 
-                const auto &model_config = kv.value()["model_config"];
-                if (!model_config.contains("model_name") || !model_config.contains("api_key") ||
-                    !model_config["model_name"].is_string() || model_config["api_key"].is_string()) {
+                const auto &model_config = kv.value()[fields::model_config];
+                if (!model_config.contains(fields::model_name) || !model_config.contains(fields::api_key) ||
+                    !model_config[fields::model_name].is_string() || model_config[fields::api_key].is_string()) {
                     return Option<bool>(400,
                                         "`model_config` should be an object containing `model_name` and `api_key` as string values.");
                 }
 
-                return update_apikey(model_config, field_name);
+                field f(field_name, field_it->type, field_it->facet);
+                f.embed = field_it->embed;
+                update_fields.push_back(f);
             } else {
                 // partial update is not supported for now
                 return Option<bool>(400, "Field `" + field_name + "` is already part of the schema: To "

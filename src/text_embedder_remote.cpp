@@ -139,6 +139,8 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
 }
 
 embedding_res_t OpenAIEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
+    std::shared_lock<std::shared_mutex> lock(mutex);
+
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Authorization"] = "Bearer " + api_key;
@@ -330,6 +332,8 @@ Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, 
 }
 
 embedding_res_t GoogleEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
+    std::shared_lock<std::shared_mutex> lock(mutex);
+
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Content-Type"] = "application/json";
@@ -481,6 +485,8 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, siz
 }
 
 embedding_res_t GCPEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
+    std::shared_lock<std::shared_mutex> lock(mutex);
+
     nlohmann::json req_body;
     req_body["instances"] = nlohmann::json::array();
     nlohmann::json instance;
