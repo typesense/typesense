@@ -2291,18 +2291,3 @@ Option<bool> CollectionManager::update_collection_metadata(const std::string& co
 
     return Option<bool>(400, "failed to insert into store.");
 }
-
-Option<bool> CollectionManager::update_model_apikey(const std::string& collection, const nlohmann::json& model_config) {
-    auto collection_ptr = get_collection(collection);
-    if (collection_ptr == nullptr) {
-        return Option<bool>(400, "failed to get collection.");
-    }
-
-    auto op = collection_ptr->update_apikey(model_config);
-
-    if (!op.ok()) {
-        return op;
-    }
-
-    return Option<bool>(true);
-}

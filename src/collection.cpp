@@ -4808,37 +4808,37 @@ void Collection::update_metadata(const nlohmann::json& meta) {
     metadata = meta;
 }
 
-Option<bool> Collection::update_apikey(const nlohmann::json& model_config) {
-    const auto& model_name = model_config["model_name"];
-    const auto& api_key = model_config["api_key"];
+Option<bool> Collection::update_apikey(const nlohmann::json& model_config, const std::string& field_name) {
+    const auto& model_name = model_config[fields::model_name];
+    const auto& api_key = model_config[fields::api_key];
 
     for(auto& coll_field : fields) {
-        if (coll_field.embed.count(fields::from) != 0) {
-            if(coll_field.embed.contains("model_config")) {
-                auto& coll_model_config = coll_field.embed["model_config"];
-                if (coll_model_config.contains("model_name") && coll_model_config["model_name"] == model_name) {
-                    if(!coll_model_config.contains("api_key")) {
-                        return Option<bool>(400, "Invalid model for api_key updation.");
-                    }
+        if (coll_field.name == field_name) {
+            auto &coll_model_config = coll_field.embed[fields::model_config];
+            if (!coll_model_config.contains(fields::model_name) || coll_model_config[fields::model_name] != model_name) {
+                return Option<bool>(400, "`model_name` mismatch for api_key updation.");
+            }
 
-                    if(coll_model_config["api_key"] == api_key) {
-                        return Option<bool>(400, "trying to update with same api_key.");
-                    }
+            if (!coll_model_config.contains(fields::api_key)) {
+                return Option<bool>(400, "Invalid model for api_key updation.");
+            }
 
-                    //update in remote embedder first the in collection
-                    auto update_op = EmbedderManager::get_instance().update_remote_model_apikey(coll_model_config, api_key);
+            if (coll_model_config[fields::api_key] == api_key) {
+                return Option<bool>(400, "trying to update with same api_key.");
+            }
 
-                    if(!update_op.ok()) {
-                        return update_op;
-                    }
+            //update in remote embedder first the in collection
+            auto update_op = EmbedderManager::get_instance().update_remote_model_apikey(coll_model_config, api_key);
 
-                    coll_model_config["api_key"] = api_key;
+            if (!update_op.ok()) {
+                return update_op;
+            }
 
-                    auto persist_op = persist_collection_meta();
-                    if(!persist_op.ok()) {
-                        return persist_op;
-                    }
-                }
+            coll_model_config[fields::api_key] = api_key;
+
+            auto persist_op = persist_collection_meta();
+            if (!persist_op.ok()) {
+                return persist_op;
             }
         }
     }
@@ -5646,9 +5646,21 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                         }
                     }
                 }
+            } else if (found_field && field_it->embed.count("from") != 0) {
+                //embedded field, only api key updation is supported
+                if (!kv.value().contains("model_config") || !kv.value()["model_config"].is_object()) {
+                    return Option<bool>(400,
+                                        "`model_config` should be an object containing `model_name` and `api_key`.");
+                }
 
+                const auto &model_config = kv.value()["model_config"];
+                if (!model_config.contains("model_name") || !model_config.contains("api_key") ||
+                    !model_config["model_name"].is_string() || model_config["api_key"].is_string()) {
+                    return Option<bool>(400,
+                                        "`model_config` should be an object containing `model_name` and `api_key` as string values.");
+                }
 
-
+                return update_apikey(model_config, field_name);
             } else {
                 // partial update is not supported for now
                 return Option<bool>(400, "Field `" + field_name + "` is already part of the schema: To "
