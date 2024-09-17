@@ -5662,7 +5662,12 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
             } else if (found_field && field_it->embed.count(fields::from) != 0) {
                 //embedded field, only api key updation is supported
-                if (!kv.value().contains(fields::model_config) || !kv.value()[fields::model_config].is_object()) {
+                if(!kv.value().contains(fields::embed) || !kv.value()[fields::embed].is_object()) {
+                    return Option<bool>(400,
+                                        "Missing or bad `embed` param.");
+                }
+
+                if (!kv.value()[fields::embed].contains(fields::model_config) || !kv.value()[fields::embed][fields::model_config].is_object()) {
                     return Option<bool>(400,
                                         "`model_config` should be an object containing `model_name` and `api_key`.");
                 }
