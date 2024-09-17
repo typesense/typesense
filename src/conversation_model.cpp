@@ -152,21 +152,25 @@ Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model
 
     nlohmann::json models_json;
 
-    if (res_code != 200) {
-        try {
-            models_json = nlohmann::json::parse(res);
-        } catch (const std::exception& e) {
-            return Option<bool>(400, "OpenAI API error: " + res);
-        }
+    try {
+        models_json = nlohmann::json::parse(res);
+    } catch (const std::exception& e) {
+        return Option<bool>(400, "Error parsing OpenAI API response: " + res);
+    }
+
+    if(res_code != 200) {
         if(models_json.count("error") == 0 || models_json["error"].count("message") == 0) {
-            return Option<bool>(400, "OpenAI API error: " + res);
+            return Option<bool>(400, "OpenAI API error, response: " + res);
         }
+
         return Option<bool>(400, "OpenAI API error: " + models_json["error"]["message"].get<std::string>());
     }
 
-    bool found = false;
     // extract model name by removing "openai/" prefix
-    auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
+    auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(
+                                                            model_config["model_name"].get<std::string>());
+
+    bool found = false;
     for (auto& model : models_json["data"]) {
         if (model["id"] == model_name_without_namespace) {
             found = true;
