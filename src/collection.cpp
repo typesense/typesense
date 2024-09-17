@@ -5324,7 +5324,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         for(const auto& f : update_fields) {
             if(f.embed.count(fields::from) != 0) {
                 //it's an embed field
-                auto op = update_apikey(f.embed[fields::model_name], f.name);
+                auto op = update_apikey(f.embed[fields::model_config], f.name);
                 if(!op.ok()) {
                     return op;
                 }
@@ -5676,7 +5676,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                         "`model_config` should be an object containing `model_name` and `api_key`.");
                 }
 
-                const auto &model_config = kv.value()[fields::model_config];
+                const auto &model_config = kv.value()[fields::embed][fields::model_config];
                 if (!model_config.contains(fields::model_name) || !model_config.contains(fields::api_key) ||
                     !model_config[fields::model_name].is_string() || model_config[fields::api_key].is_string()) {
                     return Option<bool>(400,
@@ -5684,7 +5684,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
 
                 field f(field_name, field_it->type, field_it->facet);
-                f.embed = field_it->embed;
+                f.embed = kv.value()[fields::embed];
                 update_fields.push_back(f);
             } else {
                 // partial update is not supported for now
