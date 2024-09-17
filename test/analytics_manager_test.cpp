@@ -1009,14 +1009,18 @@ TEST_F(AnalyticsManagerTest, QueryLengthTruncation) {
     auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_TRUE(create_op.ok());
 
-    std::string q = StringUtils::randstring(1050);
-    analyticsManager.add_nohits_query("titles", q, true, "1");
+    std::string q1 = StringUtils::randstring(1050);
+    std::string q2 = StringUtils::randstring(1000);
+    analyticsManager.add_nohits_query("titles", q1, true, "1");
+    analyticsManager.add_nohits_query("titles", q2, true, "2");
 
     auto noresults_queries = analyticsManager.get_nohits_queries();
     auto userQueries = noresults_queries["queries"]->get_user_prefix_queries()["1"];
+    ASSERT_EQ(0, userQueries.size());
 
+    userQueries = noresults_queries["queries"]->get_user_prefix_queries()["2"];
     ASSERT_EQ(1, userQueries.size());
-    ASSERT_EQ(q.substr(0, 1024), userQueries[0].query);
+    ASSERT_EQ(q2, userQueries[0].query);
 
     // delete nohits_queries rule
     ASSERT_TRUE(analyticsManager.remove_rule("search_queries").ok());
@@ -1042,13 +1046,16 @@ TEST_F(AnalyticsManagerTest, QueryLengthTruncation) {
     create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_TRUE(create_op.ok());
 
-    analyticsManager.add_suggestion("titles", q, "cool", true, "1");
+    analyticsManager.add_suggestion("titles", q1, "cool", true, "1");
+    analyticsManager.add_suggestion("titles", q2, "cool", true, "2");
 
     auto popular_queries = analyticsManager.get_popular_queries();
     userQueries = popular_queries["queries"]->get_user_prefix_queries()["1"];
+    ASSERT_EQ(0, userQueries.size());
 
+    userQueries = popular_queries["queries"]->get_user_prefix_queries()["2"];
     ASSERT_EQ(1, userQueries.size());
-    ASSERT_EQ(q.substr(0, 1024), userQueries[0].query);
+    ASSERT_EQ(q2, userQueries[0].query);
 }
 
 TEST_F(AnalyticsManagerTest, SuggestionConfigRule) {

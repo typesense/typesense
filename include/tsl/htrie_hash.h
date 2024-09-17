@@ -121,6 +121,18 @@ struct value_node {
 template <>
 struct value_node<void> {};
 
+template <class CharT, bool HasPrefix>
+struct prefix_filter {};
+
+template <class CharT>
+struct prefix_filter<CharT, true> {
+  prefix_filter() = default;
+  prefix_filter(std::basic_string<CharT> prefix_filter)
+      : m_prefix_filter(std::move(prefix_filter)) {}
+
+  std::basic_string<CharT> m_prefix_filter;
+};
+
 /**
  * T should be void if there is no value associated to a key (in a set for
  * example).
@@ -152,12 +164,14 @@ class htrie_hash {
   using const_prefix_iterator = htrie_hash_iterator<true, true>;
 
  private:
+  using ArrayHashIndexSizeT = std::uint16_t;
   using array_hash_type = typename std::conditional<
       has_value<T>::value,
       tsl::array_map<CharT, T, Hash, tsl::ah::str_equal<CharT>, false, KeySizeT,
-                     std::uint16_t, tsl::ah::power_of_two_growth_policy<4>>,
+                     ArrayHashIndexSizeT,
+                     tsl::ah::power_of_two_growth_policy<4>>,
       tsl::array_set<CharT, Hash, tsl::ah::str_equal<CharT>, false, KeySizeT,
-                     std::uint16_t,
+                     ArrayHashIndexSizeT,
                      tsl::ah::power_of_two_growth_policy<4>>>::type;
 
  private:
@@ -394,9 +408,11 @@ class htrie_hash {
     }
 
     bool empty() const noexcept {
-      return std::all_of(
-          m_children.cbegin(), m_children.cend(),
-          [](const std::unique_ptr<anode>& n) { return n == nullptr; });
+      return std::all_of(m_children.cbegin(), m_children.cend(),
+                         [](const std::unique_ptr<anode>& n) {
+                           return n == nullptr;
+                         }) &&
+             m_value_node == nullptr;
     }
 
     std::unique_ptr<anode>& child(CharT for_char) noexcept {
@@ -482,7 +498,7 @@ class htrie_hash {
 
  public:
   template <bool IsConst, bool IsPrefixIterator>
-  class htrie_hash_iterator {
+  class htrie_hash_iterator : private prefix_filter<CharT, IsPrefixIterator> {
     friend class htrie_hash;
 
    private:
@@ -545,8 +561,8 @@ class htrie_hash {
       tsl_ht_assert(m_current_trie_node->val_node() != nullptr);
     }
 
-    template <bool P = IsPrefixIterator,
-              typename std::enable_if<!P>::type* = nullptr>
+    template <bool TIsPrefixIterator = IsPrefixIterator,
+              typename std::enable_if<!TIsPrefixIterator>::type* = nullptr>
     htrie_hash_iterator(trie_node_type* tnode, hash_node_type* hnode,
                         array_hash_iterator_type begin,
                         array_hash_iterator_type end,
@@ -557,18 +573,18 @@ class htrie_hash {
           m_array_hash_end_iterator(end),
           m_read_trie_node_value(read_trie_node_value) {}
 
-    template <bool P = IsPrefixIterator,
-              typename std::enable_if<P>::type* = nullptr>
+    template <bool TIsPrefixIterator = IsPrefixIterator,
+              typename std::enable_if<TIsPrefixIterator>::type* = nullptr>
     htrie_hash_iterator(trie_node_type* tnode, hash_node_type* hnode,
                         array_hash_iterator_type begin,
                         array_hash_iterator_type end, bool read_trie_node_value,
-                        std::basic_string<CharT> prefix_filter) noexcept
-        : m_current_trie_node(tnode),
+                        std::basic_string<CharT> prefix_filter_) noexcept
+        : prefix_filter<CharT, TIsPrefixIterator>(std::move(prefix_filter_)),
+          m_current_trie_node(tnode),
           m_current_hash_node(hnode),
           m_array_hash_iterator(begin),
           m_array_hash_end_iterator(end),
-          m_read_trie_node_value(read_trie_node_value),
-          m_prefix_filter(std::move(prefix_filter)) {}
+          m_read_trie_node_value(read_trie_node_value) {}
 
    public:
     htrie_hash_iterator() noexcept {}
@@ -592,12 +608,12 @@ class htrie_hash {
         typename std::enable_if<TIsConst && TIsPrefixIterator>::type* = nullptr>
     htrie_hash_iterator(
         const htrie_hash_iterator<!TIsConst, TIsPrefixIterator>& other) noexcept
-        : m_current_trie_node(other.m_current_trie_node),
+        : prefix_filter<CharT, TIsPrefixIterator>(other.m_prefix_filter),
+          m_current_trie_node(other.m_current_trie_node),
           m_current_hash_node(other.m_current_hash_node),
           m_array_hash_iterator(other.m_array_hash_iterator),
           m_array_hash_end_iterator(other.m_array_hash_end_iterator),
-          m_read_trie_node_value(other.m_read_trie_node_value),
-          m_prefix_filter(other.m_prefix_filter) {}
+          m_read_trie_node_value(other.m_read_trie_node_value) {}
 
     htrie_hash_iterator(const htrie_hash_iterator& other) = default;
     htrie_hash_iterator(htrie_hash_iterator&& other) = default;
@@ -742,24 +758,24 @@ class htrie_hash {
       }
     }
 
-    template <bool P = IsPrefixIterator,
-              typename std::enable_if<!P>::type* = nullptr>
+    template <bool TIsPrefixIterator = IsPrefixIterator,
+              typename std::enable_if<!TIsPrefixIterator>::type* = nullptr>
     void filter_prefix() {}
 
-    template <bool P = IsPrefixIterator,
-              typename std::enable_if<P>::type* = nullptr>
+    template <bool TIsPrefixIterator = IsPrefixIterator,
+              typename std::enable_if<TIsPrefixIterator>::type* = nullptr>
     void filter_prefix() {
       tsl_ht_assert(m_array_hash_iterator != m_array_hash_end_iterator);
       tsl_ht_assert(!m_read_trie_node_value && m_current_hash_node != nullptr);
 
-      if (m_prefix_filter.empty()) {
+      if (this->m_prefix_filter.empty()) {
         return;
       }
 
-      while ((m_prefix_filter.size() > m_array_hash_iterator.key_size() ||
-              m_prefix_filter.compare(0, m_prefix_filter.size(),
-                                      m_array_hash_iterator.key(),
-                                      m_prefix_filter.size()) != 0)) {
+      while ((this->m_prefix_filter.size() > m_array_hash_iterator.key_size() ||
+              this->m_prefix_filter.compare(
+                  0, this->m_prefix_filter.size(), m_array_hash_iterator.key(),
+                  this->m_prefix_filter.size()) != 0)) {
         ++m_array_hash_iterator;
         if (m_array_hash_iterator == m_array_hash_end_iterator) {
           if (m_current_trie_node == nullptr) {
@@ -849,9 +865,6 @@ class htrie_hash {
     array_hash_iterator_type m_array_hash_end_iterator;
 
     bool m_read_trie_node_value;
-    // TODO can't have void if !IsPrefixIterator, use inheritance
-    typename std::conditional<IsPrefixIterator, std::basic_string<CharT>,
-                              bool>::type m_prefix_filter;
   };
 
  public:
@@ -1200,12 +1213,32 @@ class htrie_hash {
     return longest_prefix_impl(*m_root, key, key_size);
   }
 
+  template <class F>
+  void for_each_prefix_of(const CharT* key, size_type key_size, F&& visitor) {
+    if (m_root != nullptr) {
+      for_each_prefix_of_impl<iterator>(*m_root, key, key_size,
+                                        std::forward<F>(visitor));
+    }
+  }
+
+  template <class F>
+  void for_each_prefix_of(const CharT* key, size_type key_size,
+                          F&& visitor) const {
+    if (m_root != nullptr) {
+      for_each_prefix_of_impl<const_iterator>(*m_root, key, key_size,
+                                              std::forward<F>(visitor));
+    }
+  }
+
   /*
    * Hash policy
    */
   float max_load_factor() const { return m_max_load_factor; }
 
-  void max_load_factor(float ml) { m_max_load_factor = ml; }
+  void max_load_factor(float ml) {
+    const float min_max_load_factor = array_hash_type::MIN_MAX_LOAD_FACTOR;
+    m_max_load_factor = std::max(min_max_load_factor, ml);
+  }
 
   /*
    * Burst policy
@@ -1214,7 +1247,11 @@ class htrie_hash {
 
   void burst_threshold(size_type threshold) {
     const size_type min_burst_threshold = MIN_BURST_THRESHOLD;
-    m_burst_threshold = std::max(min_burst_threshold, threshold);
+    const size_type max_burst_threshold = MAX_BURST_THRESHOLD;
+
+    m_burst_threshold = threshold;
+    m_burst_threshold = std::max(m_burst_threshold, min_burst_threshold);
+    m_burst_threshold = std::min(m_burst_threshold, max_burst_threshold);
   }
 
   /*
@@ -1446,8 +1483,7 @@ class htrie_hash {
    */
   void clear_empty_nodes(anode& empty_node) noexcept {
     tsl_ht_assert(!empty_node.is_trie_node() ||
-                  (empty_node.as_trie_node().empty() &&
-                   empty_node.as_trie_node().val_node() == nullptr));
+                  empty_node.as_trie_node().empty());
     tsl_ht_assert(!empty_node.is_hash_node() ||
                   empty_node.as_hash_node().array_hash().empty());
 
@@ -1588,6 +1624,60 @@ class htrie_hash {
     return longest_found_prefix;
   }
 
+  template <class Iterator, class N, class F>
+  void for_each_prefix_of_impl(N& search_start_node, const CharT* value,
+                               size_type value_size, F&& visitor) const {
+    auto* current_node = &search_start_node;
+
+    for (size_type ivalue = 0; ivalue < value_size; ivalue++) {
+      if (current_node->is_trie_node()) {
+        auto& tnode = current_node->as_trie_node();
+
+        if (tnode.val_node() != nullptr) {
+          visitor(Iterator(tnode));
+        }
+
+        if (tnode.child(value[ivalue]) == nullptr) {
+          return;
+        } else {
+          current_node = tnode.child(value[ivalue]).get();
+        }
+      } else {
+        auto& hnode = current_node->as_hash_node();
+
+        /**
+         * Test the presence in the hash node of each substring from the
+         * remaining [ivalue, value_size) string starting from the shortest.
+         * Also test the empty string.
+         */
+        for (std::size_t i = value_size + 1; i > ivalue; i--) {
+          auto it =
+              hnode.array_hash().find_ks(value + ivalue, (value_size - i + 1));
+          if (it != hnode.array_hash().end()) {
+            visitor(Iterator(hnode, it));
+          }
+        }
+
+        return;
+      }
+    }
+
+    if (current_node->is_trie_node()) {
+      auto& tnode = current_node->as_trie_node();
+
+      if (tnode.val_node() != nullptr) {
+        visitor(Iterator(tnode));
+      }
+    } else {
+      auto& hnode = current_node->as_hash_node();
+
+      auto it = hnode.array_hash().find_ks("", 0);
+      if (it != hnode.array_hash().end()) {
+        visitor(Iterator(hnode, it));
+      }
+    }
+  }
+
   std::pair<prefix_iterator, prefix_iterator> equal_prefix_range_impl(
       anode& search_start_node, const CharT* prefix, size_type prefix_size) {
     auto range = static_cast<const htrie_hash*>(this)->equal_prefix_range_impl(
@@ -1687,7 +1777,7 @@ class htrie_hash {
       }
     }
 
-    tsl_ht_assert(new_node->val_node() != nullptr || !new_node->empty());
+    tsl_ht_assert(!new_node->empty());
     return new_node;
   }
 
@@ -1734,7 +1824,7 @@ class htrie_hash {
         }
       }
 
-      tsl_ht_assert(new_node->val_node() != nullptr || !new_node->empty());
+      tsl_ht_assert(!new_node->empty());
       return new_node;
     } catch (...) {
       // Rollback the values
@@ -1769,7 +1859,7 @@ class htrie_hash {
       }
     }
 
-    tsl_ht_assert(new_node->val_node() != nullptr || !new_node->empty());
+    tsl_ht_assert(!new_node->empty());
     return new_node;
   }
 
@@ -2062,6 +2152,8 @@ class htrie_hash {
 
   static const size_type HASH_NODE_DEFAULT_INIT_BUCKETS_COUNT = 32;
   static const size_type MIN_BURST_THRESHOLD = 4;
+  static const size_type MAX_BURST_THRESHOLD =
+      std::numeric_limits<ArrayHashIndexSizeT>::max();
 
   std::unique_ptr<anode> m_root;
   size_type m_nb_elements;
