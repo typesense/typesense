@@ -693,6 +693,7 @@ class array_set {
 
  public:
   static const size_type MAX_KEY_SIZE = ht::MAX_KEY_SIZE;
+  static constexpr float MIN_MAX_LOAD_FACTOR = ht::MIN_MAX_LOAD_FACTOR;
 
  private:
   ht m_ht;

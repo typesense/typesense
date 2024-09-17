@@ -29,6 +29,7 @@
 #include <climits>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <limits>
 #include <ratio>
@@ -193,15 +194,71 @@ class mod_growth_policy {
 
 namespace detail {
 
-static constexpr const std::array<std::size_t, 40> PRIMES = {
-    {1ul,         5ul,         17ul,         29ul,         37ul,
-     53ul,        67ul,        79ul,         97ul,         131ul,
-     193ul,       257ul,       389ul,        521ul,        769ul,
-     1031ul,      1543ul,      2053ul,       3079ul,       6151ul,
-     12289ul,     24593ul,     49157ul,      98317ul,      196613ul,
-     393241ul,    786433ul,    1572869ul,    3145739ul,    6291469ul,
-     12582917ul,  25165843ul,  50331653ul,   100663319ul,  201326611ul,
-     402653189ul, 805306457ul, 1610612741ul, 3221225473ul, 4294967291ul}};
+#if SIZE_MAX >= ULLONG_MAX
+#define TSL_AH_NB_PRIMES 51
+#elif SIZE_MAX >= ULONG_MAX
+#define TSL_AH_NB_PRIMES 40
+#else
+#define TSL_AH_NB_PRIMES 23
+#endif
+
+static constexpr const std::array<std::size_t, TSL_AH_NB_PRIMES> PRIMES = {{
+    1u,
+    5u,
+    17u,
+    29u,
+    37u,
+    53u,
+    67u,
+    79u,
+    97u,
+    131u,
+    193u,
+    257u,
+    389u,
+    521u,
+    769u,
+    1031u,
+    1543u,
+    2053u,
+    3079u,
+    6151u,
+    12289u,
+    24593u,
+    49157u,
+#if SIZE_MAX >= ULONG_MAX
+    98317ul,
+    196613ul,
+    393241ul,
+    786433ul,
+    1572869ul,
+    3145739ul,
+    6291469ul,
+    12582917ul,
+    25165843ul,
+    50331653ul,
+    100663319ul,
+    201326611ul,
+    402653189ul,
+    805306457ul,
+    1610612741ul,
+    3221225473ul,
+    4294967291ul,
+#endif
+#if SIZE_MAX >= ULLONG_MAX
+    6442450939ull,
+    12884901893ull,
+    25769803751ull,
+    51539607551ull,
+    103079215111ull,
+    206158430209ull,
+    412316860441ull,
+    824633720831ull,
+    1649267441651ull,
+    3298534883309ull,
+    6597069766657ull,
+#endif
+}};
 
 template <unsigned int IPrime>
 static constexpr std::size_t mod(std::size_t hash) {
@@ -211,13 +268,23 @@ static constexpr std::size_t mod(std::size_t hash) {
 // MOD_PRIME[iprime](hash) returns hash % PRIMES[iprime]. This table allows for
 // faster modulo as the compiler can optimize the modulo code better with a
 // constant known at the compilation.
-static constexpr const std::array<std::size_t (*)(std::size_t), 40> MOD_PRIME =
-    {{&mod<0>,  &mod<1>,  &mod<2>,  &mod<3>,  &mod<4>,  &mod<5>,  &mod<6>,
-      &mod<7>,  &mod<8>,  &mod<9>,  &mod<10>, &mod<11>, &mod<12>, &mod<13>,
-      &mod<14>, &mod<15>, &mod<16>, &mod<17>, &mod<18>, &mod<19>, &mod<20>,
-      &mod<21>, &mod<22>, &mod<23>, &mod<24>, &mod<25>, &mod<26>, &mod<27>,
-      &mod<28>, &mod<29>, &mod<30>, &mod<31>, &mod<32>, &mod<33>, &mod<34>,
-      &mod<35>, &mod<36>, &mod<37>, &mod<38>, &mod<39>}};
+static constexpr const std::array<std::size_t (*)(std::size_t),
+                                  TSL_AH_NB_PRIMES>
+    MOD_PRIME = {{
+        &mod<0>,  &mod<1>,  &mod<2>,  &mod<3>,  &mod<4>,  &mod<5>,
+        &mod<6>,  &mod<7>,  &mod<8>,  &mod<9>,  &mod<10>, &mod<11>,
+        &mod<12>, &mod<13>, &mod<14>, &mod<15>, &mod<16>, &mod<17>,
+        &mod<18>, &mod<19>, &mod<20>, &mod<21>, &mod<22>,
+#if SIZE_MAX >= ULONG_MAX
+        &mod<23>, &mod<24>, &mod<25>, &mod<26>, &mod<27>, &mod<28>,
+        &mod<29>, &mod<30>, &mod<31>, &mod<32>, &mod<33>, &mod<34>,
+        &mod<35>, &mod<36>, &mod<37>, &mod<38>, &mod<39>,
+#endif
+#if SIZE_MAX >= ULLONG_MAX
+        &mod<40>, &mod<41>, &mod<42>, &mod<43>, &mod<44>, &mod<45>,
+        &mod<46>, &mod<47>, &mod<48>, &mod<49>, &mod<50>,
+#endif
+    }};
 
 }  // namespace detail
 

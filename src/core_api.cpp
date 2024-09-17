@@ -1097,10 +1097,6 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             return false;
         }
 
-        if (include_fields_vec.empty()) {
-            include_fields_vec.emplace_back("*");
-        }
-
         include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
         exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
 

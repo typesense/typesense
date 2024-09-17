@@ -1086,7 +1086,8 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
 
     auto doc1 = R"({
         "name": {"first": "John", "last": "Smith"},
-        "points": 100
+        "points": 100,
+        "description": "description"
     })"_json;
 
     auto add_op = coll1->add(doc1.dump(), CREATE);
@@ -1121,11 +1122,32 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
     res_strs.clear();
     StringUtils::split(res->body, res_strs, "\n");
     doc = nlohmann::json::parse(res_strs[0]);
-    ASSERT_EQ(3, doc.size());
+    ASSERT_EQ(4, doc.size());
     ASSERT_EQ(1, doc.count("id"));
     ASSERT_EQ(1, doc.count("points"));
     ASSERT_EQ(1, doc.count("name"));
     ASSERT_EQ(1, doc["name"].count("first"));
+    ASSERT_EQ(1, doc.count("description"));     // field not in schema is exported
+
+    // no include or exclude fields
+
+    delete dynamic_cast<export_state_t*>(req->data);
+    req->data = nullptr;
+    res->body.clear();
+    req->params.erase("include_fields");
+    req->params.erase("exclude_fields");
+    get_export_documents(req, res);
+
+    res_strs.clear();
+    StringUtils::split(res->body, res_strs, "\n");
+    doc = nlohmann::json::parse(res_strs[0]);
+    ASSERT_EQ(4, doc.size());
+    ASSERT_EQ(1, doc.count("id"));
+    ASSERT_EQ(1, doc.count("points"));
+    ASSERT_EQ(1, doc.count("name"));
+    ASSERT_EQ(1, doc["name"].count("first"));
+    ASSERT_EQ(1, doc["name"].count("last"));
+    ASSERT_EQ(1, doc.count("description"));     // field not in schema is exported
 
     collectionManager.drop_collection("coll1");
 }

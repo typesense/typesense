@@ -473,6 +473,100 @@ class htrie_set {
   }
 #endif
 
+  /**
+   * Invoke the given `visitor` function for each element in the trie which is
+   * a prefix of `key`.
+   *
+   * @tparam F Callable target taking a single `iterator` or `const_iterator`
+   *         argument.
+   *
+   * Example:
+   *
+   *     tsl::htrie_set<char> set = {"/foo", "/foo/bar"};
+   *     auto print = [](tsl::htrie_set<char>::iterator it) {
+   *        std::cout << it.key() << "\n";
+   *     };
+   *
+   *     set.for_each_prefix_of("/foo", print); // prints "/foo"
+   *     set.for_each_prefix_of("/foo/baz", print); // prints "/foo"
+   *     set.for_each_prefix_of("/foo/bar/baz", print); // prints "/foo" and "/foo/bar"
+   *     set.for_each_prefix_of("/foo/bar/", print); // prints "/foo" and "/foo/bar"
+   *     set.for_each_prefix_of("/bar", print); // prints nothing
+   *     set.for_each_prefix_of("", print); // prints nothing
+   */
+  template <typename F>
+  void for_each_prefix_of_ks(const CharT* key, size_type key_size,
+                             F&& visitor) {
+    return m_ht.for_each_prefix_of(key, key_size, std::forward<F>(visitor));
+  }
+
+  /**
+   * @copydoc for_each_prefix_of_ks(const CharT*, size_type, F&&)
+   */
+  template <typename F>
+  void for_each_prefix_of_ks(const CharT* key, size_type key_size,
+                             F&& visitor) const {
+    return m_ht.for_each_prefix_of(key, key_size, std::forward<F>(visitor));
+  }
+#ifdef TSL_HT_HAS_STRING_VIEW
+  /**
+   * @copydoc for_each_prefix_of_ks(const CharT*, size_type, F&&)
+   */
+  template <typename F>
+  void for_each_prefix_of(const std::basic_string_view<CharT>& key,
+                          F&& visitor) {
+    return m_ht.for_each_prefix_of(key.data(), key.size(),
+                                   std::forward<F>(visitor));
+  }
+
+  /**
+   * @copydoc for_each_prefix_of_ks(const CharT*, size_type, F&&)
+   */
+  template <typename F>
+  void for_each_prefix_of(const std::basic_string_view<CharT>& key,
+                          F&& visitor) const {
+    return m_ht.for_each_prefix_of(key.data(), key.size(),
+                                   std::forward<F>(visitor));
+  }
+#else
+  /**
+   * @copydoc for_each_prefix_of_ks(const CharT*, size_type, F&&)
+   */
+  template <typename F>
+  void for_each_prefix_of(const CharT* key, F&& visitor) {
+    return m_ht.for_each_prefix_of(key, std::strlen(key),
+                                   std::forward<F>(visitor));
+  }
+
+  /**
+   * @copydoc for_each_prefix_of_ks(const CharT*, size_type, F&&)
+   */
+  template <typename F>
+  void for_each_prefix_of(const CharT* key, F&& visitor) const {
+    return m_ht.for_each_prefix_of(key, std::strlen(key),
+                                   std::forward<F>(visitor));
+  }
+
+  /**
+   * @copydoc for_each_prefix_of_ks(const CharT*, size_type, F&&)
+   */
+  template <typename F>
+  void for_each_prefix_of(const std::basic_string<CharT>& key, F&& visitor) {
+    return m_ht.for_each_prefix_of(key.data(), key.size(),
+                                   std::forward<F>(visitor));
+  }
+
+  /**
+   * @copydoc for_each_prefix_of_ks(const CharT*, size_type, F&&)
+   */
+  template <typename F>
+  void for_each_prefix_of(const std::basic_string<CharT>& key,
+                          F&& visitor) const {
+    return m_ht.for_each_prefix_of(key.data(), key.size(),
+                                   std::forward<F>(visitor));
+  }
+#endif
+
   /*
    *  Hash policy
    */
