@@ -4839,6 +4839,7 @@ Option<bool> Collection::update_apikey(const nlohmann::json& model_config, const
             }
 
             coll_model_config[fields::api_key] = api_key;
+            embedding_fields[field_name].embed[fields::model_config][fields::api_key] = api_key;
 
             auto persist_op = persist_collection_meta();
             if (!persist_op.ok()) {
