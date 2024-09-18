@@ -66,14 +66,10 @@ Option<bool> stateful_export_docs(export_state_t* export_state, size_t batch_siz
         Collection::remove_reference_helper_fields(doc);
 
         if(get_op.ok()) {
-            if(export_state->include_fields.empty() && export_state->exclude_fields.empty()) {
-                export_state->res_body->append(doc.dump());
-            } else {
-                coll->prune_doc_with_lock(doc, export_state->include_fields, export_state->exclude_fields,
-                                          filter_result.coll_to_references[j], seq_id,
-                                          export_state->ref_include_exclude_fields_vec);
-                export_state->res_body->append(doc.dump());
-            }
+            coll->prune_doc_with_lock(doc, export_state->include_fields, export_state->exclude_fields,
+                                      filter_result.coll_to_references[j], seq_id,
+                                      export_state->ref_include_exclude_fields_vec);
+            export_state->res_body->append(doc.dump());
 
             export_state->res_body->append("\n");
         }
