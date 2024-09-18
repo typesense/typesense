@@ -4813,6 +4813,8 @@ void Collection::update_metadata(const nlohmann::json& meta) {
 }
 
 Option<bool> Collection::update_apikey(const nlohmann::json& model_config, const std::string& field_name) {
+    std::unique_lock ulock(mutex);
+
     const auto& model_name = model_config[fields::model_name];
     const auto& api_key = model_config[fields::api_key];
 
