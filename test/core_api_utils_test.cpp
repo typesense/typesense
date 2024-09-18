@@ -1027,6 +1027,35 @@ TEST_F(CoreAPIUtilsTest, ExportWithJoin) {
     doc = nlohmann::json::parse(export_state.res_body->c_str());
     ASSERT_EQ("soap", doc["product_name"]);
     ASSERT_EQ(73.5, doc["Customers"]["product_price"]);
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "Products";
+    req->params["q"] = "*";
+    req->params["filter_by"] = "$Customers(customer_id: customer_a)";
+
+    get_export_documents(req, res);
+
+    std::vector<std::string> res_strs;
+    StringUtils::split(res->body, res_strs, "\n");
+
+    doc = nlohmann::json::parse(res_strs[0]);
+    ASSERT_EQ(6, doc.size());
+    ASSERT_EQ(1, doc.count("product_name"));
+    ASSERT_EQ("shampoo", doc["product_name"]);
+    ASSERT_EQ(1, doc.count("Customers"));
+    ASSERT_EQ(5, doc["Customers"].size());
+    ASSERT_EQ(1, doc["Customers"].count("product_price"));
+    ASSERT_EQ(143, doc["Customers"]["product_price"]);
+
+    doc = nlohmann::json::parse(res_strs[1]);
+    ASSERT_EQ(6, doc.size());
+    ASSERT_EQ(1, doc.count("product_name"));
+    ASSERT_EQ("soap", doc["product_name"]);
+    ASSERT_EQ(1, doc.count("Customers"));
+    ASSERT_EQ(5, doc["Customers"].size());
+    ASSERT_EQ(1, doc["Customers"].count("product_price"));
+    ASSERT_EQ(73.5, doc["Customers"]["product_price"]);
 }
 
 TEST_F(CoreAPIUtilsTest, TestParseAPIKeyIPFromMetadata) {
