@@ -74,7 +74,16 @@ Option<bool> EmbedderManager::update_remote_model_apikey(const nlohmann::json &m
         return Option<bool>(400, "Text embedder is not valid.");
     }
 
-    text_embedders[model_key]->update_remote_embedder_apikey(new_apikey);
+    if(!text_embedders[model_key]->update_remote_embedder_apikey(new_apikey)) {
+        return Option<bool>(400, "Failed to update remote model api_key.");
+    }
+
+    //update text embedder with new api_key and remove old entry
+    auto updated_model_config = model_config;
+    updated_model_config["api_key"] = new_apikey;
+    const auto& updated_model_key = RemoteEmbedder::get_model_key(updated_model_config);
+    text_embedders[updated_model_key] = text_embedders[model_key];
+    text_embedders.erase(model_key);
 
     return Option<bool>(true);
 }

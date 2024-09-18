@@ -5678,7 +5678,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
                 const auto &model_config = kv.value()[fields::embed][fields::model_config];
                 if (!model_config.contains(fields::model_name) || !model_config.contains(fields::api_key) ||
-                    !model_config[fields::model_name].is_string() || model_config[fields::api_key].is_string()) {
+                    !model_config[fields::model_name].is_string() || !model_config[fields::api_key].is_string()) {
                     return Option<bool>(400,
                                         "`model_config` should be an object containing `model_name` and `api_key` as string values.");
                 }
