@@ -945,7 +945,7 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithPrecision) {
     std::vector<std::string> expected_ids = {
         "6", "2", "1", "0", "3", "4", "7", "5"
     };
-    std::vector<float> geo_distance_meters = {0.726,0.461,0.46,0.467,1.786,2.007,3.556,3.299};
+    std::vector<float> geo_distance_meters = {726,461,460,467,1786,2007,3556,3299};
 
     for (size_t i = 0; i < expected_ids.size(); i++) {
         auto const& hit = results["hits"][i];

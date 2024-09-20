@@ -7970,7 +7970,7 @@ Option<uint32_t> Index::get_sort_index_value_with_lock(const std::string& collec
 }
 
 float Index::get_distance(const string& geo_field_name, const uint32_t& seq_id,
-                          const S2LatLng& reference_lat_lng, const std::string& unit) const {
+                          const S2LatLng& reference_lat_lng) const {
     std::unique_lock lock(mutex);
 
     int64_t distance = 0;
@@ -8003,16 +8003,7 @@ float Index::get_distance(const string& geo_field_name, const uint32_t& seq_id,
         }
     }
 
-    double dist = distance;
-    if (unit == "km") {
-        dist = dist * 0.001;
-    } else if (unit == "mi") {
-        dist =  dist * 0.00062137;
-    } else {
-        return 0;
-    }
-
-    return std::round(dist * 1000.0) / 1000.0;
+    return std::round((double)distance * 1000.0) / 1000.0;
 }
 
 void Index::get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs,

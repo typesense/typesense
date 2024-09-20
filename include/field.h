@@ -512,7 +512,6 @@ struct sort_by {
     int64_t geopoint;
     uint32_t exclude_radius;
     uint32_t geo_precision;
-    std::string unit;
 
     missing_values_t missing_values;
     eval_t eval;
@@ -552,7 +551,6 @@ struct sort_by {
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;
-        unit = other.unit;
         missing_values = other.missing_values;
         eval = other.eval;
         reference_collection_name = other.reference_collection_name;
@@ -573,7 +571,6 @@ struct sort_by {
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;
-        unit = other.unit;
         missing_values = other.missing_values;
         eval = other.eval;
         reference_collection_name = other.reference_collection_name;

@@ -1065,7 +1065,7 @@ public:
     void aggregate_facet(const size_t group_limit, facet& this_facet, facet& acc_facet) const;
 
     float get_distance(const string& geo_field_name, const uint32_t& seq_id,
-                       const S2LatLng& reference_lat_lng, const std::string& unit) const;
+                       const S2LatLng& reference_lat_lng) const;
 
     void get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<uint32_t>& result_ids) const;
 };
