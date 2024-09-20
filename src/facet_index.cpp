@@ -470,6 +470,10 @@ size_t facet_index_t::facet_node_count(const string &field_name, const string &f
 
 void facet_index_t::check_for_high_cardinality(const string& field_name, size_t total_num_docs) {
     // high cardinality or sparse facet fields must be dropped from value facet index
+    if(total_num_docs < 10*1000) {
+        return ;
+    }
+
     const auto facet_field_map_it = facet_field_map.find(field_name);
     if(facet_field_map_it == facet_field_map.end()) {
         return ;
@@ -479,20 +483,19 @@ void facet_index_t::check_for_high_cardinality(const string& field_name, size_t 
         return ;
     }
 
-    size_t value_facet_threshold = 0.8 * total_num_docs;
-
     auto num_facet_values = facet_field_map_it->second.fvalue_seq_ids.size();
     bool is_sparse_field = false;
 
-    if(total_num_docs > 10*1000) {
-        size_t num_docs_with_facet = facet_field_map_it->second.seq_id_hashes->num_ids();
-        if(num_docs_with_facet > 0 && num_docs_with_facet < 100) {
-            is_sparse_field = true;
-        }
+    size_t num_docs_with_facet = facet_field_map_it->second.seq_id_hashes->num_ids();
+    if(num_docs_with_facet > 0 && num_docs_with_facet < 10*1000) {
+        is_sparse_field = true;
     }
 
+    size_t value_facet_threshold = 0.8 * total_num_docs;
+
     if(num_facet_values > value_facet_threshold || is_sparse_field) {
-        // if there are too many unique values, we will drop the value index
+        // if there are too many unique values
+        // or if there are too few docs for facet field, we will drop the value index
         auto& fvalue_seq_ids = facet_field_map_it->second.fvalue_seq_ids;
         for(auto it = fvalue_seq_ids.begin(); it != fvalue_seq_ids.end(); ++it) {
             ids_t::destroy_list(it->second.seq_ids);
