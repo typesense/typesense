@@ -370,10 +370,13 @@ int run_server(const Config & config, const std::string & version, void (*master
         return 1;
     }
 
-    if (config.get_enable_search_analytics() && !config.get_analytics_dir().empty() && !directory_exists(config.get_analytics_dir())) {
-        LOG(ERROR) << "Typesense failed to start. " << "Analytics directory " << config.get_analytics_dir()
-                 << " does not exist.";
-        return 1;
+    if (config.get_enable_search_analytics() && !config.get_analytics_dir().empty() &&
+        !directory_exists(config.get_analytics_dir())) {
+        LOG(INFO) << "Analytics directory " << config.get_analytics_dir() << " does not exist, will create it...";
+        if(!create_directory(config.get_analytics_dir())) {
+            LOG(ERROR) << "Could not create analytics directory. Quitting.";
+            return 1;
+        }
     }
 
     if(!config.get_master().empty()) {
