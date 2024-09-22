@@ -2464,6 +2464,12 @@ void filter_result_iterator_t::compute_iterators() {
             result_index = 0;
             seq_id = filter_result.docs[result_index];
             approx_filter_ids_length = filter_result.count;
+
+            if (filter_result.coll_to_references != nullptr) {
+                for (const auto& ref_result: filter_result.coll_to_references[result_index]) {
+                    reference.insert(ref_result);
+                }
+            }
         }
 
         is_filter_result_initialized = true;
