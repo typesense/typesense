@@ -1056,6 +1056,30 @@ TEST_F(CoreAPIUtilsTest, ExportWithJoin) {
     ASSERT_EQ(5, doc["Customers"].size());
     ASSERT_EQ(1, doc["Customers"].count("product_price"));
     ASSERT_EQ(73.5, doc["Customers"]["product_price"]);
+
+    delete dynamic_cast<export_state_t*>(req->data);
+    req->data = nullptr;
+    res->body.clear();
+    req->params["filter_by"] = "rating: >2 && (id:* || $Customers(id:*))";
+    req->params["include_fields"] = "$Customers(*,strategy:nest_array) as Customers";
+
+    get_export_documents(req, res);
+
+    res_strs.clear();
+    StringUtils::split(res->body, res_strs, "\n");
+
+    doc = nlohmann::json::parse(res_strs[0]);
+    ASSERT_EQ(6, doc.size());
+    ASSERT_EQ(1, doc.count("product_name"));
+    ASSERT_EQ("soap", doc["product_name"]);
+    ASSERT_EQ(1, doc.count("Customers"));
+    ASSERT_EQ(2, doc["Customers"].size());
+    ASSERT_EQ(5, doc["Customers"][0].size());
+    ASSERT_EQ("customer_a", doc["Customers"][0]["customer_id"]);
+    ASSERT_EQ(73.5, doc["Customers"][0]["product_price"]);
+    ASSERT_EQ(5, doc["Customers"][1].size());
+    ASSERT_EQ("customer_b", doc["Customers"][1]["customer_id"]);
+    ASSERT_EQ(140, doc["Customers"][1]["product_price"]);
 }
 
 TEST_F(CoreAPIUtilsTest, TestParseAPIKeyIPFromMetadata) {
