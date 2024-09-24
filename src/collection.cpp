@@ -449,6 +449,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
         record.is_update = false;
         bool repeated_doc = false;
 
+        std::vector<field> new_fields;
         if(!doc_seq_id_op.ok()) {
             record.index_failure(doc_seq_id_op.code(), doc_seq_id_op.error());
         } else {
@@ -469,12 +470,11 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
             batch_doc_ids.insert(doc_id);
 
-            std::unique_lock lock(mutex);
+            std::shared_lock lock(mutex);
 
             // if `fallback_field_type` or `dynamic_fields` is enabled, update schema first before indexing
             if(!fallback_field_type.empty() || !dynamic_fields.empty() || !nested_fields.empty() ||
                 !reference_fields.empty() || !async_referenced_ins.empty()) {
-                std::vector<field> new_fields;
 
                 Option<bool> new_fields_op = detect_new_fields(record.doc, dirty_values,
                                                                search_schema, dynamic_fields,
@@ -487,28 +487,30 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 if(!new_fields_op.ok()) {
                     record.index_failure(new_fields_op.code(), new_fields_op.error());
                 }
+            }
+        }
 
-                else if(!new_fields.empty()) {
-                    bool found_new_field = false;
-                    for(auto& new_field: new_fields) {
-                        if(search_schema.find(new_field.name) == search_schema.end()) {
-                            found_new_field = true;
-                            search_schema.emplace(new_field.name, new_field);
-                            fields.emplace_back(new_field);
-                            if(new_field.nested) {
-                                nested_fields.emplace(new_field.name, new_field);
-                            }
-                        }
-                    }
+        if(!new_fields.empty()) {
+            std::unique_lock lock(mutex);
 
-                    if(found_new_field) {
-                        auto persist_op = persist_collection_meta();
-                        if(!persist_op.ok()) {
-                            record.index_failure(persist_op.code(), persist_op.error());
-                        } else {
-                            index->refresh_schemas(new_fields, {});
-                        }
+            bool found_new_field = false;
+            for(auto& new_field: new_fields) {
+                if(search_schema.find(new_field.name) == search_schema.end()) {
+                    found_new_field = true;
+                    search_schema.emplace(new_field.name, new_field);
+                    fields.emplace_back(new_field);
+                    if(new_field.nested) {
+                        nested_fields.emplace(new_field.name, new_field);
                     }
+                }
+            }
+
+            if(found_new_field) {
+                auto persist_op = persist_collection_meta();
+                if(!persist_op.ok()) {
+                    record.index_failure(persist_op.code(), persist_op.error());
+                } else {
+                    index->refresh_schemas(new_fields, {});
                 }
             }
         }
