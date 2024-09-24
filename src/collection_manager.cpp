@@ -1266,6 +1266,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     //query time flag to enable analyitcs for that query
     const char *ENABLE_ANALYTICS = "enable_analytics";
 
+    //for hybrid search, compute text_match_score for only vector search results and vector_distance for only text_match results
+    const char* USE_AUX_SCORE = "use_aux_score";
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -1412,6 +1415,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     std::string voice_query;
     bool enable_analytics = true;
+    bool use_aux_score = false;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -1474,6 +1478,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS, &enable_typos_for_alpha_numerical_tokens},
         {FILTER_CURATED_HITS, &filter_curated_hits_option},
         {ENABLE_ANALYTICS, &enable_analytics},
+        {USE_AUX_SCORE, &use_aux_score}
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1693,7 +1698,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           synonym_prefix,
                                                           synonym_num_typos,
                                                           enable_lazy_filter,
-                                                          enable_typos_for_alpha_numerical_tokens);
+                                                          enable_typos_for_alpha_numerical_tokens,
+                                                          use_aux_score);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();

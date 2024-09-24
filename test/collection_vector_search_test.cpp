@@ -5027,3 +5027,124 @@ TEST_F(CollectionVectorTest, TestDistanceThresholdWithIP) {
     ASSERT_EQ("document_0", res["hits"][4]["document"]["name"]);
     ASSERT_EQ(288.0364685058594, res["hits"][4]["vector_distance"].get<float>());
 }
+
+TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
+    nlohmann::json schema = R"({
+                "name": "test",
+                "fields": [
+                    {
+                        "name": "name",
+                        "type": "string"
+                    },
+                    {
+                        "name": "embedding",
+                        "type": "float[]",
+                        "embed": {
+                            "from": [
+                                "name"
+                            ],
+                            "model_config": {
+                                "model_name": "ts/e5-small"
+                            }
+                        }
+                    }
+                ]
+                })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "name": "soccer",
+        "id": "0"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "basketball",
+        "id": "1"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "typesense",
+        "id": "2"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "potato",
+        "id": "3"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    bool use_aux_score = false;
+
+    auto res = coll->search("basket", {"name", "embedding"}, "", {},
+                             {}, {2}, 10, 1,FREQUENCY, {true},
+                             Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                             {"embedding"}, 10, "",
+                             30, 4, "", 40,
+                             {}, {}, {}, 0,"<mark>",
+                             "</mark>", {}, 1000,true,
+                             false, true, "", false,
+                             6000*1000, 4, 7, fallback, 4,
+                             {off}, INT16_MAX, INT16_MAX,2,
+                             2, false, "", true,
+                             0, max_score, 100, 0, 0,
+                             "exhaustive", 30000, 2, "",
+                             {},{}, "right_to_left", true,
+                             true, false, "", "", "",
+                             "", true, true, false, 0, true,
+                             true, use_aux_score).get();
+
+    ASSERT_EQ(4, res["hits"].size());
+    ASSERT_FLOAT_EQ(0.13851940631866455, res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.15999853610992432, res["hits"][1]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.19285917282104492, res["hits"][2]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.19428515434265137, res["hits"][3]["vector_distance"].get<float>());
+
+    ASSERT_FLOAT_EQ(1060320051, res["hits"][0]["text_match"].get<size_t >());
+    ASSERT_FLOAT_EQ(0, res["hits"][1]["text_match"].get<size_t >());
+    ASSERT_FLOAT_EQ(0, res["hits"][2]["text_match"].get<size_t >());
+    ASSERT_FLOAT_EQ(0, res["hits"][3]["text_match"].get<size_t >());
+
+    use_aux_score = true;
+
+    res = coll->search("basket", {"name", "embedding"}, "", {},
+                            {}, {2}, 10, 1,FREQUENCY, {true},
+                            Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                            {"embedding"}, 10, "",
+                            30, 4, "", 40,
+                            {}, {}, {}, 0,"<mark>",
+                            "</mark>", {}, 1000,true,
+                            false, true, "", false,
+                            6000*1000, 4, 7, fallback, 4,
+                            {off}, INT16_MAX, INT16_MAX,2,
+                            2, false, "", true,
+                            0, max_score, 100, 0, 0,
+                            "exhaustive", 30000, 2, "",
+                            {},{}, "right_to_left", true,
+                            true, false, "", "", "",
+                            "", true, true, false, 0, true,
+                            true, use_aux_score).get();
+
+    ASSERT_EQ(4, res["hits"].size());
+    ASSERT_FLOAT_EQ(0.13851940631866455, res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.15999853610992432, res["hits"][1]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.19285917282104492, res["hits"][2]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.19428515434265137, res["hits"][3]["vector_distance"].get<float>());
+
+    ASSERT_FLOAT_EQ(1060320051, res["hits"][0]["text_match"].get<size_t >());
+    ASSERT_FLOAT_EQ(1108091338752, res["hits"][1]["text_match"].get<size_t >());
+    ASSERT_FLOAT_EQ(1108091338752, res["hits"][2]["text_match"].get<size_t >());
+    ASSERT_FLOAT_EQ(1108091338752, res["hits"][3]["text_match"].get<size_t >());
+}

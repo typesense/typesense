@@ -2339,7 +2339,7 @@ Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name,
                                const std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                                bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
-                               bool enable_typos_for_alpha_numerical_tokens) {
+                               bool enable_typos_for_alpha_numerical_tokens, bool use_aux_score) {
 
     auto res = search(search_params->field_query_tokens,
                   search_params->search_fields,
@@ -2386,7 +2386,8 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                   synonym_prefix,
                   synonym_num_typos,
                   search_params->enable_lazy_filter,
-                  enable_typos_for_alpha_numerical_tokens
+                  enable_typos_for_alpha_numerical_tokens,
+                  use_aux_score
     );
 
     return res;
@@ -2885,7 +2886,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool enable_synonyms, bool synonym_prefix,
                    uint32_t synonym_num_typos,
                    bool enable_lazy_filter,
-                   bool enable_typos_for_alpha_numerical_tokens) const {
+                   bool enable_typos_for_alpha_numerical_tokens,
+                   bool use_aux_score) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
@@ -3697,6 +3699,51 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     //LOG(INFO) << "topster size: " << topster->size;
 
     process_search_results:
+
+    //for hybrid search, optionally compute aux scores
+    if(!vector_query.field_name.empty() && !is_wildcard_query && use_aux_score) {
+        auto compute_aux_scores = [&](Topster* topster) {
+            for(auto& kv : topster->kv_map) {
+                if(kv.second->text_match_score == 0) {
+                    //only found via vector distance, should compute text_match_score
+                    int64_t match_score = 0;
+
+                    score_results2(sort_fields_std, (uint16_t) searched_queries.size(), 0, false, 0,
+                                   match_score, kv.second->key, sort_order, false, false, false, 1, -1,
+                                   {});
+                    kv.second->text_match_score = match_score;
+
+                } else if(kv.second->vector_distance == -1.0f) {
+                    //only found via text_match, should compute vector distance
+                    std::vector<float> values;
+                    auto& field_vector_index = vector_index.at(vector_query.field_name);
+
+                    try {
+                        values = field_vector_index->vecdex->getDataByLabel<float>(kv.second->key);
+                    } catch (...) {
+                        // likely not found
+                        continue;
+                    }
+
+                    float dist;
+                    if (field_vector_index->distance_type == cosine) {
+                        std::vector<float> normalized_q(vector_query.values.size());
+                        hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
+                        dist = field_vector_index->space->get_dist_func()(normalized_q.data(), values.data(),
+                                                                          &field_vector_index->num_dim);
+                    } else {
+                        dist = field_vector_index->space->get_dist_func()(vector_query.values.data(), values.data(),
+                                                                          &field_vector_index->num_dim);
+                    }
+
+                    kv.second->vector_distance = dist;
+                }
+            }
+        };
+
+        compute_aux_scores(topster);
+        compute_aux_scores(curated_topster);
+    }
 
     topster->sort();
     curated_topster->sort();
