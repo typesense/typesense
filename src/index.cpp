@@ -5200,64 +5200,64 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
     const int64_t default_score = INT64_MIN;  // to handle field that doesn't exist in document (e.g. optional)
     uint32_t ref_seq_id;
 
-    // avoiding loop
-    if (sort_fields.size() > 0) {
+
+    for(int i = 0; i < sort_fields.size(); ++i) {
         auto reference_found = true;
-        auto const& is_reference_sort = !sort_fields[0].reference_collection_name.empty();
-        auto is_random_sort = sort_fields[0].random_sort.is_enabled;
+        auto const& is_reference_sort = !sort_fields[i].reference_collection_name.empty();
+        auto is_random_sort = sort_fields[i].random_sort.is_enabled;
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
         if (is_reference_sort) {
-            auto const& ref_compute_op = ref_compute_sort_scores(sort_fields[0], seq_id, ref_seq_id, reference_found,
+            auto const& ref_compute_op = ref_compute_sort_scores(sort_fields[i], seq_id, ref_seq_id, reference_found,
                                                                  references, collection_name);
             if (!ref_compute_op.ok()) {
                 return ref_compute_op;
             }
         }
 
-        if (field_values[0] == &text_match_sentinel_value) {
-            scores[0] = int64_t(max_field_match_score);
-            match_score_index = 0;
-        } else if (field_values[0] == &seq_id_sentinel_value) {
-            scores[0] = seq_id;
-        } else if(field_values[0] == &geo_sentinel_value) {
-            scores[0] = geopoint_distances[0];
-        } else if(field_values[0] == &str_sentinel_value) {
+        if (field_values[i] == &text_match_sentinel_value) {
+            scores[i] = int64_t(max_field_match_score);
+            match_score_index = i;
+        } else if (field_values[i] == &seq_id_sentinel_value) {
+            scores[i] = seq_id;
+        } else if(field_values[i] == &geo_sentinel_value) {
+            scores[i] = geopoint_distances[i];
+        } else if(field_values[i] == &str_sentinel_value) {
             if (!is_reference_sort) {
-                scores[0] = str_sort_index.at(sort_fields[0].name)->rank(seq_id);
+                scores[i] = str_sort_index.at(sort_fields[i].name)->rank(seq_id);
             } else if (!reference_found) {
-                scores[0] = adi_tree_t::NOT_FOUND;
+                scores[i] = adi_tree_t::NOT_FOUND;
             } else {
                 auto& cm = CollectionManager::get_instance();
-                auto ref_collection = cm.get_collection(sort_fields[0].reference_collection_name);
+                auto ref_collection = cm.get_collection(sort_fields[i].reference_collection_name);
                 if (ref_collection == nullptr) {
-                    return Option<bool>(400, "Referenced collection `" + sort_fields[0].reference_collection_name +
+                    return Option<bool>(400, "Referenced collection `" + sort_fields[i].reference_collection_name +
                                                 "` not found.");
                 }
 
-                scores[0] = ref_collection->reference_string_sort_score(sort_fields[0].name, ref_seq_id);
+                scores[i] = ref_collection->reference_string_sort_score(sort_fields[i].name, ref_seq_id);
             }
 
-            if(scores[0] == adi_tree_t::NOT_FOUND) {
-                if(sort_fields[0].order == sort_field_const::asc &&
-                   sort_fields[0].missing_values == sort_by::missing_values_t::first) {
-                    scores[0] = -scores[0];
+            if(scores[i] == adi_tree_t::NOT_FOUND) {
+                if(sort_fields[i].order == sort_field_const::asc &&
+                   sort_fields[i].missing_values == sort_by::missing_values_t::first) {
+                    scores[i] = -scores[i];
                 }
 
-                else if(sort_fields[0].order == sort_field_const::desc &&
-                        sort_fields[0].missing_values == sort_by::missing_values_t::last) {
-                    scores[0] = -scores[0];
+                else if(sort_fields[i].order == sort_field_const::desc &&
+                        sort_fields[i].missing_values == sort_by::missing_values_t::last) {
+                    scores[i] = -scores[i];
                 }
             }
-        } else if(field_values[0] == &eval_sentinel_value) {
-            auto const& count = sort_fields[0].eval_expressions.size();
+        } else if(field_values[i] == &eval_sentinel_value) {
+            auto const& count = sort_fields[i].eval_expressions.size();
             if (filter_indexes.empty()) {
                 filter_indexes = std::vector<uint32_t>(count, 0);
             }
 
             bool found = false;
             uint32_t index = 0;
-            auto const& eval = sort_fields[0].eval;
+            auto const& eval = sort_fields[i].eval;
             if (eval.eval_ids_vec.size() != count || eval.eval_ids_count_vec.size() != count) {
                 return Option<bool>(400, "Eval expressions count does not match the ids count.");
             }
@@ -5282,283 +5282,47 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 }
             }
 
-            scores[0] = found ? eval.scores[index] : 0;
-        } else if(field_values[0] == &vector_distance_sentinel_value) {
-            scores[0] = float_to_int64_t(vector_distance);
-        } else if(field_values[0] == &vector_query_sentinel_value) {
-            scores[0] = float_to_int64_t(2.0f);
+            scores[i] = found ? eval.scores[index] : 0;
+        } else if(field_values[i] == &vector_distance_sentinel_value) {
+            scores[i] = float_to_int64_t(vector_distance);
+        } else if(field_values[i] == &vector_query_sentinel_value) {
+            scores[i] = float_to_int64_t(2.0f);
             try {
-                const auto& values = sort_fields[0].vector_query.vector_index->vecdex->getDataByLabel<float>(seq_id);
-                const auto& dist_func = sort_fields[0].vector_query.vector_index->space->get_dist_func();
-                float dist = dist_func(sort_fields[0].vector_query.query.values.data(), values.data(), &sort_fields[0].vector_query.vector_index->num_dim);
+                const auto& values = sort_fields[i].vector_query.vector_index->vecdex->getDataByLabel<float>(seq_id);
+                const auto& dist_func = sort_fields[i].vector_query.vector_index->space->get_dist_func();
+                float dist = dist_func(sort_fields[i].vector_query.query.values.data(), values.data(), &sort_fields[i].vector_query.vector_index->num_dim);
 
-                if(dist > sort_fields[0].vector_query.query.distance_threshold) {
+                if(dist > sort_fields[i].vector_query.query.distance_threshold) {
                     //if computed distance is more then distance_thershold then we wont add that to results
                     should_skip = true;
                 }
 
-                scores[0] = float_to_int64_t(dist);
+                scores[i] = float_to_int64_t(dist);
             } catch(...) {
                 // probably not found
                 // do nothing
             }
         } else {
             if(is_random_sort) {
-                scores[0] = sort_fields[0].random_sort.generate_random();
+                scores[i] = sort_fields[i].random_sort.generate_random();
             } else if (!is_reference_sort || reference_found) {
-                auto it = field_values[0]->find(is_reference_sort ? ref_seq_id : seq_id);
-                scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
+                auto it = field_values[i]->find(is_reference_sort ? ref_seq_id : seq_id);
+                scores[i] = (it == field_values[i]->end()) ? default_score : it->second;
             } else {
-                scores[0] = default_score;
+                scores[i] = default_score;
             }
 
-            if(scores[0] == INT64_MIN && sort_fields[0].missing_values == sort_by::missing_values_t::first) {
+            if(scores[i] == INT64_MIN && sort_fields[i].missing_values == sort_by::missing_values_t::first) {
                 // By default, missing numerical value are always going to be sorted to be at the end
                 // because: -INT64_MIN == INT64_MIN. To account for missing values config, we will have to change
                 // the default for missing value based on whether it's asc or desc sort.
-                bool is_asc = (sort_order[0] == -1);
-                scores[0] = is_asc ? (INT64_MIN + 1) : INT64_MAX;
+                bool is_asc = (sort_order[i] == -1);
+                scores[i] = is_asc ? (INT64_MIN + 1) : INT64_MAX;
             }
         }
 
-        if (sort_order[0] == -1) {
-            scores[0] = -scores[0];
-        }
-    }
-
-    if(sort_fields.size() > 1) {
-        auto reference_found = true;
-        auto const& is_reference_sort = !sort_fields[1].reference_collection_name.empty();
-        auto is_random_sort = sort_fields[1].random_sort.is_enabled;
-        // In case of reference sort_by, we need to get the sort score of the reference doc id.
-        if (is_reference_sort) {
-            auto const& ref_compute_op = ref_compute_sort_scores(sort_fields[1], seq_id, ref_seq_id, reference_found,
-                                                                 references, collection_name);
-            if (!ref_compute_op.ok()) {
-                return ref_compute_op;
-            }
-        }
-
-        if (field_values[1] == &text_match_sentinel_value) {
-            scores[1] = int64_t(max_field_match_score);
-            match_score_index = 1;
-        } else if (field_values[1] == &seq_id_sentinel_value) {
-            scores[1] = seq_id;
-        } else if(field_values[1] == &geo_sentinel_value) {
-            scores[1] = geopoint_distances[1];
-        } else if(field_values[1] == &str_sentinel_value) {
-            if (!is_reference_sort) {
-                scores[1] = str_sort_index.at(sort_fields[1].name)->rank(seq_id);
-            } else if (!reference_found) {
-                scores[1] = adi_tree_t::NOT_FOUND;
-            } else {
-                auto& cm = CollectionManager::get_instance();
-                auto ref_collection = cm.get_collection(sort_fields[1].reference_collection_name);
-                if (ref_collection == nullptr) {
-                    return Option<bool>(400, "Referenced collection `" + sort_fields[1].reference_collection_name +
-                                             "` not found.");
-                }
-
-                scores[1] = ref_collection->reference_string_sort_score(sort_fields[1].name, ref_seq_id);
-            }
-
-            if(scores[1] == adi_tree_t::NOT_FOUND) {
-                if(sort_fields[1].order == sort_field_const::asc &&
-                   sort_fields[1].missing_values == sort_by::missing_values_t::first) {
-                    scores[1] = -scores[1];
-                }
-
-                else if(sort_fields[1].order == sort_field_const::desc &&
-                        sort_fields[1].missing_values == sort_by::missing_values_t::last) {
-                    scores[1] = -scores[1];
-                }
-            }
-        } else if(field_values[1] == &eval_sentinel_value) {
-            auto const& count = sort_fields[1].eval_expressions.size();
-            if (filter_indexes.empty()) {
-                filter_indexes = std::vector<uint32_t>(count, 0);
-            }
-
-            bool found = false;
-            uint32_t index = 0;
-            auto const& eval = sort_fields[1].eval;
-            for (; index < count; index++) {
-                // ref_seq_id(s) can be unordered.
-                uint32_t ref_filter_index = 0;
-                auto& filter_index = is_reference_sort ? ref_filter_index : filter_indexes[index];
-                auto const& eval_ids = eval.eval_ids_vec[index];
-                auto const& eval_ids_count = eval.eval_ids_count_vec[index];
-                if (filter_index == 0 || filter_index < eval_ids_count) {
-                    // Returns iterator to the first element that is >= to value or last if no such element is found.
-                    auto const& id = is_reference_sort ? ref_seq_id : seq_id;
-                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, id) -
-                                   eval_ids;
-
-                    if (filter_index < eval_ids_count && eval_ids[filter_index] == id) {
-                        filter_index++;
-                        found = true;
-                        break;
-                    }
-                }
-            }
-
-            scores[1] = found ? eval.scores[index] : 0;
-        }  else if(field_values[1] == &vector_distance_sentinel_value) {
-            scores[1] = float_to_int64_t(vector_distance);
-        } else if(field_values[1] == &vector_query_sentinel_value) {
-            scores[1] = float_to_int64_t(2.0f);
-            try {
-                const auto& values = sort_fields[1].vector_query.vector_index->vecdex->getDataByLabel<float>(seq_id);
-                const auto& dist_func = sort_fields[1].vector_query.vector_index->space->get_dist_func();
-                float dist = dist_func(sort_fields[1].vector_query.query.values.data(), values.data(), &sort_fields[1].vector_query.vector_index->num_dim);
-
-                if(dist > sort_fields[1].vector_query.query.distance_threshold) {
-                    //if computed distance is more then distance_thershold then we wont add that to results
-                    should_skip = true;
-                }
-
-                scores[1] = float_to_int64_t(dist);
-            } catch(...) {
-                // probably not found
-                // do nothing
-            }
-
-        } else {
-            if(is_random_sort) {
-                scores[1] = sort_fields[1].random_sort.generate_random();
-            } else if (!is_reference_sort || reference_found) {
-                auto it = field_values[1]->find(is_reference_sort ? ref_seq_id : seq_id);
-                scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
-            } else {
-                scores[1] = default_score;
-            }
-
-            if(scores[1] == INT64_MIN && sort_fields[1].missing_values == sort_by::missing_values_t::first) {
-                bool is_asc = (sort_order[1] == -1);
-                scores[1] = is_asc ? (INT64_MIN + 1) : INT64_MAX;
-            }
-        }
-
-        if (sort_order[1] == -1) {
-            scores[1] = -scores[1];
-        }
-    }
-
-    if(sort_fields.size() > 2) {
-        auto reference_found = true;
-        auto const& is_reference_sort = !sort_fields[2].reference_collection_name.empty();
-        auto is_random_sort = sort_fields[2].random_sort.is_enabled;
-
-        // In case of reference sort_by, we need to get the sort score of the reference doc id.
-        if (is_reference_sort) {
-            auto const& ref_compute_op = ref_compute_sort_scores(sort_fields[2], seq_id, ref_seq_id, reference_found,
-                                                                 references, collection_name);
-            if (!ref_compute_op.ok()) {
-                return ref_compute_op;
-            }
-        }
-
-        if (field_values[2] == &text_match_sentinel_value) {
-            scores[2] = int64_t(max_field_match_score);
-            match_score_index = 2;
-        } else if (field_values[2] == &seq_id_sentinel_value) {
-            scores[2] = seq_id;
-        } else if(field_values[2] == &geo_sentinel_value) {
-            scores[2] = geopoint_distances[2];
-        } else if(field_values[2] == &str_sentinel_value) {
-            if (!is_reference_sort) {
-                scores[2] = str_sort_index.at(sort_fields[2].name)->rank(seq_id);
-            } else if (!reference_found) {
-                scores[2] = adi_tree_t::NOT_FOUND;
-            } else {
-                auto& cm = CollectionManager::get_instance();
-                auto ref_collection = cm.get_collection(sort_fields[2].reference_collection_name);
-                if (ref_collection == nullptr) {
-                    return Option<bool>(400, "Referenced collection `" + sort_fields[2].reference_collection_name +
-                                             "` not found.");
-                }
-
-                scores[2] = ref_collection->reference_string_sort_score(sort_fields[2].name, ref_seq_id);
-            }
-
-            if(scores[2] == adi_tree_t::NOT_FOUND) {
-                if(sort_fields[2].order == sort_field_const::asc &&
-                   sort_fields[2].missing_values == sort_by::missing_values_t::first) {
-                    scores[2] = -scores[2];
-                }
-
-                else if(sort_fields[2].order == sort_field_const::desc &&
-                        sort_fields[2].missing_values == sort_by::missing_values_t::last) {
-                    scores[2] = -scores[2];
-                }
-            }
-        } else if(field_values[2] == &eval_sentinel_value) {
-            auto const& count = sort_fields[2].eval_expressions.size();
-            if (filter_indexes.empty()) {
-                filter_indexes = std::vector<uint32_t>(count, 0);
-            }
-
-            bool found = false;
-            uint32_t index = 0;
-            auto const& eval = sort_fields[2].eval;
-            for (; index < count; index++) {
-                // ref_seq_id(s) can be unordered.
-                uint32_t ref_filter_index = 0;
-                auto& filter_index = is_reference_sort ? ref_filter_index : filter_indexes[index];
-                auto const& eval_ids = eval.eval_ids_vec[index];
-                auto const& eval_ids_count = eval.eval_ids_count_vec[index];
-                if (filter_index == 0 || filter_index < eval_ids_count) {
-                    // Returns iterator to the first element that is >= to value or last if no such element is found.
-                    auto const& id = is_reference_sort ? ref_seq_id : seq_id;
-                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, id) -
-                                   eval_ids;
-
-                    if (filter_index < eval_ids_count && eval_ids[filter_index] == id) {
-                        filter_index++;
-                        found = true;
-                        break;
-                    }
-                }
-            }
-
-            scores[2] = found ? eval.scores[index] : 0;
-        } else if(field_values[2] == &vector_distance_sentinel_value) {
-            scores[2] = float_to_int64_t(vector_distance);
-        } else if(field_values[2] == &vector_query_sentinel_value) {
-            scores[2] = float_to_int64_t(2.0f);
-            try {
-                const auto& values = sort_fields[2].vector_query.vector_index->vecdex->getDataByLabel<float>(seq_id);
-                const auto& dist_func = sort_fields[2].vector_query.vector_index->space->get_dist_func();
-                float dist = dist_func(sort_fields[2].vector_query.query.values.data(), values.data(), &sort_fields[2].vector_query.vector_index->num_dim);
-
-                if(dist > sort_fields[2].vector_query.query.distance_threshold) {
-                    //if computed distance is more then distance_thershold then we wont add that to results
-                    should_skip = true;
-                }
-
-                scores[2] = float_to_int64_t(dist);
-            } catch(...) {
-                // probably not found
-                // do nothing
-            }
-        } else {
-            if(is_random_sort) {
-                scores[2] = sort_fields[2].random_sort.generate_random();
-            } else if (!is_reference_sort || reference_found) {
-                auto it = field_values[2]->find(is_reference_sort ? ref_seq_id : seq_id);
-                scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
-            } else {
-                scores[2] = default_score;
-            }
-
-            if(scores[2] == INT64_MIN && sort_fields[2].missing_values == sort_by::missing_values_t::first) {
-                bool is_asc = (sort_order[2] == -1);
-                scores[2] = is_asc ? (INT64_MIN + 1) : INT64_MAX;
-            }
-        }
-
-        if (sort_order[2] == -1) {
-            scores[2] = -scores[2];
+        if (sort_order[i] == -1) {
+            scores[i] = -scores[i];
         }
     }
 
