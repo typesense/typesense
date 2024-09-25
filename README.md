@@ -19,7 +19,7 @@
 <p align="center">
   <a href="https://typesense.org">Website</a> | 
   <a href="https://typesense.org/docs/">Documentation</a> | 
-  <a href="https://github.com/orgs/typesense/projects/1">Roadmap</a> | 
+  <a href="https://typesense.link/roadmap">Roadmap</a> | 
   <a href="https://typesense.link/slack-community">Slack Community</a> | 
   <a href="https://threads.typesense.org/kb">Community Threads</a> | 
   <a href="https://twitter.com/typesense">Twitter</a>
@@ -93,7 +93,7 @@
 
 ## Roadmap
 
-Here's Typesense's public roadmap: [https://github.com/orgs/typesense/projects/1](https://github.com/orgs/typesense/projects/1).
+Here's Typesense's public roadmap: [https://typesense.link/roadmap](https://typesense.link/roadmap).
 
 The first column also explains how we prioritize features, how you can influence prioritization and our release cadence. 
 
