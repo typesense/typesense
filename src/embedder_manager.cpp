@@ -62,6 +62,32 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
     return Option<bool>(true);
 }
 
+Option<bool> EmbedderManager::update_remote_model_apikey(const nlohmann::json &model_config, const std::string& new_apikey) {
+    std::unique_lock<std::mutex> lock(text_embedders_mutex);
+    const auto& model_key = RemoteEmbedder::get_model_key(model_config);
+
+    if(text_embedders.find(model_key) == text_embedders.end()) {
+        return Option<bool>(404, "Text embedder was not found.");
+    }
+
+    if(!text_embedders[model_key]->is_remote()) {
+        return Option<bool>(400, "Text embedder is not valid.");
+    }
+
+    if(!text_embedders[model_key]->update_remote_embedder_apikey(new_apikey)) {
+        return Option<bool>(400, "Failed to update remote model api_key.");
+    }
+
+    //update text embedder with new api_key and remove old entry
+    auto updated_model_config = model_config;
+    updated_model_config["api_key"] = new_apikey;
+    const auto& updated_model_key = RemoteEmbedder::get_model_key(updated_model_config);
+    text_embedders[updated_model_key] = text_embedders[model_key];
+    text_embedders.erase(model_key);
+
+    return Option<bool>(true);
+}
+
 Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json& model_config, size_t& num_dims) {
     const std::string& model_name = model_config["model_name"].get<std::string>();
     Option<bool> public_model_op = EmbedderManager::get_instance().init_public_model(model_name);

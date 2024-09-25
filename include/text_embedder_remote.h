@@ -28,6 +28,7 @@ class RemoteEmbedder {
     protected:
         static Option<bool> validate_string_properties(const nlohmann::json& model_config, const std::vector<std::string>& properties);
         static inline ReplicationState* raft_server = nullptr;
+        std::shared_mutex mutex;
     public:
         static long call_remote_api(const std::string& method, const std::string& url, const std::string& req_body, std::string& res_body, std::map<std::string, std::string>& res_headers, std::unordered_map<std::string, std::string>& req_headers);
         virtual nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) = 0;
@@ -39,6 +40,7 @@ class RemoteEmbedder {
             raft_server = rs;
         }
         virtual ~RemoteEmbedder() = default;
+        virtual bool update_api_key(const std::string& api_key) = 0;
 
 };
 
@@ -51,6 +53,7 @@ class OpenAIEmbedder : public RemoteEmbedder {
         bool has_custom_dims;
         size_t num_dims;
         std::string openai_url = "https://api.openai.com";
+
         static std::string get_openai_create_embedding_url(const std::string& openai_url) {
             return openai_url.back() == '/' ? openai_url + OPENAI_CREATE_EMBEDDING : openai_url + "/" + OPENAI_CREATE_EMBEDDING;
         }
@@ -62,6 +65,12 @@ class OpenAIEmbedder : public RemoteEmbedder {
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
         nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) override;
         static std::string get_model_key(const nlohmann::json& model_config);
+
+        bool update_api_key(const std::string& apikey) override {
+            std::lock_guard<std::shared_mutex> lock(mutex);
+            api_key = apikey;
+            return true;
+        }
 };
 
 
@@ -72,7 +81,6 @@ class GoogleEmbedder : public RemoteEmbedder {
         inline static constexpr short GOOGLE_EMBEDDING_DIM = 768;
         inline static constexpr char* GOOGLE_CREATE_EMBEDDING = "https://generativelanguage.googleapis.com/v1beta2/models/embedding-gecko-001:embedText?key=";
         std::string google_api_key;
-        
     public:
         GoogleEmbedder(const std::string& google_api_key);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims);
@@ -81,6 +89,11 @@ class GoogleEmbedder : public RemoteEmbedder {
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
         nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) override;
         static std::string get_model_key(const nlohmann::json& model_config);
+        bool update_api_key(const std::string& apikey) override {
+            std::lock_guard<std::shared_mutex> lock(mutex);
+            google_api_key = apikey;
+            return true;
+        }
 };
 
 
@@ -93,6 +106,7 @@ class GCPEmbedder : public RemoteEmbedder {
         std::string client_id;
         std::string client_secret;
         std::string model_name;
+
         inline static const std::string GCP_EMBEDDING_BASE_URL = "https://us-central1-aiplatform.googleapis.com/v1/projects/";
         inline static const std::string GCP_EMBEDDING_PATH = "/locations/us-central1/publishers/google/models/";
         inline static const std::string GCP_EMBEDDING_PREDICT = ":predict";
@@ -110,6 +124,9 @@ class GCPEmbedder : public RemoteEmbedder {
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
         nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) override;
         static std::string get_model_key(const nlohmann::json& model_config);
+        bool update_api_key(const std::string& api_key) override {
+            return true;
+        }
 };
 
 

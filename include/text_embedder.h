@@ -37,6 +37,11 @@ class TextEmbedder {
         const TokenizerType get_tokenizer_type() {
             return tokenizer_->get_tokenizer_type();
         }
+
+        bool update_remote_embedder_apikey(const std::string& api_key) {
+            return remote_embedder_->update_api_key(api_key);
+        }
+
     private:
         std::shared_ptr<Ort::Session> session_;
         std::shared_ptr<Ort::Env> env_;

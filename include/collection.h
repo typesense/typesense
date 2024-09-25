@@ -266,6 +266,7 @@ private:
                                         std::vector<field>& addition_fields,
                                         std::vector<field>& reindex_fields,
                                         std::vector<field>& del_fields,
+                                        std::vector<field>& update_fields,
                                         std::string& fallback_field_type);
 
     void process_filter_overrides(std::vector<const override_t*>& filter_overrides,
@@ -424,6 +425,8 @@ public:
     std::string get_default_sorting_field();
 
     void update_metadata(const nlohmann::json& meta);
+
+    Option<bool> update_apikey(const nlohmann::json& model_config, const std::string& field_name);
 
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation,

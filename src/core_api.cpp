@@ -354,10 +354,13 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
             return false;
         }
 
-        collection->update_metadata(req_json["metadata"]);
-
-        //update in db
-        collectionManager.update_collection_metadata(req->params["collection"], req_json["metadata"]);
+        //update in collection metadata and store in db
+        auto op = collectionManager.update_collection_metadata(req->params["collection"], req_json["metadata"]);
+        if(!op.ok()) {
+            res->set(op.code(), op.error());
+            alter_in_progress = false;
+            return false;
+        }
     }
 
     if(req_json.contains("fields")) {
@@ -369,6 +372,8 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
             alter_in_progress = false;
             return false;
         }
+        // without this line, response will return full api key without being masked
+        req_json["fields"] = alter_payload["fields"];
     }
 
     alter_in_progress = false;
