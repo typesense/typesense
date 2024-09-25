@@ -1259,6 +1259,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *ENABLE_TYPOS_FOR_NUMERICAL_TOKENS = "enable_typos_for_numerical_tokens";
     const char *ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS = "enable_typos_for_alpha_numerical_tokens";
     const char *ENABLE_LAZY_FILTER = "enable_lazy_filter";
+    const char *MAX_FILTER_BY_CANDIDATES = "max_filter_by_candidates";
 
     const char *SYNONYM_PREFIX = "synonym_prefix";
     const char *SYNONYM_NUM_TYPOS = "synonym_num_typos";
@@ -1393,6 +1394,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool enable_typos_for_numerical_tokens = true;
     bool enable_typos_for_alpha_numerical_tokens = true;
     bool enable_lazy_filter = Config::get_instance().get_enable_lazy_filter();
+    size_t max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES;
 
     std::string facet_strategy = "automatic";
 
@@ -1437,6 +1439,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
         {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
         {SYNONYM_NUM_TYPOS, &synonym_num_typos},
+        {MAX_FILTER_BY_CANDIDATES, &max_filter_by_candidates}
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -1693,7 +1696,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           synonym_prefix,
                                                           synonym_num_typos,
                                                           enable_lazy_filter,
-                                                          enable_typos_for_alpha_numerical_tokens);
+                                                          enable_typos_for_alpha_numerical_tokens,
+                                                          max_filter_by_candidates);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
