@@ -3702,17 +3702,56 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     //for hybrid search, optionally compute aux scores
     if(!vector_query.field_name.empty() && !is_wildcard_query && use_aux_score) {
-        auto compute_aux_scores = [&](Topster* topster) {
-            for(auto& kv : topster->kv_map) {
-                if(kv.second->text_match_score == 0) {
-                    //only found via vector distance, should compute text_match_score
+
+        auto compute_text_match_aux_score = [&] (std::vector<KV*> result_ids) {
+            const auto &query_tokens = field_query_tokens[0].q_include_tokens;
+            std::vector<posting_list_t::iterator_t> its;
+
+            for (auto j = 0; j < query_tokens.size(); ++j) {
+                auto token_str = (const unsigned char *) query_tokens[j].value.c_str();
+                auto token_len = query_tokens[j].value.size();
+
+                for (auto i = 0; i < the_fields.size(); ++i) {
+                    art_tree *tree = search_index.at(the_fields[i].str_name);
+                    art_leaf *leaf = static_cast<art_leaf *>(art_search(tree, token_str,
+                                                                        token_len));
+
+                    if (!leaf) {
+                        continue;
+                    }
+
+                    if (IS_COMPACT_POSTING(leaf->values)) {
+                        auto compact_posting_list = COMPACT_POSTING_PTR(leaf->values);
+                        posting_list_t *full_posting_list = compact_posting_list->to_full_posting_list();
+                        its.push_back(full_posting_list->new_iterator(nullptr, nullptr,
+                                                                      i)); // moved, not copied
+                    } else {
+                        posting_list_t *full_posting_list = (posting_list_t *) (leaf->values);
+                        its.push_back(full_posting_list->new_iterator(nullptr, nullptr,
+                                                                      i)); // moved, not copied
+                    }
+                }
+            }
+
+            if (!its.empty()) {
+                for(auto& kv : result_ids) {
                     int64_t match_score = 0;
 
                     score_results2(sort_fields_std, (uint16_t) searched_queries.size(), 0, false, 0,
-                                   match_score, kv.second->key, sort_order, false, false, false, 1, -1,
-                                   {});
-                    kv.second->text_match_score = match_score;
+                                   match_score, kv->key, sort_order, false, false, false, 1,
+                                   -1, its);
+                    kv->text_match_score = match_score;
+                }
+            }
 
+        };
+
+        auto compute_aux_scores = [&](Topster* topster) {
+            std::vector<KV*> text_match_ids;
+            for(auto& kv : topster->kv_map) {
+                if(kv.second->text_match_score == 0) {
+                    //only found via vector distance, should compute text_match_score later
+                    text_match_ids.push_back(kv.second);
                 } else if(kv.second->vector_distance == -1.0f) {
                     //only found via text_match, should compute vector distance
                     std::vector<float> values;
@@ -3738,6 +3777,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                     kv.second->vector_distance = dist;
                 }
+            }
+
+            if(!text_match_ids.empty()) {
+                compute_text_match_aux_score(text_match_ids);
             }
         };
 

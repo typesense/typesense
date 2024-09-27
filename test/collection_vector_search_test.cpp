@@ -5144,7 +5144,7 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
     ASSERT_FLOAT_EQ(0.19428515434265137, res["hits"][3]["vector_distance"].get<float>());
 
     ASSERT_FLOAT_EQ(1060320051, res["hits"][0]["text_match"].get<size_t >());
-    ASSERT_FLOAT_EQ(1108091338752, res["hits"][1]["text_match"].get<size_t >());
-    ASSERT_FLOAT_EQ(1108091338752, res["hits"][2]["text_match"].get<size_t >());
-    ASSERT_FLOAT_EQ(1108091338752, res["hits"][3]["text_match"].get<size_t >());
+    ASSERT_FLOAT_EQ(0, res["hits"][1]["text_match"].get<size_t >());
+    ASSERT_FLOAT_EQ(0, res["hits"][2]["text_match"].get<size_t >());
+    ASSERT_FLOAT_EQ(0, res["hits"][3]["text_match"].get<size_t >());
 }
