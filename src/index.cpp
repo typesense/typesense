@@ -4908,8 +4908,6 @@ Option<bool> Index::ref_compute_sort_scores(const sort_by& sort_field, const uin
     auto const& ref_collection_name = sort_field.reference_collection_name;
     auto const& multiple_references_error_message = "Multiple references found to sort by on `" +
                                                     ref_collection_name + "." + sort_field.name + "`.";
-    auto const& no_references_error_message = "No references found to sort by on `" +
-                                              ref_collection_name + "." + sort_field.name + "`.";
 
     if (sort_field.is_nested_join_sort_by()) {
         // Get the reference doc_id by following through all the nested join collections.
@@ -4971,7 +4969,8 @@ Option<bool> Index::ref_compute_sort_scores(const sort_by& sort_field, const uin
                     }
 
                     if (joined_coll_having_reference.empty()) {
-                        return Option<bool>(400, no_references_error_message);
+                        reference_found = false;
+                        return Option<bool>(true);
                     }
 
                     auto joined_collection = cm.get_collection(joined_coll_having_reference);
@@ -5053,7 +5052,8 @@ Option<bool> Index::ref_compute_sort_scores(const sort_by& sort_field, const uin
             }
 
             if (joined_coll_having_reference.empty()) {
-                return Option<bool>(400, no_references_error_message);
+                reference_found = false;
+                return Option<bool>(true);
             }
 
             auto joined_collection = cm.get_collection(joined_coll_having_reference);
