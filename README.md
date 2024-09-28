@@ -140,7 +140,7 @@ Here's a quick example showcasing how you can create a collection, index a docum
 Let's begin by starting the Typesense server via Docker:
 
 ```
-docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:26.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:27.1 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 We have [API Clients](#api-clients) in a couple of languages, but let's use the Python client for this example.
