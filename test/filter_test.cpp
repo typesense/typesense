@@ -63,7 +63,9 @@ TEST_F(FilterTest, FilterTreeIterator) {
     const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
 
-    auto iter_null_filter_tree_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto const enable_lazy_evaluation = true;
+    auto iter_null_filter_tree_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                               enable_lazy_evaluation);
 
     ASSERT_TRUE(iter_null_filter_tree_test.init_status().ok());
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_null_filter_tree_test.validity);
@@ -72,7 +74,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_no_match_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_no_match_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                       enable_lazy_evaluation);
 
     ASSERT_TRUE(iter_no_match_test.init_status().ok());
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_no_match_test.validity);
@@ -83,7 +86,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_no_match_multi_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_no_match_multi_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                             enable_lazy_evaluation);
 
     ASSERT_TRUE(iter_no_match_multi_test.init_status().ok());
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_no_match_multi_test.validity);
@@ -94,7 +98,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_contains_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_contains_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                       enable_lazy_evaluation);
     ASSERT_TRUE(iter_contains_test.init_status().ok());
 
     for (uint32_t i = 0; i < 5; i++) {
@@ -110,7 +115,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_contains_multi_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_contains_multi_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                             enable_lazy_evaluation);
     ASSERT_TRUE(iter_contains_multi_test.init_status().ok());
 
     for (uint32_t i = 0; i < 5; i++) {
@@ -126,7 +132,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_exact_match_1_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_exact_match_1_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                            enable_lazy_evaluation);
     ASSERT_TRUE(iter_exact_match_1_test.init_status().ok());
 
     for (uint32_t i = 0; i < 5; i++) {
@@ -142,7 +149,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_exact_match_2_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_exact_match_2_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                            enable_lazy_evaluation);
     ASSERT_TRUE(iter_exact_match_2_test.init_status().ok());
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_exact_match_2_test.validity);
 
@@ -152,7 +160,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_exact_match_multi_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_exact_match_multi_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                enable_lazy_evaluation);
     ASSERT_TRUE(iter_exact_match_multi_test.init_status().ok());
 
     std::vector<int> expected = {0, 2, 3, 4};
@@ -169,7 +178,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                         enable_lazy_evaluation);
     ASSERT_TRUE(iter_not_equals_test.init_status().ok());
 
     expected = {1, 3};
@@ -198,7 +208,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto add_op = coll->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
 
-    auto iter_or_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_or_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                 enable_lazy_evaluation);
     ASSERT_TRUE(iter_or_test.init_status().ok());
 
     expected = {2, 4, 5};
@@ -216,7 +227,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_complex_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_complex_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                             enable_lazy_evaluation);
     ASSERT_TRUE(iter_complex_filter_test.init_status().ok());
 
     ASSERT_EQ(filter_result_iterator_t::valid, iter_complex_filter_test.validity);
@@ -238,7 +250,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_validate_ids_test1 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_validate_ids_test1 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                            enable_lazy_evaluation);
     ASSERT_TRUE(iter_validate_ids_test1.init_status().ok());
 
     std::vector<int> validate_ids = {0, 1, 2, 3, 4, 5, 6};
@@ -255,7 +268,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_validate_ids_test2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_validate_ids_test2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                            enable_lazy_evaluation);
     ASSERT_TRUE(iter_validate_ids_test2.init_status().ok());
 
     validate_ids = {0, 1, 2, 3, 4, 5, 6}, seq_ids = {1, 1, 5, 5, 5, 5, 5};
@@ -271,10 +285,12 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_validate_ids_test3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_validate_ids_test3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                            enable_lazy_evaluation);
     ASSERT_TRUE(iter_validate_ids_test3.init_status().ok());
+    ASSERT_TRUE(iter_validate_ids_test3._get_is_filter_result_initialized());
 
-    validate_ids = {0, 1, 2, 3, 4, 5, 6}, seq_ids = {0, 3, 3, 4, 4, 4, 4};
+    validate_ids = {0, 1, 2, 3, 4, 5, 6}, seq_ids = {0, 4, 4, 4, 4, 4, 4};
     expected = {1, 0, 0, 0, 1, -1, -1};
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
         ASSERT_EQ(expected[i], iter_validate_ids_test3.is_valid(validate_ids[i]));
@@ -288,7 +304,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_TRUE(filter_op.ok());
 
     auto iter_compact_plist_contains_atleast_one_test1 = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
-                                                                                  filter_tree_root);
+                                                                                  filter_tree_root, enable_lazy_evaluation);
     ASSERT_TRUE(iter_compact_plist_contains_atleast_one_test1.init_status().ok());
 
     std::vector<uint32_t> ids = {1, 3, 5};
@@ -300,7 +316,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     free(c_list1);
 
     auto iter_compact_plist_contains_atleast_one_test2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
-                                                                                  filter_tree_root);
+                                                                                  filter_tree_root, enable_lazy_evaluation);
     ASSERT_TRUE(iter_compact_plist_contains_atleast_one_test2.init_status().ok());
 
     ids = {1, 3, 4};
@@ -312,7 +328,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     free(c_list2);
 
     auto iter_plist_contains_atleast_one_test1 = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
-                                                                                  filter_tree_root);
+                                                                          filter_tree_root, enable_lazy_evaluation);
     ASSERT_TRUE(iter_plist_contains_atleast_one_test1.init_status().ok());
 
     posting_list_t p_list1(2);
@@ -341,7 +357,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_reset_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_reset_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                    enable_lazy_evaluation);
     ASSERT_TRUE(iter_reset_test.init_status().ok());
 
     expected = {0, 2, 3, 4};
@@ -361,7 +378,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_reset_test.validity);
 
-    auto iter_move_assignment_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_move_assignment_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                              enable_lazy_evaluation);
 
     iter_reset_test.reset();
     iter_move_assignment_test = std::move(iter_reset_test);
@@ -380,7 +398,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                                 filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_to_array_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_to_array_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                       enable_lazy_evaluation);
     ASSERT_TRUE(iter_to_array_test.init_status().ok());
 
     uint32_t* filter_ids = nullptr;
@@ -397,7 +416,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete[] filter_ids;
 
-    auto iter_and_scalar_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_and_scalar_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                         enable_lazy_evaluation);
     ASSERT_TRUE(iter_and_scalar_test.init_status().ok());
 
     uint32_t a_ids[6] = {0, 1, 3, 4, 5, 6};
@@ -429,7 +449,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
     filter_op = filter::parse_filter_query("tags: bronze", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
 
-    auto iter_add_phrase_ids_test = new filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_add_phrase_ids_test = new filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                 enable_lazy_evaluation);
     std::unique_ptr<filter_result_iterator_t> filter_iter_guard(iter_add_phrase_ids_test);
     ASSERT_TRUE(iter_add_phrase_ids_test->init_status().ok());
 
@@ -450,7 +471,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_string_multi_value_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_string_multi_value_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                 enable_lazy_evaluation);
     ASSERT_TRUE(iter_string_multi_value_test.init_status().ok());
     ASSERT_FALSE(iter_string_multi_value_test._get_is_filter_result_initialized());
 
@@ -468,7 +490,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_string_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_string_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                            enable_lazy_evaluation);
     ASSERT_TRUE(iter_string_equals_test.init_status().ok());
     ASSERT_TRUE(iter_string_equals_test._get_is_filter_result_initialized());
 
@@ -487,7 +510,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_string_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_string_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                              enable_lazy_evaluation);
     ASSERT_TRUE(iter_string_equals_test_2.init_status().ok());
     ASSERT_FALSE(iter_string_equals_test_2._get_is_filter_result_initialized());
 
@@ -504,7 +528,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
     filter_op = filter::parse_filter_query("tags: != [gold, silver]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
-    auto iter_string_not_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_string_not_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                  enable_lazy_evaluation);
     ASSERT_TRUE(iter_string_not_equals_test_2.init_status().ok());
     ASSERT_TRUE(iter_string_not_equals_test_2._get_is_filter_result_initialized());
 
@@ -557,7 +582,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_boolean_test = filter_result_iterator_t(bool_coll->get_name(), bool_coll->_get_index(), filter_tree_root);
+    auto iter_boolean_test = filter_result_iterator_t(bool_coll->get_name(), bool_coll->_get_index(), filter_tree_root,
+                                                      enable_lazy_evaluation);
     ASSERT_TRUE(iter_boolean_test.init_status().ok());
     ASSERT_TRUE(iter_boolean_test._get_is_filter_result_initialized());
     ASSERT_EQ(2, iter_boolean_test.approx_filter_ids_length);
@@ -576,7 +602,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_boolean_test_2 = filter_result_iterator_t(bool_coll->get_name(), bool_coll->_get_index(), filter_tree_root);
+    auto iter_boolean_test_2 = filter_result_iterator_t(bool_coll->get_name(), bool_coll->_get_index(), filter_tree_root,
+                                                        enable_lazy_evaluation);
     ASSERT_TRUE(iter_boolean_test_2.init_status().ok());
     ASSERT_FALSE(iter_boolean_test_2._get_is_filter_result_initialized());
     ASSERT_EQ(8, iter_boolean_test_2.approx_filter_ids_length);
@@ -628,7 +655,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_string_prefix_value_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_string_prefix_value_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                  enable_lazy_evaluation);
     ASSERT_TRUE(iter_string_prefix_value_test.init_status().ok());
     ASSERT_FALSE(iter_string_prefix_value_test._get_is_filter_result_initialized());
     ASSERT_EQ(3, iter_string_prefix_value_test.approx_filter_ids_length); // document 0 and 2 have been deleted.
@@ -647,7 +675,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_string_prefix_value_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_string_prefix_value_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                    enable_lazy_evaluation);
     ASSERT_TRUE(iter_string_prefix_value_test_2.init_status().ok());
     ASSERT_FALSE(iter_string_prefix_value_test_2._get_is_filter_result_initialized());
     ASSERT_EQ(4, iter_string_prefix_value_test_2.approx_filter_ids_length); // 7 total docs, 3 approx count for equals.
@@ -752,7 +781,9 @@ TEST_F(FilterTest, FilterTreeInitialization) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_left_subtree_0_matches = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto const enable_lazy_evaluation = true;
+    auto iter_left_subtree_0_matches = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                enable_lazy_evaluation);
 
     ASSERT_TRUE(iter_left_subtree_0_matches.init_status().ok());
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_left_subtree_0_matches.validity);
@@ -768,14 +799,15 @@ TEST_F(FilterTest, FilterTreeInitialization) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_right_subtree_0_matches = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_right_subtree_0_matches = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                 enable_lazy_evaluation);
 
     ASSERT_TRUE(iter_right_subtree_0_matches.init_status().ok());
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_right_subtree_0_matches.validity);
     ASSERT_EQ(0, iter_right_subtree_0_matches.approx_filter_ids_length);
-    ASSERT_FALSE(iter_right_subtree_0_matches._get_is_filter_result_initialized());
-    ASSERT_NE(nullptr, iter_right_subtree_0_matches._get_left_it());
-    ASSERT_NE(nullptr, iter_right_subtree_0_matches._get_right_it());
+    ASSERT_TRUE(iter_right_subtree_0_matches._get_is_filter_result_initialized());
+    ASSERT_EQ(nullptr, iter_right_subtree_0_matches._get_left_it());
+    ASSERT_EQ(nullptr, iter_right_subtree_0_matches._get_right_it());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -784,7 +816,8 @@ TEST_F(FilterTest, FilterTreeInitialization) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_inner_subtree_0_matches = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_inner_subtree_0_matches = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                 enable_lazy_evaluation);
 
     ASSERT_TRUE(iter_inner_subtree_0_matches.init_status().ok());
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_inner_subtree_0_matches.validity);
@@ -824,7 +857,9 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto computed_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto const enable_lazy_evaluation = true;
+    auto computed_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                             enable_lazy_evaluation);
     ASSERT_TRUE(computed_not_equals_test.init_status().ok());
     ASSERT_TRUE(computed_not_equals_test._get_is_filter_result_initialized());
 
@@ -842,7 +877,8 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_string_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_string_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                enable_lazy_evaluation);
     ASSERT_TRUE(iter_string_not_equals_test.init_status().ok());
     ASSERT_FALSE(iter_string_not_equals_test._get_is_filter_result_initialized());
 
@@ -869,7 +905,8 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
     filter_op = filter::parse_filter_query("tags: != [gold, silver]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
-    auto iter_string_array_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_string_array_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                      enable_lazy_evaluation);
     ASSERT_TRUE(iter_string_array_not_equals_test.init_status().ok());
     ASSERT_FALSE(iter_string_array_not_equals_test._get_is_filter_result_initialized());
     ASSERT_EQ(5, iter_string_array_not_equals_test.approx_filter_ids_length);
@@ -915,7 +952,8 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_string_not_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_string_not_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                  enable_lazy_evaluation);
     ASSERT_TRUE(iter_string_not_equals_test_2.init_status().ok());
     ASSERT_FALSE(iter_string_not_equals_test_2._get_is_filter_result_initialized());
 
@@ -964,7 +1002,7 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
     ASSERT_TRUE(filter_op.ok());
 
     auto iter_not_equals_or_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
-                                                            filter_tree_root);
+                                                            filter_tree_root, enable_lazy_evaluation);
     ASSERT_TRUE(iter_not_equals_or_test.init_status().ok());
     ASSERT_FALSE(iter_not_equals_or_test._get_is_filter_result_initialized());
 
@@ -989,7 +1027,7 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
     ASSERT_TRUE(filter_op.ok());
 
     auto iter_not_equals_or_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
-                                                               filter_tree_root);
+                                                               filter_tree_root, enable_lazy_evaluation);
     ASSERT_TRUE(iter_not_equals_or_test_2.init_status().ok());
 
     validate_ids = {0, 1, 2, 3, 4, 5, 6, 7, 8};
@@ -1013,14 +1051,16 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
     ASSERT_TRUE(filter_op.ok());
 
     auto iter_not_equals_and_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
-                                                             filter_tree_root);
+                                                             filter_tree_root, enable_lazy_evaluation);
     ASSERT_TRUE(iter_not_equals_and_test.init_status().ok());
+    ASSERT_TRUE(iter_not_equals_and_test._get_is_filter_result_initialized());
 
-    validate_ids = {5, 6, 7, 8};
-    seq_ids = {6, 7, 8, 8};
-    expected = {1, 1, 0, -1};
+    validate_ids = {4, 5, 6, 7};
+    seq_ids = {5, 6, 6, 6};
+    expected = {0, 1, 1, -1};
+
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_and_test.validity);
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
-        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_and_test.validity);
         ASSERT_EQ(expected[i], iter_not_equals_and_test.is_valid(validate_ids[i]));
 
         if (expected[i] == 1) {
@@ -1035,16 +1075,18 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
     filter_op = filter::parse_filter_query("tags: != silver && tags: != gold", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
+    ASSERT_TRUE(iter_not_equals_and_test._get_is_filter_result_initialized());
 
     auto iter_not_equals_and_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
-                                                             filter_tree_root);
+                                                                filter_tree_root, enable_lazy_evaluation);
     ASSERT_TRUE(iter_not_equals_and_test_2.init_status().ok());
 
     validate_ids = {0, 1, 2, 3, 4, 5, 6, 7, 8};
-    seq_ids = {1, 2, 3, 4, 5, 6, 7, 8, 8};
-    expected = {0, 1, 0, 0, 0, 1, 1, 0, -1};
+    seq_ids = {1, 5, 5, 5, 5, 6, 6, 6, 6};
+    expected = {0, 1, 0, 0, 0, 1, 1, -1, -1};
+
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_and_test_2.validity);
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
-        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_and_test_2.validity);
         ASSERT_EQ(expected[i], iter_not_equals_and_test_2.is_valid(validate_ids[i]));
 
         if (expected[i] == 1) {
@@ -1086,7 +1128,10 @@ TEST_F(FilterTest, NumericFilterIterator) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto computed_greater_than_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto const enable_lazy_evaluation = true;
+    auto const disable_lazy_evaluation = false;
+    auto computed_greater_than_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                               enable_lazy_evaluation);
     ASSERT_TRUE(computed_greater_than_test.init_status().ok());
     ASSERT_TRUE(computed_greater_than_test._get_is_filter_result_initialized());
 
@@ -1104,7 +1149,8 @@ TEST_F(FilterTest, NumericFilterIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_greater_than_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_greater_than_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                           enable_lazy_evaluation);
     ASSERT_TRUE(iter_greater_than_test.init_status().ok());
     ASSERT_FALSE(iter_greater_than_test._get_is_filter_result_initialized());
 
@@ -1141,13 +1187,37 @@ TEST_F(FilterTest, NumericFilterIterator) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_greater_than_test.validity);
 
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_greater_than_test_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                        filter_tree_root, disable_lazy_evaluation);
+        ASSERT_TRUE(iter_greater_than_test_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_greater_than_test_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5};
+        seq_ids = {1, 3, 3, 4, 4, 4};
+        expected = {0, 1, 0, 1, 1, -1};
+
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_greater_than_test_non_lazy.validity);
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i], iter_greater_than_test_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_greater_than_test_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_greater_than_test_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_greater_than_test_non_lazy.validity);
+    }
+
     delete filter_tree_root;
     filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("age: != 21", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                         enable_lazy_evaluation);
     ASSERT_TRUE(iter_not_equals_test.init_status().ok());
     ASSERT_FALSE(iter_not_equals_test._get_is_filter_result_initialized());
 
@@ -1166,13 +1236,37 @@ TEST_F(FilterTest, NumericFilterIterator) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test.validity);
 
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_not_equals_test_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                      filter_tree_root, disable_lazy_evaluation);
+        ASSERT_TRUE(iter_not_equals_test_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_not_equals_test_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5};
+        seq_ids = {1, 3, 3, 4, 4, 4};
+        expected = {1, 1, 0, 1, 1, -1};
+
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_test_non_lazy.validity);
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i], iter_not_equals_test_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_not_equals_test_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_not_equals_test_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test_non_lazy.validity);
+    }
+
     delete filter_tree_root;
     filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("age: != [21]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_not_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_not_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                           enable_lazy_evaluation);
     ASSERT_TRUE(iter_not_equals_test_2.init_status().ok());
     ASSERT_FALSE(iter_not_equals_test_2._get_is_filter_result_initialized());
 
@@ -1196,13 +1290,37 @@ TEST_F(FilterTest, NumericFilterIterator) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test_2.validity);
 
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_not_equals_test_2_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                        filter_tree_root, disable_lazy_evaluation);
+        ASSERT_TRUE(iter_not_equals_test_2_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_not_equals_test_2_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5};
+        seq_ids = {1, 3, 3, 4, 4, 4};
+        expected = {1, 1, 0, 1, 1, -1};
+
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_test_2_non_lazy.validity);
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i], iter_not_equals_test_2_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_not_equals_test_2_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_not_equals_test_2_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test_2_non_lazy.validity);
+    }
+
     delete filter_tree_root;
     filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("age: [<=21, >32]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_multivalue_filter = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_multivalue_filter = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                           enable_lazy_evaluation);
     ASSERT_TRUE(iter_multivalue_filter.init_status().ok());
     ASSERT_FALSE(iter_multivalue_filter._get_is_filter_result_initialized());
 
@@ -1225,13 +1343,37 @@ TEST_F(FilterTest, NumericFilterIterator) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter.validity);
 
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_multivalue_filter_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                        filter_tree_root, disable_lazy_evaluation);
+        ASSERT_TRUE(iter_multivalue_filter_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_multivalue_filter_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5};
+        seq_ids = {1, 2, 3, 3, 3, 3};
+        expected = {0, 1, 1, 1, -1, -1};
+
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_multivalue_filter_non_lazy.validity);
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i], iter_multivalue_filter_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_multivalue_filter_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_multivalue_filter_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_non_lazy.validity);
+    }
+
     delete filter_tree_root;
     filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("age: != [<24, >44]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_multivalue_filter_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_multivalue_filter_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                             enable_lazy_evaluation);
     ASSERT_TRUE(iter_multivalue_filter_2.init_status().ok());
     ASSERT_FALSE(iter_multivalue_filter_2._get_is_filter_result_initialized());
 
@@ -1255,13 +1397,37 @@ TEST_F(FilterTest, NumericFilterIterator) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_2.validity);
 
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_multivalue_filter_2_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                          filter_tree_root, disable_lazy_evaluation);
+        ASSERT_TRUE(iter_multivalue_filter_2_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_multivalue_filter_2_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5};
+        seq_ids = {1, 4, 4, 4, 4, 4};
+        expected = {1, 1, 0, 0, 1, -1};
+
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_multivalue_filter_2_non_lazy.validity);
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i], iter_multivalue_filter_2_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_multivalue_filter_2_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_multivalue_filter_2_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_2_non_lazy.validity);
+    }
+
     delete filter_tree_root;
     filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("age: [21..32, >44]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_multivalue_filter_3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_multivalue_filter_3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                             enable_lazy_evaluation);
     ASSERT_TRUE(iter_multivalue_filter_3.init_status().ok());
     ASSERT_FALSE(iter_multivalue_filter_3._get_is_filter_result_initialized());
 
@@ -1289,13 +1455,37 @@ TEST_F(FilterTest, NumericFilterIterator) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_3.validity);
 
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_multivalue_filter_3_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                          filter_tree_root, disable_lazy_evaluation);
+        ASSERT_TRUE(iter_multivalue_filter_3_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_multivalue_filter_3_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5};
+        seq_ids = {2, 2, 3, 4, 4, 4};
+        expected = {1, 0, 1, 1, 1, -1};
+
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_multivalue_filter_3_non_lazy.validity);
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i], iter_multivalue_filter_3_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_multivalue_filter_3_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_multivalue_filter_3_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_3_non_lazy.validity);
+    }
+
     delete filter_tree_root;
     filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("rating: <5", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto computed_greater_than_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto computed_greater_than_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                 enable_lazy_evaluation);
     ASSERT_TRUE(computed_greater_than_test_2.init_status().ok());
     ASSERT_TRUE(computed_greater_than_test_2._get_is_filter_result_initialized());
 
@@ -1313,7 +1503,8 @@ TEST_F(FilterTest, NumericFilterIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_greater_than_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_greater_than_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                             enable_lazy_evaluation);
     ASSERT_TRUE(iter_greater_than_test_2.init_status().ok());
     ASSERT_FALSE(iter_greater_than_test_2._get_is_filter_result_initialized());
 
@@ -1360,7 +1551,8 @@ TEST_F(FilterTest, NumericFilterIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_not_equals_test_3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_not_equals_test_3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                           enable_lazy_evaluation);
     ASSERT_TRUE(iter_not_equals_test_3.init_status().ok());
     ASSERT_FALSE(iter_not_equals_test_3._get_is_filter_result_initialized());
 
@@ -1379,13 +1571,37 @@ TEST_F(FilterTest, NumericFilterIterator) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test_3.validity);
 
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_not_equals_test_3_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                        filter_tree_root, disable_lazy_evaluation);
+        ASSERT_TRUE(iter_not_equals_test_3_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_not_equals_test_3_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5};
+        seq_ids = {1, 3, 3, 4, 4, 4};
+        expected = {1, 1, 0, 1, 1, -1};
+
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_test_3_non_lazy.validity);
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i], iter_not_equals_test_3_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_not_equals_test_3_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_not_equals_test_3_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test_3_non_lazy.validity);
+    }
+
     delete filter_tree_root;
     filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("rating: != [7.812]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_not_equals_test_4 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_not_equals_test_4 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                           enable_lazy_evaluation);
     ASSERT_TRUE(iter_not_equals_test_4.init_status().ok());
     ASSERT_FALSE(iter_not_equals_test_4._get_is_filter_result_initialized());
 
@@ -1409,13 +1625,37 @@ TEST_F(FilterTest, NumericFilterIterator) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test_4.validity);
 
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_not_equals_test_4_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                        filter_tree_root, disable_lazy_evaluation);
+        ASSERT_TRUE(iter_not_equals_test_4_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_not_equals_test_4_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5};
+        seq_ids = {1, 3, 3, 4, 4, 4};
+        expected = {1, 1, 0, 1, 1, -1};
+
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_test_4_non_lazy.validity);
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i], iter_not_equals_test_4_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_not_equals_test_4_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_not_equals_test_4_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test_4_non_lazy.validity);
+    }
+
     delete filter_tree_root;
     filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("rating: [< 1, >6]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_multivalue_filter_4 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_multivalue_filter_4 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                             enable_lazy_evaluation);
     ASSERT_TRUE(iter_multivalue_filter_4.init_status().ok());
     ASSERT_FALSE(iter_multivalue_filter_4._get_is_filter_result_initialized());
 
@@ -1438,13 +1678,37 @@ TEST_F(FilterTest, NumericFilterIterator) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_4.validity);
 
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_multivalue_filter_4_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                          filter_tree_root, disable_lazy_evaluation);
+        ASSERT_TRUE(iter_multivalue_filter_4_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_multivalue_filter_4_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5};
+        seq_ids = {1, 2, 3, 3, 3, 3};
+        expected = {0, 1, 1, 1, -1, -1};
+
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_multivalue_filter_4_non_lazy.validity);
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i], iter_multivalue_filter_4_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_multivalue_filter_4_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_multivalue_filter_4_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_4_non_lazy.validity);
+    }
+
     delete filter_tree_root;
     filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("rating: != [<1, >8]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_multivalue_filter_5 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_multivalue_filter_5 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                             enable_lazy_evaluation);
     ASSERT_TRUE(iter_multivalue_filter_5.init_status().ok());
     ASSERT_FALSE(iter_multivalue_filter_5._get_is_filter_result_initialized());
 
@@ -1468,13 +1732,37 @@ TEST_F(FilterTest, NumericFilterIterator) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_5.validity);
 
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_multivalue_filter_5_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                          filter_tree_root, disable_lazy_evaluation);
+        ASSERT_TRUE(iter_multivalue_filter_5_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_multivalue_filter_5_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5};
+        seq_ids = {2, 2, 4, 4, 4, 4};
+        expected = {1, 0, 1, 0, 1, -1};
+
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_multivalue_filter_5_non_lazy.validity);
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i], iter_multivalue_filter_5_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_multivalue_filter_5_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_multivalue_filter_5_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_5_non_lazy.validity);
+    }
+
     delete filter_tree_root;
     filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("rating: [0..6, >8]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_multivalue_filter_6 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_multivalue_filter_6 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                             enable_lazy_evaluation);
     ASSERT_TRUE(iter_multivalue_filter_6.init_status().ok());
     ASSERT_FALSE(iter_multivalue_filter_6._get_is_filter_result_initialized());
 
@@ -1501,6 +1789,29 @@ TEST_F(FilterTest, NumericFilterIterator) {
         ASSERT_EQ(seq_ids[i], iter_multivalue_filter_6.seq_id);
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_6.validity);
+
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_multivalue_filter_6_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                          filter_tree_root, disable_lazy_evaluation);
+        ASSERT_TRUE(iter_multivalue_filter_6_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_multivalue_filter_6_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5};
+        seq_ids = {1, 3, 3, 4, 4, 4};
+        expected = {1, 1, 0, 1, 1, -1};
+
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_multivalue_filter_6_non_lazy.validity);
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i], iter_multivalue_filter_6_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_multivalue_filter_6_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_multivalue_filter_6_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_6_non_lazy.validity);
+    }
 
     delete filter_tree_root;
 }
@@ -1538,7 +1849,9 @@ TEST_F(FilterTest, PrefixStringFilter) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto computed_exact_prefix_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto const enable_lazy_evaluation = true;
+    auto computed_exact_prefix_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                               enable_lazy_evaluation);
     ASSERT_TRUE(computed_exact_prefix_test.init_status().ok());
     ASSERT_TRUE(computed_exact_prefix_test._get_is_filter_result_initialized());
 
@@ -1556,7 +1869,8 @@ TEST_F(FilterTest, PrefixStringFilter) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto computed_contains_prefix_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto computed_contains_prefix_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                  enable_lazy_evaluation);
     ASSERT_TRUE(computed_contains_prefix_test.init_status().ok());
     ASSERT_TRUE(computed_contains_prefix_test._get_is_filter_result_initialized());
 
@@ -1592,7 +1906,8 @@ TEST_F(FilterTest, PrefixStringFilter) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_exact_prefix_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_exact_prefix_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                           enable_lazy_evaluation);
     ASSERT_TRUE(iter_exact_prefix_test.init_status().ok());
     ASSERT_FALSE(iter_exact_prefix_test._get_is_filter_result_initialized());
 
@@ -1624,7 +1939,8 @@ TEST_F(FilterTest, PrefixStringFilter) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_contains_prefix_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_contains_prefix_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                              enable_lazy_evaluation);
     ASSERT_TRUE(iter_contains_prefix_test.init_status().ok());
     ASSERT_FALSE(iter_contains_prefix_test._get_is_filter_result_initialized());
 
@@ -1656,7 +1972,8 @@ TEST_F(FilterTest, PrefixStringFilter) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto computed_exact_prefix_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto computed_exact_prefix_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                 enable_lazy_evaluation);
     ASSERT_TRUE(computed_exact_prefix_test_2.init_status().ok());
     ASSERT_TRUE(computed_exact_prefix_test_2._get_is_filter_result_initialized());
 
@@ -1674,7 +1991,8 @@ TEST_F(FilterTest, PrefixStringFilter) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto computed_contains_prefix_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto computed_contains_prefix_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                    enable_lazy_evaluation);
     ASSERT_TRUE(computed_contains_prefix_test_2.init_status().ok());
     ASSERT_TRUE(computed_contains_prefix_test_2._get_is_filter_result_initialized());
 
@@ -1707,7 +2025,8 @@ TEST_F(FilterTest, PrefixStringFilter) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_exact_prefix_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_exact_prefix_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                             enable_lazy_evaluation);
     ASSERT_TRUE(iter_exact_prefix_test_2.init_status().ok());
     ASSERT_FALSE(iter_exact_prefix_test_2._get_is_filter_result_initialized());
 
@@ -1739,7 +2058,8 @@ TEST_F(FilterTest, PrefixStringFilter) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_contains_prefix_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    auto iter_contains_prefix_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                enable_lazy_evaluation);
     ASSERT_TRUE(iter_contains_prefix_test_2.init_status().ok());
     ASSERT_FALSE(iter_contains_prefix_test_2._get_is_filter_result_initialized());
 

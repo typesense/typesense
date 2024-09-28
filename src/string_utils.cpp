@@ -7,6 +7,7 @@
 #include <map>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <join.h>
 #include "logger.h"
 
 StringUtils::StringUtils() {
@@ -378,39 +379,8 @@ Option<bool> parse_multi_valued_geopoint_filter(const std::string& filter_query,
     return Option<bool>(true);
 }
 
-Option<bool> parse_reference_filter(const std::string& filter_query, std::queue<std::string>& tokens, size_t& index) {
-    auto error = Option<bool>(400, "Could not parse the reference filter.");
-    if (filter_query[index] != '$') {
-        return error;
-    }
-
-    size_t start_index = index;
-    auto size = filter_query.size();
-    while(++index < size && filter_query[index] != '(') {}
-
-    if (index >= size) {
-        return error;
-    }
-
-    // The reference filter could have parenthesis inside it. $Foo((X && Y) || Z)
-    int parenthesis_count = 1;
-    while (++index < size && parenthesis_count > 0) {
-        if (filter_query[index] == '(') {
-            parenthesis_count++;
-        } else if (filter_query[index] == ')') {
-            parenthesis_count--;
-        }
-    }
-
-    if (parenthesis_count != 0) {
-        return error;
-    }
-
-    tokens.push(filter_query.substr(start_index, index - start_index));
-    return Option<bool>(true);
-}
-
 Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
+    std::set<std::string> ref_collection_names;
     auto size = filter_query.size();
     for (size_t i = 0; i < size;) {
         auto c = filter_query[i];
@@ -440,7 +410,7 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
         } else {
             // Reference filter would start with $ symbol.
             if (c == '$') {
-                auto op = parse_reference_filter(filter_query, tokens, i);
+                auto op = Join::parse_reference_filter(filter_query, tokens, i, ref_collection_names);
                 if (!op.ok()) {
                     return op;
                 }
@@ -492,53 +462,6 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
     return Option<bool>(true);
 }
 
-Option<bool> StringUtils::split_reference_include_exclude_fields(const std::string& include_exclude_fields,
-                                                                 size_t& index, std::string& token) {
-    auto ref_include_error = Option<bool>(400, "Invalid reference `" + include_exclude_fields + "` in include_fields/"
-                                                        "exclude_fields, expected `$CollectionName(fieldA, ...)`.");
-    auto const& size = include_exclude_fields.size();
-    size_t start_index = index;
-    while(++index < size && include_exclude_fields[index] != '(') {}
-
-    if (index >= size) {
-        return ref_include_error;
-    }
-
-    // In case of nested join, the reference include/exclude field could have parenthesis inside it.
-    int parenthesis_count = 1;
-    while (++index < size && parenthesis_count > 0) {
-        if (include_exclude_fields[index] == '(') {
-            parenthesis_count++;
-        } else if (include_exclude_fields[index] == ')') {
-            parenthesis_count--;
-        }
-    }
-
-    if (parenthesis_count != 0) {
-        return ref_include_error;
-    }
-
-    // In case of nested reference include, we might end up with one of the following scenarios:
-    // $ref_include( $nested_ref_include(foo, strategy:merge)as nest ) as ref
-    //                                                            ...^
-    // $ref_include( $nested_ref_include(foo, strategy:merge)as nest, bar ) as ref
-    //                                                           ...^
-    auto closing_parenthesis_pos = include_exclude_fields.find(')', index);
-    auto comma_pos = include_exclude_fields.find(',', index);
-    auto alias_start_pos = include_exclude_fields.find(" as ", index);
-    auto alias_end_pos = std::min(closing_parenthesis_pos, comma_pos);
-    std::string alias;
-    if (alias_start_pos != std::string::npos && alias_start_pos < alias_end_pos) {
-        alias = include_exclude_fields.substr(alias_start_pos, alias_end_pos - alias_start_pos);
-    }
-
-    token = include_exclude_fields.substr(start_index, index - start_index) + " " + trim(alias);
-    trim(token);
-
-    index = alias_end_pos;
-    return Option<bool>(true);
-}
-
 Option<bool> StringUtils::split_include_exclude_fields(const std::string& include_exclude_fields,
                                                        std::vector<std::string>& tokens) {
     std::string token;
@@ -550,7 +473,7 @@ Option<bool> StringUtils::split_include_exclude_fields(const std::string& includ
             continue;
         } else if (c == '$') { // Reference include/exclude
             std::string ref_include_token;
-            auto split_op = split_reference_include_exclude_fields(include_exclude_fields, i, ref_include_token);
+            auto split_op = Join::split_reference_include_exclude_fields(include_exclude_fields, i, ref_include_token);
             if (!split_op.ok()) {
                 return split_op;
             }

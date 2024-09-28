@@ -2820,7 +2820,7 @@ TEST_F(CollectionSpecificMoreTest, DisableHighlightForLongFields) {
     ASSERT_EQ(1, res_op.get()["hits"][0]["highlight"].size());
 }
 
-TEST_F(CollectionSpecificMoreTest, TestStemming) {
+TEST_F(CollectionSpecificMoreTest, StemmingEnglish) {
     nlohmann::json schema = R"({
         "name": "test",
         "fields": [
@@ -2829,7 +2829,6 @@ TEST_F(CollectionSpecificMoreTest, TestStemming) {
     })"_json;
 
     auto coll_stem_res = collectionManager.create_collection(schema);
-    LOG(INFO) << coll_stem_res.error();
     ASSERT_TRUE(coll_stem_res.ok());
 
     auto coll_stem = coll_stem_res.get();
@@ -2842,25 +2841,170 @@ TEST_F(CollectionSpecificMoreTest, TestStemming) {
     })"_json;
 
     auto coll_no_stem_res = collectionManager.create_collection(schema);
-    LOG(INFO) << coll_no_stem_res.error();
     ASSERT_TRUE(coll_no_stem_res.ok());
-
     auto coll_no_stem = coll_no_stem_res.get();
 
     nlohmann::json doc;
-
     doc["name"] = "running";
+
     ASSERT_TRUE(coll_stem->add(doc.dump()).ok());
     ASSERT_TRUE(coll_no_stem->add(doc.dump()).ok());
 
     auto stem_res = coll_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
     ASSERT_TRUE(stem_res.ok());
     ASSERT_EQ(1, stem_res.get()["hits"].size());
-    ASSERT_EQ("run", stem_res.get()["hits"][0]["highlight"]["name"]["matched_tokens"][0].get<std::string>());
+    ASSERT_EQ("running", stem_res.get()["hits"][0]["highlight"]["name"]["matched_tokens"][0].get<std::string>());
+    ASSERT_EQ("<mark>running</mark>", stem_res.get()["hits"][0]["highlight"]["name"]["snippet"].get<std::string>());
 
     auto no_stem_res = coll_no_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
     ASSERT_TRUE(no_stem_res.ok());
     ASSERT_EQ(0, no_stem_res.get()["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingEnglishWithCaps) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {
+                "facet": false,
+                "index": true,
+                "infix": true,
+                "locale": "",
+                "name": "name",
+                "optional": false,
+                "sort": false,
+                "stem": false,
+                "store": true,
+                "type": "string"
+            },
+            {
+                "facet": true,
+                "index": true,
+                "infix": true,
+                "locale": "",
+                "name": "subClass",
+                "optional": true,
+                "sort": false,
+                "stem": true,
+                "store": true,
+                "type": "string"
+            }
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "Onion Coo Usa";
+    doc["subClass"] = "ONIONS";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = "Mccormick Onion Dip Mix";
+    doc["subClass"] = "GRAVY/SAUCE PACKETS";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {};
+
+    auto res = coll1->search("onions", {"subClass","name"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_STREQ("0", res["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", res["hits"][1]["document"]["id"].get<std::string>().c_str());
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingEnglishPrefixHighlight) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {
+                "facet": false,
+                "index": true,
+                "infix": true,
+                "locale": "",
+                "name": "name",
+                "optional": false,
+                "sort": false,
+                "stem": false,
+                "store": true,
+                "type": "string"
+            },
+            {
+                "facet": true,
+                "index": true,
+                "infix": true,
+                "locale": "",
+                "name": "subClass",
+                "optional": true,
+                "sort": false,
+                "stem": true,
+                "store": true,
+                "type": "string"
+            }
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "Generic Red Onions";
+    doc["subClass"] = "ONIONS";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {};
+    auto res = coll1->search("onions", {"subClass","name"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("Generic Red <mark>Onions</mark>", res["hits"][0]["highlight"]["name"]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>ONIONS</mark>", res["hits"][0]["highlight"]["subClass"]["snippet"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingEnglishHighlights) {
+    nlohmann::json schema = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string", "stem": true}
+        ]
+    })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+
+    auto coll_stem = coll_stem_res.get();
+
+    nlohmann::json doc;
+    doc["name"] = "Running runs";
+
+    ASSERT_TRUE(coll_stem->add(doc.dump()).ok());
+
+    auto res = coll_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(2, res["hits"][0]["highlight"]["name"]["matched_tokens"].size());
+    ASSERT_EQ("Running", res["hits"][0]["highlight"]["name"]["matched_tokens"][0].get<std::string>());
+    ASSERT_EQ("runs", res["hits"][0]["highlight"]["name"]["matched_tokens"][1].get<std::string>());
+    ASSERT_EQ("<mark>Running</mark> <mark>runs</mark>", res["hits"][0]["highlight"]["name"]["snippet"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingCyrilic) {
+    nlohmann::json schema = R"({
+         "name": "words",
+         "fields": [
+           {"name": "word", "type": "string", "stem": true, "locale": "ru"}
+         ]
+       })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+    auto coll_stem = coll_stem_res.get();
+
+    ASSERT_TRUE(coll_stem->add(R"({"word": "доверенное"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "доверенные"})"_json.dump()).ok());
+
+    auto res = coll_stem->search("доверенное", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, res["hits"].size());
 }
 
 TEST_F(CollectionSpecificMoreTest, NumDroppedTokensTest) {
@@ -3098,21 +3242,66 @@ TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
     ASSERT_EQ("13/14", res["hits"][4]["document"]["title"].get<std::string>());
 }
 
-TEST_F(CollectionSpecificMoreTest, TestStemmingCyrilic) {
-    nlohmann::json schema = R"({
-         "name": "words",
-         "fields": [
-           {"name": "word", "type": "string", "stem": true, "locale": "ru"}
-         ]
-       })"_json;
+TEST_F(CollectionSpecificMoreTest, PopulateIncludeExcludeFields) {
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string", "infix": true},
+                    {"name": "product_description", "type": "string"},
+                    {"name": "product_embedding", "type":"float[]", "embed":{"from": ["product_description"], "model_config": {"model_name": "ts/e5-small"}}},
+                    {"name": "rating", "type": "int32"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair.",
+                "rating": "2"
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "soap",
+                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients.",
+                "rating": "4"
+            })"_json
+    };
 
-    auto coll_stem_res = collectionManager.create_collection(schema);
-    ASSERT_TRUE(coll_stem_res.ok());
-    auto coll_stem = coll_stem_res.get();
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
-    ASSERT_TRUE(coll_stem->add(R"({"word": "доверенное"})"_json.dump()).ok());
-    ASSERT_TRUE(coll_stem->add(R"({"word": "доверенные"})"_json.dump()).ok());
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
 
-    auto res = coll_stem->search("доверенное", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
-    ASSERT_EQ(2, res["hits"].size());
+    auto products_coll = collection_create_op.get();
+
+    spp::sparse_hash_set<std::string> input_include_fields;
+    spp::sparse_hash_set<std::string> input_exclude_fields;
+    tsl::htrie_set<char> output_include_fields;
+    tsl::htrie_set<char> output_exclude_fields;
+
+    input_include_fields = {"product_*"};
+    products_coll->populate_include_exclude_fields_lk(input_include_fields, input_exclude_fields, output_include_fields,
+                                                      output_exclude_fields);
+    std::vector<std::string> expected = {"product_id", "product_name", "product_description"};
+
+    for (const auto& item: expected) {
+        ASSERT_EQ(1, output_include_fields.count(item));
+    }
+
+    input_include_fields = {"product_*"};
+    products_coll->populate_include_exclude_fields_lk(input_include_fields, input_exclude_fields, output_include_fields,
+                                                      output_exclude_fields);
+    expected = {"product_id", "product_name", "product_description", "product_embedding"};
+    for (const auto& item: expected) {
+        ASSERT_EQ(1, output_include_fields.count(item));
+    }
 }

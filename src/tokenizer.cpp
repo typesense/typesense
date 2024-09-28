@@ -29,12 +29,7 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
 
     cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
 
-    if(stemmer) {
-        auto stemmed_input = stemmer->stem(input);
-        init(stemmed_input);
-    } else {
-        init(input);
-    }
+    init(input);
 }
 
 
@@ -144,6 +139,13 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 }
             } else if(normalize && is_cyrillic(locale)) {
                 auto raw_text = unicode_text.tempSubStringBetween(start_pos, end_pos);
+                if(stemmer) {
+                    std::string stemmed_word;
+                    raw_text.toUTF8String(stemmed_word);
+                    stemmed_word = stemmer->stem(stemmed_word);
+                    raw_text = icu::UnicodeString::fromUTF8(stemmed_word);
+                }
+
                 transliterator->transliterate(raw_text);
                 raw_text.toUTF8String(word);
                 StringUtils::replace_all(word, "\"", "");
@@ -221,7 +223,13 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             }
         }
 
-        token = out;
+        if(stemmer && !is_cyrillic(locale)) {
+            // cyrillic is already stemmed prior to transliteration
+            token = stemmer->stem(out);
+        } else {
+            token = out;
+        }
+
         out.clear();
         start_index = utf8_start_index;
         end_index = text.size() - 1;
@@ -249,7 +257,12 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                     continue;
                 }
 
-                token = out;
+                if(stemmer) {
+                    token = stemmer->stem(out);
+                } else {
+                    token = out;
+                }
+
                 out.clear();
 
                 token_index = token_counter++;
@@ -320,7 +333,12 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
         }
     }
 
-    token = out;
+    if(stemmer) {
+        token = stemmer->stem(out);
+    } else {
+        token = out;
+    }
+
     out.clear();
     end_index = i - 1;
 

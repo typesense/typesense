@@ -37,30 +37,34 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
             }
             const auto& event_name = event[EVENT_NAME];
             if(!event_data_val.is_object()) {
-                return Option<bool>(500, "event_data_val is not object.");
+                return Option<bool>(400, "data is not object.");
             }
 
             if(event_type == AnalyticsManager::SEARCH_EVENT) {
                 if(!event_data_val.contains("user_id") || !event_data_val["user_id"].is_string()) {
-                    return Option<bool>(500,
+                    return Option<bool>(400,
                                         "search event json data fields should contain `user_id` as string value.");
                 }
 
                 if(!event_data_val.contains("q") || !event_data_val["q"].is_string()) {
-                    return Option<bool>(500,
+                    return Option<bool>(400,
                                         "search event json data fields should contain `q` as string value.");
                 }
             } else {
                 if(!event_data_val.contains("doc_id") || !event_data_val["doc_id"].is_string()) {
-                    return Option<bool>(500, "event should have 'doc_id' as string value.");
+                    return Option<bool>(400, "event should have 'doc_id' as string value.");
                 }
 
-                if(event_data_val.contains("user_id") && !event_data_val["user_id"].is_string()) {
-                    return Option<bool>(500, "'user_id' should be a string value.");
+                if(event_data_val.contains("collection") && !event_data_val["collection"].is_string()) {
+                    return Option<bool>(400, "'collection' should be a  string value.");
+                }
+
+                if(!event_data_val.contains("user_id") || !event_data_val["user_id"].is_string()) {
+                    return Option<bool>(400, "event should have 'user_id' as string value.");
                 }
 
                 if(event_data_val.contains("q") && !event_data_val["q"].is_string()) {
-                    return Option<bool>(500, "'q' should be a string value.");
+                    return Option<bool>(400, "'q' should be a string value.");
                 }
             }
 
@@ -72,7 +76,7 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
             return Option<bool>(404, "event_type " + event_type + " not found.");
         }
     } else {
-        return Option<bool>(500, "`event_type` value should be string.");
+        return Option<bool>(400, "`event_type` value should be string.");
     }
 
     return Option(true);

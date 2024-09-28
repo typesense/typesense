@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include "option.h"
+#include <limits>
 
 class Collection;
 
@@ -10,7 +11,7 @@ struct vector_query_t {
     std::string field_name;
     size_t k = 0;
     size_t flat_search_cutoff = 0;
-    float distance_threshold = 2.01;
+    float distance_threshold = std::numeric_limits<float>::max();
     std::vector<float> values;
 
     uint32_t seq_id = 0;

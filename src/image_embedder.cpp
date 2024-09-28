@@ -30,7 +30,7 @@ embedding_res_t CLIPImageEmbedder::embed(const std::string& encoded_image) {
     std::vector<const char*> output_names = {"image_embeds"};
 
     // run inference
-    LOG(INFO) << "Running image embedder";
+    // LOG(INFO) << "Running image embedder";
     auto output_tensors = session_->Run(Ort::RunOptions{nullptr}, input_names.data(), &input_tensor, 1, output_names.data(), output_names.size());
 
     // get output tensor
@@ -108,7 +108,7 @@ std::vector<embedding_res_t> CLIPImageEmbedder::batch_embed(const std::vector<st
 
 
     // run inference
-    LOG(INFO) << "Running image embedder";
+    // LOG(INFO) << "Running image embedder";
     auto output_tensors = session_->Run(Ort::RunOptions{nullptr}, input_names.data(), input_tensors.data(), input_tensors.size(), output_names.data(), output_names.size());
 
     // get output tensor

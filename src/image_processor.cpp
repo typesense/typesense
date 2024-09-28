@@ -33,7 +33,7 @@ Option<processed_image_t> CLIPImageProcessor::process_image(const std::string& i
 
     // Run inference
     std::vector<Ort::Value> output_tensors;
-    LOG(INFO) << "Running image processor";
+    // LOG(INFO) << "Running image processor";
     try {
         output_tensors = session_->Run(Ort::RunOptions{nullptr}, input_names.data(), &input_tensor, 1, output_names.data(), output_names.size());
     } catch (...) {
@@ -61,7 +61,7 @@ Option<processed_image_t> CLIPImageProcessor::process_image(const std::string& i
         }
     }
 
-    LOG(INFO) << "Image processed";
+    // LOG(INFO) << "Image processed";
 
     return Option<processed_image_t>(std::move(output));
 }

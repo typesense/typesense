@@ -3072,16 +3072,24 @@ TEST_F(CollectionTest, WildcardQueryReturnsResultsBasedOnPerPageParam) {
     ASSERT_EQ(25, results["found"].get<int>());
 
     // enforce limit_hits
-    res_op = collection->search("*", query_fields, "", facets, sort_fields, {0}, 10, 3,
+    auto limit_hits = 20;
+    results = collection->search("*", query_fields, "", facets, sort_fields, {0}, 10, 3,
                                  FREQUENCY, {false}, 1000,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {1}, 20);
+                                 "<mark>", "</mark>", {1}, limit_hits).get();
 
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ(
-            "Only upto 20 hits can be fetched. Ensure that `page` and `per_page` parameters are within this range.",
-            res_op.error().c_str());
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<int>());
+
+    results = collection->search("*", query_fields, "", facets, sort_fields, {0}, 15, 2,
+                                 FREQUENCY, {false}, 1000,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1}, limit_hits).get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<int>());
 }
 
 TEST_F(CollectionTest, RemoveIfFound) {

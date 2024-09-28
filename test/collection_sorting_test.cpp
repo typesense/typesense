@@ -945,7 +945,7 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithPrecision) {
     std::vector<std::string> expected_ids = {
         "6", "2", "1", "0", "3", "4", "7", "5"
     };
-    std::vector<float> geo_distance_meters = {0.726,0.461,0.46,0.467,1.786,2.007,3.556,3.299};
+    std::vector<float> geo_distance_meters = {726,461,460,467,1786,2007,3556,3299};
 
     for (size_t i = 0; i < expected_ids.size(); i++) {
         auto const& hit = results["hits"][i];
@@ -1983,6 +1983,52 @@ TEST_F(CollectionSortingTest, WildcardSearchSequenceIdSort) {
     auto res = coll1->search("*", {"category"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(10, res["hits"].size());
     ASSERT_EQ(30, res["found"].get<size_t>());
+}
+
+TEST_F(CollectionSortingTest, DefaultSortingFieldStringNotIndexed) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "category", "type": "string", "sort": true, "index": false}
+        ],
+        "default_sorting_field": "category"
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["category"] = "Shoes";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {};
+
+    auto res_op = coll1->search("*", {}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Default sorting field not found in the schema or it has been marked as a "
+              "non-indexed field.", res_op.error());
+}
+
+TEST_F(CollectionSortingTest, SortingFieldNotIndexed) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "category", "type": "int32", "sort": true, "index": false}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["category"] = 100;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {
+        sort_by("category", "DESC"),
+    };
+
+    auto res_op = coll1->search("*", {}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Could not find a field named `category` in the schema for sorting.", res_op.error());
 }
 
 TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
