@@ -2995,9 +2995,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
     // for phrase query, parser will set field_query_tokens to "*", need to handle that
     if (is_wildcard_non_phrase_query) {
-        if(!filter_by_provided && facets.empty() && curated_ids.empty() && vector_query.field_name.empty() &&
-           sort_fields_std.size() == 1 && sort_fields_std[0].name == sort_field_const::seq_id &&
-           sort_fields_std[0].order == sort_field_const::desc) {
+        if(!filter_by_provided && facets.empty() && group_by_fields.empty() && curated_ids.empty() &&
+            vector_query.field_name.empty() && sort_fields_std.size() == 1 &&
+            sort_fields_std[0].name == sort_field_const::seq_id && sort_fields_std[0].order == sort_field_const::desc) {
             // optimize for this path specifically
             std::vector<uint32_t> result_ids;
             auto it = seq_ids->new_rev_iterator();
