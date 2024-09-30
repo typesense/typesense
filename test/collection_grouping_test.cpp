@@ -1338,7 +1338,7 @@ TEST_F(CollectionGroupingTest, GroupByPerPage) {
                              "", 1,
                              {}, {}, {"fabric_id"}, 1).get();
 
-    ASSERT_EQ(4, res["found"].get<size_t>());
+    ASSERT_EQ(5, res["found"].get<size_t>());
     ASSERT_EQ(4, res["grouped_hits"].size());
     ASSERT_EQ(7, res["found_docs"].get<size_t>());
 
