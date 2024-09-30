@@ -5247,7 +5247,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
 
                 if(dist > sort_fields[0].vector_query.query.distance_threshold) {
                     //if computed distance is more then distance_thershold then we wont add that to results
-                    should_skip = true;
+                    dist = std::numeric_limits<int>::max();
                 }
 
                 scores[0] = float_to_int64_t(dist);
@@ -5367,7 +5367,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
 
                 if(dist > sort_fields[1].vector_query.query.distance_threshold) {
                     //if computed distance is more then distance_thershold then we wont add that to results
-                    should_skip = true;
+                    dist = std::numeric_limits<int>::max();
                 }
 
                 scores[1] = float_to_int64_t(dist);
@@ -5486,7 +5486,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
 
                 if(dist > sort_fields[2].vector_query.query.distance_threshold) {
                     //if computed distance is more then distance_thershold then we wont add that to results
-                    should_skip = true;
+                    dist = std::numeric_limits<int>::max();
                 }
 
                 scores[2] = float_to_int64_t(dist);
