@@ -1684,7 +1684,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   bool synonym_prefix,
                                   uint32_t synonyms_num_typos,
                                   bool enable_lazy_filter,
-                                  bool enable_typos_for_alpha_numerical_tokens) const {
+                                  bool enable_typos_for_alpha_numerical_tokens,
+                                  const size_t& max_filter_by_candidates) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -2314,7 +2315,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                                  filter_curated_hits, split_join_tokens, vector_query,
                                                  facet_sample_percent, facet_sample_threshold, drop_tokens_param,
-                                                 enable_lazy_filter);
+                                                 enable_lazy_filter, max_filter_by_candidates);
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 

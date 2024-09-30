@@ -7,6 +7,7 @@
 #include "store.h"
 
 constexpr uint32_t COMPUTE_FILTER_ITERATOR_THRESHOLD = 25'000;
+constexpr size_t DEFAULT_FILTER_BY_CANDIDATES = 4;
 
 enum NUM_COMPARATOR {
     LESS_THAN,

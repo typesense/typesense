@@ -1806,6 +1806,7 @@ Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root, false,
+                                                           DEFAULT_FILTER_BY_CANDIDATES,
                                                            search_begin_us, should_timeout ? search_stop_us : UINT64_MAX);
     auto filter_init_op = filter_result_iterator.init_status();
     if (!filter_init_op.ok()) {
@@ -1866,6 +1867,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     std::shared_lock lock(mutex);
 
     auto ref_filter_result_iterator = filter_result_iterator_t(ref_collection_name, this, filter_tree_root, false,
+                                                               DEFAULT_FILTER_BY_CANDIDATES,
                                                                search_begin_us, search_stop_us);
     auto filter_init_op = ref_filter_result_iterator.init_status();
     if (!filter_init_op.ok()) {
@@ -2386,7 +2388,8 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                   synonym_prefix,
                   synonym_num_typos,
                   search_params->enable_lazy_filter,
-                  enable_typos_for_alpha_numerical_tokens
+                  enable_typos_for_alpha_numerical_tokens,
+                  search_params->max_filter_by_candidates
     );
 
     return res;
@@ -2885,11 +2888,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool enable_synonyms, bool synonym_prefix,
                    uint32_t synonym_num_typos,
                    bool enable_lazy_filter,
-                   bool enable_typos_for_alpha_numerical_tokens) const {
+                   bool enable_typos_for_alpha_numerical_tokens, const size_t& max_filter_by_candidates) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
-                                                               enable_lazy_filter, search_begin_us, search_stop_us);
+                                                               enable_lazy_filter, max_filter_by_candidates,
+                                                               search_begin_us, search_stop_us);
     std::unique_ptr<filter_result_iterator_t> filter_iterator_guard(filter_result_iterator);
 
     auto filter_init_op = filter_result_iterator->init_status();
@@ -3211,6 +3215,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             // if filters were not provided, use the seq_ids index to generate the list of all document ids
             if (!filter_by_provided) {
                 filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids(),
+                                                                      max_filter_by_candidates,
                                                                       search_begin_us, search_stop_us);
                 filter_iterator_guard.reset(filter_result_iterator);
             }
@@ -6416,6 +6421,7 @@ Option<bool> Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& 
             auto count = sort_fields_std[i].eval_expressions.size();
             for (uint32_t j = 0; j < count; j++) {
                 auto filter_result_iterator = filter_result_iterator_t("", this, eval_exp.filter_trees[j], false,
+                                                                       DEFAULT_FILTER_BY_CANDIDATES,
                                                                        search_begin_us, search_stop_us);
                 auto filter_init_op = filter_result_iterator.init_status();
                 if (!filter_init_op.ok()) {
