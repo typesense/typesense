@@ -2225,13 +2225,13 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
                                                 max_candidates);
     }
 
+    max_filter_by_candidates = max_candidates;
+
     init(enable_lazy_evaluation);
 
     if (!validity) {
         this->approx_filter_ids_length = 0;
     }
-
-    max_filter_by_candidates = max_candidates;
 }
 
 filter_result_iterator_t::~filter_result_iterator_t() {

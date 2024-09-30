@@ -3021,3 +3021,71 @@ TEST_F(CollectionFilteringTest, FilterOnStemmedField) {
     ASSERT_EQ("125", results["hits"][0]["document"]["id"].get<std::string>());
 
 }
+
+TEST_F(CollectionFilteringTest, MaxFilterByCandidates) {
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    for(size_t i = 0; i < 20; i++) {
+        nlohmann::json doc;
+        doc["title"] = "Independent" + std::to_string(i);
+        doc["points"] = i;
+        coll1->add(doc.dump());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "*"},
+            {"filter_by", "title:independent*"},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+    ASSERT_EQ("Independent19", res_obj["hits"][0]["document"]["title"]);
+    ASSERT_EQ("Independent18", res_obj["hits"][1]["document"]["title"]);
+    ASSERT_EQ("Independent17", res_obj["hits"][2]["document"]["title"]);
+    ASSERT_EQ("Independent16", res_obj["hits"][3]["document"]["title"]);
+
+    req_params = {
+            {"collection", "coll1"},
+            {"q", "*"},
+            {"filter_by", "title:independent*"},
+            {"max_filter_by_candidates", "0"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"].get<size_t>());
+    ASSERT_EQ(0, res_obj["hits"].size());
+
+    req_params = {
+            {"collection", "coll1"},
+            {"q", "*"},
+            {"filter_by", "title:independent*"},
+            {"max_filter_by_candidates", "1"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("Independent19", res_obj["hits"][0]["document"]["title"]);
+}
