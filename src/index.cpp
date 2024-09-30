@@ -5246,8 +5246,9 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 float dist = dist_func(sort_fields[0].vector_query.query.values.data(), values.data(), &sort_fields[0].vector_query.vector_index->num_dim);
 
                 if(dist > sort_fields[0].vector_query.query.distance_threshold) {
-                    //if computed distance is more then distance_thershold then we wont add that to results
-                    dist = std::numeric_limits<int>::max();
+                    //if computed distance is more then distance_thershold then we set it to max float,
+                    //so that other sort conditions can execute
+                    dist = std::numeric_limits<float>::max();
                 }
 
                 scores[0] = float_to_int64_t(dist);
@@ -5366,8 +5367,9 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 float dist = dist_func(sort_fields[1].vector_query.query.values.data(), values.data(), &sort_fields[1].vector_query.vector_index->num_dim);
 
                 if(dist > sort_fields[1].vector_query.query.distance_threshold) {
-                    //if computed distance is more then distance_thershold then we wont add that to results
-                    dist = std::numeric_limits<int>::max();
+                    //if computed distance is more then distance_thershold then we set it to max float,
+                    //so that other sort conditions can execute
+                    dist = std::numeric_limits<float>::max();
                 }
 
                 scores[1] = float_to_int64_t(dist);
@@ -5485,8 +5487,9 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 float dist = dist_func(sort_fields[2].vector_query.query.values.data(), values.data(), &sort_fields[2].vector_query.vector_index->num_dim);
 
                 if(dist > sort_fields[2].vector_query.query.distance_threshold) {
-                    //if computed distance is more then distance_thershold then we wont add that to results
-                    dist = std::numeric_limits<int>::max();
+                    //if computed distance is more then distance_thershold then we set it to max float,
+                    //so that other sort conditions can execute
+                    dist = std::numeric_limits<float>::max();
                 }
 
                 scores[2] = float_to_int64_t(dist);

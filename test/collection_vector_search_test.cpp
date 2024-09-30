@@ -5003,11 +5003,11 @@ TEST_F(CollectionVectorTest, TestDistanceThresholdWithIP) {
     ASSERT_EQ(51, res["hits"][1]["document"]["rank_score"].get<size_t>());
     ASSERT_EQ(0.7371898889541626, res["hits"][1]["vector_distance"].get<float>());
     ASSERT_EQ(94, res["hits"][2]["document"]["rank_score"].get<size_t>());
-    ASSERT_EQ(2147483520, res["hits"][2]["vector_distance"].get<float>());
+    ASSERT_EQ(3.4028232635611926e+38, res["hits"][2]["vector_distance"].get<float>());
     ASSERT_EQ(80, res["hits"][3]["document"]["rank_score"].get<size_t>());
-    ASSERT_EQ(2147483520, res["hits"][3]["vector_distance"].get<float>());
+    ASSERT_EQ(3.4028232635611926e+38, res["hits"][3]["vector_distance"].get<float>());
     ASSERT_EQ(18, res["hits"][4]["document"]["rank_score"].get<size_t>());
-    ASSERT_EQ(2147483520, res["hits"][4]["vector_distance"].get<float>());
+    ASSERT_EQ(3.4028232635611926e+38, res["hits"][4]["vector_distance"].get<float>());
 
 
     //inner product distances should work when distance_threshold is not given
