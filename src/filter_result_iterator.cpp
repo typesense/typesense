@@ -1499,7 +1499,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
                 }
                 value_tokens.back().is_prefix_searched = true;
 
-                filter_result_iterator_t filter_result_it(nullptr, 0);
+                filter_result_iterator_t dummy_it(nullptr, 0);
                 std::vector<sort_by> sort_fields;
                 std::vector<std::vector<art_leaf*>> searched_filters;
                 tsl::htrie_map<char, token_leaf> qtoken_set;
@@ -1510,19 +1510,18 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
                 std::vector<std::string> group_by_fields;
                 std::set<uint64> query_hashes;
                 size_t typo_tokens_threshold = 0;
-                size_t max_candidates = 4;
                 size_t min_len_1typo = 0;
                 size_t min_len_2typo = 0;
                 std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values{};
                 const std::vector<size_t> geopoint_indices;
 
                 auto fuzzy_search_fields_op = index->fuzzy_search_fields(fq_fields, value_tokens, {}, text_match_type_t::max_score,
-                                                                         nullptr, 0, &filter_result_it, {}, {}, sort_fields,
+                                                                         nullptr, 0, &dummy_it, {}, {}, sort_fields,
                                                                          {0}, searched_filters, qtoken_set, topster,
                                                                          groups_processed, all_result_ids, all_result_ids_len,
                                                                          0, group_by_fields, false, false, false, false,
                                                                          query_hashes, MAX_SCORE, {true}, typo_tokens_threshold,
-                                                                         false, max_candidates, min_len_1typo, min_len_2typo,
+                                                                         false, max_filter_by_candidates, min_len_1typo, min_len_2typo,
                                                                          0, nullptr, field_values, geopoint_indices, "", false);
                 delete[] all_result_ids;
                 if(!fuzzy_search_fields_op.ok()) {
@@ -2194,7 +2193,7 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
 
 filter_result_iterator_t::filter_result_iterator_t(const std::string& collection_name, const Index *const index,
                                                    const filter_node_t *const filter_node,
-                                                   const bool& enable_lazy_evaluation,
+                                                   const bool& enable_lazy_evaluation, const size_t& max_candidates,
                                                    uint64_t search_begin, uint64_t search_stop)  :
         collection_name(collection_name),
         index(index),
@@ -2211,7 +2210,8 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
 
     // Generate the iterator tree and then initialize each node.
     if (filter_node->isOperator) {
-        left_it = new filter_result_iterator_t(collection_name, index, filter_node->left, enable_lazy_evaluation);
+        left_it = new filter_result_iterator_t(collection_name, index, filter_node->left, enable_lazy_evaluation,
+                                               max_candidates);
         // If left subtree of && operator is invalid, we don't have to evaluate its right subtree.
         if (filter_node->filter_operator == AND && left_it->validity == invalid) {
             validity = invalid;
@@ -2221,8 +2221,11 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
             return;
         }
 
-        right_it = new filter_result_iterator_t(collection_name, index, filter_node->right, enable_lazy_evaluation);
+        right_it = new filter_result_iterator_t(collection_name, index, filter_node->right, enable_lazy_evaluation,
+                                                max_candidates);
     }
+
+    max_filter_by_candidates = max_candidates;
 
     init(enable_lazy_evaluation);
 
@@ -2389,7 +2392,7 @@ filter_result_iterator_t::filter_result_iterator_t(uint32_t approx_filter_ids_le
     delete_filter_node = true;
 }
 
-filter_result_iterator_t::filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count,
+filter_result_iterator_t::filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count, const size_t& max_candidates,
                                                    uint64_t search_begin, uint64_t search_stop) {
     filter_result.count = approx_filter_ids_length = ids_count;
     filter_result.docs = ids;
@@ -2405,6 +2408,8 @@ filter_result_iterator_t::filter_result_iterator_t(uint32_t* ids, const uint32_t
             timeout_info = std::make_unique<filter_result_iterator_timeout_info>(search_begin, search_stop);
         }
     }
+
+    max_filter_by_candidates = max_candidates;
 }
 
 void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& fit,
@@ -2412,7 +2417,8 @@ void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& fit,
     fit->reset();
 
     auto root_iterator = new filter_result_iterator_t(std::min(phrase_result_count, fit->approx_filter_ids_length));
-    root_iterator->left_it = new filter_result_iterator_t(phrase_result_ids, phrase_result_count);
+    root_iterator->left_it = new filter_result_iterator_t(phrase_result_ids, phrase_result_count,
+                                                          fit->max_filter_by_candidates);
     root_iterator->right_it = fit;
     root_iterator->timeout_info = std::move(fit->timeout_info);
 

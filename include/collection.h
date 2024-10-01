@@ -266,6 +266,7 @@ private:
                                         std::vector<field>& addition_fields,
                                         std::vector<field>& reindex_fields,
                                         std::vector<field>& del_fields,
+                                        std::vector<field>& update_fields,
                                         std::string& fallback_field_type);
 
     void process_filter_overrides(std::vector<const override_t*>& filter_overrides,
@@ -425,6 +426,8 @@ public:
 
     void update_metadata(const nlohmann::json& meta);
 
+    Option<bool> update_apikey(const nlohmann::json& model_config, const std::string& field_name);
+
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation,
                                 const DIRTY_VALUES dirty_values,
@@ -582,6 +585,7 @@ public:
                                   uint32_t synonym_num_typos = 0,
                                   bool enable_lazy_filter = false,
                                   bool enable_typos_for_alpha_numerical_tokens = true,
+                                  const size_t& max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES,
                                   bool use_aux_score = false) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result,

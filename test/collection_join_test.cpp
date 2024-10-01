@@ -6276,6 +6276,86 @@ TEST_F(CollectionJoinTest, SortByReference) {
     ASSERT_EQ("Dan", res_obj["hits"][3]["document"].at("customer_name"));
     ASSERT_EQ("soap", res_obj["hits"][3]["document"].at("product_name"));
 
+    documents = {
+            R"({
+                "product_id": "product_c",
+                "product_name": "comb",
+                "product_description": "Experience the natural elegance and gentle care of our handcrafted wooden combs – because your hair deserves the best."
+            })"_json,
+            R"({
+                "product_id": "product_d",
+                "product_name": "hair oil",
+                "product_description": "Revitalize your hair with our nourishing hair oil – nature's secret to lustrous, healthy locks."
+            })"_json
+    };
+    auto const& products_coll = collectionManager.get_collection_unsafe("Products");
+    for (auto const &json: documents) {
+        auto add_op = products_coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                 "name": "Orders",
+                 "fields": [
+                   {"name": "product", "type": "string", "reference": "Products.product_id" },
+                   {"name": "amount", "type": "int32" }
+                 ]
+               })"_json;
+    documents = {
+            R"({
+                "product": "product_a",
+                "amount": 1000
+            })"_json,
+            R"({
+                "product": "product_b",
+                "amount": 100
+            })"_json,
+            R"({
+                "product": "product_d",
+                "amount": -100
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "id:* || $Orders(amount:>0)"},
+            {"sort_by", "$Orders(amount:desc)"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"]["product_id"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("Orders"));
+    ASSERT_EQ(1000, res_obj["hits"][0]["document"]["Orders"]["amount"]);
+
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"]["product_id"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"].count("Orders"));
+    ASSERT_EQ(100, res_obj["hits"][1]["document"]["Orders"]["amount"]);
+
+    ASSERT_EQ("product_d", res_obj["hits"][2]["document"]["product_id"]);
+    ASSERT_EQ(0, res_obj["hits"][2]["document"].count("Orders"));
+    ASSERT_EQ("product_c", res_obj["hits"][3]["document"]["product_id"]);
+    ASSERT_EQ(0, res_obj["hits"][3]["document"].count("Orders"));
+
     schema_json =
             R"({
                 "name": "Users",

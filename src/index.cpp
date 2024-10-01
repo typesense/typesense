@@ -1806,6 +1806,7 @@ Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root, false,
+                                                           DEFAULT_FILTER_BY_CANDIDATES,
                                                            search_begin_us, should_timeout ? search_stop_us : UINT64_MAX);
     auto filter_init_op = filter_result_iterator.init_status();
     if (!filter_init_op.ok()) {
@@ -1866,6 +1867,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     std::shared_lock lock(mutex);
 
     auto ref_filter_result_iterator = filter_result_iterator_t(ref_collection_name, this, filter_tree_root, false,
+                                                               DEFAULT_FILTER_BY_CANDIDATES,
                                                                search_begin_us, search_stop_us);
     auto filter_init_op = ref_filter_result_iterator.init_status();
     if (!filter_init_op.ok()) {
@@ -2387,6 +2389,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                   synonym_num_typos,
                   search_params->enable_lazy_filter,
                   enable_typos_for_alpha_numerical_tokens,
+                  search_params->max_filter_by_candidates,
                   use_aux_score
     );
 
@@ -2886,12 +2889,13 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool enable_synonyms, bool synonym_prefix,
                    uint32_t synonym_num_typos,
                    bool enable_lazy_filter,
-                   bool enable_typos_for_alpha_numerical_tokens,
+                   bool enable_typos_for_alpha_numerical_tokens, const size_t& max_filter_by_candidates,
                    bool use_aux_score) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
-                                                               enable_lazy_filter, search_begin_us, search_stop_us);
+                                                               enable_lazy_filter, max_filter_by_candidates,
+                                                               search_begin_us, search_stop_us);
     std::unique_ptr<filter_result_iterator_t> filter_iterator_guard(filter_result_iterator);
 
     auto filter_init_op = filter_result_iterator->init_status();
@@ -2993,9 +2997,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
     // for phrase query, parser will set field_query_tokens to "*", need to handle that
     if (is_wildcard_non_phrase_query) {
-        if(!filter_by_provided && facets.empty() && curated_ids.empty() && vector_query.field_name.empty() &&
-           sort_fields_std.size() == 1 && sort_fields_std[0].name == sort_field_const::seq_id &&
-           sort_fields_std[0].order == sort_field_const::desc) {
+        if(!filter_by_provided && facets.empty() && group_by_fields.empty() && curated_ids.empty() &&
+            vector_query.field_name.empty() && sort_fields_std.size() == 1 &&
+            sort_fields_std[0].name == sort_field_const::seq_id && sort_fields_std[0].order == sort_field_const::desc) {
             // optimize for this path specifically
             std::vector<uint32_t> result_ids;
             auto it = seq_ids->new_rev_iterator();
@@ -3213,6 +3217,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             // if filters were not provided, use the seq_ids index to generate the list of all document ids
             if (!filter_by_provided) {
                 filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids(),
+                                                                      max_filter_by_candidates,
                                                                       search_begin_us, search_stop_us);
                 filter_iterator_guard.reset(filter_result_iterator);
             }
@@ -5003,8 +5008,6 @@ Option<bool> Index::ref_compute_sort_scores(const sort_by& sort_field, const uin
     auto const& ref_collection_name = sort_field.reference_collection_name;
     auto const& multiple_references_error_message = "Multiple references found to sort by on `" +
                                                     ref_collection_name + "." + sort_field.name + "`.";
-    auto const& no_references_error_message = "No references found to sort by on `" +
-                                              ref_collection_name + "." + sort_field.name + "`.";
 
     if (sort_field.is_nested_join_sort_by()) {
         // Get the reference doc_id by following through all the nested join collections.
@@ -5066,7 +5069,8 @@ Option<bool> Index::ref_compute_sort_scores(const sort_by& sort_field, const uin
                     }
 
                     if (joined_coll_having_reference.empty()) {
-                        return Option<bool>(400, no_references_error_message);
+                        reference_found = false;
+                        return Option<bool>(true);
                     }
 
                     auto joined_collection = cm.get_collection(joined_coll_having_reference);
@@ -5148,7 +5152,8 @@ Option<bool> Index::ref_compute_sort_scores(const sort_by& sort_field, const uin
             }
 
             if (joined_coll_having_reference.empty()) {
-                return Option<bool>(400, no_references_error_message);
+                reference_found = false;
+                return Option<bool>(true);
             }
 
             auto joined_collection = cm.get_collection(joined_coll_having_reference);
@@ -5340,9 +5345,10 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 const auto& dist_func = sort_fields[i].vector_query.vector_index->space->get_dist_func();
                 float dist = dist_func(sort_fields[i].vector_query.query.values.data(), values.data(), &sort_fields[i].vector_query.vector_index->num_dim);
 
-                if(dist > sort_fields[i].vector_query.query.distance_threshold) {
-                    //if computed distance is more then distance_thershold then we wont add that to results
-                    should_skip = true;
+                if(dist > sort_fields[0].vector_query.query.distance_threshold) {
+                    //if computed distance is more then distance_thershold then we set it to max float,
+                    //so that other sort conditions can execute
+                    dist = std::numeric_limits<float>::max();
                 }
 
                 scores[i] = float_to_int64_t(dist);
@@ -6275,6 +6281,7 @@ Option<bool> Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& 
             auto count = sort_fields_std[i].eval_expressions.size();
             for (uint32_t j = 0; j < count; j++) {
                 auto filter_result_iterator = filter_result_iterator_t("", this, eval_exp.filter_trees[j], false,
+                                                                       DEFAULT_FILTER_BY_CANDIDATES,
                                                                        search_begin_us, search_stop_us);
                 auto filter_init_op = filter_result_iterator.init_status();
                 if (!filter_init_op.ok()) {

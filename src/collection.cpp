@@ -449,6 +449,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
         record.is_update = false;
         bool repeated_doc = false;
 
+        std::vector<field> new_fields;
         if(!doc_seq_id_op.ok()) {
             record.index_failure(doc_seq_id_op.code(), doc_seq_id_op.error());
         } else {
@@ -469,12 +470,11 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
             batch_doc_ids.insert(doc_id);
 
-            std::unique_lock lock(mutex);
+            std::shared_lock lock(mutex);
 
             // if `fallback_field_type` or `dynamic_fields` is enabled, update schema first before indexing
             if(!fallback_field_type.empty() || !dynamic_fields.empty() || !nested_fields.empty() ||
                 !reference_fields.empty() || !async_referenced_ins.empty()) {
-                std::vector<field> new_fields;
 
                 Option<bool> new_fields_op = detect_new_fields(record.doc, dirty_values,
                                                                search_schema, dynamic_fields,
@@ -487,28 +487,30 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 if(!new_fields_op.ok()) {
                     record.index_failure(new_fields_op.code(), new_fields_op.error());
                 }
+            }
+        }
 
-                else if(!new_fields.empty()) {
-                    bool found_new_field = false;
-                    for(auto& new_field: new_fields) {
-                        if(search_schema.find(new_field.name) == search_schema.end()) {
-                            found_new_field = true;
-                            search_schema.emplace(new_field.name, new_field);
-                            fields.emplace_back(new_field);
-                            if(new_field.nested) {
-                                nested_fields.emplace(new_field.name, new_field);
-                            }
-                        }
-                    }
+        if(!new_fields.empty()) {
+            std::unique_lock lock(mutex);
 
-                    if(found_new_field) {
-                        auto persist_op = persist_collection_meta();
-                        if(!persist_op.ok()) {
-                            record.index_failure(persist_op.code(), persist_op.error());
-                        } else {
-                            index->refresh_schemas(new_fields, {});
-                        }
+            bool found_new_field = false;
+            for(auto& new_field: new_fields) {
+                if(search_schema.find(new_field.name) == search_schema.end()) {
+                    found_new_field = true;
+                    search_schema.emplace(new_field.name, new_field);
+                    fields.emplace_back(new_field);
+                    if(new_field.nested) {
+                        nested_fields.emplace(new_field.name, new_field);
                     }
+                }
+            }
+
+            if(found_new_field) {
+                auto persist_op = persist_collection_meta();
+                if(!persist_op.ok()) {
+                    record.index_failure(persist_op.code(), persist_op.error());
+                } else {
+                    index->refresh_schemas(new_fields, {});
                 }
             }
         }
@@ -1683,6 +1685,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   uint32_t synonyms_num_typos,
                                   bool enable_lazy_filter,
                                   bool enable_typos_for_alpha_numerical_tokens,
+                                  const size_t& max_filter_by_candidates,
                                   bool use_aux_score) const {
     std::shared_lock lock(mutex);
 
@@ -2313,7 +2316,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                                  filter_curated_hits, split_join_tokens, vector_query,
                                                  facet_sample_percent, facet_sample_threshold, drop_tokens_param,
-                                                 enable_lazy_filter);
+                                                 enable_lazy_filter, max_filter_by_candidates);
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
@@ -4812,6 +4815,46 @@ void Collection::update_metadata(const nlohmann::json& meta) {
     metadata = meta;
 }
 
+Option<bool> Collection::update_apikey(const nlohmann::json& model_config, const std::string& field_name) {
+    std::unique_lock ulock(mutex);
+
+    const auto& model_name = model_config[fields::model_name];
+    const auto& api_key = model_config[fields::api_key];
+
+    for(auto& coll_field : fields) {
+        if (coll_field.name == field_name) {
+            auto &coll_model_config = coll_field.embed[fields::model_config];
+            if (!coll_model_config.contains(fields::model_name) || coll_model_config[fields::model_name] != model_name) {
+                return Option<bool>(400, "`model_name` mismatch for api_key updation.");
+            }
+
+            if (!coll_model_config.contains(fields::api_key)) {
+                return Option<bool>(400, "Invalid model for api_key updation.");
+            }
+
+            if (coll_model_config[fields::api_key] == api_key) {
+                return Option<bool>(400, "trying to update with same api_key.");
+            }
+
+            //update in remote embedder first the in collection
+            auto update_op = EmbedderManager::get_instance().update_remote_model_apikey(coll_model_config, api_key);
+
+            if (!update_op.ok()) {
+                return update_op;
+            }
+
+            coll_model_config[fields::api_key] = api_key;
+            embedding_fields[field_name].embed[fields::model_config][fields::api_key] = api_key;
+
+            auto persist_op = persist_collection_meta();
+            if (!persist_op.ok()) {
+                return persist_op;
+            }
+        }
+    }
+    return Option<bool>(true);
+}
+
 Option<bool> Collection::get_document_from_store(const uint32_t& seq_id,
                                                  nlohmann::json& document, bool raw_doc) const {
     return get_document_from_store(get_seq_id_key(seq_id), document, raw_doc);
@@ -5240,11 +5283,12 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     std::vector<field> del_fields;
     std::vector<field> addition_fields;
     std::vector<field> reindex_fields;
+    std::vector<field> update_fields;
 
     std::string this_fallback_field_type;
 
     auto validate_op = validate_alter_payload(alter_payload, addition_fields, reindex_fields,
-                                              del_fields, this_fallback_field_type);
+                                              del_fields, update_fields, this_fallback_field_type);
     if(!validate_op.ok()) {
         LOG(INFO) << "Alter failed validation: " << validate_op.error();
         return validate_op;
@@ -5279,6 +5323,18 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         if(!batch_alter_op.ok()) {
             LOG(INFO) << "Alter failed during alter data: " << batch_alter_op.error();
             return batch_alter_op;
+        }
+    }
+
+    if(!update_fields.empty()) {
+        for(const auto& f : update_fields) {
+            if(f.embed.count(fields::from) != 0) {
+                //it's an embed field
+                auto op = update_apikey(f.embed[fields::model_config], f.name);
+                if(!op.ok()) {
+                    return op;
+                }
+            }
         }
     }
 
@@ -5421,6 +5477,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                 std::vector<field>& addition_fields,
                                                 std::vector<field>& reindex_fields,
                                                 std::vector<field>& del_fields,
+                                                std::vector<field>& update_fields,
                                                 std::string& fallback_field_type) {
     if(!schema_changes.is_object()) {
         return Option<bool>(400, "Bad JSON.");
@@ -5613,9 +5670,28 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                         }
                     }
                 }
+            } else if (found_field && field_it->embed.count(fields::from) != 0) {
+                //embedded field, only api key updation is supported
+                if(!kv.value().contains(fields::embed) || !kv.value()[fields::embed].is_object()) {
+                    return Option<bool>(400,
+                                        "Missing or bad `embed` param.");
+                }
 
+                if (!kv.value()[fields::embed].contains(fields::model_config) || !kv.value()[fields::embed][fields::model_config].is_object()) {
+                    return Option<bool>(400,
+                                        "`model_config` should be an object containing `model_name` and `api_key`.");
+                }
 
+                const auto &model_config = kv.value()[fields::embed][fields::model_config];
+                if (!model_config.contains(fields::model_name) || !model_config.contains(fields::api_key) ||
+                    !model_config[fields::model_name].is_string() || !model_config[fields::api_key].is_string()) {
+                    return Option<bool>(400,
+                                        "`model_config` should be an object containing `model_name` and `api_key` as string values.");
+                }
 
+                field f(field_name, field_it->type, field_it->facet);
+                f.embed = kv.value()[fields::embed];
+                update_fields.push_back(f);
             } else {
                 // partial update is not supported for now
                 return Option<bool>(400, "Field `" + field_name + "` is already part of the schema: To "

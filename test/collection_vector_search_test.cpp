@@ -4979,12 +4979,15 @@ TEST_F(CollectionVectorTest, TestDistanceThresholdWithIP) {
         ASSERT_TRUE(coll->add(doc.dump()).ok());
     }
 
-    //results ids exceeding distance_threshold will be skipped
+    //results ids exceeding distance_threshold will have scores tie and will be sorted on rank score
     std::map<std::string, std::string> req_params = {
             {"collection", "products"},
             {"q", "document"},
             {"query_by", "name"},
-            {"sort_by", "_text_match:desc,_vector_query(embedding:([0.11731103425347378, -0.6694758317235057, -0.6211945774857595, -0.27966758971688255, -0.4683744007950299],distance_threshold:1)):asc,rank_score:desc"},
+            {"sort_by", "_text_match:desc,"
+                        "_vector_query(embedding:([0.11731103425347378, -0.6694758317235057, -0.6211945774857595, -0.27966758971688255, -0.4683744007950299],"
+                            "distance_threshold:1)):asc,"
+                        "rank_score:desc"},
             {"exclude_fields", "embedding"}
     };
     nlohmann::json embedded_params;
@@ -4994,12 +4997,18 @@ TEST_F(CollectionVectorTest, TestDistanceThresholdWithIP) {
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     auto res = nlohmann::json::parse(json_res);
 
-
-    ASSERT_EQ(2, res["found"].get<size_t>());
+    ASSERT_EQ(5, res["found"].get<size_t>());
     ASSERT_EQ(93, res["hits"][0]["document"]["rank_score"].get<size_t>());
     ASSERT_EQ(0.2189185470342636, res["hits"][0]["vector_distance"].get<float>());
     ASSERT_EQ(51, res["hits"][1]["document"]["rank_score"].get<size_t>());
     ASSERT_EQ(0.7371898889541626, res["hits"][1]["vector_distance"].get<float>());
+    ASSERT_EQ(94, res["hits"][2]["document"]["rank_score"].get<size_t>());
+    ASSERT_EQ(3.4028232635611926e+38, res["hits"][2]["vector_distance"].get<float>());
+    ASSERT_EQ(80, res["hits"][3]["document"]["rank_score"].get<size_t>());
+    ASSERT_EQ(3.4028232635611926e+38, res["hits"][3]["vector_distance"].get<float>());
+    ASSERT_EQ(18, res["hits"][4]["document"]["rank_score"].get<size_t>());
+    ASSERT_EQ(3.4028232635611926e+38, res["hits"][4]["vector_distance"].get<float>());
+
 
     //inner product distances should work when distance_threshold is not given
     req_params = {

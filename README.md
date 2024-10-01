@@ -19,8 +19,8 @@
 <p align="center">
   <a href="https://typesense.org">Website</a> | 
   <a href="https://typesense.org/docs/">Documentation</a> | 
-  <a href="https://github.com/orgs/typesense/projects/1">Roadmap</a> | 
-  <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-2otyo41xs-tbZNeeC6F37_FKftAdUc5A">Slack Community</a> | 
+  <a href="https://typesense.link/roadmap">Roadmap</a> | 
+  <a href="https://typesense.link/slack-community">Slack Community</a> | 
   <a href="https://threads.typesense.org/kb">Community Threads</a> | 
   <a href="https://twitter.com/typesense">Twitter</a>
 </p>
@@ -93,7 +93,7 @@
 
 ## Roadmap
 
-Here's Typesense's public roadmap: [https://github.com/orgs/typesense/projects/1](https://github.com/orgs/typesense/projects/1).
+Here's Typesense's public roadmap: [https://typesense.link/roadmap](https://typesense.link/roadmap).
 
 The first column also explains how we prioritize features, how you can influence prioritization and our release cadence. 
 
@@ -140,7 +140,7 @@ Here's a quick example showcasing how you can create a collection, index a docum
 Let's begin by starting the Typesense server via Docker:
 
 ```
-docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:27.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:27.1 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 We have [API Clients](#api-clients) in a couple of languages, but let's use the Python client for this example.
@@ -351,7 +351,7 @@ If you have specifics that prevent you from using Typesense due to a licensing i
 
 ## Support
 
-👋 🌐 If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our public [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-2otyo41xs-tbZNeeC6F37_FKftAdUc5A). 
+👋 🌐 If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our public [Slack Community](https://typesense.link/slack-community). 
 
 If you run into any problems or issues, please create a GitHub issue and we'll try our best to help.
 
@@ -375,7 +375,7 @@ If you'd like to get updates when we release new versions, click on the "Watch" 
 
 We also post updates to our Twitter account about releases and additional topics related to Typesense. Follow us here: [@typesense](https://twitter.com/typesense).
 
-👋 🌐 We'll also post updates on our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-2otyo41xs-tbZNeeC6F37_FKftAdUc5A). 
+👋 🌐 We'll also post updates on our [Slack Community](https://typesense.link/slack-community). 
 
 ## Build from source
 

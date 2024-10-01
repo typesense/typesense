@@ -177,6 +177,7 @@ struct search_args {
     drop_tokens_param_t drop_tokens_mode;
 
     bool enable_lazy_filter;
+    size_t max_filter_by_candidates;
 
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
                 const text_match_type_t match_type,
@@ -194,7 +195,7 @@ struct search_args {
                 const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos,
                 const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t& vector_query,
                 size_t facet_sample_percent, size_t facet_sample_threshold, drop_tokens_param_t drop_tokens_mode,
-                bool enable_lazy_filter) :
+                bool enable_lazy_filter, const size_t max_filter_by_candidates) :
             field_query_tokens(field_query_tokens), 
             search_fields(search_fields), match_type(match_type), filter_tree_root(filter_tree_root), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -213,7 +214,8 @@ struct search_args {
             facet_query_num_typos(facet_query_num_typos), filter_curated_hits(filter_curated_hits),
             split_join_tokens(split_join_tokens), vector_query(vector_query),
             facet_sample_percent(facet_sample_percent), facet_sample_threshold(facet_sample_threshold),
-            drop_tokens_mode(drop_tokens_mode), enable_lazy_filter(enable_lazy_filter) {
+            drop_tokens_mode(drop_tokens_mode), enable_lazy_filter(enable_lazy_filter),
+            max_filter_by_candidates(max_filter_by_candidates) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -713,7 +715,8 @@ public:
                 uint32_t synonym_num_typos = 0,
                 bool enable_lazy_filter = false,
                 bool enable_typos_for_alpha_numerical_tokens = true,
-                bool use_aux_score = false
+                const size_t& max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES,
+                bool use_aux_score = false,
                 ) const;
 
     void remove_field(uint32_t seq_id, nlohmann::json& document, const std::string& field_name,

@@ -708,7 +708,7 @@ TEST_F(FilterTest, FilterTreeIteratorTimeout) {
     for (auto i = 0; i < count; i++) {
         filter_ids[i] = i;
     }
-    auto filter_iterator = new filter_result_iterator_t(filter_ids, count,
+    auto filter_iterator = new filter_result_iterator_t(filter_ids, count, DEFAULT_FILTER_BY_CANDIDATES,
                                                         std::chrono::duration_cast<std::chrono::microseconds>(
                                                         std::chrono::system_clock::now().time_since_epoch()).count(),
                                                         10000000); // Timeout after 10 seconds

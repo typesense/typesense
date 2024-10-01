@@ -1259,6 +1259,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *ENABLE_TYPOS_FOR_NUMERICAL_TOKENS = "enable_typos_for_numerical_tokens";
     const char *ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS = "enable_typos_for_alpha_numerical_tokens";
     const char *ENABLE_LAZY_FILTER = "enable_lazy_filter";
+    const char *MAX_FILTER_BY_CANDIDATES = "max_filter_by_candidates";
 
     const char *SYNONYM_PREFIX = "synonym_prefix";
     const char *SYNONYM_NUM_TYPOS = "synonym_num_typos";
@@ -1396,6 +1397,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool enable_typos_for_numerical_tokens = true;
     bool enable_typos_for_alpha_numerical_tokens = true;
     bool enable_lazy_filter = Config::get_instance().get_enable_lazy_filter();
+    size_t max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES;
 
     std::string facet_strategy = "automatic";
 
@@ -1441,6 +1443,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
         {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
         {SYNONYM_NUM_TYPOS, &synonym_num_typos},
+        {MAX_FILTER_BY_CANDIDATES, &max_filter_by_candidates}
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -1699,6 +1702,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           synonym_num_typos,
                                                           enable_lazy_filter,
                                                           enable_typos_for_alpha_numerical_tokens,
+                                                          max_filter_by_candidates,
                                                           use_aux_score);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -2274,8 +2278,16 @@ bool CollectionManager::is_valid_api_key_collection(const std::vector<std::strin
     return api_collections.size() > 0 ? false : true;
 }
 
-bool CollectionManager::update_collection_metadata(const std::string& collection, const nlohmann::json& metadata) {
+Option<bool> CollectionManager::update_collection_metadata(const std::string& collection, const nlohmann::json& metadata) {
+    auto collection_ptr = get_collection(collection);
+    if (collection_ptr == nullptr) {
+        return Option<bool>(400, "failed to get collection.");
+    }
+
+    collection_ptr->update_metadata(metadata);
+
     std::string collection_meta_str;
+
     auto collection_metakey = Collection::get_meta_key(collection);
     store->get(collection_metakey, collection_meta_str);
 
@@ -2283,5 +2295,9 @@ bool CollectionManager::update_collection_metadata(const std::string& collection
 
     collection_meta_json[Collection::COLLECTION_METADATA] = metadata;
 
-    return store->insert(collection_metakey, collection_meta_json.dump());
+    if(store->insert(collection_metakey, collection_meta_json.dump())) {
+        return Option<bool>(true);
+    }
+
+    return Option<bool>(400, "failed to insert into store.");
 }

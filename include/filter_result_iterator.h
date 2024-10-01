@@ -261,6 +261,8 @@ private:
     std::vector<std::vector<posting_list_t*>> posting_lists;
     std::vector<std::vector<posting_list_t::iterator_t>> posting_list_iterators;
     std::vector<posting_list_t*> expanded_plists;
+    /// Controls the number of similar words that Typesense considers during fuzzy search for filter_by values.
+    size_t max_filter_by_candidates;
 
     bool is_not_equals_iterator = false;
     uint32_t equals_iterator_id = 0;
@@ -347,11 +349,13 @@ public:
     filter_result_iterator_t() = default;
 
     explicit filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count,
+                                      const size_t& max_candidates = DEFAULT_FILTER_BY_CANDIDATES,
                                       uint64_t search_begin_us = 0, uint64_t search_stop_us = UINT64_MAX);
 
     explicit filter_result_iterator_t(const std::string& collection_name,
                                       Index const* const index, filter_node_t const* const filter_node,
                                       const bool& enable_lazy_evaluation = false,
+                                      const size_t& max_candidates = DEFAULT_FILTER_BY_CANDIDATES,
                                       uint64_t search_begin_us = 0, uint64_t search_stop_us = UINT64_MAX);
 
     ~filter_result_iterator_t();
