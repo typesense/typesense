@@ -3707,95 +3707,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     //for hybrid search, optionally compute aux scores
     if(!vector_query.field_name.empty() && !is_wildcard_query && use_aux_score) {
-
-        auto compute_text_match_aux_score = [&] (std::vector<KV*> result_ids) {
-            const auto &query_tokens = field_query_tokens[0].q_include_tokens;
-            std::vector<posting_list_t::iterator_t> its;
-            std::vector<posting_list_t*> expanded_plists;
-
-            for (auto j = 0; j < query_tokens.size(); ++j) {
-                auto token_str = (const unsigned char *) query_tokens[j].value.c_str();
-                auto token_len = query_tokens[j].value.size();
-
-                for (auto i = 0; i < the_fields.size(); ++i) {
-                    art_tree *tree = search_index.at(the_fields[i].str_name);
-                    art_leaf *leaf = static_cast<art_leaf *>(art_search(tree, token_str,
-                                                                        token_len + 1));
-
-                    if (!leaf) {
-                        continue;
-                    }
-
-                    if (IS_COMPACT_POSTING(leaf->values)) {
-                        auto compact_posting_list = COMPACT_POSTING_PTR(leaf->values);
-                        posting_list_t *full_posting_list = compact_posting_list->to_full_posting_list();
-                        expanded_plists.push_back(full_posting_list);
-                        its.push_back(full_posting_list->new_iterator(nullptr, nullptr,
-                                                                      i)); // moved, not copied
-                    } else {
-                        posting_list_t *full_posting_list = (posting_list_t *) (leaf->values);
-                        its.push_back(full_posting_list->new_iterator(nullptr, nullptr,
-                                                                      i)); // moved, not copied
-                    }
-                }
-            }
-
-            if (!its.empty()) {
-                for(auto& kv : result_ids) {
-                    int64_t match_score = 0;
-
-                    score_results2(sort_fields_std, (uint16_t) searched_queries.size(), 0, false, 0,
-                                   match_score, kv->key, sort_order, false, false, false, 1,
-                                   -1, its);
-                    kv->text_match_score = match_score;
-                }
-            }
-
-            for(posting_list_t* plist: expanded_plists) {
-                delete plist;
-            }
-        };
-
-        auto compute_aux_scores = [&](Topster* topster) {
-            std::vector<KV*> text_match_ids;
-            for(auto& kv : topster->kv_map) {
-                if(kv.second->text_match_score == 0) {
-                    //only found via vector distance, should compute text_match_score later
-                    text_match_ids.push_back(kv.second);
-                } else if(kv.second->vector_distance == -1.0f) {
-                    //only found via text_match, should compute vector distance
-                    std::vector<float> values;
-                    auto& field_vector_index = vector_index.at(vector_query.field_name);
-
-                    try {
-                        values = field_vector_index->vecdex->getDataByLabel<float>(kv.second->key);
-                    } catch (...) {
-                        // likely not found
-                        continue;
-                    }
-
-                    float dist;
-                    if (field_vector_index->distance_type == cosine) {
-                        std::vector<float> normalized_q(vector_query.values.size());
-                        hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
-                        dist = field_vector_index->space->get_dist_func()(normalized_q.data(), values.data(),
-                                                                          &field_vector_index->num_dim);
-                    } else {
-                        dist = field_vector_index->space->get_dist_func()(vector_query.values.data(), values.data(),
-                                                                          &field_vector_index->num_dim);
-                    }
-
-                    kv.second->vector_distance = dist;
-                }
-            }
-
-            if(!text_match_ids.empty()) {
-                compute_text_match_aux_score(text_match_ids);
-            }
-        };
-
-        compute_aux_scores(topster);
-        compute_aux_scores(curated_topster);
+        compute_aux_scores(topster, the_fields, field_query_tokens[0].q_include_tokens, searched_queries.size(),
+                           sort_fields_std, sort_order, vector_query);
+        compute_aux_scores(curated_topster, the_fields, field_query_tokens[0].q_include_tokens, searched_queries.size(),
+                           sort_fields_std, sort_order, vector_query);
     }
 
     topster->sort();
@@ -7883,6 +7798,98 @@ void Index::get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result
 
     std::sort(result_ids.begin(), result_ids.end());
 }
+
+void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_t>& the_fields,
+                               const std::vector<token_t>& query_tokens, uint16_t search_query_size,
+                               const std::vector<sort_by>& sort_fields_std, const int* sort_order,
+                               const vector_query_t& vector_query) const {
+
+    auto compute_text_match_aux_score = [&] (std::vector<KV*> result_ids) {
+        std::vector<posting_list_t::iterator_t> its;
+        std::vector<posting_list_t*> expanded_plists;
+
+        for (auto j = 0; j < query_tokens.size(); ++j) {
+            auto token_str = (const unsigned char *) query_tokens[j].value.c_str();
+            auto token_len = query_tokens[j].value.size();
+
+            for (auto i = 0; i < the_fields.size(); ++i) {
+                art_tree *tree = search_index.at(the_fields[i].str_name);
+                art_leaf *leaf = static_cast<art_leaf *>(art_search(tree, token_str,
+                                                                    token_len + 1));
+
+                if (!leaf) {
+                    continue;
+                }
+
+                if (IS_COMPACT_POSTING(leaf->values)) {
+                    auto compact_posting_list = COMPACT_POSTING_PTR(leaf->values);
+                    posting_list_t *full_posting_list = compact_posting_list->to_full_posting_list();
+                    expanded_plists.push_back(full_posting_list);
+                    its.push_back(full_posting_list->new_iterator(nullptr, nullptr,
+                                                                  i)); // moved, not copied
+                } else {
+                    posting_list_t *full_posting_list = (posting_list_t *) (leaf->values);
+                    its.push_back(full_posting_list->new_iterator(nullptr, nullptr,
+                                                                  i)); // moved, not copied
+                }
+            }
+        }
+
+        if (!its.empty()) {
+            for(auto& kv : result_ids) {
+                int64_t match_score = 0;
+
+                score_results2(sort_fields_std, search_query_size, 0, false, 0,
+                               match_score, kv->key, sort_order, false, false, false, 1,
+                               -1, its);
+                kv->text_match_score = match_score;
+            }
+        }
+
+        for(posting_list_t* plist: expanded_plists) {
+            delete plist;
+        }
+    };
+
+    std::vector<KV *> text_match_ids;
+    for (auto &kv: topster->kv_map) {
+        if (kv.second->text_match_score == 0) {
+            //only found via vector distance, should compute text_match_score later
+            text_match_ids.push_back(kv.second);
+        } else if (kv.second->vector_distance == -1.0f) {
+            //only found via text_match, should compute vector distance
+            std::vector<float> values;
+            auto &field_vector_index = vector_index.at(vector_query.field_name);
+
+            try {
+                values = field_vector_index->vecdex->getDataByLabel<float>(kv.second->key);
+            } catch (...) {
+                // likely not found
+                continue;
+            }
+
+            float dist;
+            if (field_vector_index->distance_type == cosine) {
+                std::vector<float> normalized_q(vector_query.values.size());
+                hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
+                dist = field_vector_index->space->get_dist_func()(normalized_q.data(),
+                                                                  values.data(),
+                                                                  &field_vector_index->num_dim);
+            } else {
+                dist = field_vector_index->space->get_dist_func()(vector_query.values.data(),
+                                                                  values.data(),
+                                                                  &field_vector_index->num_dim);
+            }
+
+            kv.second->vector_distance = dist;
+        }
+    }
+
+    if (!text_match_ids.empty()) {
+        compute_text_match_aux_score(text_match_ids);
+    }
+}
+
 /*
 // https://stackoverflow.com/questions/924171/geo-fencing-point-inside-outside-polygon
 // NOTE: polygon and point should have been transformed with `transform_for_180th_meridian`

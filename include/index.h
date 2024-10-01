@@ -1072,6 +1072,11 @@ public:
                        const S2LatLng& reference_lat_lng) const;
 
     void get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<uint32_t>& result_ids) const;
+
+    void compute_aux_scores(Topster *topster, const std::vector<search_field_t>& the_fields,
+                            const std::vector<token_t>& query_tokens, uint16_t search_query_size,
+                            const std::vector<sort_by>& sort_fields_std, const int* sort_order,
+                            const vector_query_t& vector_query) const;
 };
 
 template<class T>
