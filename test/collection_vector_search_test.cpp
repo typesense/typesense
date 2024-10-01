@@ -5059,36 +5059,29 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
     auto coll = collection_create_op.get();
 
     auto add_op = coll->add(R"({
-        "name": "soccer",
+        "name": "Nike running shoes for men",
         "id": "0"
     })"_json.dump());
 
     ASSERT_TRUE(add_op.ok());
 
     add_op = coll->add(R"({
-        "name": "basketball",
+        "name": "Nike running sneakers",
         "id": "1"
     })"_json.dump());
 
     ASSERT_TRUE(add_op.ok());
 
     add_op = coll->add(R"({
-        "name": "typesense",
+        "name": "adidas shoes",
         "id": "2"
-    })"_json.dump());
-
-    ASSERT_TRUE(add_op.ok());
-
-    add_op = coll->add(R"({
-        "name": "potato",
-        "id": "3"
     })"_json.dump());
 
     ASSERT_TRUE(add_op.ok());
 
     bool use_aux_score = false;
 
-    auto res = coll->search("basket", {"name", "embedding"}, "", {},
+    auto res = coll->search("nike running shoes", {"name", "embedding"}, "", {},
                              {}, {2}, 10, 1,FREQUENCY, {true},
                              Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
                              {"embedding"}, 10, "",
@@ -5106,20 +5099,18 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
                              "", true, true, false, 0, true,
                              true, use_aux_score).get();
 
-    ASSERT_EQ(4, res["hits"].size());
-    ASSERT_FLOAT_EQ(0.13851940631866455, res["hits"][0]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(0.15999853610992432, res["hits"][1]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(0.19285917282104492, res["hits"][2]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(0.19428515434265137, res["hits"][3]["vector_distance"].get<float>());
+    ASSERT_EQ(3, res["hits"].size());
+    ASSERT_FLOAT_EQ(0.09585630893707275, res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.07914221286773682, res["hits"][1]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
 
-    ASSERT_FLOAT_EQ(1060320051, res["hits"][0]["text_match"].get<size_t >());
-    ASSERT_FLOAT_EQ(0, res["hits"][1]["text_match"].get<size_t >());
-    ASSERT_FLOAT_EQ(0, res["hits"][2]["text_match"].get<size_t >());
-    ASSERT_FLOAT_EQ(0, res["hits"][3]["text_match"].get<size_t >());
+    ASSERT_EQ("517734", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string >());
+    ASSERT_EQ("0", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string >());
+    ASSERT_EQ("0", res["hits"][2]["text_match_info"]["best_field_score"].get<std::string >());
 
     use_aux_score = true;
 
-    res = coll->search("basket", {"name", "embedding"}, "", {},
+    res = coll->search("nike running shoes", {"name", "embedding"}, "", {},
                             {}, {2}, 10, 1,FREQUENCY, {true},
                             Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
                             {"embedding"}, 10, "",
@@ -5137,14 +5128,13 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
                             "", true, true, false, 0, true,
                             true, use_aux_score).get();
 
-    ASSERT_EQ(4, res["hits"].size());
-    ASSERT_FLOAT_EQ(0.13851940631866455, res["hits"][0]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(0.15999853610992432, res["hits"][1]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(0.19285917282104492, res["hits"][2]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(0.19428515434265137, res["hits"][3]["vector_distance"].get<float>());
 
-    ASSERT_FLOAT_EQ(1060320051, res["hits"][0]["text_match"].get<size_t >());
-    ASSERT_FLOAT_EQ(0, res["hits"][1]["text_match"].get<size_t >());
-    ASSERT_FLOAT_EQ(0, res["hits"][2]["text_match"].get<size_t >());
-    ASSERT_FLOAT_EQ(0, res["hits"][3]["text_match"].get<size_t >());
+    ASSERT_EQ(3, res["hits"].size());
+    ASSERT_FLOAT_EQ(0.09585630893707275, res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.07914221286773682, res["hits"][1]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
+
+    ASSERT_EQ("517734", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string >());
+    ASSERT_EQ("1618996288", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1618996288", res["hits"][2]["text_match_info"]["best_field_score"].get<std::string>());
 }

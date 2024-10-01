@@ -3706,6 +3706,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         auto compute_text_match_aux_score = [&] (std::vector<KV*> result_ids) {
             const auto &query_tokens = field_query_tokens[0].q_include_tokens;
             std::vector<posting_list_t::iterator_t> its;
+            std::vector<posting_list_t*> expanded_plists;
 
             for (auto j = 0; j < query_tokens.size(); ++j) {
                 auto token_str = (const unsigned char *) query_tokens[j].value.c_str();
@@ -3714,7 +3715,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 for (auto i = 0; i < the_fields.size(); ++i) {
                     art_tree *tree = search_index.at(the_fields[i].str_name);
                     art_leaf *leaf = static_cast<art_leaf *>(art_search(tree, token_str,
-                                                                        token_len));
+                                                                        token_len + 1));
 
                     if (!leaf) {
                         continue;
@@ -3723,6 +3724,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     if (IS_COMPACT_POSTING(leaf->values)) {
                         auto compact_posting_list = COMPACT_POSTING_PTR(leaf->values);
                         posting_list_t *full_posting_list = compact_posting_list->to_full_posting_list();
+                        expanded_plists.push_back(full_posting_list);
                         its.push_back(full_posting_list->new_iterator(nullptr, nullptr,
                                                                       i)); // moved, not copied
                     } else {
@@ -3744,6 +3746,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 }
             }
 
+            for(posting_list_t* plist: expanded_plists) {
+                delete plist;
+            }
         };
 
         auto compute_aux_scores = [&](Topster* topster) {
