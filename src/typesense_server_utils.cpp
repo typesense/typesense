@@ -13,6 +13,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <ifaddrs.h>
+#include <butil/files/file_enumerator.h>
 #include "analytics_manager.h"
 #include "housekeeper.h"
 
@@ -421,8 +422,22 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     Store* analytics_store = nullptr;
     if(!analytics_dir.empty()) {
-        //analytics DB for storing analytics events
-        analytics_store = new Store(analytics_dir, 24*60*60, 1024, true, analytics_db_ttl);
+        // Analytics DB for storing analytics events
+
+        // We want to keep rocksdb files inside a `db` directory inside `analytics_dir`.
+        // Need to handle missing db subdir from older versions by creating and moving files inside
+        std::string analytics_db_dir = analytics_dir + "/db";
+        if(!directory_exists(analytics_db_dir)) {
+            create_directory(analytics_db_dir);
+            butil::FileEnumerator analytics_dir_enum(butil::FilePath(analytics_dir), false,
+                                                     butil::FileEnumerator::FILES);
+            for (butil::FilePath file = analytics_dir_enum.Next(); !file.empty(); file = analytics_dir_enum.Next()) {
+                butil::FilePath dest_path(analytics_db_dir + "/" + file.BaseName().value());
+                butil::Move(file, dest_path);
+            }
+        }
+
+        analytics_store = new Store(analytics_db_dir, 24*60*60, 1024, true, analytics_db_ttl);
         AnalyticsManager::get_instance().init(&store, analytics_store, analytics_minute_rate_limit);
     }
 
