@@ -716,7 +716,7 @@ public:
                 bool enable_lazy_filter = false,
                 bool enable_typos_for_alpha_numerical_tokens = true,
                 const size_t& max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES,
-                bool use_aux_score = false,
+                bool use_aux_score = false
                 ) const;
 
     void remove_field(uint32_t seq_id, nlohmann::json& document, const std::string& field_name,

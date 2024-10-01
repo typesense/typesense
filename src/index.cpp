@@ -5345,7 +5345,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 const auto& dist_func = sort_fields[i].vector_query.vector_index->space->get_dist_func();
                 float dist = dist_func(sort_fields[i].vector_query.query.values.data(), values.data(), &sort_fields[i].vector_query.vector_index->num_dim);
 
-                if(dist > sort_fields[0].vector_query.query.distance_threshold) {
+                if(dist > sort_fields[i].vector_query.query.distance_threshold) {
                     //if computed distance is more then distance_thershold then we set it to max float,
                     //so that other sort conditions can execute
                     dist = std::numeric_limits<float>::max();

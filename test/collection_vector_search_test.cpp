@@ -5106,7 +5106,7 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
                              {},{}, "right_to_left", true,
                              true, false, "", "", "",
                              "", true, true, false, 0, true,
-                             true, use_aux_score).get();
+                             true, DEFAULT_FILTER_BY_CANDIDATES, use_aux_score).get();
 
     ASSERT_EQ(3, res["hits"].size());
     ASSERT_FLOAT_EQ(0.09585630893707275, res["hits"][0]["vector_distance"].get<float>());
@@ -5135,7 +5135,7 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
                             {},{}, "right_to_left", true,
                             true, false, "", "", "",
                             "", true, true, false, 0, true,
-                            true, use_aux_score).get();
+                            true, DEFAULT_FILTER_BY_CANDIDATES, use_aux_score).get();
 
 
     ASSERT_EQ(3, res["hits"].size());
