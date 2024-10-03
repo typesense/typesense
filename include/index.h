@@ -679,7 +679,7 @@ public:
     Option<bool> run_search(search_args* search_params, const std::string& collection_name,
                             const std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                             bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
-                            bool enable_typos_for_alpha_numerical_tokens);
+                            bool enable_typos_for_alpha_numerical_tokens, bool rerank_hybrid_matches);
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
@@ -715,7 +715,9 @@ public:
                 uint32_t synonym_num_typos = 0,
                 bool enable_lazy_filter = false,
                 bool enable_typos_for_alpha_numerical_tokens = true,
-                const size_t& max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES) const;
+                const size_t& max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES,
+                bool rerank_hybrid_matches = false
+                ) const;
 
     void remove_field(uint32_t seq_id, nlohmann::json& document, const std::string& field_name,
                       const bool is_update);
@@ -1070,6 +1072,11 @@ public:
                        const S2LatLng& reference_lat_lng) const;
 
     void get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<uint32_t>& result_ids) const;
+
+    void compute_aux_scores(Topster *topster, const std::vector<search_field_t>& the_fields,
+                            const std::vector<token_t>& query_tokens, uint16_t search_query_size,
+                            const std::vector<sort_by>& sort_fields_std, const int* sort_order,
+                            const vector_query_t& vector_query) const;
 };
 
 template<class T>

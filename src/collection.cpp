@@ -1685,7 +1685,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   uint32_t synonyms_num_typos,
                                   bool enable_lazy_filter,
                                   bool enable_typos_for_alpha_numerical_tokens,
-                                  const size_t& max_filter_by_candidates) const {
+                                  const size_t& max_filter_by_candidates,
+                                  bool rerank_hybrid_matches) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -2321,7 +2322,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     auto search_op = index->run_search(search_params, name, facet_index_types,
                                        enable_typos_for_numerical_tokens, enable_synonyms, synonym_prefix,
-                                       synonyms_num_typos, enable_typos_for_alpha_numerical_tokens);
+                                       synonyms_num_typos, enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches);
 
     // filter_tree_root might be updated in Index::static_filter_query_eval.
     filter_tree_root_guard.release();

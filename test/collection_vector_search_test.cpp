@@ -5036,3 +5036,114 @@ TEST_F(CollectionVectorTest, TestDistanceThresholdWithIP) {
     ASSERT_EQ("document_0", res["hits"][4]["document"]["name"]);
     ASSERT_EQ(288.0364685058594, res["hits"][4]["vector_distance"].get<float>());
 }
+
+TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
+    nlohmann::json schema = R"({
+                "name": "test",
+                "fields": [
+                    {
+                        "name": "name",
+                        "type": "string"
+                    },
+                    {
+                        "name": "embedding",
+                        "type": "float[]",
+                        "embed": {
+                            "from": [
+                                "name"
+                            ],
+                            "model_config": {
+                                "model_name": "ts/e5-small"
+                            }
+                        }
+                    }
+                ]
+                })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "name": "Nike running shoes for men",
+        "id": "0"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "Nike running sneakers",
+        "id": "1"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "adidas shoes",
+        "id": "2"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    bool use_aux_score = false;
+
+    auto res = coll->search("nike running shoes", {"name", "embedding"}, "", {},
+                             {}, {2}, 10, 1,FREQUENCY, {true},
+                             Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                             {"embedding"}, 10, "",
+                             30, 4, "", 40,
+                             {}, {}, {}, 0,"<mark>",
+                             "</mark>", {}, 1000,true,
+                             false, true, "", false,
+                             6000*1000, 4, 7, fallback, 4,
+                             {off}, INT16_MAX, INT16_MAX,2,
+                             2, false, "", true,
+                             0, max_score, 100, 0, 0,
+                             "exhaustive", 30000, 2, "",
+                             {},{}, "right_to_left", true,
+                             true, false, "", "", "",
+                             "", true, true, false, 0, true,
+                             true, DEFAULT_FILTER_BY_CANDIDATES, use_aux_score).get();
+
+    ASSERT_EQ(3, res["hits"].size());
+    ASSERT_FLOAT_EQ(0.09585630893707275, res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.07914221286773682, res["hits"][1]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
+
+    ASSERT_EQ("517734", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string >());
+    ASSERT_EQ("0", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string >());
+    ASSERT_EQ("0", res["hits"][2]["text_match_info"]["best_field_score"].get<std::string >());
+
+    use_aux_score = true;
+
+    res = coll->search("nike running shoes", {"name", "embedding"}, "", {},
+                            {}, {2}, 10, 1,FREQUENCY, {true},
+                            Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                            {"embedding"}, 10, "",
+                            30, 4, "", 40,
+                            {}, {}, {}, 0,"<mark>",
+                            "</mark>", {}, 1000,true,
+                            false, true, "", false,
+                            6000*1000, 4, 7, fallback, 4,
+                            {off}, INT16_MAX, INT16_MAX,2,
+                            2, false, "", true,
+                            0, max_score, 100, 0, 0,
+                            "exhaustive", 30000, 2, "",
+                            {},{}, "right_to_left", true,
+                            true, false, "", "", "",
+                            "", true, true, false, 0, true,
+                            true, DEFAULT_FILTER_BY_CANDIDATES, use_aux_score).get();
+
+
+    ASSERT_EQ(3, res["hits"].size());
+    ASSERT_FLOAT_EQ(0.09585630893707275, res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.07914221286773682, res["hits"][1]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
+
+    ASSERT_EQ("517734", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string >());
+    ASSERT_EQ("1618996288", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1618996288", res["hits"][2]["text_match_info"]["best_field_score"].get<std::string>());
+}
