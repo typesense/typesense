@@ -679,7 +679,7 @@ public:
     Option<bool> run_search(search_args* search_params, const std::string& collection_name,
                             const std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                             bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
-                            bool enable_typos_for_alpha_numerical_tokens, bool use_aux_score);
+                            bool enable_typos_for_alpha_numerical_tokens, bool rerank_hybrid_matches);
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
@@ -716,7 +716,7 @@ public:
                 bool enable_lazy_filter = false,
                 bool enable_typos_for_alpha_numerical_tokens = true,
                 const size_t& max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES,
-                bool use_aux_score = false
+                bool rerank_hybrid_matches = false
                 ) const;
 
     void remove_field(uint32_t seq_id, nlohmann::json& document, const std::string& field_name,

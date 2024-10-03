@@ -2341,7 +2341,7 @@ Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name,
                                const std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                                bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
-                               bool enable_typos_for_alpha_numerical_tokens, bool use_aux_score) {
+                               bool enable_typos_for_alpha_numerical_tokens, bool rerank_hybrid_matches) {
 
     auto res = search(search_params->field_query_tokens,
                   search_params->search_fields,
@@ -2390,7 +2390,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                   search_params->enable_lazy_filter,
                   enable_typos_for_alpha_numerical_tokens,
                   search_params->max_filter_by_candidates,
-                  use_aux_score
+                  rerank_hybrid_matches
     );
 
     return res;
@@ -2890,7 +2890,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    uint32_t synonym_num_typos,
                    bool enable_lazy_filter,
                    bool enable_typos_for_alpha_numerical_tokens, const size_t& max_filter_by_candidates,
-                   bool use_aux_score) const {
+                   bool rerank_hybrid_matches) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
@@ -3706,7 +3706,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     process_search_results:
 
     //for hybrid search, optionally compute aux scores
-    if(!vector_query.field_name.empty() && !is_wildcard_query && use_aux_score) {
+    if(!vector_query.field_name.empty() && !is_wildcard_query && rerank_hybrid_matches) {
         compute_aux_scores(topster, the_fields, field_query_tokens[0].q_include_tokens, searched_queries.size(),
                            sort_fields_std, sort_order, vector_query);
         compute_aux_scores(curated_topster, the_fields, field_query_tokens[0].q_include_tokens, searched_queries.size(),

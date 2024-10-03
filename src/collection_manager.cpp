@@ -1268,7 +1268,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *ENABLE_ANALYTICS = "enable_analytics";
 
     //for hybrid search, compute text_match_score for only vector search results and vector_distance for only text_match results
-    const char* USE_AUX_SCORE = "use_aux_score";
+    const char* RERANK_HYBRID_MATCHES = "rerank_hybrid_matches";
 
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
@@ -1417,7 +1417,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     std::string voice_query;
     bool enable_analytics = true;
-    bool use_aux_score = false;
+    bool rerank_hybrid_matches = false;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -1481,7 +1481,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS, &enable_typos_for_alpha_numerical_tokens},
         {FILTER_CURATED_HITS, &filter_curated_hits_option},
         {ENABLE_ANALYTICS, &enable_analytics},
-        {USE_AUX_SCORE, &use_aux_score}
+        {RERANK_HYBRID_MATCHES, &rerank_hybrid_matches}
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1703,7 +1703,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           enable_lazy_filter,
                                                           enable_typos_for_alpha_numerical_tokens,
                                                           max_filter_by_candidates,
-                                                          use_aux_score);
+                                                          rerank_hybrid_matches);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
