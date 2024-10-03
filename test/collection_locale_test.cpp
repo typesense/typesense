@@ -905,6 +905,31 @@ TEST_F(CollectionLocaleTest, SearchInGermanLocaleShouldBeTypoTolerant) {
     ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionLocaleTest, ExcludeQueryWithPt) {
+    nlohmann::json coll_json = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string", "locale": "pt"}
+            ]
+        })"_json;
+
+    auto coll1 = collectionManager.create_collection(coll_json).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "nescau em pó tabela nutricional";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["title"] = "nescau tabela nutricional";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("nescau -pó", {"title"}, "", {}, {},
+                                 {2}, 10, 1, FREQUENCY, {true}, 1).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionLocaleTest, HandleSpecialCharsInThai) {
     nlohmann::json coll_json = R"({
             "name": "coll1",

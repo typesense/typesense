@@ -3390,6 +3390,7 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
         bool end_of_phrase = false;
 
         if(token == "-" && !symbols_to_index_has_minus) {
+            exclude_operator_prior = true;
             continue;
         } else if(token[0] == '-' && !symbols_to_index_has_minus) {
             exclude_operator_prior = true;
