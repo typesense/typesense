@@ -7762,8 +7762,8 @@ Option<uint32_t> Index::get_sort_index_value_with_lock(const std::string& collec
     return Option<uint32_t>(sort_index.at(reference_helper_field_name)->at(seq_id));
 }
 
-float Index::get_distance(const string& geo_field_name, const uint32_t& seq_id,
-                          const S2LatLng& reference_lat_lng) const {
+Option<float> Index::get_distance(const std::string& coll_name, const std::string& geo_field_name, const uint32_t& seq_id,
+                                  const S2LatLng& reference_lat_lng) const {
     std::unique_lock lock(mutex);
 
     int64_t distance = 0;
@@ -7777,7 +7777,7 @@ float Index::get_distance(const string& geo_field_name, const uint32_t& seq_id,
             GeoPoint::unpack_lat_lng(packed_latlng, s2_lat_lng);
             distance = GeoPoint::distance(s2_lat_lng, reference_lat_lng);
         }
-    } else {
+    } else if (geo_array_index.count(geo_field_name) != 0) {
         // indicates geo point array
         auto field_it = geo_array_index.at(geo_field_name);
         auto it = field_it->find(seq_id);
@@ -7794,9 +7794,12 @@ float Index::get_distance(const string& geo_field_name, const uint32_t& seq_id,
                 }
             }
         }
+    } else {
+        return Option<float>(400, "Could not find `" + geo_field_name + "` field in the index of `" += coll_name +
+                                    "` collection.");
     }
 
-    return std::round((double)distance * 1000.0) / 1000.0;
+    return Option<float>(std::round((double)distance * 1000.0) / 1000.0);
 }
 
 void Index::get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs,
