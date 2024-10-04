@@ -334,6 +334,13 @@ private:
                                                      const size_t remote_embedding_num_tries,
                                                      size_t& per_page) const;
 
+    Option<float> get_referenced_distance(const sort_by& sort_field, KV const* const kv,
+                                          const S2LatLng& reference_lat_lng) const;
+
+    Option<uint32_t> get_ref_seq_id(const sort_by& sort_field, const uint32_t& seq_id, std::string& prev_coll_name,
+                                    const std::map<std::string, reference_filter_result_t>& references,
+                                    std::string& ref_coll_name) const;
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
@@ -724,6 +731,9 @@ public:
 
     Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
                                  std::vector<uint32_t>& result) const;
+
+    Option<float> get_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
+                                         const S2LatLng& reference_lat_lng) const;
 };
 
 template<class T>
