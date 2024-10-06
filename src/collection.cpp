@@ -421,6 +421,41 @@ Option<nlohmann::json> Collection::add(const std::string & json_str,
     return Option<nlohmann::json>(document);
 }
 
+bool Collection::check_and_add_nested_field(tsl::htrie_map<char, field>& nested_fields, const field& nested_field) {
+    // we will only add a child if none of the parent already exists
+    std::vector<std::string> name_parts;
+    StringUtils::split(nested_field.name, name_parts, ".");
+
+    if(name_parts.size() == 1) {
+        // dot not found
+        if(nested_fields.find(nested_field.name) == nested_fields.end()) {
+            nested_fields[nested_field.name] = nested_field;
+            return true;
+        }
+
+        return false;
+    }
+
+    std::string parent_path;
+
+    for(size_t i = 0; i < name_parts.size(); i++) {
+        if (!parent_path.empty()) {
+            parent_path += ".";
+        }
+
+        parent_path += name_parts[i];
+
+        if (nested_fields.find(parent_path) != nested_fields.end()) {
+            // parent found, so we will not add this field
+            return false;
+        }
+    }
+
+    // emplace only if no parent path is found
+    nested_fields[nested_field.name] = nested_field;
+    return true;
+}
+
 nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                                     const index_operation_t& operation, const std::string& id,
                                     const DIRTY_VALUES& dirty_values, const bool& return_doc, const bool& return_id,
@@ -436,6 +471,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
     // ensures that document IDs are not repeated within the same batch
     std::set<std::string> batch_doc_ids;
+    bool found_batch_new_field = false;
 
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
@@ -497,21 +533,17 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             for(auto& new_field: new_fields) {
                 if(search_schema.find(new_field.name) == search_schema.end()) {
                     found_new_field = true;
+                    found_batch_new_field = true;
                     search_schema.emplace(new_field.name, new_field);
                     fields.emplace_back(new_field);
                     if(new_field.nested) {
-                        nested_fields.emplace(new_field.name, new_field);
+                        check_and_add_nested_field(nested_fields, new_field);
                     }
                 }
             }
 
             if(found_new_field) {
-                auto persist_op = persist_collection_meta();
-                if(!persist_op.ok()) {
-                    record.index_failure(persist_op.code(), persist_op.error());
-                } else {
-                    index->refresh_schemas(new_fields, {});
-                }
+                index->refresh_schemas(new_fields, {});
             }
         }
 
@@ -519,9 +551,12 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
         do_batched_index:
 
-
         if((i+1) % index_batch_size == 0 || i == json_lines.size()-1 || repeated_doc) {
             batch_index(index_records, json_lines, num_indexed, return_doc, return_id, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries);
+
+            if(found_batch_new_field) {
+                persist_collection_meta();
+            }
 
             // to return the document for the single doc add cases
             if(index_records.size() == 1) {
@@ -5053,9 +5088,6 @@ spp::sparse_hash_map<std::string, std::vector<reference_pair_t>> Collection::get
 };
 
 Option<bool> Collection::persist_collection_meta() {
-    // first compact nested fields (to keep only parents of expanded children)
-    field::compact_nested_fields(nested_fields);
-
     std::string coll_meta_json;
     StoreStatus status = store->get(Collection::get_meta_key(name), coll_meta_json);
 
@@ -5096,7 +5128,6 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     // Update schema with additions (deletions can only be made later)
     std::vector<field> new_fields;
     tsl::htrie_map<char, field> schema_additions;
-    std::vector<std::string> nested_field_names;
     bool found_embedding_field = false;
 
     std::unique_lock ulock(mutex);
@@ -5116,8 +5147,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         if(f.nested) {
-            nested_fields.emplace(f.name, f);
-            nested_field_names.push_back(f.name);
+            check_and_add_nested_field(nested_fields, f);
         }
 
         if(f.embed.count(fields::from) != 0) {
@@ -5136,8 +5166,6 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         fields.push_back(f);
     }
-
-    field::compact_nested_fields(nested_fields);
 
     ulock.unlock();
     std::shared_lock shlock(mutex);
@@ -5652,7 +5680,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
 
                 if(f.nested && enable_nested_fields) {
-                    updated_nested_fields.emplace(f.name, f);
+                    check_and_add_nested_field(updated_nested_fields, f);
 
                     // should also add children if the field is an object
                     auto prefix_it = search_schema.equal_prefix_range(field_name);
@@ -5660,7 +5688,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                         bool exact_key_match = (prefix_kv.key().size() == field_name.size());
                         if(!exact_key_match) {
                             updated_search_schema.emplace(prefix_kv.key(), prefix_kv.value());
-                            updated_nested_fields.emplace(prefix_kv.key(), prefix_kv.value());
+                            check_and_add_nested_field(updated_nested_fields, prefix_kv.value());
 
                             if(prefix_kv.value().embed.count(fields::from) != 0) {
                                 embedding_fields.emplace(prefix_kv.key(), prefix_kv.value());
@@ -5765,9 +5793,6 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
                     reindex_fields.push_back(new_field);
                     updated_search_schema[new_field.name] = new_field;
-                    if(new_field.nested) {
-                        updated_nested_fields[new_field.name] = new_field;
-                    }
                 }
             }
         }
@@ -5992,7 +6017,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
     if(enable_nested_fields) {
         for(auto& new_field: new_fields) {
             if(new_field.nested) {
-                nested_fields.emplace(new_field.name, new_field);
+                check_and_add_nested_field(nested_fields, new_field);
             }
         }
 
@@ -6005,6 +6030,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
         for(const auto& flattened_field: flattened_fields) {
             if(schema.find(flattened_field.name) == schema.end()) {
                 new_fields.push_back(flattened_field);
+                check_and_add_nested_field(nested_fields, flattened_field);
             }
         }
     }
@@ -6033,7 +6059,7 @@ Index* Collection::init_index() {
         search_schema.emplace(field.name, field);
 
         if(field.nested) {
-            nested_fields.emplace(field.name, field);
+            check_and_add_nested_field(nested_fields, field);
         }
 
         if(field.embed.count(fields::from) != 0) {
@@ -6066,8 +6092,6 @@ Index* Collection::init_index() {
             }
         }
     }
-
-    field::compact_nested_fields(nested_fields);
 
     synonym_index = new SynonymIndex(store);
 
