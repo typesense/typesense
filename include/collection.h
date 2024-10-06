@@ -216,6 +216,8 @@ private:
                                           const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
                                           tsl::htrie_set<char>& object_reference_helper_fields);
 
+    static bool check_and_add_nested_field(tsl::htrie_map<char, field>& nested_fields, const field& nested_field);
+
     static bool facet_count_compare(const facet_count_t& a, const facet_count_t& b) {
         return std::tie(a.count, a.fhash) > std::tie(b.count, b.fhash);
     }

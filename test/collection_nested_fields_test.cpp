@@ -1779,7 +1779,8 @@ TEST_F(CollectionNestedFieldsTest, OnlyExplcitSchemaFieldMustBeIndexedInADoc) {
         "company": {"num_employees": 2000, "founded": 1976, "year": 2000}
     })"_json;
 
-    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+    auto create_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(create_op.ok());
     auto fs = coll1->get_fields();
     ASSERT_EQ(2, coll1->get_fields().size());
 }
