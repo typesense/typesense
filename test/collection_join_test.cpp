@@ -860,7 +860,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `object.ref_field` must have `string` value.", add_doc_op.error());
+    ASSERT_EQ("Field `object.ref_field` has an incorrect type.", add_doc_op.error());
 
     doc_json = R"({
                     "object": {
@@ -869,7 +869,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `object.ref_array_field` must only have `string` values.", add_doc_op.error());
+    ASSERT_EQ("Field `object.ref_array_field` has an incorrect type.", add_doc_op.error());
 
     doc_json = R"({
                     "object_array": [
@@ -880,7 +880,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `object_array.ref_field` must have `string` value.", add_doc_op.error());
+    ASSERT_EQ("Field `object_array.ref_field` has an incorrect type. Hint: field inside an array of objects must be an array type as well.", add_doc_op.error());
 
     doc_json = R"({
                     "object_array": [
@@ -891,7 +891,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Reference document having `string_field:= foo` not found in the collection `coll1`.", add_doc_op.error());
+    ASSERT_EQ("Field `object_array.ref_field` has an incorrect type. Hint: field inside an array of objects must be an array type as well.", add_doc_op.error());
 
     doc_json = R"({
                     "object_array": [
