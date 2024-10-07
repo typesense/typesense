@@ -338,7 +338,7 @@ private:
                                           const S2LatLng& reference_lat_lng) const;
 
     Option<uint32_t> get_ref_seq_id(const sort_by& sort_field, const uint32_t& seq_id, std::string& prev_coll_name,
-                                    const std::map<std::string, reference_filter_result_t>& references,
+                                    std::map<std::string, reference_filter_result_t> const*& references,
                                     std::string& ref_coll_name) const;
 
 public:

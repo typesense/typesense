@@ -592,7 +592,7 @@ struct sort_by {
     }
 
     [[nodiscard]] inline bool is_nested_join_sort_by() const {
-        return !nested_join_collection_names.empty();
+        return nested_join_collection_names.size() > 1;
     }
 };
 

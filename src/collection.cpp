@@ -1685,16 +1685,18 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
 }
 
 Option<uint32_t> Collection::get_ref_seq_id(const sort_by& sort_field, const uint32_t& seq_id, std::string& prev_coll_name,
-                                            const std::map<std::string, reference_filter_result_t>& references,
+                                            std::map<std::string, reference_filter_result_t> const*& references,
                                             std::string& ref_coll_name) const {
     auto const& multiple_references_error_message = "Multiple references found to sort by on `" +
                                                     ref_coll_name + "." + sort_field.name + "`.";
     uint32_t ref_seq_id = reference_helper_sentinel_value;
 
-    if (references.count(ref_coll_name) > 0) { // Joined on ref collection
-        auto const& count = references.at(ref_coll_name).count;
+    if (references->count(ref_coll_name) > 0) { // Joined on ref collection
+        auto& ref_result = references->at(ref_coll_name);
+        auto const& count = ref_result.count;
         if (count == 1) {
-            ref_seq_id = references.at(ref_coll_name).docs[0];
+            ref_seq_id = ref_result.docs[0];
+            references = ref_result.coll_to_references;
         } else if (count > 1) {
             return Option<uint32_t>(400, multiple_references_error_message);
         }
@@ -1736,7 +1738,7 @@ Option<uint32_t> Collection::get_ref_seq_id(const sort_by& sort_field, const uin
             // Joined collection has a reference
         else {
             std::string joined_coll_having_reference;
-            for (const auto &reference: references) {
+            for (const auto &reference: *references) {
                 if (ref_collection->is_referenced_in(reference.first)) {
                     joined_coll_having_reference = reference.first;
                     break;
@@ -1756,12 +1758,12 @@ Option<uint32_t> Collection::get_ref_seq_id(const sort_by& sort_field, const uin
                 }
 
                 auto const& reference_field_name = reference_field_name_op.get();
-                auto const& reference = references.at(joined_coll_having_reference);
-                auto const& count = reference.count;
+                auto& ref_result = references->at(joined_coll_having_reference);
+                auto const& count = ref_result.count;
 
                 if (count == 1) {
                     auto sort_index_op = joined_collection->get_sort_index_value_with_lock(reference_field_name,
-                                                                                           reference.docs[0]);
+                                                                                           ref_result.docs[0]);
                     if (!sort_index_op.ok()) {
                         if (sort_index_op.code() == 400) {
                             return Option<uint32_t>(400, sort_index_op.error());
@@ -1769,6 +1771,7 @@ Option<uint32_t> Collection::get_ref_seq_id(const sort_by& sort_field, const uin
                         ref_seq_id = reference_helper_sentinel_value;
                     } else {
                         ref_seq_id = sort_index_op.get();
+                        references = ref_result.coll_to_references;
                     }
                 } else if (count > 1) {
                     return Option<uint32_t>(400, multiple_references_error_message);
@@ -1785,8 +1788,7 @@ Option<float> Collection::get_referenced_distance(const sort_by& sort_field, KV 
                                                   const S2LatLng& reference_lat_lng) const {
     auto prev_coll_name = name;
     auto ref_collection_name = sort_field.reference_collection_name;
-    auto const& references = kv->reference_filter_results;
-
+    auto const* references = &(kv->reference_filter_results);
     uint32_t seq_id = kv->key;
 
     if (sort_field.is_nested_join_sort_by()) {
@@ -1803,6 +1805,8 @@ Option<float> Collection::get_referenced_distance(const sort_by& sort_field, KV 
                 seq_id = get_ref_seq_id_op.get();
             }
         }
+
+        ref_collection_name = sort_field.nested_join_collection_names.back();
     }
 
     auto get_ref_seq_id_op = get_ref_seq_id(sort_field, seq_id, prev_coll_name, references,

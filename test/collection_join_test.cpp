@@ -6452,6 +6452,33 @@ TEST_F(CollectionJoinTest, SortByReference) {
     ASSERT_EQ("product_c", res_obj["hits"][3]["document"]["product_id"]);
     ASSERT_EQ(0, res_obj["hits"][3]["document"].count("Orders"));
 
+    // Sort by nested reference geopoint field
+    req_params = {
+            {"collection", "Orders"},
+            {"q", "*"},
+            {"filter_by", "$Products($Customers(customer_id: customer_b))"},
+            {"sort_by", "$Products($Customers(product_location(48.87709, 2.33495, precision: 1km):asc))"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("Products"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Products"].count("Customers"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Products"]["Customers"].count("product_price"));
+    ASSERT_EQ(75, res_obj["hits"][0]["document"]["Products"]["Customers"]["product_price"]);
+    ASSERT_EQ(1, res_obj["hits"][0].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][0]["geo_distance_meters"].count("product_location"));
+    ASSERT_EQ(538, res_obj["hits"][0]["geo_distance_meters"]["product_location"]);
+
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product"));
+    ASSERT_EQ(140, res_obj["hits"][1]["document"]["Products"]["Customers"]["product_price"]);
+    ASSERT_EQ(1356, res_obj["hits"][1]["geo_distance_meters"]["product_location"]);
+
     schema_json =
             R"({
                 "name": "Users",
@@ -6495,7 +6522,7 @@ TEST_F(CollectionJoinTest, SortByReference) {
                     {"name": "repo_id", "type": "string"},
                     {"name": "repo_content", "type": "string"},
                     {"name": "repo_stars", "type": "int32"},
-                    {"name": "repo_is_private", "type": "bool"}
+                    {"name": "repo_is_private", "type": "bool"},
                 ]
             })"_json;
     documents = {
