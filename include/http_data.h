@@ -453,6 +453,8 @@ struct http_req {
 
         return ip_addr;
     }
+
+    bool do_resource_check();
 };
 
 struct route_path {
