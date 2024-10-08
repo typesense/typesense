@@ -3156,16 +3156,37 @@ bool get_recommendations_model(const std::shared_ptr<http_req>& req, const std::
 }
 
 bool get_recommendations_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    res->set_200(R"({"ok": true})");
+    auto models_op = RecommendationsModelManager::get_all_models();
+    if (!models_op.ok()) {
+        res->set(models_op.code(), models_op.error());
+        return false;
+    }
+
+    auto models = models_op.get();
+    for (auto& model : models) {
+        if (model.contains("model_path")) {
+            model.erase("model_path");
+        }
+    }
+
+    res->set_200(models.dump());
     return true;
 }
 
 bool del_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    res->set_200(R"({"ok": true})");
-    return true;
-}
+    const std::string& model_id = req->params["id"];
+    
+    auto delete_op = RecommendationsModelManager::delete_model(model_id);
+    if (!delete_op.ok()) {
+        res->set(delete_op.code(), delete_op.error());
+        return false;
+    }
 
-bool put_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    res->set_200(R"({"ok": true})");
+
+    auto deleted_model = delete_op.get();
+    if (deleted_model.contains("model_path")) {
+        deleted_model.erase("model_path");
+    }
+    res->set_200(deleted_model.dump());
     return true;
 }
