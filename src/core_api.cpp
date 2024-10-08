@@ -19,6 +19,7 @@
 #include "conversation_manager.h"
 #include "conversation_model_manager.h"
 #include "conversation_model.h"
+#include "recommendations_model_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -3097,7 +3098,42 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
 }
 
 bool post_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    res->set_200(R"({"ok": true})");
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    if(!req_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    std::string model_id;
+    if (req_json.contains("id") && req_json["id"].is_string()) {
+        model_id = req_json["id"].get<std::string>();
+        auto existing_model = RecommendationsModelManager::get_model(model_id);
+        if (existing_model.ok()) {
+            res->set_409("Model with id '" + model_id + "' already exists.");
+            return false;
+        }
+    } else {
+        model_id = "";
+    }
+    
+    auto create_op = RecommendationsModelManager::add_model(req_json, model_id, true);
+    if(!create_op.ok()) {
+        res->set(create_op.code(), create_op.error());
+        return false;
+    }
+    
+    auto model = create_op.get();
+    res->set_200(nlohmann::json{{"ok", true}, {"model_id", model}}.dump());
+    
     return true;
 }
 
