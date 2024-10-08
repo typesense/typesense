@@ -422,6 +422,22 @@ Option<nlohmann::json> Collection::add(const std::string & json_str,
 }
 
 bool Collection::check_and_add_nested_field(tsl::htrie_map<char, field>& nested_fields, const field& nested_field) {
+    // if field is an object or object_array field, we have to remove matching children
+    if(nested_field.is_object()) {
+        auto it = nested_fields.equal_prefix_range(nested_field.name + ".");
+        if(it.first != it.second) {
+            // children exist, and they should be removed
+            std::vector<std::string> child_fields;
+            for(auto child_field = it.first; child_field != it.second; child_field++) {
+                child_fields.push_back(child_field.key());
+            }
+
+            for(const auto& child_field: child_fields) {
+                nested_fields.erase(child_field);
+            }
+        }
+    }
+
     // we will only add a child if none of the parent already exists
     std::vector<std::string> name_parts;
     StringUtils::split(nested_field.name, name_parts, ".");

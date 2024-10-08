@@ -2047,7 +2047,6 @@ TEST_F(CollectionNestedFieldsTest, NestedFieldWithGeopoint) {
 
     auto doc1 = R"({"address": {"geoPoint": [19.07283, 72.88261]}})"_json;
     auto add_op = coll1->add(doc1.dump(), CREATE);
-    LOG(INFO) << add_op.error();
     ASSERT_TRUE(add_op.ok());
 
     auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
@@ -2099,6 +2098,60 @@ TEST_F(CollectionNestedFieldsTest, NestedFieldWithGeopoint) {
     ASSERT_FALSE(create_op.ok());
     ASSERT_EQ("Field `address.geoPoint` has an incorrect type. "
               "Hint: field inside an array of objects must be an array type as well.", create_op.error());
+}
+
+TEST_F(CollectionNestedFieldsTest, NestedFieldWithParentAndChildSchema) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "addresses.street", "type": "string[]"},
+          {"name": "addresses", "type": "object[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    // only parent field should be present
+    ASSERT_EQ(1, coll1->get_nested_fields().size());
+    ASSERT_EQ(1, coll1->get_nested_fields().count("addresses"));
+
+    // with children after object field
+    schema = R"({
+        "name": "coll2",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "addresses", "type": "object[]"},
+          {"name": "addresses.street", "type": "string[]"}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll2 = op.get();
+    ASSERT_EQ(1, coll2->get_nested_fields().size());
+    ASSERT_EQ(1, coll2->get_nested_fields().count("addresses"));
+
+    // only object in schema
+    schema = R"({
+        "name": "coll3",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "addresses", "type": "object[]"}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll3 = op.get();
+
+    auto doc1 = R"({"addresses": [{"street": "foobar"}]})"_json;
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+
+    ASSERT_EQ(1, coll3->get_nested_fields().size());
+    ASSERT_EQ(1, coll3->get_nested_fields().count("addresses"));
 }
 
 TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {
