@@ -3095,3 +3095,28 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     res->set_200(model.dump());
     return true;
 }
+
+bool post_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    res->set_200(R"({"ok": true})");
+    return true;
+}
+
+bool get_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    res->set_200(R"({"ok": true})");
+    return true;
+}
+
+bool get_recommendations_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    res->set_200(R"({"ok": true})");
+    return true;
+}
+
+bool del_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    res->set_200(R"({"ok": true})");
+    return true;
+}
+
+bool put_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    res->set_200(R"({"ok": true})");
+    return true;
+}
