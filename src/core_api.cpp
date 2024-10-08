@@ -3138,7 +3138,20 @@ bool post_recommendations_model(const std::shared_ptr<http_req>& req, const std:
 }
 
 bool get_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    res->set_200(R"({"ok": true})");
+    const std::string& model_id = req->params["id"];
+    
+    auto model_op = RecommendationsModelManager::get_model(model_id);
+    if (!model_op.ok()) {
+        res->set(model_op.code(), model_op.error());
+        return false;
+    }
+
+    auto model = model_op.get();
+
+    if (model.contains("model_path")) {
+        model.erase("model_path");
+    }
+    res->set_200(model.dump());
     return true;
 }
 
