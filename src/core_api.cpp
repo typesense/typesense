@@ -19,6 +19,7 @@
 #include "conversation_manager.h"
 #include "conversation_model_manager.h"
 #include "conversation_model.h"
+#include "recommendations_model_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -3093,5 +3094,148 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     Collection::hide_credential(model, "api_key");
 
     res->set_200(model.dump());
+    return true;
+}
+
+bool post_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    if(!req_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    std::string model_id;
+    if (req_json.contains("id") && req_json["id"].is_string()) {
+        model_id = req_json["id"].get<std::string>();
+        auto existing_model = RecommendationsModelManager::get_model(model_id);
+        if (existing_model.ok()) {
+            res->set_409("Model with id '" + model_id + "' already exists.");
+            return false;
+        }
+    } else {
+        model_id = "";
+    }
+    
+    auto create_op = RecommendationsModelManager::add_model(req_json, model_id, true);
+    if(!create_op.ok()) {
+        res->set(create_op.code(), create_op.error());
+        return false;
+    }
+    
+    auto model = create_op.get();
+    res->set_200(nlohmann::json{{"ok", true}, {"model_id", model}}.dump());
+    
+    return true;
+}
+
+bool get_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+    
+    auto model_op = RecommendationsModelManager::get_model(model_id);
+    if (!model_op.ok()) {
+        res->set(model_op.code(), model_op.error());
+        return false;
+    }
+
+    auto model = model_op.get();
+
+    if (model.contains("model_path")) {
+        model.erase("model_path");
+    }
+    res->set_200(model.dump());
+    return true;
+}
+
+bool get_recommendations_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto models_op = RecommendationsModelManager::get_all_models();
+    if (!models_op.ok()) {
+        res->set(models_op.code(), models_op.error());
+        return false;
+    }
+
+    auto models = models_op.get();
+    for (auto& model : models) {
+        if (model.contains("model_path")) {
+            model.erase("model_path");
+        }
+    }
+
+    res->set_200(models.dump());
+    return true;
+}
+
+bool del_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+    
+    auto delete_op = RecommendationsModelManager::delete_model(model_id);
+    if (!delete_op.ok()) {
+        res->set(delete_op.code(), delete_op.error());
+        return false;
+    }
+
+
+    auto deleted_model = delete_op.get();
+    if (deleted_model.contains("model_path")) {
+        deleted_model.erase("model_path");
+    }
+    res->set_200(deleted_model.dump());
+    return true;
+}
+
+bool put_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+    
+    auto model_op = RecommendationsModelManager::get_model(model_id);
+    if (!model_op.ok()) {
+        res->set(model_op.code(), model_op.error());
+        return false;
+    }
+
+    auto model = model_op.get();
+    const std::string& model_path = model["model_path"];
+
+    // Check if the request body is empty
+    if (req->body.empty()) {
+        res->set_400("No file uploaded or request body is empty.");
+        return false;
+    }
+
+    // Create the model directory if it doesn't exist
+    std::filesystem::create_directories(model_path);
+
+    // Save the file to the model path
+    std::string file_path = model_path + "/model.onnx";
+    std::ofstream output_file(file_path, std::ios::binary);
+    
+    if (!output_file) {
+        res->set_500("Failed to create output file.");
+        return false;
+    }
+
+    output_file.write(req->body.data(), req->body.size());
+    output_file.close();
+
+    if (!output_file) {
+        res->set_500("Failed to write file.");
+        return false;
+    }
+
+    // Verify that the uploaded file is a valid ONNX file
+    std::ifstream onnx_file(file_path, std::ios::binary);
+    if (!onnx_file) {
+        res->set_500("Failed to open the uploaded file for verification.");
+        return false;
+    }
+
+    res->set_200(nlohmann::json{{"success", true}, {"message", "ONNX model uploaded successfully."}}.dump());
     return true;
 }
