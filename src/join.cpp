@@ -20,11 +20,19 @@ Option<bool> single_value_filter_query(nlohmann::json& document, const std::stri
         }
 
         if (value.find('`') != std::string::npos) {
-            if (value.find("&&") != std::string::npos || value.find("||") != std::string::npos ||
-                value.find('(') != std::string::npos || value.find(')') != std::string::npos) {
-                // Filter value parsing logic relies on values being enclosed inside backticks to ignore special symbols.
-                // If the value contains both backtick and any special symbol, we can't parse it.
-                return Option<bool>(400, "Filter value `" + value + "` cannot be parsed.");
+            auto const size = value.size();
+            // Special symbols are ignored when enclosed inside backticks.
+            bool in_backtick = false;
+            for (size_t i = 0; i < size; i++) {
+                auto c = value[i];
+                if (c == '`') {
+                    in_backtick = !in_backtick;
+                } else if (!in_backtick && (c == '(' || c == ')' ||
+                                            (c == '&' && i + 1 < size && value[i + 1] == '&') ||
+                                            (c == '|' && i + 1 < size && value[i + 1] == '|'))) {
+                    // Value containing special symbols cannot be parsed.
+                    return Option<bool>(400, "Filter value `" + value + "` cannot be parsed.");
+                }
             }
         } else {
             value = "`" + json_value.get<std::string>() + "`";

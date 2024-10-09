@@ -555,6 +555,14 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
               add_doc_op.error());
 
     doc_json = R"({
+                    "ref_string_field": "Tomaten`||`gestückelt"
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Reference document having `string_field:= Tomaten`||`gestückelt` not found in the collection `coll1`.",
+              add_doc_op.error());
+
+    doc_json = R"({
                     "ref_string_array_field": ["a", 1]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
