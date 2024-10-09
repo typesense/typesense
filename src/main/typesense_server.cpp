@@ -107,6 +107,7 @@ void master_server_routes() {
     server->get("/recommendations/models", get_recommendations_models);
     server->get("/recommendations/models/:id", get_recommendations_model);
     server->del("/recommendations/models/:id", del_recommendations_model);
+    server->put("/recommendations/models/:id", put_recommendations_model);
 
     server->get("/limits", get_rate_limits);
     server->get("/limits/active", get_active_throttles);

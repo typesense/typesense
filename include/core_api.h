@@ -221,4 +221,3 @@ bool del_recommendations_model(const std::shared_ptr<http_req>& req, const std::
 bool get_recommendations_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool put_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-

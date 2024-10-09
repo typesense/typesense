@@ -3190,3 +3190,52 @@ bool del_recommendations_model(const std::shared_ptr<http_req>& req, const std::
     res->set_200(deleted_model.dump());
     return true;
 }
+
+bool put_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+    
+    auto model_op = RecommendationsModelManager::get_model(model_id);
+    if (!model_op.ok()) {
+        res->set(model_op.code(), model_op.error());
+        return false;
+    }
+
+    auto model = model_op.get();
+    const std::string& model_path = model["model_path"];
+
+    // Check if the request body is empty
+    if (req->body.empty()) {
+        res->set_400("No file uploaded or request body is empty.");
+        return false;
+    }
+
+    // Create the model directory if it doesn't exist
+    std::filesystem::create_directories(model_path);
+
+    // Save the file to the model path
+    std::string file_path = model_path + "/model.onnx";
+    std::ofstream output_file(file_path, std::ios::binary);
+    
+    if (!output_file) {
+        res->set_500("Failed to create output file.");
+        return false;
+    }
+
+    output_file.write(req->body.data(), req->body.size());
+    output_file.close();
+
+    if (!output_file) {
+        res->set_500("Failed to write file.");
+        return false;
+    }
+
+    // Verify that the uploaded file is a valid ONNX file
+    std::ifstream onnx_file(file_path, std::ios::binary);
+    if (!onnx_file) {
+        res->set_500("Failed to open the uploaded file for verification.");
+        return false;
+    }
+
+    res->set_200(nlohmann::json{{"success", true}, {"message", "ONNX model uploaded successfully."}}.dump());
+    return true;
+}
