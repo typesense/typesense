@@ -234,7 +234,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_TRUE(collection_create_op.ok());
 
     add_doc_op = customer_collection->add(customer_json.dump());
-    ASSERT_EQ("Reference document having `product_id:= a` not found in the collection `Products`.", add_doc_op.error());
+    ASSERT_EQ("Reference document having `product_id:= `a`` not found in the collection `Products`.", add_doc_op.error());
 
     std::vector<nlohmann::json> products = {
             R"({
@@ -258,7 +258,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
 
     customer_json["reference_id"] = "product_a";
     add_doc_op = customer_collection->add(customer_json.dump());
-    ASSERT_EQ("Multiple documents having `product_id:= product_a` found in the collection `Products`.", add_doc_op.error());
+    ASSERT_EQ("Multiple documents having `product_id:= `product_a`` found in the collection `Products`.", add_doc_op.error());
 
     collectionManager.drop_collection("Products");
     products[1]["product_id"] = "product_b";
@@ -515,25 +515,74 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ("Field `ref_string_field` must have `string` value.", add_doc_op.error());
 
     doc_json = R"({
+                    "ref_string_field": "Tomaten (g`estückelt) "
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Filter value `Tomaten (g`estückelt) ` cannot be parsed.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_string_field": "Tomaten g`estückelt "
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    // We won't surround value in backticks if it already has a backtick in it.
+    ASSERT_EQ("Reference document having `string_field:= Tomaten g`estückelt ` not found in the collection `coll1`.",
+              add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_string_field": "Tomaten (gestückelt) "
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Reference document having `string_field:= `Tomaten (gestückelt) `` not found in the collection `coll1`.",
+              add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_string_field": "Tomaten && gestückelt"
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Reference document having `string_field:= `Tomaten && gestückelt`` not found in the collection `coll1`.",
+              add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_string_field": "Tomaten||gestückelt"
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Reference document having `string_field:= `Tomaten||gestückelt`` not found in the collection `coll1`.",
+              add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_string_field": "Tomaten`||`gestückelt"
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Reference document having `string_field:= Tomaten`||`gestückelt` not found in the collection `coll1`.",
+              add_doc_op.error());
+
+    doc_json = R"({
                     "ref_string_array_field": ["a", 1]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_string_array_field` must only have `string` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_string_array_field` must have `string` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_string_array_field": [null]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_string_array_field` must only have `string` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_string_array_field` cannot have `null` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_string_array_field": ["foo"]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Reference document having `string_array_field:= foo` not found in the collection `coll1`.", add_doc_op.error());
+    ASSERT_EQ("Reference document having `string_array_field:= `foo`` not found in the collection `coll1`.",
+              add_doc_op.error());
 
     collectionManager.drop_collection("coll2");
     temp_json = schema_json;
@@ -644,21 +693,21 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_int32_array_field` must only have `int32` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_int32_array_field` must have `int32` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_int32_array_field": [1, -2147483649]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_int32_array_field` must only have `int32` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_int32_array_field` must have `int32` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_int32_array_field": [1, 2147483648]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_int32_array_field` must only have `int32` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_int32_array_field` must have `int32` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_int32_array_field": [1]
@@ -767,21 +816,21 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_int64_array_field` must only have `int64` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_int64_array_field` must have `int64` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_int64_array_field": [1, -9223372036854775809]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_int64_array_field` must only have `int64` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_int64_array_field` must have `int64` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_int64_array_field": [1, 1.5]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_int64_array_field` must only have `int64` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_int64_array_field` must have `int64` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_int64_array_field": [1]
@@ -869,7 +918,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `object.ref_array_field` must only have `string` values.", add_doc_op.error());
+    ASSERT_EQ("Field `object.ref_array_field` must have `string` value.", add_doc_op.error());
 
     doc_json = R"({
                     "object_array": [
@@ -891,7 +940,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Reference document having `string_field:= foo` not found in the collection `coll1`.", add_doc_op.error());
+    ASSERT_EQ("Reference document having `string_field:= `foo`` not found in the collection `coll1`.", add_doc_op.error());
 
     doc_json = R"({
                     "object_array": [
@@ -914,7 +963,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Reference document having `string_array_field:= foo` not found in the collection `coll1`.", add_doc_op.error());
+    ASSERT_EQ("Reference document having `string_array_field:= `foo`` not found in the collection `coll1`.", add_doc_op.error());
 
     doc_json = R"({
                     "object": {
@@ -923,7 +972,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Reference document having `string_array_field:= foo` not found in the collection `coll1`.", add_doc_op.error());
+    ASSERT_EQ("Reference document having `string_array_field:= `foo`` not found in the collection `coll1`.", add_doc_op.error());
 
     collectionManager.drop_collection("coll2");
     temp_json = schema_json;
