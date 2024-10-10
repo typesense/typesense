@@ -1383,23 +1383,48 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     const std::string& sort_params_str = sort_field_std.name.substr(paran_start + 1,
                                                                                     sort_field_std.name.size() -
                                                                                     paran_start - 2);
+                    std::vector<std::string> value_action_params, param_parts;
+                    StringUtils::split(sort_params_str, value_action_params, ",");
 
-                    std::vector<std::string> param_parts;
-                    StringUtils::split(sort_params_str, param_parts, ":");
+                    if(value_action_params.size() == 2) {
+                        //sort by other field
+                        StringUtils::split(value_action_params[0], param_parts, ":");
+                        if(param_parts.size() != 2 || param_parts[0] != "val"
+                                || !StringUtils::is_integer(param_parts[1])) {
+                            return Option<bool>(400, error);
+                        }
 
-                    if(param_parts.size() != 2) {
-                        return Option<bool>(400, error);
-                    }
+                        sort_field_std.sort_by_field_val = std::stoll(param_parts[1]);
 
-                    if(param_parts[0] != sort_field_const::missing_values) {
-                        return Option<bool>(400, error);
-                    }
+                        param_parts.clear();
+                        StringUtils::split(value_action_params[1], param_parts, ":");
+                        if(param_parts.size() != 2 || param_parts[0] != "action") {
+                            return Option<bool>(400, error);
+                        }
 
-                    auto missing_values_op = magic_enum::enum_cast<sort_by::missing_values_t>(param_parts[1]);
-                    if(missing_values_op.has_value()) {
-                        sort_field_std.missing_values = missing_values_op.value();
+                        if(param_parts[1] == "sub") {
+                            sort_field_std.sort_by_action = sort_by::sub;
+                        }
+
+                        sort_field_std.name = actual_field_name;
                     } else {
-                        return Option<bool>(400, error);
+                        StringUtils::split(sort_params_str, param_parts, ":");
+
+                        if (param_parts.size() != 2) {
+                            return Option<bool>(400, error);
+                        }
+
+                        if (param_parts[0] != sort_field_const::missing_values) {
+                            return Option<bool>(400, error);
+                        }
+
+                        auto missing_values_op = magic_enum::enum_cast<sort_by::missing_values_t>(
+                                param_parts[1]);
+                        if (missing_values_op.has_value()) {
+                            sort_field_std.missing_values = missing_values_op.value();
+                        } else {
+                            return Option<bool>(400, error);
+                        }
                     }
                 }
 
