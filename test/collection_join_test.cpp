@@ -5994,6 +5994,53 @@ TEST_F(CollectionJoinTest, SortByReference) {
     ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
     ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
 
+    // Sort by reference geopoint field
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$Customers(product_location(48.87709, 2.33495, precision: 1km):asc)"},
+            {"include_fields", "product_id, $Customers(product_price, strategy:merge)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ(1, res_obj["hits"][0].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][0]["geo_distance_meters"].count("product_location"));
+    ASSERT_EQ(538, res_obj["hits"][0]["geo_distance_meters"]["product_location"]);
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+    ASSERT_EQ(1356, res_obj["hits"][1]["geo_distance_meters"]["product_location"]);
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$Customers(product_location(48.87709, 2.33495, precision: 1km):desc)"},
+            {"include_fields", "product_id, $Customers(product_price, strategy:merge)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_b", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ(1, res_obj["hits"][0].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][0]["geo_distance_meters"].count("product_location"));
+    ASSERT_EQ(1356, res_obj["hits"][0]["geo_distance_meters"]["product_location"]);
+    ASSERT_EQ("product_a", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][1]["document"].at("product_price"));
+    ASSERT_EQ(538, res_obj["hits"][1]["geo_distance_meters"]["product_location"]);
+
     // Sort by reference optional filtering.
     req_params = {
             {"collection", "Products"},
