@@ -21,6 +21,7 @@ Option<bool> single_value_filter_query(nlohmann::json& document, const std::stri
 
         // Special symbols are ignored when enclosed inside backticks.
         bool is_backtick_present = false;
+        bool special_symbols_present = false;
         bool in_backtick = false;
         auto const size = value.size();
         for (size_t i = 0; i < size; i++) {
@@ -31,12 +32,17 @@ Option<bool> single_value_filter_query(nlohmann::json& document, const std::stri
             } else if (!in_backtick && (c == '(' || c == ')' ||
                                         (c == '&' && i + 1 < size && value[i + 1] == '&') ||
                                         (c == '|' && i + 1 < size && value[i + 1] == '|'))) {
-                // Value containing special symbols cannot be parsed.
-                return Option<bool>(400, "Filter value `" + value + "` cannot be parsed.");
+                special_symbols_present = true;
+                if (is_backtick_present) {
+                    break;
+                }
             }
         }
 
-        if (!is_backtick_present) {
+        if (is_backtick_present && special_symbols_present) {
+            // Value containing special symbols cannot be parsed.
+            return Option<bool>(400, "Filter value `" + value + "` cannot be parsed.");
+        } else if (!is_backtick_present) {
             value = "`" + json_value.get<std::string>() + "`";
         }
         filter_value += value;
