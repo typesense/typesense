@@ -19,28 +19,30 @@ Option<bool> single_value_filter_query(nlohmann::json& document, const std::stri
             return Option<bool>(400, "Error with field `" + field_name + "`: Value cannot be empty.");
         }
 
-        if (value.find('`') != std::string::npos) {
-            auto const size = value.size();
-            // Special symbols are ignored when enclosed inside backticks.
-            bool in_backtick = false;
-            for (size_t i = 0; i < size; i++) {
-                auto c = value[i];
-                if (c == '`') {
-                    in_backtick = !in_backtick;
-                } else if (!in_backtick && (c == '(' || c == ')' ||
-                                            (c == '&' && i + 1 < size && value[i + 1] == '&') ||
-                                            (c == '|' && i + 1 < size && value[i + 1] == '|'))) {
-                    // Value containing special symbols cannot be parsed.
-                    return Option<bool>(400, "Filter value `" + value + "` cannot be parsed.");
-                }
+        // Special symbols are ignored when enclosed inside backticks.
+        bool is_backtick_present = false;
+        bool in_backtick = false;
+        auto const size = value.size();
+        for (size_t i = 0; i < size; i++) {
+            auto c = value[i];
+            if (c == '`') {
+                in_backtick = !in_backtick;
+                is_backtick_present = true;
+            } else if (!in_backtick && (c == '(' || c == ')' ||
+                                        (c == '&' && i + 1 < size && value[i + 1] == '&') ||
+                                        (c == '|' && i + 1 < size && value[i + 1] == '|'))) {
+                // Value containing special symbols cannot be parsed.
+                return Option<bool>(400, "Filter value `" + value + "` cannot be parsed.");
             }
-        } else {
+        }
+
+        if (!is_backtick_present) {
             value = "`" + json_value.get<std::string>() + "`";
         }
         filter_value += value;
     } else if (json_value.is_number_integer() && (ref_field_type == field_types::INT64 ||
                                                   (ref_field_type == field_types::INT32 &&
-                                              StringUtils::is_int32_t(std::to_string(json_value.get<int64_t>()))))) {
+                                                   StringUtils::is_int32_t(std::to_string(json_value.get<int64_t>()))))) {
         filter_value += std::to_string(json_value.get<int64_t>());
     } else {
         return Option<bool>(400, "Field `" + field_name + "` must have `" + ref_field_type + "` value.");
