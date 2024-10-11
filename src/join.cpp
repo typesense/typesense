@@ -6,19 +6,50 @@
 #include <timsort.hpp>
 
 Option<bool> single_value_filter_query(nlohmann::json& document, const std::string& field_name,
-                                       const std::string& ref_field_type, std::string& filter_query) {
-    auto const& value = document[field_name];
+                                       const std::string& ref_field_type, std::string& filter_value) {
+    auto const& json_value = document[field_name];
 
-    if (value.is_null()) {
-        return Option<bool>(422, "Field `" + field_name + "` has `null` value.");
+    if (json_value.is_null()) {
+        return Option<bool>(422, "Field `" + field_name + "` cannot have `null` value.");
     }
 
-    if (value.is_string() && ref_field_type == field_types::STRING) {
-        filter_query += value.get<std::string>();
-    } else if (value.is_number_integer() && (ref_field_type == field_types::INT64 ||
-                                             (ref_field_type == field_types::INT32 &&
-                                              StringUtils::is_int32_t(std::to_string(value.get<int64_t>()))))) {
-        filter_query += std::to_string(value.get<int64_t>());
+    if (json_value.is_string() && ref_field_type == field_types::STRING) {
+        std::string value = json_value.get<std::string>();
+        if (value.empty()) {
+            return Option<bool>(400, "Error with field `" + field_name + "`: Value cannot be empty.");
+        }
+
+        // Special symbols are ignored when enclosed inside backticks.
+        bool is_backtick_present = false;
+        bool special_symbols_present = false;
+        bool in_backtick = false;
+        auto const size = value.size();
+        for (size_t i = 0; i < size; i++) {
+            auto c = value[i];
+            if (c == '`') {
+                in_backtick = !in_backtick;
+                is_backtick_present = true;
+            } else if (!in_backtick && (c == '(' || c == ')' ||
+                                        (c == '&' && i + 1 < size && value[i + 1] == '&') ||
+                                        (c == '|' && i + 1 < size && value[i + 1] == '|'))) {
+                special_symbols_present = true;
+                if (is_backtick_present) {
+                    break;
+                }
+            }
+        }
+
+        if (is_backtick_present && special_symbols_present) {
+            // Value containing special symbols cannot be parsed.
+            return Option<bool>(400, "Filter value `" + value + "` cannot be parsed.");
+        } else if (!is_backtick_present) {
+            value = "`" + json_value.get<std::string>() + "`";
+        }
+        filter_value += value;
+    } else if (json_value.is_number_integer() && (ref_field_type == field_types::INT64 ||
+                                                  (ref_field_type == field_types::INT32 &&
+                                                   StringUtils::is_int32_t(std::to_string(json_value.get<int64_t>()))))) {
+        filter_value += std::to_string(json_value.get<int64_t>());
     } else {
         return Option<bool>(400, "Field `" + field_name + "` must have `" + ref_field_type + "` value.");
     }
@@ -282,17 +313,17 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                 return Option<bool>(400, "Expected `" + field_name + "` to be an array.");
             }
 
-            for (const auto &item: document[field_name].items()) {
-                auto const& item_value = item.value();
-                if (item_value.is_string() && ref_field_type == field_types::STRING) {
-                    filter_values.emplace_back(item_value.get<std::string>());
-                } else if (item_value.is_number_integer() && (ref_field_type == field_types::INT64 ||
-                                                              (ref_field_type == field_types::INT32 &&
-                                                               StringUtils::is_int32_t(std::to_string(item_value.get<int64_t>()))))) {
-                    filter_values.emplace_back(std::to_string(item_value.get<int64_t>()));
-                } else {
-                    return Option<bool>(400, "Field `" + field_name + "` must only have `" += ref_field_type + "` values.");
+            nlohmann::json temp_doc;
+            for (size_t i = 0; i < document[field_name].size(); i++) {
+                temp_doc[field_name] = document[field_name].at(i);
+                std::string value;
+                auto single_value_filter_query_op = single_value_filter_query(temp_doc, field_name, ref_field_type,
+                                                                              value);
+                if (!single_value_filter_query_op.ok()) {
+                    // We don't accept null value in an array of values. No need to handle 422 code.
+                    return single_value_filter_query_op;
                 }
+                filter_values.emplace_back(value);
             }
 
             document[reference_helper_field] = nlohmann::json::array();
