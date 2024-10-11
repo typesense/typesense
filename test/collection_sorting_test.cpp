@@ -2891,7 +2891,7 @@ TEST_F(CollectionSortingTest, TestSortByOtherField) {
 
     //put 1728383250 + 3000 as base value
     sort_fields = {
-            sort_by("timestamp(val: 1728386250, action:sub)", "asc"),
+            sort_by("timestamp(pivot: 1728386250)", "asc"),
     };
 
     auto results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
@@ -2910,7 +2910,7 @@ TEST_F(CollectionSortingTest, TestSortByOtherField) {
 
     //desc sort
     sort_fields = {
-            sort_by("timestamp(val: 1728386250, action:sub)", "desc"),
+            sort_by("timestamp(pivot: 1728386250)", "desc"),
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
@@ -2925,7 +2925,4 @@ TEST_F(CollectionSortingTest, TestSortByOtherField) {
     ASSERT_EQ(1728385250, results["hits"][3]["document"]["timestamp"].get<size_t>());
     ASSERT_EQ("3", results["hits"][4]["document"]["id"]);
     ASSERT_EQ(1728386250, results["hits"][4]["document"]["timestamp"].get<size_t>());
-
-
-
 }

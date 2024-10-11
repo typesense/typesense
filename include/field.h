@@ -422,6 +422,8 @@ namespace sort_field_const {
     static const std::string vector_query = "_vector_query";
 
     static const std::string random_order = "_rand";
+
+    static const std::string pivot = "pivot";
 }
 
 namespace ref_include {
@@ -496,7 +498,7 @@ struct sort_by {
 
     enum sort_by_action_t {
         none,
-        sub,
+        pivot,
     };
 
     struct eval_t {
@@ -527,7 +529,7 @@ struct sort_by {
 
     sort_random_t random_sort;
 
-    int64_t sort_by_field_val = INT64_MAX;
+    int64_t pivot_val = INT64_MAX;
 
     sort_by_action_t sort_by_action = none;
 
@@ -567,7 +569,7 @@ struct sort_by {
         vector_query = other.vector_query;
         random_sort = other.random_sort;
         sort_by_action = other.sort_by_action;
-        sort_by_field_val = other.sort_by_field_val;
+        pivot_val = other.pivot_val;
     }
 
     sort_by& operator=(const sort_by& other) {
