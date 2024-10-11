@@ -5173,6 +5173,8 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         auto reference_found = true;
         auto const& is_reference_sort = !sort_fields[i].reference_collection_name.empty();
         auto is_random_sort = sort_fields[i].random_sort.is_enabled;
+        auto is_sort_with_pivot_val = (sort_fields[i].pivot_val != INT64_MAX
+                                       && sort_fields[i].sort_by_action == sort_by::pivot);
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
         if (is_reference_sort) {
@@ -5274,6 +5276,12 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         } else {
             if(is_random_sort) {
                 scores[i] = sort_fields[i].random_sort.generate_random();
+            } else if(is_sort_with_pivot_val) {
+                auto sort_index_it = sort_index.find(sort_fields[i].name);
+                auto val = get_doc_val_from_sort_index(sort_index_it, seq_id);
+                if(val != INT64_MAX) {
+                    scores[i] = std::abs(sort_fields[i].pivot_val - val);
+                }
             } else if (!is_reference_sort || reference_found) {
                 auto it = field_values[i]->find(is_reference_sort ? ref_seq_id : seq_id);
                 scores[i] = (it == field_values[i]->end()) ? default_score : it->second;

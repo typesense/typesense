@@ -2866,3 +2866,63 @@ TEST_F(CollectionSortingTest, TestSortByRandomOrder) {
     results_op = coll->search("*", {}, "", {}, sort_fields, {0});
     ASSERT_EQ("Could not find a field named `_random` in the schema for sorting.", results_op.error());
 }
+
+TEST_F(CollectionSortingTest, TestSortByOtherField) {
+    auto schema_json = R"({
+            "name": "products",
+            "fields":[
+            {
+                "name": "name","type": "string",
+                "name": "timestamp","type": "int64"
+            }]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+
+    std::vector<std::string> products = {"Samsung Smartphone", "Vivo SmartPhone", "Oneplus Smartphone", "Pixel Smartphone", "Moto Smartphone"};
+    nlohmann::json doc;
+    for (auto i = 0; i < products.size(); ++i) {
+        doc["name"] = products[i];
+        doc["timestamp"] = 1728383250 + i * 1000;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    //put 1728383250 + 3000 as base value
+    sort_fields = {
+            sort_by("timestamp(pivot: 1728386250)", "asc"),
+    };
+
+    auto results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ(1728386250, results["hits"][0]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("4", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ(1728387250, results["hits"][1]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"]);
+    ASSERT_EQ(1728385250, results["hits"][2]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][3]["document"]["id"]);
+    ASSERT_EQ(1728384250, results["hits"][3]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][4]["document"]["id"]);
+    ASSERT_EQ(1728383250, results["hits"][4]["document"]["timestamp"].get<size_t>());
+
+
+    //desc sort
+    sort_fields = {
+            sort_by("timestamp(pivot: 1728386250)", "desc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ(1728383250, results["hits"][0]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ(1728384250, results["hits"][1]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("4", results["hits"][2]["document"]["id"]);
+    ASSERT_EQ(1728387250, results["hits"][2]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"]);
+    ASSERT_EQ(1728385250, results["hits"][3]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("3", results["hits"][4]["document"]["id"]);
+    ASSERT_EQ(1728386250, results["hits"][4]["document"]["timestamp"].get<size_t>());
+}

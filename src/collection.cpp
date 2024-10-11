@@ -1380,26 +1380,40 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                 if(!field_it.value().is_geopoint()) {
                     // check for null value order
-                    const std::string& sort_params_str = sort_field_std.name.substr(paran_start + 1,
+                    const std::string &sort_params_str = sort_field_std.name.substr(paran_start + 1,
                                                                                     sort_field_std.name.size() -
-                                                                                    paran_start - 2);
+                                                                                    paran_start -
+                                                                                    2);
+                    std::vector<std::string> value_params, param_parts;
+                    StringUtils::split(sort_params_str, value_params, ",");
 
-                    std::vector<std::string> param_parts;
-                    StringUtils::split(sort_params_str, param_parts, ":");
+                    for(const auto& value_param : value_params) {
+                        StringUtils::split(value_param, param_parts, ":");
 
-                    if(param_parts.size() != 2) {
-                        return Option<bool>(400, error);
-                    }
+                        if (param_parts.size() != 2) {
+                            return Option<bool>(400, error);
+                        }
 
-                    if(param_parts[0] != sort_field_const::missing_values) {
-                        return Option<bool>(400, error);
-                    }
+                        if (param_parts[0] == sort_field_const::pivot) {
+                            if (!StringUtils::is_integer(param_parts[1])) {
+                                return Option<bool>(400, error);
+                            }
+                            sort_field_std.pivot_val = std::stoll(param_parts[1]);
+                            sort_field_std.sort_by_action = sort_by::pivot;
+                            sort_field_std.name = actual_field_name;
+                        } else {
+                            if (param_parts[0] != sort_field_const::missing_values) {
+                                return Option<bool>(400, error);
+                            }
 
-                    auto missing_values_op = magic_enum::enum_cast<sort_by::missing_values_t>(param_parts[1]);
-                    if(missing_values_op.has_value()) {
-                        sort_field_std.missing_values = missing_values_op.value();
-                    } else {
-                        return Option<bool>(400, error);
+                            auto missing_values_op = magic_enum::enum_cast<sort_by::missing_values_t>(
+                                    param_parts[1]);
+                            if (missing_values_op.has_value()) {
+                                sort_field_std.missing_values = missing_values_op.value();
+                            } else {
+                                return Option<bool>(400, error);
+                            }
+                        }
                     }
                 }
 

@@ -422,6 +422,8 @@ namespace sort_field_const {
     static const std::string vector_query = "_vector_query";
 
     static const std::string random_order = "_rand";
+
+    static const std::string pivot = "pivot";
 }
 
 namespace ref_include {
@@ -494,6 +496,11 @@ struct sort_by {
         normal,
     };
 
+    enum sort_by_action_t {
+        none,
+        pivot,
+    };
+
     struct eval_t {
         filter_node_t** filter_trees = nullptr; // Array of filter_node_t pointers.
         std::vector<uint32_t*> eval_ids_vec;
@@ -521,6 +528,10 @@ struct sort_by {
     sort_vector_query_t vector_query;
 
     sort_random_t random_sort;
+
+    int64_t pivot_val = INT64_MAX;
+
+    sort_by_action_t sort_by_action = none;
 
     sort_by(const std::string & name, const std::string & order):
             name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
@@ -557,6 +568,8 @@ struct sort_by {
         nested_join_collection_names = other.nested_join_collection_names;
         vector_query = other.vector_query;
         random_sort = other.random_sort;
+        sort_by_action = other.sort_by_action;
+        pivot_val = other.pivot_val;
     }
 
     sort_by& operator=(const sort_by& other) {
