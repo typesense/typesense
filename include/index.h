@@ -574,6 +574,18 @@ private:
     void update_async_references(const std::string& collection_name, const field& afield,
                                  std::vector<index_record>& iter_batch,
                                  const std::vector<reference_pair_t>& async_referenced_ins = {});
+
+    std::string get_collection_name() const {
+        // Index name is: collection_name + std::to_string(0)
+        return name.empty() ? "" : name.substr(0, name.size() - 1);
+    }
+
+    Option<uint32_t> get_sort_index_value(const std::string& field_name,
+                                          const uint32_t& seq_id) const;
+
+    Option<int64_t> get_geo_distance(const std::string& geo_field_name, const uint32_t& seq_id,
+                                     const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
+
 public:
     // for limiting number of results on multiple candidates / query rewrites
     enum {TYPO_TOKENS_THRESHOLD = 1};
@@ -595,6 +607,9 @@ public:
     static const int DROP_TOKENS_THRESHOLD = 1;
 
     enum {DEFAULT_TOPSTER_SIZE = 250};
+
+    /// Value used when async_reference is true and a reference doc is not found.
+    static constexpr int64_t reference_helper_sentinel_value = UINT32_MAX;
 
     Index() = delete;
 
@@ -1026,17 +1041,15 @@ public:
     Option<bool> seq_ids_outside_top_k(const std::string& field_name, size_t k,
                                        std::vector<uint32_t>& outside_seq_ids);
 
-    Option<bool> get_related_ids(const std::string& collection_name,
-                                 const std::string& field_name,
-                                 const uint32_t& seq_id, std::vector<uint32_t>& result) const;
+    Option<bool> get_related_ids(const std::string& field_name, const uint32_t& seq_id,
+                                 std::vector<uint32_t>& result) const;
 
     Option<bool> get_object_array_related_id(const std::string& collection_name,
                                              const std::string& reference_helper_field_name,
                                              const uint32_t& seq_id, const uint32_t& object_index,
                                              uint32_t& result) const;
 
-    Option<uint32_t> get_sort_index_value_with_lock(const std::string& collection_name,
-                                                    const std::string& field_name,
+    Option<uint32_t> get_sort_index_value_with_lock(const std::string& field_name,
                                                     const uint32_t& seq_id) const;
 
     friend class filter_result_iterator_t;
@@ -1045,8 +1058,16 @@ public:
 
     void aggregate_facet(const size_t group_limit, facet& this_facet, facet& acc_facet) const;
 
-    Option<float> get_distance(const std::string& coll_name,const std::string& geo_field_name, const uint32_t& seq_id,
-                               const S2LatLng& reference_lat_lng) const;
+    Option<int64_t> get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
+                                               const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
+
+    Option<int64_t> get_referenced_geo_distance(const sort_by& sort_field, uint32_t seq_id,
+                                                const std::map<basic_string<char>, reference_filter_result_t>& references,
+                                                const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
+
+    Option<uint32_t> get_ref_seq_id(const sort_by& sort_field, const uint32_t& seq_id, std::string& prev_coll_name,
+                                    std::map<std::string, reference_filter_result_t> const*& references,
+                                    std::string& ref_coll_name) const;
 
     void get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<uint32_t>& result_ids) const;
 

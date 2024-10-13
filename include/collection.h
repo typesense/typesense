@@ -334,13 +334,6 @@ private:
                                                      const size_t remote_embedding_num_tries,
                                                      size_t& per_page) const;
 
-    Option<float> get_referenced_distance(const sort_by& sort_field, KV const* const kv,
-                                          const S2LatLng& reference_lat_lng) const;
-
-    Option<uint32_t> get_ref_seq_id(const sort_by& sort_field, const uint32_t& seq_id, std::string& prev_coll_name,
-                                    std::map<std::string, reference_filter_result_t> const*& references,
-                                    std::string& ref_coll_name) const;
-
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
@@ -368,9 +361,6 @@ public:
     static constexpr const char* COLLECTION_VOICE_QUERY_MODEL = "voice_query_model";
 
     static constexpr const char* COLLECTION_METADATA = "metadata";
-
-    /// Value used when async_reference is true and a reference doc is not found.
-    static constexpr int64_t reference_helper_sentinel_value = UINT32_MAX;
 
     // methods
 
@@ -732,8 +722,8 @@ public:
     Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
                                  std::vector<uint32_t>& result) const;
 
-    Option<float> get_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
-                                         const S2LatLng& reference_lat_lng) const;
+    Option<int64_t> get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
+                                               const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
 };
 
 template<class T>
