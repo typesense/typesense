@@ -2166,15 +2166,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     size_t fetch_size = std::min<size_t>(offset + per_page, limit_hits);
 
-    size_t max_hits = DEFAULT_TOPSTER_SIZE;
-
-    // ensure that `max_hits` never exceeds number of documents in collection
-    if(weighted_search_fields.size() <= 1 || query == "*") {
-        max_hits = std::min(std::max(fetch_size, max_hits), get_num_documents());
-    } else {
-        max_hits = std::min(std::max(fetch_size, max_hits), get_num_documents());
-    }
-
     if(token_order == NOT_SET) {
         if(default_sorting_field.empty()) {
             token_order = FREQUENCY;
@@ -2368,8 +2359,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
                                                  match_type,
                                                  filter_tree_root, facets, included_ids, excluded_ids,
-                                                 sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
-                                                 per_page, offset, token_order, prefixes,
+                                                 sort_fields_std, facet_query, num_typos, max_facet_values,
+                                                 fetch_size, per_page, offset, token_order, prefixes,
                                                  drop_tokens_threshold, typo_tokens_threshold,
                                                  group_by_fields, group_limit, group_missing_values,
                                                  default_sorting_field,
@@ -2417,7 +2408,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     if(match_score_index >= 0 && sort_fields_std[match_score_index].text_match_buckets > 0) {
         size_t num_buckets = sort_fields_std[match_score_index].text_match_buckets;
-        const size_t max_kvs_bucketed = std::min<size_t>(DEFAULT_TOPSTER_SIZE, raw_result_kvs.size());
+        const size_t max_kvs_bucketed = std::min<size_t>(Index::DEFAULT_TOPSTER_SIZE, raw_result_kvs.size());
 
         if(max_kvs_bucketed >= num_buckets) {
             spp::sparse_hash_map<uint64_t, int64_t> result_scores;
@@ -2504,8 +2495,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     const long start_result_index = offset;
 
-    // `end_result_index` could be -1 when max_hits is 0
-    const long end_result_index = std::min(fetch_size, std::min(max_hits, result_group_kvs.size())) - 1;
+    // `end_result_index` could be -1, so use signed type
+    const long end_result_index = std::min(fetch_size, result_group_kvs.size()) - 1;
 
     // handle which fields have to be highlighted
 

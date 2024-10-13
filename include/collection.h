@@ -50,8 +50,6 @@ private:
 
     const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
-    const size_t DEFAULT_TOPSTER_SIZE = 250;
-
     struct highlight_t {
         size_t field_index;
         std::string field;
@@ -543,7 +541,7 @@ public:
                                   const std::string& highlight_start_tag="<mark>",
                                   const std::string& highlight_end_tag="</mark>",
                                   std::vector<uint32_t> raw_query_by_weights={},
-                                  size_t limit_hits=UINT32_MAX,
+                                  size_t limit_hits=1000000,
                                   bool prioritize_exact_match=true,
                                   bool pre_segmented_query=false,
                                   bool enable_overrides=true,
