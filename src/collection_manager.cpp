@@ -1374,7 +1374,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     std::string highlight_start_tag = "<mark>";
     std::string highlight_end_tag = "</mark>";
     std::vector<uint32_t> query_by_weights;
-    size_t limit_hits = UINT32_MAX;
+    size_t limit_hits = 1000000;
     bool prioritize_exact_match = true;
     bool prioritize_token_position = false;
     bool pre_segmented_query = false;
