@@ -575,6 +575,11 @@ private:
                                  std::vector<index_record>& iter_batch,
                                  const std::vector<reference_pair_t>& async_referenced_ins = {});
 
+    std::string get_collection_name_with_lock() const {
+        std::shared_lock lock(mutex);
+        return get_collection_name();
+    }
+
     std::string get_collection_name() const {
         // Index name is: collection_name + std::to_string(0)
         return name.empty() ? "" : name.substr(0, name.size() - 1);

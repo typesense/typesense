@@ -7850,7 +7850,7 @@ Option<uint32_t> Index::get_ref_seq_id(const sort_by& sort_field, const uint32_t
 
             std::vector<uint32_t> ref_ids;
             auto related_ids_op = Option<bool>(true);
-            if (coll_name == get_collection_name()) {
+            if (coll_name == get_collection_name_with_lock()) {
                 related_ids_op = get_related_ids(field_name, seq_id, ref_ids);
             } else {
                 auto prev_coll = cm.get_collection(coll_name);
@@ -7926,7 +7926,7 @@ Option<uint32_t> Index::get_ref_seq_id(const sort_by& sort_field, const uint32_t
 Option<int64_t> Index::get_referenced_geo_distance(const sort_by& sort_field, uint32_t seq_id,
                                                    const std::map<basic_string<char>, reference_filter_result_t>& references,
                                                    const S2LatLng& reference_lat_lng, const bool& round_distance) const {
-    auto collection_name = get_collection_name();
+    auto collection_name = get_collection_name_with_lock();
     auto ref_collection_name = sort_field.reference_collection_name;
     auto const* references_ptr = &(references);
 
