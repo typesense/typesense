@@ -362,9 +362,6 @@ public:
 
     static constexpr const char* COLLECTION_METADATA = "metadata";
 
-    /// Value used when async_reference is true and a reference doc is not found.
-    static constexpr int64_t reference_helper_sentinel_value = UINT32_MAX;
-
     // methods
 
     Collection() = delete;
@@ -724,6 +721,9 @@ public:
 
     Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
                                  std::vector<uint32_t>& result) const;
+
+    Option<int64_t> get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
+                                               const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
 };
 
 template<class T>

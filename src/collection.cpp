@@ -157,7 +157,7 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
             if (existing_document.contains(reference_helper_field_name) &&
                 existing_document[reference_helper_field_name].is_number_integer()) {
                 const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name].get<int64_t>();
-                if (existing_ref_seq_id != Collection::reference_helper_sentinel_value &&
+                if (existing_ref_seq_id != Index::reference_helper_sentinel_value &&
                     existing_ref_seq_id != ref_seq_id) {
                     return Option<bool>(400, "Document `id: " + id + "` already has a reference to document `" +=
                                                 std::to_string(existing_ref_seq_id) + "` of `" += ref_coll_name +
@@ -204,7 +204,7 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
                 }
 
                 const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name][j].get<int64_t>();
-                if (existing_ref_seq_id != Collection::reference_helper_sentinel_value &&
+                if (existing_ref_seq_id != Index::reference_helper_sentinel_value &&
                     existing_ref_seq_id != ref_seq_id) {
                     return Option<bool>(400, "Document `id: " + id + "` at `" += field_name +
                                                 "` reference array field and index `" + std::to_string(j) +
@@ -1684,6 +1684,12 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
     return Option<bool>(true);
 }
 
+Option<int64_t> Collection::get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
+                                                       const S2LatLng& reference_lat_lng, const bool& round_distance) const {
+    std::shared_lock lock(mutex);
+    return index->get_geo_distance_with_lock(geo_field_name, seq_id, reference_lat_lng, round_distance);
+}
+
 Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const std::vector<std::string>& raw_search_fields,
                                   const std::string & filter_query, const std::vector<std::string>& facet_fields,
@@ -2733,8 +2739,16 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                     S2LatLng reference_lat_lng;
                     GeoPoint::unpack_lat_lng(sort_field.geopoint, reference_lat_lng);
 
-                    geo_distances[sort_field.name] = index->get_distance(sort_field.name, field_order_kv->key,
-                                                                         reference_lat_lng);
+                    auto get_geo_distance_op = !sort_field.reference_collection_name.empty() ?
+                                                index->get_referenced_geo_distance(sort_field, field_order_kv->key,
+                                                                                   field_order_kv->reference_filter_results,
+                                                                                   reference_lat_lng, true) :
+                                                   index->get_geo_distance_with_lock(sort_field.name, field_order_kv->key,
+                                                                                     reference_lat_lng, true);
+                    if (!get_geo_distance_op.ok()) {
+                        return Option<nlohmann::json>(get_geo_distance_op.code(), get_geo_distance_op.error());
+                    }
+                    geo_distances[sort_field.name] = get_geo_distance_op.get();
                 } else if(sort_field.geopoint != 0) {
                     geo_distances[sort_field.name] = std::abs(field_order_kv->scores[sort_field_index]);
                 } else if(sort_field.name == sort_field_const::vector_query &&
@@ -3660,8 +3674,8 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
 }
 
 Option<bool> Collection::get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
-                                               std::vector<uint32_t>& result) const {
-    return index->get_related_ids(name, ref_field_name, seq_id, result);
+                                         std::vector<uint32_t>& result) const {
+    return index->get_related_ids(ref_field_name, seq_id, result);
 }
 
 Option<bool> Collection::get_object_array_related_id(const std::string& ref_field_name,
@@ -6652,13 +6666,13 @@ Option<std::string> Collection::get_referenced_in_field(const std::string& colle
 Option<bool> Collection::get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
                                                    std::vector<uint32_t>& result) const {
     std::shared_lock lock(mutex);
-    return index->get_related_ids(name, field_name, seq_id, result);
+    return index->get_related_ids(field_name, seq_id, result);
 }
 
 Option<uint32_t> Collection::get_sort_index_value_with_lock(const std::string& field_name,
                                                             const uint32_t& seq_id) const {
     std::shared_lock lock(mutex);
-    return index->get_sort_index_value_with_lock(name, field_name, seq_id);
+    return index->get_sort_index_value_with_lock(field_name, seq_id);
 }
 
 std::shared_mutex& Collection::get_lifecycle_mutex() {

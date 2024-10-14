@@ -111,9 +111,9 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                 // Having the same number of values makes it easier to update the references in the future.
                 document[reference_helper_field].insert(document[reference_helper_field].begin(),
                                                         document[field_name].size(),
-                                                        Collection::reference_helper_sentinel_value);
+                                                        Index::reference_helper_sentinel_value);
             } else {
-                document[reference_helper_field] = Collection::reference_helper_sentinel_value;
+                document[reference_helper_field] = Index::reference_helper_sentinel_value;
             }
 
             continue;
@@ -163,7 +163,7 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                     auto id = object_array[i].at(keys[1]).get<std::string>();
                     auto ref_doc_id_op = ref_collection->doc_id_to_seq_id_with_lock(id);
                     if (!ref_doc_id_op.ok() && is_async_reference) {
-                        auto const& value = nlohmann::json::array({i, Collection::reference_helper_sentinel_value});
+                        auto const& value = nlohmann::json::array({i, Index::reference_helper_sentinel_value});
                         document[reference_helper_field] += value;
                     } else if (!ref_doc_id_op.ok()) {
                         return Option<bool>(400, "Referenced document having `id: " + id +
@@ -189,7 +189,7 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                     auto id = item.value().get<std::string>();
                     auto ref_doc_id_op = ref_collection->doc_id_to_seq_id_with_lock(id);
                     if (!ref_doc_id_op.ok() && is_async_reference) {
-                        document[reference_helper_field] += Collection::reference_helper_sentinel_value;
+                        document[reference_helper_field] += Index::reference_helper_sentinel_value;
                     } else if (!ref_doc_id_op.ok()) {
                         return Option<bool>(400, "Referenced document having `id: " + id +
                                                  "` not found in the collection `" +=
@@ -204,7 +204,7 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                 auto id = document[field_name].get<std::string>();
                 auto ref_doc_id_op = ref_collection->doc_id_to_seq_id_with_lock(id);
                 if (!ref_doc_id_op.ok() && is_async_reference) {
-                    document[reference_helper_field] = Collection::reference_helper_sentinel_value;
+                    document[reference_helper_field] = Index::reference_helper_sentinel_value;
                 } else if (!ref_doc_id_op.ok()) {
                     return Option<bool>(400, "Referenced document having `id: " + id +
                                              "` not found in the collection `" +=
@@ -284,7 +284,7 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                 }
 
                 if (filter_result.count == 0 && is_async_reference) {
-                    document[reference_helper_field] += nlohmann::json::array({i, Collection::reference_helper_sentinel_value});
+                    document[reference_helper_field] += nlohmann::json::array({i, Index::reference_helper_sentinel_value});
                 } else if (filter_result.count != 1) {
                     // Constraints similar to foreign key apply here. The reference match must be unique and not null.
                     return  Option<bool>(400, filter_result.count < 1 ?
@@ -360,9 +360,9 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
 
             if (filter_result.count == 0 && is_async_reference) {
                 if (is_reference_array_field) {
-                    document[reference_helper_field] += Collection::reference_helper_sentinel_value;
+                    document[reference_helper_field] += Index::reference_helper_sentinel_value;
                 } else {
-                    document[reference_helper_field] = Collection::reference_helper_sentinel_value;
+                    document[reference_helper_field] = Index::reference_helper_sentinel_value;
                 }
             } else if (filter_result.count != 1) {
                 // Constraints similar to foreign key apply here. The reference match must be unique and not null.
@@ -413,7 +413,7 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
         nlohmann::json ref_doc;
         auto get_doc_op = ref_collection->get_document_from_store(ref_doc_seq_id, ref_doc);
         if (!get_doc_op.ok()) {
-            if (ref_doc_seq_id == Collection::reference_helper_sentinel_value) {
+            if (ref_doc_seq_id == Index::reference_helper_sentinel_value) {
                 return Option<bool>(true);
             }
             return Option<bool>(get_doc_op.code(), error_prefix + get_doc_op.error());
@@ -473,7 +473,7 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
         auto get_doc_op = ref_collection->get_document_from_store(ref_doc_seq_id, ref_doc);
         if (!get_doc_op.ok()) {
             // Referenced document is not yet indexed.
-            if (ref_doc_seq_id == Collection::reference_helper_sentinel_value) {
+            if (ref_doc_seq_id == Index::reference_helper_sentinel_value) {
                 continue;
             }
             return Option<bool>(get_doc_op.code(), error_prefix + get_doc_op.error());
