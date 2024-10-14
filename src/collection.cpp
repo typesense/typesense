@@ -750,16 +750,21 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                     index_record.index_success();
                 }
             }
+
             res["success"] = index_record.indexed.ok();
 
             if (return_doc & index_record.indexed.ok()) {
                 res["document"] = index_record.is_update ? index_record.new_doc : index_record.doc;
             }
+
             if (return_id & index_record.indexed.ok()) {
                 res["id"] = index_record.is_update ? index_record.new_doc["id"] : index_record.doc["id"];
             }
+
             if(!index_record.indexed.ok()) {
-                res["document"] = json_out[index_record.position];
+                if(return_doc) {
+                    res["document"] = json_out[index_record.position];
+                }
                 res["error"] = index_record.indexed.error();
                 if (!index_record.embedding_res.empty()) {
                     res["embedding_error"] = nlohmann::json::object();
@@ -770,16 +775,21 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
             }
         } else {
             res["success"] = false;
-            res["document"] = json_out[index_record.position];
             res["error"] = index_record.indexed.error();
+            res["code"] = index_record.indexed.code();
+
+            if(return_doc) {
+                res["document"] = json_out[index_record.position];
+            }
+
+            if (return_id && index_record.doc.contains("id")) {
+                res["id"] = index_record.doc["id"];
+            }
+
             if (!index_record.embedding_res.empty()) {
                 res["embedding_error"] = nlohmann::json::object();
                 res["error"] = index_record.embedding_res["error"];
                 res["embedding_error"] = index_record.embedding_res;
-            }
-            res["code"] = index_record.indexed.code();
-            if (return_id && index_record.doc.contains("id")) {
-                res["id"] = index_record.doc["id"];
             }
         }
 
