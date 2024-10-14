@@ -2739,15 +2739,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                     S2LatLng reference_lat_lng;
                     GeoPoint::unpack_lat_lng(sort_field.geopoint, reference_lat_lng);
 
-                    Option<int64_t> get_geo_distance_op = Option<int64_t>(0);
-                    if (!sort_field.reference_collection_name.empty()) {
-                        get_geo_distance_op = index->get_referenced_geo_distance(sort_field, field_order_kv->key,
-                                                                                 field_order_kv->reference_filter_results,
-                                                                                 reference_lat_lng, true);
-                    } else {
-                        get_geo_distance_op = index->get_geo_distance_with_lock(sort_field.name, field_order_kv->key,
-                                                                                reference_lat_lng, true);
-                    }
+                    auto get_geo_distance_op = !sort_field.reference_collection_name.empty() ?
+                                                index->get_referenced_geo_distance(sort_field, field_order_kv->key,
+                                                                                   field_order_kv->reference_filter_results,
+                                                                                   reference_lat_lng, true) :
+                                                   index->get_geo_distance_with_lock(sort_field.name, field_order_kv->key,
+                                                                                     reference_lat_lng, true);
                     if (!get_geo_distance_op.ok()) {
                         return Option<nlohmann::json>(get_geo_distance_op.code(), get_geo_distance_op.error());
                     }

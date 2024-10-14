@@ -5129,12 +5129,9 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         S2LatLng reference_lat_lng;
         GeoPoint::unpack_lat_lng(sort_field.geopoint, reference_lat_lng);
 
-        Option<int64_t> get_geo_distance_op = Option<int64_t>(0);
-        if (!sort_field.reference_collection_name.empty()) {
-            get_geo_distance_op = get_referenced_geo_distance(sort_field, seq_id, references, reference_lat_lng);
-        } else {
-            get_geo_distance_op = get_geo_distance(sort_field.name, seq_id, reference_lat_lng);
-        }
+        auto get_geo_distance_op = !sort_field.reference_collection_name.empty() ?
+                                        get_referenced_geo_distance(sort_field, seq_id, references, reference_lat_lng) :
+                                            get_geo_distance(sort_field.name, seq_id, reference_lat_lng);
         if (!get_geo_distance_op.ok()) {
             return Option<bool>(get_geo_distance_op.code(), get_geo_distance_op.error());
         }
