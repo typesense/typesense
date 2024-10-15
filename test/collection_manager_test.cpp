@@ -65,8 +65,9 @@ protected:
             collectionManager.drop_collection("collection1");
             collectionManager.dispose();
             delete store;
-            delete analytic_store;
         }
+
+        delete analytic_store;
     }
 };
 
@@ -115,8 +116,6 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ(3, num_keys);
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
-
-    LOG(INFO) << collection_meta_json;
 
     nlohmann::json expected_meta_json = R"(
         {
