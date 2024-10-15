@@ -194,7 +194,8 @@ Option<bool> SynonymIndex::remove_synonym(const std::string & collection_name, c
                 auto index = syn_iter->second;
                 posting_t::erase(found_leaf->values, index);
                 if(posting_t::num_ids(found_leaf->values) == 0) {
-                    art_delete(synonym_index_tree, (unsigned char*)key.c_str(), key.size() + 1);
+                    void* values = art_delete(synonym_index_tree, (unsigned char*)key.c_str(), key.size() + 1);
+                    posting_t::destroy_list(values);
                 }
             }
         }
@@ -230,8 +231,9 @@ Option<std::map<uint32_t, synonym_t*>> SynonymIndex::get_synonyms(uint32_t limit
         std::advance(synonym_end, limit);
     }
 
-    for (synonym_it; synonym_it != synonym_end; ++synonym_it) {
+    while (synonym_it != synonym_end) {
         synonyms_map[synonym_it->first] = &synonym_it->second;
+        synonym_it++;
     }
 
     return Option<std::map<uint32_t, synonym_t*>>(synonyms_map);
