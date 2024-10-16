@@ -423,7 +423,13 @@ namespace sort_field_const {
 
     static const std::string random_order = "_rand";
 
-    static const std::string pivot = "pivot";
+    static const std::string origin = "origin";
+    static const std::string gauss = "gauss";
+    static const std::string exp = "exp";
+    static const std::string linear = "linear";
+    static const std::string scale = "scale";
+    static const std::string offset = "offset";
+    static const std::string decay = "decay";
 }
 
 namespace ref_include {
@@ -498,7 +504,10 @@ struct sort_by {
 
     enum sort_by_action_t {
         none,
-        pivot,
+        origin,
+        gauss,
+        exp,
+        linear,
     };
 
     struct eval_t {
@@ -529,8 +538,10 @@ struct sort_by {
 
     sort_random_t random_sort;
 
-    int64_t pivot_val = INT64_MAX;
-
+    int64_t origin_val = INT64_MAX;
+    int64_t scale = INT64_MAX;
+    int64_t offset = 0;
+    float decay_val = 0.5f;
     sort_by_action_t sort_by_action = none;
 
     sort_by(const std::string & name, const std::string & order):
@@ -569,7 +580,10 @@ struct sort_by {
         vector_query = other.vector_query;
         random_sort = other.random_sort;
         sort_by_action = other.sort_by_action;
-        pivot_val = other.pivot_val;
+        origin_val = other.origin_val;
+        scale = other.scale;
+        offset = other.offset;
+        decay_val = other.decay_val;
     }
 
     sort_by& operator=(const sort_by& other) {

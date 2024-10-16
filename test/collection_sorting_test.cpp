@@ -2891,7 +2891,7 @@ TEST_F(CollectionSortingTest, TestSortByOtherField) {
 
     //put 1728383250 + 3000 as base value
     sort_fields = {
-            sort_by("timestamp(pivot: 1728386250)", "asc"),
+            sort_by("timestamp(origin: 1728386250)", "asc"),
     };
 
     auto results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
@@ -2910,7 +2910,7 @@ TEST_F(CollectionSortingTest, TestSortByOtherField) {
 
     //desc sort
     sort_fields = {
-            sort_by("timestamp(pivot: 1728386250)", "desc"),
+            sort_by("timestamp(origin: 1728386250)", "desc"),
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
