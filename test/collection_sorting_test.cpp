@@ -2926,3 +2926,98 @@ TEST_F(CollectionSortingTest, TestSortByOtherField) {
     ASSERT_EQ("3", results["hits"][4]["document"]["id"]);
     ASSERT_EQ(1728386250, results["hits"][4]["document"]["timestamp"].get<size_t>());
 }
+
+TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
+    auto schema_json = R"({
+            "name": "products",
+            "fields":[
+            {
+                "name": "name","type": "string",
+                "name": "timestamp","type": "int64"
+            }]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+
+    std::vector<std::string> products = {"Samsung Smartphone", "Vivo SmartPhone", "Oneplus Smartphone", "Pixel Smartphone", "Moto Smartphone"};
+    nlohmann::json doc;
+    for (auto i = 0; i < products.size(); ++i) {
+        doc["name"] = products[i];
+        doc["timestamp"] = 1728383250 + i * 1000;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    //non integer scale value
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, scale: 100.4, linear)", "asc"),
+    };
+
+    auto results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("sort_by: scale param should be non-zero integer.", results.error());
+
+    //non integer origin value
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250.5, scale: 100, linear)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("sort_by: origin param should be integer.", results.error());
+
+    //non integer offset value
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, scale: 100, linear, offset: -2.5)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("sort_by: offset param should be integer.", results.error());
+
+    //0 scale value
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, scale: 0, linear, offset: -2)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("sort_by: scale param should be non-zero integer.", results.error());
+
+    //missing scale param
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, linear, offset: -2)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("Bad syntax. origin and scale are mandatory params for decay function.", results.error());
+
+    //missing origin param
+    sort_fields = {
+            sort_by("timestamp(scale: 100, linear, offset: -2)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("Bad syntax. origin and scale are mandatory params for decay function.", results.error());
+
+    //decay value should be between 0.0 to 1.0
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, linear, scale: -10, decay: 1.4)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("sort_by: decay param should be float in range [0.0, 1.0].", results.error());
+
+    //only gauss, linear, and exp keys are supported for decay functions
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, expo, scale: -10, decay: 0.4)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("Bad syntax. Not a valid decay function key `expo`.", results.error());
+
+    //correct params
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, exp, scale: -10, decay: 0.4)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_TRUE(results.ok());
+}

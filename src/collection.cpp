@@ -1398,17 +1398,19 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     StringUtils::split(sort_params_str, value_params, ",");
 
                     for(const auto& value_param : value_params) {
+                        param_parts.clear();
                         StringUtils::split(value_param, param_parts, ":");
 
                         if(param_parts.size() == 1 ) {
                             if(param_parts[0]!= sort_field_const::gauss && param_parts[0]!= sort_field_const::exp
                                 && param_parts[0]!= sort_field_const::linear) {
-                                return Option<bool>(400, "Bad synatx for decay function params.");
+                                return Option<bool>(400, "Bad syntax. Not a valid decay function key `" + param_parts[0] + "`.");
                             }
                             auto action_op = magic_enum::enum_cast<sort_by::sort_by_action_t>(param_parts[0]);
                             if(action_op.has_value()) {
                                 sort_field_std.sort_by_action = action_op.value();
                             }
+                            continue;
                         }
 
                         if (param_parts.size() > 2) {
@@ -1436,7 +1438,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                             }
                             auto val = std::stof(param_parts[1]);
                             if(val < 0.0f || val > 1.0f) {
-                                return Option<bool>(400, "sort_by: decay param should be float in range [0.0f, 1.0f].");
+                                return Option<bool>(400, "sort_by: decay param should be float in range [0.0, 1.0].");
                             }
                             sort_field_std.decay_val = val;
                         } else {
