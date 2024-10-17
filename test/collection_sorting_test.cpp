@@ -3021,3 +3021,33 @@ TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
     results = coll->search("*", {}, "", {}, sort_fields, {0});
     ASSERT_TRUE(results.ok());
 }
+
+TEST_F(CollectionSortingTest, DecayFunctionsTest) {
+    auto schema_json = R"({
+            "name": "products",
+            "fields":[
+            {
+                "name": "name","type": "string",
+                "name": "timestamp","type": "int64"
+            }]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+
+    std::vector<std::string> products = {"Samsung Smartphone", "Vivo SmartPhone", "Oneplus Smartphone", "Pixel Smartphone", "Moto Smartphone"};
+    nlohmann::json doc;
+    for (auto i = 0; i < products.size(); ++i) {
+        doc["name"] = products[i];
+        doc["timestamp"] = 1728383250 + i * 1000;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, exp, scale: -1000, decay: 1)", "asc"),
+    };
+
+    auto results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
+    LOG(INFO) << results.dump();
+}

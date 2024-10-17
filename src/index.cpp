@@ -8095,11 +8095,11 @@ int64_t Index::compute_decay_function_score(const sort_by& sort_field, uint32_t 
             break;
         case sort_by::exp:
             variance = std::log(sort_field.decay_val)/sort_field.scale;
-            res = std::exp(variance * std::max((int64_t)0, origin_distance_with_offset - sort_field.offset));
+            res = std::exp(variance * std::max((int64_t)0, origin_distance_with_offset));
             break;
         case sort_by::linear:
             variance = sort_field.scale/(1.0 - sort_field.decay_val);
-            res = std::max((double)0.f, (variance - std::max((int64_t)0, origin_distance_with_offset - sort_field.offset))/variance);
+            res = std::max((double)0.f, (variance - std::max((int64_t)0, origin_distance_with_offset))/variance);
             break;
         default:
             break;
