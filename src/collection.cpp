@@ -379,6 +379,7 @@ nlohmann::json Collection::get_summary_json() const {
 
         if (!coll_field.reference.empty()) {
             field_json[fields::reference] = coll_field.reference;
+            field_json[fields::async_reference] = coll_field.is_async_reference;
         }
 
         fields_arr.push_back(field_json);
