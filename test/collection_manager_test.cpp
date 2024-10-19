@@ -340,7 +340,7 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
                                   "\"string\", \"facet\": false}], \"default_sorting_field\": \"foo\"}");
 
     spp::sparse_hash_map<std::string, std::string> referenced_in;
-    spp::sparse_hash_map<std::string, std::vector<reference_pair_t>> async_referenced_ins;
+    spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins;
 
     Collection *collection = collectionManager.init_collection(collection_meta1, 100, store, 1.0f, referenced_in,
                                                                async_referenced_ins);
@@ -520,8 +520,8 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(1, async_ref_fields.size());
     ASSERT_EQ(1, async_ref_fields.count("product_id"));
     ASSERT_EQ(1, async_ref_fields["product_id"].size());
-    ASSERT_EQ("collection1", async_ref_fields["product_id"][0].collection);
-    ASSERT_EQ("product_id", async_ref_fields["product_id"][0].field);
+    ASSERT_EQ("collection1", async_ref_fields["product_id"].begin()->collection);
+    ASSERT_EQ("product_id", async_ref_fields["product_id"].begin()->field);
 
     // recreate collection manager to ensure that it restores the records from the disk backed store
     collectionManager.dispose();
@@ -601,8 +601,8 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(1, async_ref_fields.size());
     ASSERT_EQ(1, async_ref_fields.count("product_id"));
     ASSERT_EQ(1, async_ref_fields["product_id"].size());
-    ASSERT_EQ("collection1", async_ref_fields["product_id"][0].collection);
-    ASSERT_EQ("product_id", async_ref_fields["product_id"][0].field);
+    ASSERT_EQ("collection1", async_ref_fields["product_id"].begin()->collection);
+    ASSERT_EQ("product_id", async_ref_fields["product_id"].begin()->field);
 }
 
 TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
@@ -1775,7 +1775,7 @@ TEST_F(CollectionManagerTest, PopulateReferencedIns) {
             })"_json.dump(),
     };
     std::map<std::string, spp::sparse_hash_map<std::string, std::string>> referenced_ins;
-    std::map<std::string, spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>> async_referenced_ins;
+    std::map<std::string, spp::sparse_hash_map<std::string, std::set<reference_pair_t>>> async_referenced_ins;
 
     for (const auto &collection_meta_json: collection_meta_jsons) {
         CollectionManager::_populate_referenced_ins(collection_meta_json, referenced_ins, async_referenced_ins);
@@ -1796,8 +1796,8 @@ TEST_F(CollectionManagerTest, PopulateReferencedIns) {
     ASSERT_EQ(1, async_referenced_ins["C"].size());
     ASSERT_EQ(1, async_referenced_ins["C"].count("c_id"));
     ASSERT_EQ(1, async_referenced_ins["C"]["c_id"].size());
-    ASSERT_EQ("B", async_referenced_ins["C"]["c_id"][0].collection);
-    ASSERT_EQ("c_ref", async_referenced_ins["C"]["c_id"][0].field);
+    ASSERT_EQ("B", async_referenced_ins["C"]["c_id"].begin()->collection);
+    ASSERT_EQ("c_ref", async_referenced_ins["C"]["c_id"].begin()->field);
 }
 
 TEST_F(CollectionManagerTest, CollectionPagination) {

@@ -567,7 +567,7 @@ batch_memory_index(Index *index,
                  const bool generate_embeddings,
                  const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
                  const std::string& collection_name,
-                 const spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>& async_referenced_ins) {
+                 const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
     const size_t concurrency = 4;
     const size_t num_threads = std::min(concurrency, iter_batch.size());
     const size_t window_size = (num_threads == 0) ? 0 :
@@ -651,7 +651,7 @@ batch_memory_index(Index *index,
 
             const field& f = (field_name == "id") ?
                              field("id", field_types::STRING, false) : indexable_schema.at(field_name);
-            std::vector<reference_pair_t> async_references;
+            std::set<reference_pair_t> async_references;
             auto it = async_referenced_ins.find(field_name);
             if (it != async_referenced_ins.end()) {
                 async_references = it->second;
@@ -682,7 +682,7 @@ batch_memory_index(Index *index,
 
 void Index::index_field_in_memory(const std::string& collection_name, const field& afield,
                                   std::vector<index_record>& iter_batch,
-                                  const std::vector<reference_pair_t>& async_referenced_ins) {
+                                  const std::set<reference_pair_t>& async_referenced_ins) {
     // indexes a given field of all documents in the batch
 
     if(afield.name == "id") {
@@ -1171,7 +1171,7 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
 
 void Index::update_async_references(const std::string& collection_name, const field& afield,
                                     std::vector<index_record>& iter_batch,
-                                    const std::vector<reference_pair_t>& async_referenced_ins) {
+                                    const std::set<reference_pair_t>& async_referenced_ins) {
     for (auto& record: iter_batch) {
         if (!record.indexed.ok() || record.is_update) {
             continue;
