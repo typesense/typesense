@@ -1281,6 +1281,7 @@ void Index::update_async_references(const std::string& collection_name, const fi
             if (!update_op.ok()) {
                 record.index_failure(400, "Error while updating async reference field `" + reference_field_name +
                                          "` of collection `" += reference_collection_name + "`: " += update_op.error());
+                break;
             }
         }
     }
