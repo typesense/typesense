@@ -95,7 +95,11 @@ struct reference_pair_t {
                                                                   field(std::move(field)) {}
 
     bool operator < (const reference_pair_t& other) const noexcept {
-        return collection < other.collection || field < other.field;
+        if (collection == other.collection) {
+            return field < other.field;
+        }
+
+        return collection < other.collection;
     }
 };
 

@@ -1456,8 +1456,8 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
         add_doc_op = collection_create_op.get()->add(doc_json.dump());
         ASSERT_FALSE(add_doc_op.ok());
         // Singular reference field can only reference one document.
-        ASSERT_EQ("Error while updating async reference field `object.reference` of collection `coll1`: "
-                  "Document `id: 2` already has a reference to document `0` of `Products` collection, "
+        ASSERT_EQ("Error while updating async reference field `product_id` of collection `Customers`: "
+                  "Document `id: 0` already has a reference to document `0` of `Products` collection, "
                   "having reference value `product_a`.", add_doc_op.error());
 
         doc = coll1->get("2").get();
