@@ -53,3 +53,7 @@ std::string route_path::_get_action() {
 
     return resource_path + ":" + operation;
 }
+
+bool http_req::do_resource_check() {
+    return http_method != "DELETE" && path_without_query != "/health" && path_without_query != "/config";
+}

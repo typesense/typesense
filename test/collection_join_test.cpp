@@ -234,7 +234,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_TRUE(collection_create_op.ok());
 
     add_doc_op = customer_collection->add(customer_json.dump());
-    ASSERT_EQ("Reference document having `product_id:= a` not found in the collection `Products`.", add_doc_op.error());
+    ASSERT_EQ("Reference document having `product_id:= `a`` not found in the collection `Products`.", add_doc_op.error());
 
     std::vector<nlohmann::json> products = {
             R"({
@@ -258,7 +258,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
 
     customer_json["reference_id"] = "product_a";
     add_doc_op = customer_collection->add(customer_json.dump());
-    ASSERT_EQ("Multiple documents having `product_id:= product_a` found in the collection `Products`.", add_doc_op.error());
+    ASSERT_EQ("Multiple documents having `product_id:= `product_a`` found in the collection `Products`.", add_doc_op.error());
 
     collectionManager.drop_collection("Products");
     products[1]["product_id"] = "product_b";
@@ -515,25 +515,74 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ("Field `ref_string_field` must have `string` value.", add_doc_op.error());
 
     doc_json = R"({
+                    "ref_string_field": "Tomaten (g`estückelt) "
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Filter value `Tomaten (g`estückelt) ` cannot be parsed.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_string_field": "Tomaten g`estückelt "
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    // We won't surround value in backticks if it already has a backtick in it.
+    ASSERT_EQ("Reference document having `string_field:= Tomaten g`estückelt ` not found in the collection `coll1`.",
+              add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_string_field": "Tomaten (gestückelt) "
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Reference document having `string_field:= `Tomaten (gestückelt) `` not found in the collection `coll1`.",
+              add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_string_field": "Tomaten && gestückelt"
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Reference document having `string_field:= `Tomaten && gestückelt`` not found in the collection `coll1`.",
+              add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_string_field": "Tomaten||gestückelt"
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Reference document having `string_field:= `Tomaten||gestückelt`` not found in the collection `coll1`.",
+              add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_string_field": "Tomaten`||`gestückelt"
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Reference document having `string_field:= Tomaten`||`gestückelt` not found in the collection `coll1`.",
+              add_doc_op.error());
+
+    doc_json = R"({
                     "ref_string_array_field": ["a", 1]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_string_array_field` must only have `string` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_string_array_field` must have `string` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_string_array_field": [null]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_string_array_field` must only have `string` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_string_array_field` cannot have `null` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_string_array_field": ["foo"]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Reference document having `string_array_field:= foo` not found in the collection `coll1`.", add_doc_op.error());
+    ASSERT_EQ("Reference document having `string_array_field:= `foo`` not found in the collection `coll1`.",
+              add_doc_op.error());
 
     collectionManager.drop_collection("coll2");
     temp_json = schema_json;
@@ -644,21 +693,21 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_int32_array_field` must only have `int32` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_int32_array_field` must have `int32` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_int32_array_field": [1, -2147483649]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_int32_array_field` must only have `int32` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_int32_array_field` must have `int32` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_int32_array_field": [1, 2147483648]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_int32_array_field` must only have `int32` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_int32_array_field` must have `int32` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_int32_array_field": [1]
@@ -767,21 +816,21 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_int64_array_field` must only have `int64` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_int64_array_field` must have `int64` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_int64_array_field": [1, -9223372036854775809]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_int64_array_field` must only have `int64` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_int64_array_field` must have `int64` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_int64_array_field": [1, 1.5]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `ref_int64_array_field` must only have `int64` values.", add_doc_op.error());
+    ASSERT_EQ("Field `ref_int64_array_field` must have `int64` value.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_int64_array_field": [1]
@@ -869,7 +918,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Field `object.ref_array_field` must only have `string` values.", add_doc_op.error());
+    ASSERT_EQ("Field `object.ref_array_field` must have `string` value.", add_doc_op.error());
 
     doc_json = R"({
                     "object_array": [
@@ -891,7 +940,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Reference document having `string_field:= foo` not found in the collection `coll1`.", add_doc_op.error());
+    ASSERT_EQ("Reference document having `string_field:= `foo`` not found in the collection `coll1`.", add_doc_op.error());
 
     doc_json = R"({
                     "object_array": [
@@ -914,7 +963,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Reference document having `string_array_field:= foo` not found in the collection `coll1`.", add_doc_op.error());
+    ASSERT_EQ("Reference document having `string_array_field:= `foo`` not found in the collection `coll1`.", add_doc_op.error());
 
     doc_json = R"({
                     "object": {
@@ -923,7 +972,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Reference document having `string_array_field:= foo` not found in the collection `coll1`.", add_doc_op.error());
+    ASSERT_EQ("Reference document having `string_array_field:= `foo`` not found in the collection `coll1`.", add_doc_op.error());
 
     collectionManager.drop_collection("coll2");
     temp_json = schema_json;
@@ -1407,8 +1456,8 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
         add_doc_op = collection_create_op.get()->add(doc_json.dump());
         ASSERT_FALSE(add_doc_op.ok());
         // Singular reference field can only reference one document.
-        ASSERT_EQ("Error while updating async reference field `object.reference` of collection `coll1`: "
-                  "Document `id: 2` already has a reference to document `0` of `Products` collection, "
+        ASSERT_EQ("Error while updating async reference field `product_id` of collection `Customers`: "
+                  "Document `id: 0` already has a reference to document `0` of `Products` collection, "
                   "having reference value `product_a`.", add_doc_op.error());
 
         doc = coll1->get("2").get();
@@ -1530,6 +1579,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
     ASSERT_EQ(0, res_obj["hits"][1]["document"]["genre"].size());
 
     {
+        // Insert individual document.
         auto const& songs_coll = collectionManager.get_collection_unsafe("songs");
 
         doc_json = R"({"title":"Achilles Last Stand", "genres":["3","0","2"]})"_json;
@@ -3487,9 +3537,35 @@ TEST_F(CollectionJoinTest, FilterByNestedReferences) {
     ASSERT_EQ("retailer 2", res_obj["hits"][1]["document"]["product_variants"]["inventory"]["retailers"]["title"]);
 }
 
-TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
-    auto schema_json =
-            R"({
+class JoinIncludeExcludeFieldsTest : public ::testing::Test {
+protected:
+    Store* store = nullptr;
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    std::atomic<bool> quit = false;
+
+    std::vector<std::string> query_fields;
+    std::vector<sort_by> sort_fields;
+    std::string state_dir_path = "/tmp/typesense_test/collection_join";
+
+    Collection* products = nullptr;
+    Collection* customers = nullptr;
+
+
+    std::map<std::string, std::string> req_params;
+    nlohmann::json embedded_params;
+    std::string json_res;
+    long now_ts = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+    void setupCollection() {
+        LOG(INFO) << "Truncating and creating: " << state_dir_path;
+        system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+
+        store = new Store(state_dir_path);
+        collectionManager.init(store, 1.0, "auth_key", quit);
+        collectionManager.load(8, 1000);
+
+        auto schema_json =
+                R"({
                 "name": "Products",
                 "fields": [
                     {"name": "product_id", "type": "string"},
@@ -3499,35 +3575,37 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
                     {"name": "rating", "type": "int32"}
                 ]
             })"_json;
-    std::vector<nlohmann::json> documents = {
-            R"({
+        std::vector<nlohmann::json> documents = {
+                R"({
                 "product_id": "product_a",
                 "product_name": "shampoo",
                 "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair.",
                 "rating": "2"
             })"_json,
-            R"({
+                R"({
                 "product_id": "product_b",
                 "product_name": "soap",
                 "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients.",
                 "rating": "4"
             })"_json
-    };
+        };
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+        EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
-    auto collection_create_op = collectionManager.create_collection(schema_json);
-    ASSERT_TRUE(collection_create_op.ok());
-    for (auto const &json: documents) {
-        auto add_op = collection_create_op.get()->add(json.dump());
-        if (!add_op.ok()) {
-            LOG(INFO) << add_op.error();
+        auto collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+
+        products = collection_create_op.get();
+        for (auto const &json: documents) {
+            auto add_op = products->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
         }
-        ASSERT_TRUE(add_op.ok());
-    }
 
-    schema_json =
-            R"({
+        schema_json =
+                R"({
                 "name": "Customers",
                 "fields": [
                     {"name": "customer_id", "type": "string"},
@@ -3536,53 +3614,350 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
                     {"name": "product_id", "type": "string", "reference": "Products.product_id"}
                 ]
             })"_json;
-    documents = {
-            R"({
+        documents = {
+                R"({
                 "customer_id": "customer_a",
                 "customer_name": "Joe",
                 "product_price": 143,
                 "product_id": "product_a"
             })"_json,
-            R"({
+                R"({
                 "customer_id": "customer_a",
                 "customer_name": "Joe",
                 "product_price": 73.5,
                 "product_id": "product_b"
             })"_json,
-            R"({
+                R"({
                 "customer_id": "customer_b",
                 "customer_name": "Dan",
                 "product_price": 75,
                 "product_id": "product_a"
             })"_json,
-            R"({
+                R"({
                 "customer_id": "customer_b",
                 "customer_name": "Dan",
                 "product_price": 140,
                 "product_id": "product_b"
             })"_json
-    };
-    collection_create_op = collectionManager.create_collection(schema_json);
-    ASSERT_TRUE(collection_create_op.ok());
-    for (auto const &json: documents) {
-        auto add_op = collection_create_op.get()->add(json.dump());
-        if (!add_op.ok()) {
-            LOG(INFO) << add_op.error();
+        };
+        collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+
+        customers = collection_create_op.get();
+        for (auto const &json: documents) {
+            auto add_op = customers->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
         }
-        ASSERT_TRUE(add_op.ok());
+
+        schema_json =
+                R"({
+                "name": "Users",
+                "fields": [
+                    {"name": "user_id", "type": "string"},
+                    {"name": "user_name", "type": "string"}
+                ]
+            })"_json;
+        documents = {
+                R"({
+                "user_id": "user_a",
+                "user_name": "Roshan"
+            })"_json,
+                R"({
+                "user_id": "user_b",
+                "user_name": "Ruby"
+            })"_json,
+                R"({
+                "user_id": "user_c",
+                "user_name": "Joe"
+            })"_json,
+                R"({
+                "user_id": "user_d",
+                "user_name": "Aby"
+            })"_json
+        };
+        collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+        for (auto const &json: documents) {
+            auto add_op = collection_create_op.get()->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
+
+        schema_json =
+                R"({
+                "name": "Repos",
+                "fields": [
+                    {"name": "repo_id", "type": "string"},
+                    {"name": "repo_content", "type": "string"},
+                    {"name": "repo_stars", "type": "int32"},
+                    {"name": "repo_is_private", "type": "bool"}
+                ]
+            })"_json;
+        documents = {
+                R"({
+                "repo_id": "repo_a",
+                "repo_content": "body1",
+                "repo_stars": 431,
+                "repo_is_private": true
+            })"_json,
+                R"({
+                "repo_id": "repo_b",
+                "repo_content": "body2",
+                "repo_stars": 4562,
+                "repo_is_private": false
+            })"_json,
+                R"({
+                "repo_id": "repo_c",
+                "repo_content": "body3",
+                "repo_stars": 945,
+                "repo_is_private": false
+            })"_json
+        };
+        collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+        for (auto const &json: documents) {
+            auto add_op = collection_create_op.get()->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
+
+        schema_json =
+                R"({
+                "name": "Links",
+                "fields": [
+                    {"name": "repo_id", "type": "string", "reference": "Repos.repo_id"},
+                    {"name": "user_id", "type": "string", "reference": "Users.user_id"}
+                ]
+            })"_json;
+        documents = {
+                R"({
+                "repo_id": "repo_a",
+                "user_id": "user_b"
+            })"_json,
+                R"({
+                "repo_id": "repo_a",
+                "user_id": "user_c"
+            })"_json,
+                R"({
+                "repo_id": "repo_b",
+                "user_id": "user_a"
+            })"_json,
+                R"({
+                "repo_id": "repo_b",
+                "user_id": "user_b"
+            })"_json,
+                R"({
+                "repo_id": "repo_b",
+                "user_id": "user_d"
+            })"_json,
+                R"({
+                "repo_id": "repo_c",
+                "user_id": "user_a"
+            })"_json,
+                R"({
+                "repo_id": "repo_c",
+                "user_id": "user_b"
+            })"_json,
+                R"({
+                "repo_id": "repo_c",
+                "user_id": "user_c"
+            })"_json,
+                R"({
+                "repo_id": "repo_c",
+                "user_id": "user_d"
+            })"_json
+        };
+        collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+
+        for (auto const &json: documents) {
+            auto add_op = collection_create_op.get()->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
+
+        schema_json =
+                R"({
+                "name": "Organizations",
+                "fields": [
+                    {"name": "org_id", "type": "string"},
+                    {"name": "name", "type": "object"},
+                    {"name": "name.first", "type": "string"},
+                    {"name": "name.last", "type": "string"}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+        documents = {
+                R"({
+                "org_id": "org_a",
+                "name": {
+                    "first": "type",
+                    "last": "sense"
+                }
+            })"_json
+        };
+        collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+
+        for (auto const &json: documents) {
+            auto add_op = collection_create_op.get()->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
+
+        schema_json =
+                R"({
+                "name": "Participants",
+                "fields": [
+                    {"name": "user_id", "type": "string", "reference": "Users.user_id"},
+                    {"name": "org_id", "type": "string", "reference": "Organizations.org_id"}
+                ]
+            })"_json;
+        documents = {
+                R"({
+                "user_id": "user_a",
+                "org_id": "org_a"
+            })"_json,
+                R"({
+                "user_id": "user_b",
+                "org_id": "org_a"
+            })"_json,
+                R"({
+                "user_id": "user_d",
+                "org_id": "org_a"
+            })"_json,
+        };
+        collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+
+        for (auto const &json: documents) {
+            auto add_op = collection_create_op.get()->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
+
+        schema_json =
+                R"({
+                "name": "Customers_Optional_Reference",
+                "fields": [
+                    {"name": "customer_id", "type": "string"},
+                    {"name": "customer_name", "type": "string"},
+                    {"name": "product_price", "type": "float", "optional": true},
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id", "optional": true}
+                ]
+            })"_json;
+        documents = {
+                R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product_price": 143,
+                "product_id": "product_a"
+            })"_json,
+                R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe"
+            })"_json,
+                R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan"
+            })"_json,
+                R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product_price": 140,
+                "product_id": "product_b"
+            })"_json
+        };
+        collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+        for (auto const &json: documents) {
+            auto add_op = collection_create_op.get()->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
+
+        schema_json =
+                R"({
+                "name": "Customers_Object_Optional_Reference",
+                "fields": [
+                    {"name": "customer_id", "type": "string"},
+                    {"name": "customer_name", "type": "string"},
+                    {"name": "product", "type": "object", "optional": true},
+                    {"name": "product.price", "type": "float", "optional": true},
+                    {"name": "product.id", "type": "string", "reference": "Products.product_id", "optional": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+        documents = {
+                R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product": {
+                    "price": 143,
+                    "id": "product_a"
+                }
+            })"_json,
+                R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe"
+            })"_json,
+                R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan"
+            })"_json,
+                R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product": {
+                    "price": 140,
+                    "id": "product_b"
+                }
+            })"_json
+        };
+        collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+        for (auto const &json: documents) {
+            auto add_op = collection_create_op.get()->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
     }
 
-    std::map<std::string, std::string> req_params = {
-            {"collection", "Products"},
-            {"q", "*"},
-            {"query_by", "product_name"},
-            {"filter_by", "$Customers(customer_id:=customer_a && product_price:<100)"},
+    virtual void SetUp() {
+        setupCollection();
+    }
+
+    virtual void TearDown() {
+        collectionManager.dispose();
+        delete store;
+    }
+};
+
+TEST_F(JoinIncludeExcludeFieldsTest, ErrorHandling) {
+    req_params = {
+            {"collection",     "Products"},
+            {"q",              "*"},
+            {"query_by",       "product_name"},
+            {"filter_by",      "$Customers(customer_id:=customer_a && product_price:<100)"},
             {"include_fields", "$foo.bar"}
     };
-    nlohmann::json embedded_params;
-    std::string json_res;
-    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
 
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
@@ -3599,14 +3974,16 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("Referenced collection `foo` in `include_fields` not found.", search_op.error());
+}
 
+TEST_F(JoinIncludeExcludeFieldsTest, IncludeStrategies) {
     req_params = {
             {"collection", "Products"},
             {"q", "*"},
             {"query_by", "product_name"},
             {"filter_by", "$Customers(customer_id:=customer_a && product_price:<100)"},
     };
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
     nlohmann::json res_obj = nlohmann::json::parse(json_res);
@@ -3683,11 +4060,11 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("Customers.product_price"));
 
     req_params = {
-        {"collection", "Products"},
-        {"q", "*"},
-        {"query_by", "product_name"},
-        {"filter_by", "$Customers(customer_id:=customer_a && product_price:<100)"},
-        {"include_fields", "$Customers(bar, strategy:merge)"}
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a && product_price:<100)"},
+            {"include_fields", "$Customers(bar, strategy:merge)"}
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
@@ -3795,6 +4172,142 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
 
+    req_params = {
+            {"collection", "Customers"},
+            {"q", "Dan"},
+            {"query_by", "customer_name"},
+            {"filter_by", "$Products(rating:>3)"},
+            {"include_fields", "$Products(product_name, strategy:merge), product_price"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
+    ASSERT_EQ(140, res_obj["hits"][0]["document"].at("product_price"));
+
+    // Reference include_by without join
+    req_params = {
+            {"collection", "Customers"},
+            {"q", "Joe"},
+            {"query_by", "customer_name"},
+            {"filter_by", "product_price:<100"},
+            {"include_fields", "$Products(product_name, strategy: merge), product_price"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+}
+
+TEST_F(JoinIncludeExcludeFieldsTest, Alias) {
+    // Add alias using `as`
+    req_params = {
+            {"collection", "Products"},
+            {"q", "soap"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(id:*)"},
+            {"include_fields", "id, $Customers(id , strategy:merge)"}
+    };
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Could not include the value of `id` key of the reference document of `Customers` collection."
+              " Expected `id` to be an array. Try adding an alias.", search_op.error());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "soap"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(id:*)"},
+            {"include_fields", "id, $Customers(id , strategy:nest) as id"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Could not include the reference document of `Customers` collection."
+              " Expected `id` to be an array. Try renaming the alias.", search_op.error());
+
+    req_params = {
+            {"collection", "Customers"},
+            {"q", "Joe"},
+            {"query_by", "customer_name"},
+            {"filter_by", "product_price:<100"},
+            // With merge, alias is prepended
+            {"include_fields", "$Products(product_name, strategy:merge) as prod, product_price"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("prod.product_name"));
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("prod.product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+
+    req_params = {
+            {"collection", "Customers"},
+            {"q", "Joe"},
+            {"query_by", "customer_name"},
+            {"filter_by", "product_price:<100"},
+            // With nest, alias becomes the key
+            {"include_fields", "$Products(product_name, strategy:nest) as prod, product_price"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("prod"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["prod"].count("product_name"));
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["prod"].at("product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "soap"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(id:*)"},
+            // With nest, alias becomes the key
+            {"include_fields", "$Customers(customer_name, product_price , strategy:nest) as CustomerPrices, product_name"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("CustomerPrices"));
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["CustomerPrices"].size());
+
+    ASSERT_EQ("Joe", res_obj["hits"][0]["document"]["CustomerPrices"].at(0)["customer_name"]);
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["CustomerPrices"].at(0)["product_price"]);
+
+    ASSERT_EQ("Dan", res_obj["hits"][0]["document"]["CustomerPrices"].at(1)["customer_name"]);
+    ASSERT_EQ(140, res_obj["hits"][0]["document"]["CustomerPrices"].at(1)["product_price"]);
+}
+
+TEST_F(JoinIncludeExcludeFieldsTest, IntegrationWithOtherFeatures) {
     // Exclude token search
     req_params = {
             {"collection", "Products"},
@@ -3804,10 +4317,10 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
             {"include_fields", "product_name"},
             {"exclude_fields", "$Customers(*)"}
     };
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
-    res_obj = nlohmann::json::parse(json_res);
+    auto res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_EQ(1, res_obj["hits"][0]["document"].size());
@@ -3994,336 +4507,9 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("product_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+}
 
-    req_params = {
-            {"collection", "Customers"},
-            {"q", "Dan"},
-            {"query_by", "customer_name"},
-            {"filter_by", "$Products(rating:>3)"},
-            {"include_fields", "$Products(product_name, strategy:merge), product_price"}
-    };
-
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-
-    res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(1, res_obj["found"].get<size_t>());
-    ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
-    ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("product_name"));
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
-    ASSERT_EQ(140, res_obj["hits"][0]["document"].at("product_price"));
-
-    // Reference include_by without join
-    req_params = {
-            {"collection", "Customers"},
-            {"q", "Joe"},
-            {"query_by", "customer_name"},
-            {"filter_by", "product_price:<100"},
-            {"include_fields", "$Products(product_name, strategy: merge), product_price"}
-    };
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-
-    res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(1, res_obj["found"].get<size_t>());
-    ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
-    ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("product_name"));
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
-    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
-
-    // Add alias using `as`
-    req_params = {
-            {"collection", "Products"},
-            {"q", "soap"},
-            {"query_by", "product_name"},
-            {"filter_by", "$Customers(id:*)"},
-            {"include_fields", "id, $Customers(id , strategy:merge)"}
-    };
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Could not include the value of `id` key of the reference document of `Customers` collection."
-              " Expected `id` to be an array. Try adding an alias.", search_op.error());
-
-    req_params = {
-            {"collection", "Products"},
-            {"q", "soap"},
-            {"query_by", "product_name"},
-            {"filter_by", "$Customers(id:*)"},
-            {"include_fields", "id, $Customers(id , strategy:nest) as id"}
-    };
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Could not include the reference document of `Customers` collection."
-              " Expected `id` to be an array. Try renaming the alias.", search_op.error());
-
-    req_params = {
-            {"collection", "Customers"},
-            {"q", "Joe"},
-            {"query_by", "customer_name"},
-            {"filter_by", "product_price:<100"},
-            // With merge, alias is prepended
-            {"include_fields", "$Products(product_name, strategy:merge) as prod, product_price"}
-    };
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-
-    res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(1, res_obj["found"].get<size_t>());
-    ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("prod.product_name"));
-    ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("prod.product_name"));
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
-    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
-
-    req_params = {
-            {"collection", "Customers"},
-            {"q", "Joe"},
-            {"query_by", "customer_name"},
-            {"filter_by", "product_price:<100"},
-            // With nest, alias becomes the key
-            {"include_fields", "$Products(product_name, strategy:nest) as prod, product_price"}
-    };
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-
-    res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(1, res_obj["found"].get<size_t>());
-    ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("prod"));
-    ASSERT_EQ(1, res_obj["hits"][0]["document"]["prod"].count("product_name"));
-    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["prod"].at("product_name"));
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
-    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
-
-    req_params = {
-            {"collection", "Products"},
-            {"q", "soap"},
-            {"query_by", "product_name"},
-            {"filter_by", "$Customers(id:*)"},
-            // With nest, alias becomes the key
-            {"include_fields", "$Customers(customer_name, product_price , strategy:nest) as CustomerPrices, product_name"}
-    };
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-
-    res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(1, res_obj["found"].get<size_t>());
-    ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
-    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"]);
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("CustomerPrices"));
-    ASSERT_EQ(2, res_obj["hits"][0]["document"]["CustomerPrices"].size());
-
-    ASSERT_EQ("Joe", res_obj["hits"][0]["document"]["CustomerPrices"].at(0)["customer_name"]);
-    ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["CustomerPrices"].at(0)["product_price"]);
-
-    ASSERT_EQ("Dan", res_obj["hits"][0]["document"]["CustomerPrices"].at(1)["customer_name"]);
-    ASSERT_EQ(140, res_obj["hits"][0]["document"]["CustomerPrices"].at(1)["product_price"]);
-
-    schema_json =
-            R"({
-                "name": "Users",
-                "fields": [
-                    {"name": "user_id", "type": "string"},
-                    {"name": "user_name", "type": "string"}
-                ]
-            })"_json;
-    documents = {
-            R"({
-                "user_id": "user_a",
-                "user_name": "Roshan"
-            })"_json,
-            R"({
-                "user_id": "user_b",
-                "user_name": "Ruby"
-            })"_json,
-            R"({
-                "user_id": "user_c",
-                "user_name": "Joe"
-            })"_json,
-            R"({
-                "user_id": "user_d",
-                "user_name": "Aby"
-            })"_json
-    };
-    collection_create_op = collectionManager.create_collection(schema_json);
-    ASSERT_TRUE(collection_create_op.ok());
-    for (auto const &json: documents) {
-        auto add_op = collection_create_op.get()->add(json.dump());
-        if (!add_op.ok()) {
-            LOG(INFO) << add_op.error();
-        }
-        ASSERT_TRUE(add_op.ok());
-    }
-
-    schema_json =
-            R"({
-                "name": "Repos",
-                "fields": [
-                    {"name": "repo_id", "type": "string"},
-                    {"name": "repo_content", "type": "string"},
-                    {"name": "repo_stars", "type": "int32"},
-                    {"name": "repo_is_private", "type": "bool"}
-                ]
-            })"_json;
-    documents = {
-            R"({
-                "repo_id": "repo_a",
-                "repo_content": "body1",
-                "repo_stars": 431,
-                "repo_is_private": true
-            })"_json,
-            R"({
-                "repo_id": "repo_b",
-                "repo_content": "body2",
-                "repo_stars": 4562,
-                "repo_is_private": false
-            })"_json,
-            R"({
-                "repo_id": "repo_c",
-                "repo_content": "body3",
-                "repo_stars": 945,
-                "repo_is_private": false
-            })"_json
-    };
-    collection_create_op = collectionManager.create_collection(schema_json);
-    ASSERT_TRUE(collection_create_op.ok());
-    for (auto const &json: documents) {
-        auto add_op = collection_create_op.get()->add(json.dump());
-        if (!add_op.ok()) {
-            LOG(INFO) << add_op.error();
-        }
-        ASSERT_TRUE(add_op.ok());
-    }
-
-    schema_json =
-            R"({
-                "name": "Links",
-                "fields": [
-                    {"name": "repo_id", "type": "string", "reference": "Repos.repo_id"},
-                    {"name": "user_id", "type": "string", "reference": "Users.user_id"}
-                ]
-            })"_json;
-    documents = {
-            R"({
-                "repo_id": "repo_a",
-                "user_id": "user_b"
-            })"_json,
-            R"({
-                "repo_id": "repo_a",
-                "user_id": "user_c"
-            })"_json,
-            R"({
-                "repo_id": "repo_b",
-                "user_id": "user_a"
-            })"_json,
-            R"({
-                "repo_id": "repo_b",
-                "user_id": "user_b"
-            })"_json,
-            R"({
-                "repo_id": "repo_b",
-                "user_id": "user_d"
-            })"_json,
-            R"({
-                "repo_id": "repo_c",
-                "user_id": "user_a"
-            })"_json,
-            R"({
-                "repo_id": "repo_c",
-                "user_id": "user_b"
-            })"_json,
-            R"({
-                "repo_id": "repo_c",
-                "user_id": "user_c"
-            })"_json,
-            R"({
-                "repo_id": "repo_c",
-                "user_id": "user_d"
-            })"_json
-    };
-    collection_create_op = collectionManager.create_collection(schema_json);
-    ASSERT_TRUE(collection_create_op.ok());
-
-    for (auto const &json: documents) {
-        auto add_op = collection_create_op.get()->add(json.dump());
-        if (!add_op.ok()) {
-            LOG(INFO) << add_op.error();
-        }
-        ASSERT_TRUE(add_op.ok());
-    }
-
-    schema_json =
-            R"({
-                "name": "Organizations",
-                "fields": [
-                    {"name": "org_id", "type": "string"},
-                    {"name": "name", "type": "object"},
-                    {"name": "name.first", "type": "string"},
-                    {"name": "name.last", "type": "string"}
-                ],
-                "enable_nested_fields": true
-            })"_json;
-    documents = {
-            R"({
-                "org_id": "org_a",
-                "name": {
-                    "first": "type",
-                    "last": "sense"
-                }
-            })"_json
-    };
-    collection_create_op = collectionManager.create_collection(schema_json);
-    ASSERT_TRUE(collection_create_op.ok());
-
-    for (auto const &json: documents) {
-        auto add_op = collection_create_op.get()->add(json.dump());
-        if (!add_op.ok()) {
-            LOG(INFO) << add_op.error();
-        }
-        ASSERT_TRUE(add_op.ok());
-    }
-
-    schema_json =
-            R"({
-                "name": "Participants",
-                "fields": [
-                    {"name": "user_id", "type": "string", "reference": "Users.user_id"},
-                    {"name": "org_id", "type": "string", "reference": "Organizations.org_id"}
-                ]
-            })"_json;
-    documents = {
-            R"({
-                "user_id": "user_a",
-                "org_id": "org_a"
-            })"_json,
-            R"({
-                "user_id": "user_b",
-                "org_id": "org_a"
-            })"_json,
-            R"({
-                "user_id": "user_d",
-                "org_id": "org_a"
-            })"_json,
-    };
-    collection_create_op = collectionManager.create_collection(schema_json);
-    ASSERT_TRUE(collection_create_op.ok());
-
-    for (auto const &json: documents) {
-        auto add_op = collection_create_op.get()->add(json.dump());
-        if (!add_op.ok()) {
-            LOG(INFO) << add_op.error();
-        }
-        ASSERT_TRUE(add_op.ok());
-    }
-
+TEST_F(JoinIncludeExcludeFieldsTest, MultipleJoins) {
     // Search for users within an organization with access to a particular repo.
     req_params = {
             {"collection", "Users"},
@@ -4333,10 +4519,10 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
             {"include_fields", "user_id, user_name, $Repos(repo_content, strategy:merge), $Organizations(name, strategy:merge) as org"},
             {"exclude_fields", "$Participants(*), $Links(*), "}
     };
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
-    res_obj = nlohmann::json::parse(json_res);
+    auto res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(2, res_obj["found"].get<size_t>());
     ASSERT_EQ(2, res_obj["hits"].size());
     ASSERT_EQ(4, res_obj["hits"][0]["document"].size());
@@ -4352,6 +4538,71 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     ASSERT_EQ("body2", res_obj["hits"][1]["document"].at("repo_content"));
     ASSERT_EQ("type", res_obj["hits"][0]["document"]["org.name"].at("first"));
     ASSERT_EQ("sense", res_obj["hits"][0]["document"]["org.name"].at("last"));
+}
+
+TEST_F(JoinIncludeExcludeFieldsTest, OptionalRefrenceField) {
+    req_params = {
+            {"collection", "Customers_Optional_Reference"},
+            {"q", "*"},
+            {"include_fields", "$Products(product_name, strategy: merge), customer_name"}
+    };
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("customer_name"));
+    ASSERT_EQ("Dan", res_obj["hits"][0]["document"].at("customer_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("product_name"));
+
+    ASSERT_EQ(1, res_obj["hits"][1]["document"].count("customer_name"));
+    ASSERT_EQ("Dan", res_obj["hits"][1]["document"].at("customer_name"));
+    ASSERT_EQ(0, res_obj["hits"][1]["document"].count("product_name"));
+
+    ASSERT_EQ(1, res_obj["hits"][2]["document"].count("customer_name"));
+    ASSERT_EQ("Joe", res_obj["hits"][2]["document"].at("customer_name"));
+    ASSERT_EQ(0, res_obj["hits"][2]["document"].count("product_name"));
+
+    ASSERT_EQ(1, res_obj["hits"][3]["document"].count("customer_name"));
+    ASSERT_EQ("Joe", res_obj["hits"][3]["document"].at("customer_name"));
+    ASSERT_EQ(1, res_obj["hits"][3]["document"].count("product_name"));
+    ASSERT_EQ("shampoo", res_obj["hits"][3]["document"].at("product_name"));
+
+    req_params = {
+            {"collection", "Customers_Object_Optional_Reference"},
+            {"q", "*"},
+            {"include_fields", "$Products(product_name, strategy: merge), customer_name"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("customer_name"));
+    ASSERT_EQ("Dan", res_obj["hits"][0]["document"].at("customer_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["product"].count("product_name"));
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product"].at("product_name"));
+
+    ASSERT_EQ(1, res_obj["hits"][1]["document"].count("customer_name"));
+    ASSERT_EQ("Dan", res_obj["hits"][1]["document"].at("customer_name"));
+    ASSERT_EQ(0, res_obj["hits"][1]["document"].count("product"));
+
+    ASSERT_EQ(1, res_obj["hits"][2]["document"].count("customer_name"));
+    ASSERT_EQ("Joe", res_obj["hits"][2]["document"].at("customer_name"));
+    ASSERT_EQ(0, res_obj["hits"][2]["document"].count("product"));
+
+    ASSERT_EQ(1, res_obj["hits"][3]["document"].count("customer_name"));
+    ASSERT_EQ("Joe", res_obj["hits"][3]["document"].at("customer_name"));
+    ASSERT_EQ(1, res_obj["hits"][3]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][3]["document"]["product"].count("product_name"));
+    ASSERT_EQ("shampoo", res_obj["hits"][3]["document"]["product"].at("product_name"));
+
 }
 
 TEST_F(CollectionJoinTest, FilterByReferenceArrayField) {
@@ -5945,6 +6196,53 @@ TEST_F(CollectionJoinTest, SortByReference) {
     ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
     ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
 
+    // Sort by reference geopoint field
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$Customers(product_location(48.87709, 2.33495, precision: 1km):asc)"},
+            {"include_fields", "product_id, $Customers(product_price, strategy:merge)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ(1, res_obj["hits"][0].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][0]["geo_distance_meters"].count("product_location"));
+    ASSERT_EQ(538, res_obj["hits"][0]["geo_distance_meters"]["product_location"]);
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+    ASSERT_EQ(1356, res_obj["hits"][1]["geo_distance_meters"]["product_location"]);
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$Customers(product_location(48.87709, 2.33495, precision: 1km):desc)"},
+            {"include_fields", "product_id, $Customers(product_price, strategy:merge)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_b", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ(1, res_obj["hits"][0].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][0]["geo_distance_meters"].count("product_location"));
+    ASSERT_EQ(1356, res_obj["hits"][0]["geo_distance_meters"]["product_location"]);
+    ASSERT_EQ("product_a", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][1]["document"].at("product_price"));
+    ASSERT_EQ(538, res_obj["hits"][1]["geo_distance_meters"]["product_location"]);
+
     // Sort by reference optional filtering.
     req_params = {
             {"collection", "Products"},
@@ -6356,6 +6654,33 @@ TEST_F(CollectionJoinTest, SortByReference) {
     ASSERT_EQ("product_c", res_obj["hits"][3]["document"]["product_id"]);
     ASSERT_EQ(0, res_obj["hits"][3]["document"].count("Orders"));
 
+    // Sort by nested reference geopoint field
+    req_params = {
+            {"collection", "Orders"},
+            {"q", "*"},
+            {"filter_by", "$Products($Customers(customer_id: customer_b))"},
+            {"sort_by", "$Products($Customers(product_location(48.87709, 2.33495, precision: 1km):asc))"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("Products"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Products"].count("Customers"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Products"]["Customers"].count("product_price"));
+    ASSERT_EQ(75, res_obj["hits"][0]["document"]["Products"]["Customers"]["product_price"]);
+    ASSERT_EQ(1, res_obj["hits"][0].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][0]["geo_distance_meters"].count("product_location"));
+    ASSERT_EQ(538, res_obj["hits"][0]["geo_distance_meters"]["product_location"]);
+
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product"));
+    ASSERT_EQ(140, res_obj["hits"][1]["document"]["Products"]["Customers"]["product_price"]);
+    ASSERT_EQ(1356, res_obj["hits"][1]["geo_distance_meters"]["product_location"]);
+
     schema_json =
             R"({
                 "name": "Users",
@@ -6370,6 +6695,7 @@ TEST_F(CollectionJoinTest, SortByReference) {
                 "user_name": "Roshan"
             })"_json,
             R"({
+                "id": "foo",
                 "user_id": "user_b",
                 "user_name": "Ruby"
             })"_json,
@@ -6399,7 +6725,8 @@ TEST_F(CollectionJoinTest, SortByReference) {
                     {"name": "repo_id", "type": "string"},
                     {"name": "repo_content", "type": "string"},
                     {"name": "repo_stars", "type": "int32"},
-                    {"name": "repo_is_private", "type": "bool"}
+                    {"name": "repo_is_private", "type": "bool"},
+                    {"name": "repo_location", "type": "geopoint", "optional": true}
                 ]
             })"_json;
     documents = {
@@ -6407,13 +6734,15 @@ TEST_F(CollectionJoinTest, SortByReference) {
                 "repo_id": "repo_a",
                 "repo_content": "body1",
                 "repo_stars": 431,
-                "repo_is_private": true
+                "repo_is_private": true,
+                "repo_location": [13.22112, 80.30511]
             })"_json,
             R"({
                 "repo_id": "repo_b",
                 "repo_content": "body2",
                 "repo_stars": 4562,
-                "repo_is_private": false
+                "repo_is_private": false,
+                "repo_location": [12.98973, 80.23095]
             })"_json,
             R"({
                 "repo_id": "repo_c",
@@ -6425,7 +6754,8 @@ TEST_F(CollectionJoinTest, SortByReference) {
                 "repo_id": "repo_d",
                 "repo_content": "body4",
                 "repo_stars": 95,
-                "repo_is_private": true
+                "repo_is_private": true,
+                "repo_location": [13.12752, 79.90136]
             })"_json
     };
     collection_create_op = collectionManager.create_collection(schema_json);
@@ -6558,6 +6888,135 @@ TEST_F(CollectionJoinTest, SortByReference) {
     ASSERT_EQ("Aby", res_obj["hits"][2]["document"].at("user_name"));
     ASSERT_EQ("body4", res_obj["hits"][2]["document"].at("repo_content"));
     ASSERT_EQ(95, res_obj["hits"][2]["document"].at("repo_stars"));
+
+    // Sort by nested reference geopoint field
+    req_params = {
+            {"collection", "Users"},
+            {"q", "*"},
+            {"filter_by", "$Links(repo_id:=[repo_a, repo_d])"},
+            {"include_fields", "user_id, user_name, $Repos(repo_content, repo_stars, strategy:merge), "},
+            {"exclude_fields", "$Links(*), "},
+            {"sort_by", "$Repos(repo_location(13.12631, 80.20252): asc), user_name:desc"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ(4, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("user_b", res_obj["hits"][0]["document"].at("user_id"));
+    ASSERT_EQ("Ruby", res_obj["hits"][0]["document"].at("user_name"));
+    ASSERT_EQ("body1", res_obj["hits"][0]["document"].at("repo_content"));
+    ASSERT_EQ(1, res_obj["hits"][0].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][0]["geo_distance_meters"].count("repo_location"));
+    ASSERT_EQ(15310, res_obj["hits"][0]["geo_distance_meters"]["repo_location"]);
+
+    ASSERT_EQ(4, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("user_c", res_obj["hits"][1]["document"].at("user_id"));
+    ASSERT_EQ("Joe", res_obj["hits"][1]["document"].at("user_name"));
+    ASSERT_EQ("body1", res_obj["hits"][1]["document"].at("repo_content"));
+    ASSERT_EQ(1, res_obj["hits"][1].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][1]["geo_distance_meters"].count("repo_location"));
+    ASSERT_EQ(15310, res_obj["hits"][1]["geo_distance_meters"]["repo_location"]);
+
+    ASSERT_EQ(4, res_obj["hits"][2]["document"].size());
+    ASSERT_EQ("user_d", res_obj["hits"][2]["document"].at("user_id"));
+    ASSERT_EQ("Aby", res_obj["hits"][2]["document"].at("user_name"));
+    ASSERT_EQ("body4", res_obj["hits"][2]["document"].at("repo_content"));
+    ASSERT_EQ(1, res_obj["hits"][2].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][2]["geo_distance_meters"].count("repo_location"));
+    ASSERT_EQ(32605, res_obj["hits"][2]["geo_distance_meters"]["repo_location"]);
+
+    req_params = {
+            {"collection", "Users"},
+            {"q", "*"},
+            {"filter_by", "$Links(repo_id:=[repo_a, repo_b, repo_d])"},
+            {"include_fields", "user_id, user_name, $Repos(repo_content, repo_stars, strategy:merge), "},
+            {"exclude_fields", "$Links(*), "},
+            {"sort_by", "$Repos(repo_location(13.12631, 80.20252): asc), user_name:desc"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("`Users` collection's `id: foo` document references multiple documents of `Links` collection.",
+              search_op.error());
+
+    req_params = {
+            {"collection", "Users"},
+            {"q", "*"},
+            {"filter_by", "user_id: != user_b && $Links(repo_id:=[repo_a, repo_b, repo_d])"},
+            {"include_fields", "user_id, user_name, $Repos(repo_content, repo_stars, strategy:merge), "},
+            {"exclude_fields", "$Links(*), "},
+            {"sort_by", "$Repos(repo_location(13.12631, 80.20252): asc), user_name:desc"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("`Users` collection's `id: 3` document references multiple documents of `Links` collection.",
+              search_op.error());
+
+    {
+        auto const& users_coll = collectionManager.get_collection_unsafe("Users");
+        nlohmann::json doc_json = R"({
+                                        "user_id": "user_e",
+                                        "user_name": "Andy"
+                                    })"_json;
+        auto add_doc_op = users_coll->add(doc_json.dump());
+        ASSERT_TRUE(add_doc_op.ok());
+
+        auto const& links_coll = collectionManager.get_collection_unsafe("Links");
+        documents = {
+                R"({
+                    "repo_id": "repo_c",
+                    "user_id": "user_e"
+                })"_json,
+                R"({
+                    "repo_id": "repo_d",
+                    "user_id": "user_e"
+                })"_json,
+        };
+        for (auto const& doc: documents) {
+            add_doc_op = links_coll->add(doc.dump());
+            ASSERT_TRUE(add_doc_op.ok());
+        }
+    }
+
+    req_params = {
+            {"collection", "Users"},
+            {"q", "*"},
+            {"filter_by", "user_id: != [user_b, user_d] && $Links(repo_id:!=[repo_c])"},
+            {"include_fields", "user_id, user_name, $Repos(repo_content, repo_stars, strategy:merge), "},
+            {"exclude_fields", "$Links(*), "},
+            {"sort_by", "$Repos(repo_location(13.12631, 80.20252): asc), user_name:desc"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ(4, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("user_c", res_obj["hits"][0]["document"].at("user_id"));
+    ASSERT_EQ("Joe", res_obj["hits"][0]["document"].at("user_name"));
+    ASSERT_EQ("body1", res_obj["hits"][0]["document"].at("repo_content"));
+    ASSERT_EQ(1, res_obj["hits"][0].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][0]["geo_distance_meters"].count("repo_location"));
+    ASSERT_EQ(15310, res_obj["hits"][0]["geo_distance_meters"]["repo_location"]);
+
+    ASSERT_EQ(4, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("user_a", res_obj["hits"][1]["document"].at("user_id"));
+    ASSERT_EQ("Roshan", res_obj["hits"][1]["document"].at("user_name"));
+    ASSERT_EQ("body2", res_obj["hits"][1]["document"].at("repo_content"));
+    ASSERT_EQ(1, res_obj["hits"][1].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][1]["geo_distance_meters"].count("repo_location"));
+    ASSERT_EQ(15492, res_obj["hits"][1]["geo_distance_meters"]["repo_location"]);
+
+    ASSERT_EQ(4, res_obj["hits"][2]["document"].size());
+    ASSERT_EQ("user_e", res_obj["hits"][2]["document"].at("user_id"));
+    ASSERT_EQ("Andy", res_obj["hits"][2]["document"].at("user_name"));
+    ASSERT_EQ("body4", res_obj["hits"][2]["document"].at("repo_content"));
+    ASSERT_EQ(1, res_obj["hits"][2].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][2]["geo_distance_meters"].count("repo_location"));
+    ASSERT_EQ(32605, res_obj["hits"][2]["geo_distance_meters"]["repo_location"]);
 
     // Multiple references - Wildcard search
     req_params = {
@@ -6824,17 +7283,18 @@ TEST_F(CollectionJoinTest, SortByReference) {
                 "name": "product",
                 "fields": [
                     {"name": "entity_id", "type": "string"},
-                    {"name": "name", "type": "string", "sort": true}
+                    {"name": "name", "type": "string", "sort": true},
+                    {"name": "location", "type": "geopoint", "optional": true}
                 ]
             })"_json;
     documents = {
-            R"({"entity_id": "P0",  "name": "Generic brand Tablet"})"_json,
+            R"({"entity_id": "P0",  "name": "Generic brand Tablet", "location": [12.98973, 80.23095]})"_json,
             R"({"entity_id": "P1", "name": "Tablet from samsung"})"_json,
-            R"({"entity_id": "P2", "name": "Tablet from apple"})"_json,
-            R"({"entity_id": "P3", "name": "Tablet from oppo"})"_json,
+            R"({"entity_id": "P2", "name": "Tablet from apple", "location": [13.22112, 80.30511]})"_json,
+            R"({"entity_id": "P3", "name": "Tablet from oppo", "location": [12.98973, 80.23095]})"_json,
             R"({"entity_id": "P4", "name": "Tablet from vivo"})"_json,
             R"({"entity_id": "P5", "name": "Phone from samsung"})"_json,
-            R"({"entity_id": "P6", "name": "Tablet from xiaomi"})"_json,
+            R"({"entity_id": "P6", "name": "Tablet from xiaomi", "location": [13.12752, 79.90136]})"_json,
     };
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -6945,6 +7405,129 @@ TEST_F(CollectionJoinTest, SortByReference) {
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("Parameter `sort_by` is malformed.", search_op.error());
+
+    // Sort by reference geopoint field
+    req_params = {
+            {"collection", "stock"},
+            {"q", "*"},
+            {"filter_by", "entity_id: [P0, P2, P3, P6]"},
+            {"sort_by", "$product(location(13.12631, 80.20252):asc, name: desc) "},
+            {"include_fields", "$product(name)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"].at("id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["product"].size());
+    ASSERT_EQ("Tablet from apple", res_obj["hits"][0]["document"]["product"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][0].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][0]["geo_distance_meters"].size());
+    ASSERT_EQ(15310, res_obj["hits"][0]["geo_distance_meters"]["location"]);
+
+    ASSERT_EQ("5", res_obj["hits"][1]["document"].at("id"));
+    ASSERT_EQ(1, res_obj["hits"][1]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["product"].size());
+    ASSERT_EQ("Tablet from oppo", res_obj["hits"][1]["document"]["product"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][1].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][1]["geo_distance_meters"].size());
+    ASSERT_EQ(15492, res_obj["hits"][1]["geo_distance_meters"]["location"]);
+
+    ASSERT_EQ("0", res_obj["hits"][2]["document"].at("id"));
+    ASSERT_EQ(1, res_obj["hits"][2]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][2]["document"]["product"].size());
+    ASSERT_EQ("Generic brand Tablet", res_obj["hits"][2]["document"]["product"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][2].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][2]["geo_distance_meters"].size());
+    ASSERT_EQ(15492, res_obj["hits"][2]["geo_distance_meters"]["location"]);
+
+    ASSERT_EQ("4", res_obj["hits"][3]["document"].at("id"));
+    ASSERT_EQ(1, res_obj["hits"][3]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][3]["document"]["product"].size());
+    ASSERT_EQ("Tablet from xiaomi", res_obj["hits"][3]["document"]["product"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][3].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][3]["geo_distance_meters"].size());
+    ASSERT_EQ(32605, res_obj["hits"][3]["geo_distance_meters"]["location"]);
+
+    req_params = {
+            {"collection", "stock"},
+            {"q", "*"},
+            {"sort_by", "$product(location(13.12631, 80.20252, precision: 15km):asc, name: desc) "},
+            {"include_fields", "$product(name)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(7, res_obj["found"].get<size_t>());
+    ASSERT_EQ(7, res_obj["hits"].size());
+
+    ASSERT_EQ("5", res_obj["hits"][0]["document"].at("id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["product"].size());
+    ASSERT_EQ("Tablet from oppo", res_obj["hits"][0]["document"]["product"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][0].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][0]["geo_distance_meters"].size());
+    ASSERT_EQ(15492, res_obj["hits"][0]["geo_distance_meters"]["location"]);
+
+    ASSERT_EQ("2", res_obj["hits"][1]["document"].at("id"));
+    ASSERT_EQ(1, res_obj["hits"][1]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["product"].size());
+    ASSERT_EQ("Tablet from apple", res_obj["hits"][1]["document"]["product"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][1].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][1]["geo_distance_meters"].size());
+    ASSERT_EQ(15310, res_obj["hits"][1]["geo_distance_meters"]["location"]);
+
+    ASSERT_EQ("0", res_obj["hits"][2]["document"].at("id"));
+    ASSERT_EQ(1, res_obj["hits"][2]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][2]["document"]["product"].size());
+    ASSERT_EQ("Generic brand Tablet", res_obj["hits"][2]["document"]["product"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][2].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][2]["geo_distance_meters"].size());
+    ASSERT_EQ(15492, res_obj["hits"][2]["geo_distance_meters"]["location"]);
+
+    ASSERT_EQ("4", res_obj["hits"][3]["document"].at("id"));
+    ASSERT_EQ(1, res_obj["hits"][3]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][3]["document"]["product"].size());
+    ASSERT_EQ("Tablet from xiaomi", res_obj["hits"][3]["document"]["product"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][3].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][3]["geo_distance_meters"].size());
+    ASSERT_EQ(32605, res_obj["hits"][3]["geo_distance_meters"]["location"]);
+
+    ASSERT_EQ("4", res_obj["hits"][3]["document"].at("id"));
+    ASSERT_EQ(1, res_obj["hits"][3]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][3]["document"]["product"].size());
+    ASSERT_EQ("Tablet from xiaomi", res_obj["hits"][3]["document"]["product"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][3].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][3]["geo_distance_meters"].size());
+    ASSERT_EQ(32605, res_obj["hits"][3]["geo_distance_meters"]["location"]);
+
+    ASSERT_EQ("3", res_obj["hits"][4]["document"].at("id"));
+    ASSERT_EQ(1, res_obj["hits"][4]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][4]["document"]["product"].size());
+    ASSERT_EQ("Tablet from vivo", res_obj["hits"][4]["document"]["product"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][4].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][4]["geo_distance_meters"].size());
+    ASSERT_EQ(2147483647, res_obj["hits"][4]["geo_distance_meters"]["location"]);
+
+    ASSERT_EQ("1", res_obj["hits"][5]["document"].at("id"));
+    ASSERT_EQ(1, res_obj["hits"][5]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][5]["document"]["product"].size());
+    ASSERT_EQ("Tablet from samsung", res_obj["hits"][5]["document"]["product"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][5].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][5]["geo_distance_meters"].size());
+    ASSERT_EQ(2147483647, res_obj["hits"][5]["geo_distance_meters"]["location"]);
+
+    ASSERT_EQ("6", res_obj["hits"][6]["document"].at("id"));
+    ASSERT_EQ(1, res_obj["hits"][6]["document"].count("product"));
+    ASSERT_EQ(1, res_obj["hits"][6]["document"]["product"].size());
+    ASSERT_EQ("Phone from samsung", res_obj["hits"][6]["document"]["product"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][6].count("geo_distance_meters"));
+    ASSERT_EQ(1, res_obj["hits"][6]["geo_distance_meters"].size());
+    ASSERT_EQ(2147483647, res_obj["hits"][6]["geo_distance_meters"]["location"]);
 }
 
 TEST_F(CollectionJoinTest, FilterByReferenceAlias) {

@@ -438,8 +438,9 @@ int run_server(const Config & config, const std::string & version, void (*master
         }
 
         analytics_store = new Store(analytics_db_dir, 24*60*60, 1024, true, analytics_db_ttl);
-        AnalyticsManager::get_instance().init(&store, analytics_store, analytics_minute_rate_limit);
     }
+
+    AnalyticsManager::get_instance().init(&store, analytics_store, analytics_minute_rate_limit);
 
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();

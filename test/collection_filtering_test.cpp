@@ -2318,7 +2318,8 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
     search_op = coll->search("Jeremy", {"name"}, extreme_filter,
                              {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("`filter_by` has too many operations. Maximum allowed: 100", search_op.error());
+    ASSERT_EQ("`filter_by` has too many operations. Maximum allowed: 100. Use `--filter-by-max-ops` command line "
+              "argument to customize this value.", search_op.error());
 
     collectionManager.dispose();
     delete store;
@@ -2342,7 +2343,8 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
     search_op = coll->search("Jeremy", {"name"}, extreme_filter,
                              {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("`filter_by` has too many operations. Maximum allowed: 109", search_op.error());
+    ASSERT_EQ("`filter_by` has too many operations. Maximum allowed: 109. Use `--filter-by-max-ops` command line "
+              "argument to customize this value.", search_op.error());
 
     collectionManager.drop_collection("ComplexFilterQueryCollection");
 }

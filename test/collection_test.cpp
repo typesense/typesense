@@ -1215,7 +1215,8 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     more_records = {R"({"id": "1", "title": "Wake up, Harry"})",
                     R"({"id": "5", "points": 60})"};
 
-    import_response = coll_mul_fields->add_many(more_records, document, CREATE);
+    import_response = coll_mul_fields->add_many(more_records, document, CREATE, "",
+                                                DIRTY_VALUES::COERCE_OR_REJECT, false);
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());
 
@@ -1224,6 +1225,9 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_FALSE(import_results[1]["success"].get<bool>());
     ASSERT_STREQ("A document with id 1 already exists.", import_results[0]["error"].get<std::string>().c_str());
     ASSERT_STREQ("A document with id 5 already exists.", import_results[1]["error"].get<std::string>().c_str());
+
+    // doc should not be returned, since return_doc = false
+    ASSERT_FALSE(import_results[0].contains("document"));
 
     // update document with verbatim fields, except for points
     more_records = {R"({"id": "3", "cast":["Matt Damon","Ben Affleck","Minnie Driver"],
@@ -1593,7 +1597,7 @@ TEST_F(CollectionTest, ImportDocuments) {
                                "{\"title\": \"Test4\", \"points\": 55, "
                                    "\"cast\": [\"Tom Skerritt\"] }"};
 
-    import_response = coll_mul_fields->add_many(more_records, document, CREATE, "", DIRTY_VALUES::REJECT);
+    import_response = coll_mul_fields->add_many(more_records, document, CREATE, "", DIRTY_VALUES::REJECT, true);
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(2, import_response["num_imported"].get<int>());
 
@@ -1618,7 +1622,7 @@ TEST_F(CollectionTest, ImportDocuments) {
                     "{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
                     "\"cast\": [\"Tom Skerritt\"] }"};
 
-    import_response = coll_mul_fields->add_many(more_records, document);
+    import_response = coll_mul_fields->add_many(more_records, document, CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT, true);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(1, import_response["num_imported"].get<int>());
@@ -1636,7 +1640,7 @@ TEST_F(CollectionTest, ImportDocuments) {
 
     // valid JSON but not a document
     more_records = {"[]"};
-    import_response = coll_mul_fields->add_many(more_records, document);
+    import_response = coll_mul_fields->add_many(more_records, document, CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT, true);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());
@@ -1650,7 +1654,7 @@ TEST_F(CollectionTest, ImportDocuments) {
 
     // invalid JSON
     more_records = {"{"};
-    import_response = coll_mul_fields->add_many(more_records, document);
+    import_response = coll_mul_fields->add_many(more_records, document, CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT, true);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());

@@ -19,7 +19,7 @@ TEST(SortedArrayTest, AndScalar) {
     }
 
     // arr1: [0..8] , arr2: [3, 6, 9]
-    uint32_t *results = new uint32_t[std::max(size1, size2)];
+    uint32_t *results = nullptr;
     uint32_t results_size = ArrayUtils::and_scalar(arr1, size1, arr2, arr2_len, &results);
     ASSERT_EQ(2, results_size);
 
@@ -114,6 +114,7 @@ TEST(SortedArrayTest, OrScalarWithEitherArrayAsNull) {
 
     delete[] results;
     results = nullptr;
+    delete[] arr1;
 }
 
 TEST(SortedArrayTest, FilterArray) {
@@ -155,6 +156,7 @@ TEST(SortedArrayTest, FilterArray) {
     results_size = ArrayUtils::exclude_scalar(arr1, size1, arr2, vec2.size(), &results);
     ASSERT_EQ(0, results_size);
 
+    delete[] results;
     // on a larger array
     results = nullptr;
     

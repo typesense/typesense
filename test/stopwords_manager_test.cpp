@@ -440,4 +440,6 @@ TEST_F(StopwordsManagerTest, ReloadStopwordsOnRestart) {
     ASSERT_TRUE(stopword_config["genre"].stopwords.find("rock") != stopword_config["genre"].stopwords.end());
     ASSERT_TRUE(stopword_config["genre"].stopwords.find("metal") != stopword_config["genre"].stopwords.end());
     ASSERT_TRUE(stopword_config["genre"].stopwords.find("folk") != stopword_config["genre"].stopwords.end());
+
+    collectionManager.drop_collection("coll1");
 }
