@@ -573,7 +573,7 @@ private:
 
     void update_async_references(const std::string& collection_name, const field& afield,
                                  std::vector<index_record>& iter_batch,
-                                 const std::vector<reference_pair_t>& async_referenced_ins = {});
+                                 const std::set<reference_pair_t>& async_referenced_ins = {});
 
     std::string get_collection_name_with_lock() const {
         std::shared_lock lock(mutex);
@@ -772,12 +772,12 @@ public:
                                      const bool use_addition_fields = false,
                                      const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>(),
                                      const std::string& collection_name = "",
-                                     const spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>& async_referenced_ins =
-                                            spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>());
+                                     const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins =
+                                            spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
 
     void index_field_in_memory(const std::string& collection_name, const field& afield,
                                std::vector<index_record>& iter_batch,
-                               const std::vector<reference_pair_t>& async_referenced_ins = {});
+                               const std::set<reference_pair_t>& async_referenced_ins = {});
 
     template<class T>
     void iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func);

@@ -56,7 +56,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model,
                        spp::sparse_hash_map<std::string, std::string> referenced_in,
                        const nlohmann::json& metadata,
-                       spp::sparse_hash_map<std::string, std::vector<reference_pair_t>> async_referenced_ins) :
+                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins) :
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
@@ -379,6 +379,7 @@ nlohmann::json Collection::get_summary_json() const {
 
         if (!coll_field.reference.empty()) {
             field_json[fields::reference] = coll_field.reference;
+            field_json[fields::async_reference] = coll_field.is_async_reference;
         }
 
         fields_arr.push_back(field_json);
@@ -5127,7 +5128,7 @@ spp::sparse_hash_map<std::string, reference_info_t> Collection::get_reference_fi
     return reference_fields;
 }
 
-spp::sparse_hash_map<std::string, std::vector<reference_pair_t>> Collection::get_async_referenced_ins() {
+spp::sparse_hash_map<std::string, std::set<reference_pair_t>> Collection::get_async_referenced_ins() {
     std::shared_lock lock(mutex);
     return async_referenced_ins;
 };
@@ -6637,7 +6638,7 @@ void Collection::add_referenced_ins(const std::set<reference_info_t>& ref_infos)
 
         referenced_in.emplace(ref_info.collection, ref_info.field);
         if (ref_info.is_async) {
-            async_referenced_ins[referenced_field_name].emplace_back(ref_info.collection, ref_info.field);
+            async_referenced_ins[referenced_field_name].emplace(ref_info.collection, ref_info.field);
         }
     }
 }
@@ -6655,7 +6656,7 @@ void Collection::add_referenced_in(const std::string& collection_name, const std
 
     referenced_in.emplace(collection_name, field_name);
     if (is_async) {
-        async_referenced_ins[referenced_field_name].emplace_back(collection_name, field_name);
+        async_referenced_ins[referenced_field_name].emplace(collection_name, field_name);
     }
 }
 

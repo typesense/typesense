@@ -23,7 +23,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                                Store* store,
                                                float max_memory_ratio,
                                                spp::sparse_hash_map<std::string, std::string>& referenced_in,
-                                               spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>& async_referenced_ins) {
+                                               spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
     std::string this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
     std::vector<field> fields;
@@ -63,6 +63,10 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
 
         if (field_obj.count(fields::reference) == 0) {
             field_obj[fields::reference] = "";
+        }
+
+        if (field_obj.count(fields::async_reference) == 0) {
+            field_obj[fields::async_reference] = false;
         }
 
         if(field_obj.count(fields::embed) == 0) {
@@ -118,7 +122,9 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
-                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed], field_obj[fields::range_index], field_obj[fields::store], field_obj[fields::stem], field_obj[fields::hnsw_params]);
+                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed],
+                field_obj[fields::range_index], field_obj[fields::store], field_obj[fields::stem],
+                field_obj[fields::hnsw_params], field_obj[fields::async_reference]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
@@ -240,7 +246,7 @@ void CollectionManager::init(Store *store, const float max_memory_ratio, const s
 
 void CollectionManager::_populate_referenced_ins(const std::string& collection_meta_json,
                                                  std::map<std::string, spp::sparse_hash_map<std::string, std::string>>& referenced_ins,
-                                                 std::map<std::string, spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>>& async_referenced_ins) {
+                                                 std::map<std::string, spp::sparse_hash_map<std::string, std::set<reference_pair_t>>>& async_referenced_ins) {
     auto const& obj = nlohmann::json::parse(collection_meta_json, nullptr, false);
 
     if (!obj.is_discarded() && obj.is_object() && obj.contains("name") && obj["name"].is_string() &&
@@ -277,7 +283,7 @@ void CollectionManager::_populate_referenced_ins(const std::string& collection_m
 
             if (field.contains(fields::async_reference) &&
                     field[fields::async_reference].is_boolean() && field[fields::async_reference].get<bool>()) {
-                async_referenced_ins[ref_coll_name][ref_field_name].emplace_back(collection_name, field_name);
+                async_referenced_ins[ref_coll_name][ref_field_name].emplace(collection_name, field_name);
             }
         }
     }
@@ -337,7 +343,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     // Collection name -> Ref collection name -> Ref field name
     std::map<std::string, spp::sparse_hash_map<std::string, std::string>> referenced_ins;
     // Collection name -> field name -> {Ref collection name, Ref field name}
-    std::map<std::string, spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>> async_referenced_ins;
+    std::map<std::string, spp::sparse_hash_map<std::string, std::set<reference_pair_t>>> async_referenced_ins;
     for (const auto &collection_meta_json: collection_meta_jsons) {
         _populate_referenced_ins(collection_meta_json, referenced_ins, async_referenced_ins);
     }
@@ -368,7 +374,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
                 referenced_in = it->second;
             }
 
-            spp::sparse_hash_map<std::string, std::vector<reference_pair_t>> async_referenced_in;
+            spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_in;
             auto const& async_it = async_referenced_ins.find(collection_name);
             if (async_it != async_referenced_ins.end()) {
                 async_referenced_in = async_it->second;
@@ -1932,7 +1938,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
                                                 const StoreStatus& next_coll_id_status,
                                                 const std::atomic<bool>& quit,
                                                 spp::sparse_hash_map<std::string, std::string>& referenced_in,
-                                                spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>& async_referenced_ins) {
+                                                spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
 
     auto& cm = CollectionManager::get_instance();
 
