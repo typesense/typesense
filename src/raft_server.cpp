@@ -301,6 +301,12 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
         }
     }
 
+    // Check if the body is a .tar.gz file
+    if (request->headers.count("Content-Type") && 
+        request->headers["Content-Type"] == "application/zip") {
+        request->is_binary_body = true;
+    }
+
     // Serialize request to replicated WAL so that all the nodes in the group receive it as well.
     // NOTE: actual write must be done only on the `on_apply` method to maintain consistency.
 

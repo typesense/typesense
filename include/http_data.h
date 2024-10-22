@@ -298,6 +298,8 @@ struct http_req {
     // stores http lib related datastructures to avoid race conditions between indexing and http write threads
     stream_response_state_t res_state;
 
+    bool is_binary_body = false;
+
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
                 chunk_len(0), body_index(0), data(nullptr), ready(false), log_index(0),
@@ -406,40 +408,52 @@ struct http_req {
     // NOTE: we don't ser/de all fields, only ones needed for write forwarding
     // Take care to check for existence of key to ensure backward compatibility during upgrade
 
-    void load_from_json(const std::string& serialized_content) {
-        nlohmann::json content = nlohmann::json::parse(serialized_content);
-        route_hash = content["route_hash"];
+    void load_from_json(const std::string& json_str) {
+        nlohmann::json j = nlohmann::json::parse(json_str);
+        route_hash = j["route_hash"];
 
         if(start_ts == 0) {
             // Serialized request from an older version (v0.21 and below) which serializes import data differently.
-            body = content["body"];
+            body = j["body"];
         } else {
-            body += content["body"];
+            body += j["body"];
         }
 
-        for (nlohmann::json::iterator it = content["params"].begin(); it != content["params"].end(); ++it) {
+        for (nlohmann::json::iterator it = j["params"].begin(); it != j["params"].end(); ++it) {
             params.emplace(it.key(), it.value());
         }
 
-        metadata = content.count("metadata") != 0 ? content["metadata"] : "";
-        first_chunk_aggregate = content.count("first_chunk_aggregate") != 0 ? content["first_chunk_aggregate"].get<bool>() : true;
-        last_chunk_aggregate = content.count("last_chunk_aggregate") != 0 ? content["last_chunk_aggregate"].get<bool>() : false;
-        start_ts = content.count("start_ts") != 0 ? content["start_ts"].get<uint64_t>() : 0;
-        log_index = content.count("log_index") != 0 ? content["log_index"].get<int64_t>() : 0;
+        metadata = j.count("metadata") != 0 ? j["metadata"] : "";
+        first_chunk_aggregate = j.count("first_chunk_aggregate") != 0 ? j["first_chunk_aggregate"].get<bool>() : true;
+        last_chunk_aggregate = j.count("last_chunk_aggregate") != 0 ? j["last_chunk_aggregate"].get<bool>() : false;
+        start_ts = j.count("start_ts") != 0 ? j["start_ts"].get<uint64_t>() : 0;
+        log_index = j.count("log_index") != 0 ? j["log_index"].get<int64_t>() : 0;
+        is_binary_body = j["is_binary_body"];
+        if (is_binary_body) {
+            auto binary_data = j["body"].get_binary();
+            body = std::string(binary_data.begin(), binary_data.end());
+        } else {
+            body = j["body"];
+        }
     }
 
-    std::string to_json() const {
-        nlohmann::json content;
-        content["route_hash"] = route_hash;
-        content["params"] = params;
-        content["first_chunk_aggregate"] = first_chunk_aggregate;
-        content["last_chunk_aggregate"] = last_chunk_aggregate.load();
-        content["body"] = body;
-        content["metadata"] = metadata;
-        content["start_ts"] = start_ts;
-        content["log_index"] = log_index;
-
-        return content.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+    nlohmann::json to_json() const {
+        nlohmann::json j;
+        j["route_hash"] = route_hash;
+        j["params"] = params;
+        j["first_chunk_aggregate"] = first_chunk_aggregate;
+        j["last_chunk_aggregate"] = last_chunk_aggregate.load();
+        j["body"] = body;
+        j["metadata"] = metadata;
+        j["start_ts"] = start_ts;
+        j["log_index"] = log_index;
+        j["is_binary_body"] = is_binary_body;
+        if (is_binary_body) {
+            j["body"] = nlohmann::json::binary(body.data(), body.size());
+        } else {
+            j["body"] = body;
+        }
+        return j;
     }
 
     static ip_addr_str_t get_ip_addr(h2o_req_t* h2o_req) {
@@ -552,3 +566,4 @@ struct async_stream_response_t {
     std::condition_variable cv;
     bool ready = false;
 };
+
