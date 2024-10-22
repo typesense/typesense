@@ -3213,7 +3213,7 @@ bool put_recommendations_model(const std::shared_ptr<http_req>& req, const std::
     std::filesystem::create_directories(model_path);
 
     // Save the file to the model path
-    std::string file_path = model_path + "/model.onnx";
+    std::string file_path = model_path + "/model.tar.gz";
     std::ofstream output_file(file_path, std::ios::binary);
     
     if (!output_file) {
