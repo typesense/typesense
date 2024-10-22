@@ -253,6 +253,7 @@ struct http_req {
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
     static constexpr const char* USER_HEADER = "x-typesense-user-id";
     static constexpr const char* AGENT_HEADER = "user-agent";
+    static constexpr const char* FILE_UPLOAD_HEADER = "content-type";
 
     h2o_req_t* _req;
     std::string http_method;
@@ -298,7 +299,7 @@ struct http_req {
     // stores http lib related datastructures to avoid race conditions between indexing and http write threads
     stream_response_state_t res_state;
 
-    bool is_binary_body = false;
+    bool is_binary_body;
 
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
@@ -314,12 +315,12 @@ struct http_req {
 
     http_req(h2o_req_t* _req, const std::string & http_method, const std::string & path_without_query, uint64_t route_hash,
             const std::map<std::string, std::string>& params, std::vector<nlohmann::json>& embedded_params_vec,
-            const std::string& api_auth_key, const std::string& body, const std::string& client_ip):
+            const std::string& api_auth_key, const std::string& body, const std::string& client_ip, bool is_binary_body):
             _req(_req), http_method(http_method), path_without_query(path_without_query), route_hash(route_hash),
             params(params), embedded_params_vec(embedded_params_vec), api_auth_key(api_auth_key),
             first_chunk_aggregate(true), last_chunk_aggregate(false),
             chunk_len(0), body(body), body_index(0), data(nullptr), ready(false),
-            log_index(0), is_diposed(false), client_ip(client_ip) {
+            log_index(0), is_diposed(false), client_ip(client_ip), is_binary_body(is_binary_body) {
 
         if(_req != nullptr) {
             const auto& tv = _req->processed_at.at;
@@ -412,11 +413,19 @@ struct http_req {
         nlohmann::json j = nlohmann::json::parse(json_str);
         route_hash = j["route_hash"];
 
+        std::string chunk_body;
+        if (is_binary_body) {
+            auto binary_data = j["body"].get_binary();
+            chunk_body = std::string(binary_data.begin(), binary_data.end());
+        } else {
+            chunk_body = j["body"];
+        }
+
         if(start_ts == 0) {
             // Serialized request from an older version (v0.21 and below) which serializes import data differently.
-            body = j["body"];
+            body = chunk_body;
         } else {
-            body += j["body"];
+            body += chunk_body;
         }
 
         for (nlohmann::json::iterator it = j["params"].begin(); it != j["params"].end(); ++it) {
@@ -449,7 +458,8 @@ struct http_req {
         j["log_index"] = log_index;
         j["is_binary_body"] = is_binary_body;
         if (is_binary_body) {
-            j["body"] = nlohmann::json::binary(body.data(), body.size());
+            std::vector<uint8_t> binary_data(body.begin(), body.end());
+            j["body"] = nlohmann::json::binary(binary_data);
         } else {
             j["body"] = body;
         }
