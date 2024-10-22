@@ -8066,6 +8066,42 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
     if (!text_match_ids.empty()) {
         compute_text_match_aux_score(text_match_ids);
     }
+
+    //rerank results
+    std::unordered_map<int32_t, int32_t> seq_id_ranks;
+    std::deque<KV*> kvs;
+    int valid_text_score_ids = 0;
+    for(const auto& kv : topster->kv_map) {
+        if(kv.second->text_match_score > INT32_MAX) {
+            kvs.push_back(kv.second);
+        } else {
+            kvs.push_front(kv.second);
+            valid_text_score_ids++;
+        }
+    }
+
+    auto sort_fn = [&] (const auto& kv1, const auto& kv2) {
+        if(kv1->vector_distance != kv2->vector_distance) {
+            return kv1->vector_distance < kv2->vector_distance;
+        } else {
+            return kv1->text_match_score > kv2->text_match_score;
+        }
+    };
+
+    std::stable_sort(kvs.begin(), kvs.begin() + valid_text_score_ids, sort_fn);
+
+    std::stable_sort(kvs.begin() + valid_text_score_ids, kvs.end(), [&](const auto& kv1, const auto& kv2) {
+        return kv1->key < kv2->key;
+    });
+
+    for(auto i = 0; i < kvs.size(); ++i) {
+        seq_id_ranks.emplace(kvs[i]->key, i);
+    }
+
+    for(auto& kv : topster->kv_map) {
+        kv.second->scores[0] = float_to_int64_t((1.0 / (seq_id_ranks[kv.second->key] + 1)) * vector_query.alpha);
+        kv.second->match_score_index = 0;
+    }
 }
 
 /*
