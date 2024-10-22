@@ -8068,8 +8068,11 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
     }
 
     //rerank results
-    std::unordered_map<int32_t, int32_t> seq_id_ranks;
+    std::unordered_map<int32_t, int32_t> semantic_seq_id_ranks;
+    std::unordered_map<int32_t, int32_t> keyword_seq_id_ranks;
     std::deque<KV*> kvs;
+
+    // compute ranks as per keyword search first
     int valid_text_score_ids = 0;
     for(const auto& kv : topster->kv_map) {
         if(kv.second->text_match_score > INT32_MAX) {
@@ -8080,27 +8083,32 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
         }
     }
 
-    auto sort_fn = [&] (const auto& kv1, const auto& kv2) {
-        if(kv1->vector_distance != kv2->vector_distance) {
-            return kv1->vector_distance < kv2->vector_distance;
-        } else {
-            return kv1->text_match_score > kv2->text_match_score;
-        }
-    };
-
-    std::stable_sort(kvs.begin(), kvs.begin() + valid_text_score_ids, sort_fn);
+    std::stable_sort(kvs.begin(), kvs.begin() + valid_text_score_ids, [&](const auto& kv1, const auto& kv2) {
+        return kv1->text_match_score > kv2->text_match_score;
+    });
 
     std::stable_sort(kvs.begin() + valid_text_score_ids, kvs.end(), [&](const auto& kv1, const auto& kv2) {
         return kv1->key < kv2->key;
     });
 
     for(auto i = 0; i < kvs.size(); ++i) {
-        seq_id_ranks.emplace(kvs[i]->key, i);
+        keyword_seq_id_ranks.emplace(kvs[i]->key, i+1);
     }
 
+    // compute ranks as per semantic search
+    std::stable_sort(kvs.begin(), kvs.end(), [&](const auto& kv1, const auto& kv2) {
+       return kv1->vector_distance  < kv2->vector_distance;
+    });
+
+    for(auto i = 0; i < kvs.size(); ++i) {
+        semantic_seq_id_ranks.emplace(kvs[i]->key, i+1);
+    }
+
+    //copmute fusion_score
     for(auto& kv : topster->kv_map) {
-        kv.second->scores[0] = float_to_int64_t((1.0 / (seq_id_ranks[kv.second->key] + 1)) * vector_query.alpha);
-        kv.second->match_score_index = 0;
+        auto seq_id = kv.second->key;
+        kv.second->scores[kv.second->match_score_index] = float_to_int64_t((1.0/keyword_seq_id_ranks[seq_id]) * (1 - vector_query.alpha) +
+                                                            (1.0/semantic_seq_id_ranks[seq_id]) * vector_query.alpha);
     }
 }
 
