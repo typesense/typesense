@@ -64,7 +64,7 @@ cc_library(
         "@whisper.cpp//:whisper_headers",
         "@snowball",
         "@snowball//:snowball_headers",
-        "@libarchive//:libarchive",
+        "@libarchive",
         # "@zip",
     ])
 
