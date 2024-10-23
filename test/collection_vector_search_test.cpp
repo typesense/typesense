@@ -5128,9 +5128,9 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
     ASSERT_FLOAT_EQ(0.07914221286773682, res["hits"][1]["vector_distance"].get<float>());
     ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
 
-    ASSERT_EQ("517734", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string >());
-    ASSERT_EQ("0", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string >());
-    ASSERT_EQ("0", res["hits"][2]["text_match_info"]["best_field_score"].get<std::string >());
+    ASSERT_EQ(1060320051, res["hits"][0]["text_match"].get<std::size_t>());
+    ASSERT_EQ(0, res["hits"][1]["text_match"].get<std::size_t>());
+    ASSERT_EQ(0, res["hits"][2]["text_match"].get<std::size_t>());
 
     use_aux_score = true;
 
@@ -5158,7 +5158,7 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
     ASSERT_FLOAT_EQ(0.07914221286773682, res["hits"][1]["vector_distance"].get<float>());
     ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
 
-    ASSERT_EQ("517734", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string >());
-    ASSERT_EQ("1618996288", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
-    ASSERT_EQ("1618996288", res["hits"][2]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ(1060320051, res["hits"][0]["text_match"].get<std::size_t>());
+    ASSERT_EQ(0, res["hits"][1]["text_match"].get<std::size_t>());
+    ASSERT_EQ(0, res["hits"][2]["text_match"].get<std::size_t>());
 }

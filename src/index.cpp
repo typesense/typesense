@@ -8014,13 +8014,24 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
         }
 
         if (!its.empty()) {
+            std::vector<posting_list_t::iterator_t> matching_its;
             for(auto& kv : result_ids) {
-                int64_t match_score = 0;
+                auto seq_id = kv->key;
+                matching_its.clear();
+                for(const auto& it : its) {
+                    if(it.id() == seq_id) {
+                        matching_its.push_back(it.clone());
+                    }
+                }
 
-                score_results2(sort_fields_std, search_query_size, 0, false, 0,
-                               match_score, kv->key, sort_order, false, false, false, 1,
-                               -1, its);
-                kv->text_match_score = match_score;
+                if(!matching_its.empty()) {
+                    int64_t match_score = 0;
+
+                    score_results2(sort_fields_std, search_query_size, 0, false, 0,
+                                   match_score, kv->key, sort_order, false, false, false, 1,
+                                   -1, matching_its);
+                    kv->text_match_score = match_score;
+                }
             }
         }
 
@@ -8070,25 +8081,15 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
     //rerank results
     std::unordered_map<int32_t, int32_t> semantic_seq_id_ranks;
     std::unordered_map<int32_t, int32_t> keyword_seq_id_ranks;
-    std::deque<KV*> kvs;
+    std::vector<KV*> kvs;
 
-    // compute ranks as per keyword search first
-    int valid_text_score_ids = 0;
     for(const auto& kv : topster->kv_map) {
-        if(kv.second->text_match_score > INT32_MAX) {
-            kvs.push_back(kv.second);
-        } else {
-            kvs.push_front(kv.second);
-            valid_text_score_ids++;
-        }
+        kvs.push_back(kv.second);
     }
 
-    std::stable_sort(kvs.begin(), kvs.begin() + valid_text_score_ids, [&](const auto& kv1, const auto& kv2) {
-        return kv1->text_match_score > kv2->text_match_score;
-    });
-
-    std::stable_sort(kvs.begin() + valid_text_score_ids, kvs.end(), [&](const auto& kv1, const auto& kv2) {
-        return kv1->key < kv2->key;
+    // compute ranks as per keyword search first
+    std::stable_sort(kvs.begin(), kvs.end(), [&](const auto& kv1, const auto& kv2) {
+        return std::tie(kv1->text_match_score, kv1->key) > std::tie(kv2->text_match_score, kv2->key);
     });
 
     for(auto i = 0; i < kvs.size(); ++i) {
@@ -8104,7 +8105,7 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
         semantic_seq_id_ranks.emplace(kvs[i]->key, i+1);
     }
 
-    //copmute fusion_score
+    //compute fusion_score
     for(auto& kv : topster->kv_map) {
         auto seq_id = kv.second->key;
         kv.second->scores[kv.second->match_score_index] = float_to_int64_t((1.0/keyword_seq_id_ranks[seq_id]) * (1 - vector_query.alpha) +
