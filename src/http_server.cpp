@@ -510,9 +510,12 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         }
     }
 
-    ssize_t content_type_header_cursor = h2o_find_header_by_str(&req->headers, http_req::FILE_UPLOAD_HEADER, strlen(http_req::FILE_UPLOAD_HEADER), -1);
-    h2o_iovec_t & slot = req->headers.entries[content_type_header_cursor].value;
-    bool is_binary_body = (slot.base == "application/octet-stream");
+    ssize_t content_type_header_cursor = h2o_find_header_by_str(&req->headers, http_req::CONTENT_TYPE_HEADER, strlen(http_req::CONTENT_TYPE_HEADER), -1);
+    bool is_binary_body = false;
+    if (content_type_header_cursor != -1) {
+        h2o_iovec_t& slot = req->headers.entries[content_type_header_cursor].value;
+        is_binary_body = (std::string(slot.base) == "application/octet-stream");
+    }
 
     std::shared_ptr<http_req> request = std::make_shared<http_req>(req, rpath->http_method, path_without_query,
                                                                    route_hash, query_map, embedded_params_vec,

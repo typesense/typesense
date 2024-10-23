@@ -116,6 +116,8 @@ void master_server_routes() {
 
     // for proxying remote embedders
     server->post("/proxy", post_proxy);
+
+    server->post("/test_file_upload", test_file_upload);
 }
 
 void (*backward::SignalHandling::_callback)(int sig, backward::StackTrace&) = nullptr;

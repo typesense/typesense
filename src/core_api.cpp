@@ -19,6 +19,10 @@
 #include "conversation_manager.h"
 #include "conversation_model_manager.h"
 #include "conversation_model.h"
+#include <archive.h>
+#include <archive_entry.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 using namespace std::chrono_literals;
 
@@ -3095,3 +3099,121 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     res->set_200(model.dump());
     return true;
 }
+
+// Helper function to copy data from one archive to another
+int copy_data(struct archive *ar, struct archive *aw) {
+    int r;
+    const void *buff;
+    size_t size;
+    la_int64_t offset;
+
+    for (;;) {
+        r = archive_read_data_block(ar, &buff, &size, &offset);
+        if (r == ARCHIVE_EOF)
+            return (ARCHIVE_OK);
+        if (r < ARCHIVE_OK)
+            return (r);
+        r = archive_write_data_block(aw, buff, size, offset);
+        if (r < ARCHIVE_OK) {
+            LOG(WARNING) << "Error writing data block: " << archive_error_string(aw);
+            return (r);
+        }
+    }
+}
+
+bool test_file_upload(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    // Generate a unique filename for the uploaded .tar.gz file
+    std::string filename = "upload_" + std::to_string(std::time(nullptr)) + ".tar.gz";
+    std::string filepath = "/tmp/" + filename;
+    std::string extract_path = "/tmp/extracted_" + std::to_string(std::time(nullptr));
+
+    // Write the uploaded file
+    std::ofstream output_file(filepath, std::ios::binary);
+    if (!output_file) {
+        LOG(ERROR) << "Failed to open file for writing: " << filepath;
+        res->set_500("Failed to open file for writing.");
+        return false;
+    }
+    output_file.write(req->body.c_str(), req->body.length());
+    output_file.close();
+
+    // Create extraction directory
+    if (mkdir(extract_path.c_str(), 0755) != 0) {
+        LOG(ERROR) << "Failed to create extraction directory: " << extract_path;
+        res->set_500("Failed to create extraction directory.");
+        return false;
+    }
+
+    // Untar the file
+    struct archive *a;
+    struct archive *ext;
+    struct archive_entry *entry;
+    int flags = ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_PERM | ARCHIVE_EXTRACT_ACL | ARCHIVE_EXTRACT_FFLAGS;
+    int r;
+
+    a = archive_read_new();
+    archive_read_support_format_all(a);
+    archive_read_support_filter_all(a);
+    ext = archive_write_disk_new();
+    archive_write_disk_set_options(ext, flags);
+    archive_write_disk_set_standard_lookup(ext);
+
+    if ((r = archive_read_open_filename(a, filepath.c_str(), 10240))) {
+        LOG(ERROR) << "Failed to open archive: " << archive_error_string(a);
+        res->set_500("Failed to open archive.");
+        return false;
+    }
+
+    for (;;) {
+        r = archive_read_next_header(a, &entry);
+        if (r == ARCHIVE_EOF)
+            break;
+        if (r < ARCHIVE_OK)
+            LOG(WARNING) << "Archive warning: " << archive_error_string(a);
+        if (r < ARCHIVE_WARN) {
+            LOG(ERROR) << "Archive error: " << archive_error_string(a);
+            res->set_500("Archive error during extraction.");
+            return false;
+        }
+
+        const char* current_file = archive_entry_pathname(entry);
+        std::string full_path = extract_path + "/" + current_file;
+        archive_entry_set_pathname(entry, full_path.c_str());
+
+        r = archive_write_header(ext, entry);
+        if (r < ARCHIVE_OK)
+            LOG(WARNING) << "Error writing header: " << archive_error_string(ext);
+        else if (archive_entry_size(entry) > 0) {
+            r = copy_data(a, ext);
+            if (r < ARCHIVE_OK)
+                LOG(WARNING) << "Error copying data: " << archive_error_string(ext);
+            if (r < ARCHIVE_WARN) {
+                LOG(ERROR) << "Error copying data: " << archive_error_string(ext);
+                res->set_500("Error during file extraction.");
+                return false;
+            }
+        }
+        r = archive_write_finish_entry(ext);
+        if (r < ARCHIVE_OK)
+            LOG(WARNING) << "Error finishing entry: " << archive_error_string(ext);
+        if (r < ARCHIVE_WARN) {
+            LOG(ERROR) << "Error finishing entry: " << archive_error_string(ext);
+            res->set_500("Error finishing entry during extraction.");
+            return false;
+        }
+    }
+    archive_read_close(a);
+    archive_read_free(a);
+    archive_write_close(ext);
+    archive_write_free(ext);
+
+    LOG(INFO) << "File successfully written to: " << filepath << " and extracted to: " << extract_path;
+    nlohmann::json response = {
+        {"message", "File uploaded and extracted successfully"},
+        {"filename", filename},
+        {"extract_path", extract_path}
+    };
+    res->set_200(response.dump());
+    return true;
+}
+

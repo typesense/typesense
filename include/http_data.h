@@ -253,7 +253,7 @@ struct http_req {
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
     static constexpr const char* USER_HEADER = "x-typesense-user-id";
     static constexpr const char* AGENT_HEADER = "user-agent";
-    static constexpr const char* FILE_UPLOAD_HEADER = "content-type";
+    static constexpr const char* CONTENT_TYPE_HEADER = "content-type";
 
     h2o_req_t* _req;
     std::string http_method;
@@ -299,7 +299,7 @@ struct http_req {
     // stores http lib related datastructures to avoid race conditions between indexing and http write threads
     stream_response_state_t res_state;
 
-    bool is_binary_body;
+    bool is_binary_body = false;
 
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
@@ -414,9 +414,9 @@ struct http_req {
         route_hash = j["route_hash"];
 
         std::string chunk_body;
+        is_binary_body = j.count("is_binary_body") != 0 ? j["is_binary_body"].get<bool>() : false;
         if (is_binary_body) {
-            auto binary_data = j["body"].get_binary();
-            chunk_body = std::string(binary_data.begin(), binary_data.end());
+            chunk_body = StringUtils::base64_decode(j["body"]);
         } else {
             chunk_body = j["body"];
         }
@@ -437,16 +437,9 @@ struct http_req {
         last_chunk_aggregate = j.count("last_chunk_aggregate") != 0 ? j["last_chunk_aggregate"].get<bool>() : false;
         start_ts = j.count("start_ts") != 0 ? j["start_ts"].get<uint64_t>() : 0;
         log_index = j.count("log_index") != 0 ? j["log_index"].get<int64_t>() : 0;
-        is_binary_body = j["is_binary_body"];
-        if (is_binary_body) {
-            auto binary_data = j["body"].get_binary();
-            body = std::string(binary_data.begin(), binary_data.end());
-        } else {
-            body = j["body"];
-        }
     }
 
-    nlohmann::json to_json() const {
+    std::string to_json() const {
         nlohmann::json j;
         j["route_hash"] = route_hash;
         j["params"] = params;
@@ -458,12 +451,10 @@ struct http_req {
         j["log_index"] = log_index;
         j["is_binary_body"] = is_binary_body;
         if (is_binary_body) {
-            std::vector<uint8_t> binary_data(body.begin(), body.end());
-            j["body"] = nlohmann::json::binary(binary_data);
-        } else {
-            j["body"] = body;
+            j["body"] = StringUtils::base64_encode(body);
         }
-        return j;
+        const std::string j_dump = j.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+        return j_dump;
     }
 
     static ip_addr_str_t get_ip_addr(h2o_req_t* h2o_req) {
