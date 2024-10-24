@@ -19,6 +19,7 @@
 #include "conversation_manager.h"
 #include "conversation_model_manager.h"
 #include "conversation_model.h"
+#include "archive_utils.h"
 
 using namespace std::chrono_literals;
 
@@ -3095,3 +3096,49 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     res->set_200(model.dump());
     return true;
 }
+
+// Helper function to copy data from one archive to another
+int copy_data(struct archive *ar, struct archive *aw) {
+    int r;
+    const void *buff;
+    size_t size;
+    la_int64_t offset;
+
+    for (;;) {
+        r = archive_read_data_block(ar, &buff, &size, &offset);
+        if (r == ARCHIVE_EOF)
+            return (ARCHIVE_OK);
+        if (r < ARCHIVE_OK)
+            return (r);
+        r = archive_write_data_block(aw, buff, size, offset);
+        if (r < ARCHIVE_OK) {
+            LOG(WARNING) << "Error writing data block: " << archive_error_string(aw);
+            return (r);
+        }
+    }
+}
+
+bool test_file_upload(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    std::string extract_path = "/tmp/extracted_" + std::to_string(std::time(nullptr));
+
+    // Extract the uploaded file content
+    std::string archive_content = req->body;
+
+    // Use ArchiveUtils to extract the tar.gz from memory
+    bool extraction_success = ArchiveUtils::extract_tar_gz_from_memory(archive_content, extract_path);
+
+    if (!extraction_success) {
+        LOG(ERROR) << "Failed to extract archive to: " << extract_path;
+        res->set_500("Failed to extract archive.");
+        return false;
+    }
+
+    LOG(INFO) << "File successfully extracted to: " << extract_path;
+    nlohmann::json response = {
+        {"message", "File uploaded and extracted successfully"},
+        {"extract_path", extract_path}
+    };
+    res->set_200(response.dump());
+    return true;
+}
+
