@@ -7982,7 +7982,7 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
                                const std::vector<sort_by>& sort_fields_std, const int* sort_order,
                                const vector_query_t& vector_query) const {
 
-    auto compute_text_match_aux_score = [&] (std::vector<KV*> result_ids) {
+    auto compute_text_match_aux_score = [&] (std::vector<KV*> result_ids, size_t found_ids_offset) {
         std::vector<posting_list_t::iterator_t> its;
         std::vector<posting_list_t*> expanded_plists;
 
@@ -8014,13 +8014,46 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
         }
 
         if (!its.empty()) {
-            for(auto& kv : result_ids) {
-                int64_t match_score = 0;
+            std::vector<posting_list_t::iterator_t> matching_its;
+            //sort the result ids
+            std::sort(result_ids.begin(), result_ids.end(), [&](const auto& kv1, const auto& kv2) {
+                return kv1->key < kv2->key;
+            });
 
-                score_results2(sort_fields_std, search_query_size, 0, false, 0,
-                               match_score, kv->key, sort_order, false, false, false, 1,
-                               -1, its);
-                kv->text_match_score = match_score;
+            for(auto& kv : result_ids) {
+                auto seq_id = kv->key;
+                matching_its.clear();
+                for(auto& it : its) {
+                    if (it.valid()) {
+                        it.skip_to(seq_id);
+                        if(it.valid() && it.id() == seq_id) {
+                            matching_its.push_back((it.clone()));
+                        }
+                    }
+                }
+
+                if(!matching_its.empty()) {
+                    int64_t match_score = 0;
+
+                    score_results2(sort_fields_std, search_query_size, 0, false, 0,
+                                   match_score, kv->key, sort_order, false, false, false, 1,
+                                   -1, matching_its);
+                    kv->text_match_score = match_score;
+                }
+            }
+
+            //assign scores as per their ranks
+            std::sort(result_ids.begin(), result_ids.end(), [&](const auto& kv1, const auto& kv2) {
+                return kv1->text_match_score > kv2->text_match_score;
+            });
+
+            //start after already found ids
+            for(int i = 0; i < result_ids.size(); ++i) {
+                auto& kv = result_ids[i];
+                if(kv->text_match_score) {  //skip the ids which have 0 text match score
+                    kv->text_match_score = float_to_int64_t(
+                            (1.0 / (found_ids_offset + i)) * (1.0 - vector_query.alpha));
+                }
             }
         }
 
@@ -8064,7 +8097,41 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
     }
 
     if (!text_match_ids.empty()) {
-        compute_text_match_aux_score(text_match_ids);
+        compute_text_match_aux_score(text_match_ids, topster->kv_map.size() - text_match_ids.size() + 1);
+    }
+
+    //rerank results
+    std::unordered_map<int32_t, int32_t> semantic_seq_id_ranks;
+    std::unordered_map<int32_t, int32_t> keyword_seq_id_ranks;
+    std::vector<KV*> kvs;
+
+    for(const auto& kv : topster->kv_map) {
+        kvs.push_back(kv.second);
+    }
+
+    // compute ranks as per keyword search first
+    std::stable_sort(kvs.begin(), kvs.end(), [&](const auto& kv1, const auto& kv2) {
+        return std::tie(kv1->text_match_score, kv1->key) > std::tie(kv2->text_match_score, kv2->key);
+    });
+
+    for(auto i = 0; i < kvs.size(); ++i) {
+        keyword_seq_id_ranks.emplace(kvs[i]->key, i+1);
+    }
+
+    // compute ranks as per semantic search
+    std::stable_sort(kvs.begin(), kvs.end(), [&](const auto& kv1, const auto& kv2) {
+       return kv1->vector_distance  < kv2->vector_distance;
+    });
+
+    for(auto i = 0; i < kvs.size(); ++i) {
+        semantic_seq_id_ranks.emplace(kvs[i]->key, i+1);
+    }
+
+    //compute fusion_score
+    for(auto& kv : topster->kv_map) {
+        auto seq_id = kv.second->key;
+        kv.second->scores[kv.second->match_score_index] = float_to_int64_t((1.0/keyword_seq_id_ranks[seq_id]) * (1.0 - vector_query.alpha) +
+                                                            (1.0/semantic_seq_id_ranks[seq_id]) * vector_query.alpha);
     }
 }
 
