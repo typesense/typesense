@@ -9,10 +9,8 @@ bool ArchiveUtils::extract_tar_gz_from_file(const std::string& archive_path, con
     struct archive* a = nullptr;
     struct archive* ext = nullptr;
     struct archive_entry* entry;
-    int flags;
-    int r;
-
-    flags = ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_PERM | ARCHIVE_EXTRACT_ACL | ARCHIVE_EXTRACT_FFLAGS;
+    int flags = ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_PERM | ARCHIVE_EXTRACT_ACL | ARCHIVE_EXTRACT_FFLAGS;
+    bool extraction_successful = true;
 
     a = archive_read_new();
     if (!a) {
@@ -31,20 +29,18 @@ bool ArchiveUtils::extract_tar_gz_from_file(const std::string& archive_path, con
     archive_write_disk_set_options(ext, flags);
     archive_write_disk_set_standard_lookup(ext);
 
-    if ((r = archive_read_open_filename(a, archive_path.c_str(), BUFFER_SIZE))) {
-        archive_read_free(a);
-        archive_write_free(ext);
-        return false;
+    if (archive_read_open_filename(a, archive_path.c_str(), BUFFER_SIZE) != ARCHIVE_OK) {
+        extraction_successful = false;
     }
 
-    for (;;) {
-        r = archive_read_next_header(a, &entry);
-        if (r == ARCHIVE_EOF)
+    while (extraction_successful) {
+        int r = archive_read_next_header(a, &entry);
+        if (r == ARCHIVE_EOF) {
             break;
+        }
         if (r < ARCHIVE_WARN) {
-            archive_read_free(a);
-            archive_write_free(ext);
-            return false;
+            extraction_successful = false;
+            break;
         }
 
         const char* current_file = archive_entry_pathname(entry);
@@ -53,23 +49,22 @@ bool ArchiveUtils::extract_tar_gz_from_file(const std::string& archive_path, con
 
         r = archive_write_header(ext, entry);
         if (r < ARCHIVE_OK) {
-            archive_read_free(a);
-            archive_write_free(ext);
-            return false;
+            extraction_successful = false;
+            break;
         }
-        else if (archive_entry_size(entry) > 0) {
+
+        if (archive_entry_size(entry) > 0) {
             r = copy_data(a, ext);
             if (r < ARCHIVE_WARN) {
-                archive_read_free(a);
-                archive_write_free(ext);
-                return false;
+                extraction_successful = false;
+                break;
             }
         }
+
         r = archive_write_finish_entry(ext);
         if (r < ARCHIVE_WARN) {
-            archive_read_free(a);
-            archive_write_free(ext);
-            return false;
+            extraction_successful = false;
+            break;
         }
     }
 
@@ -78,7 +73,7 @@ bool ArchiveUtils::extract_tar_gz_from_file(const std::string& archive_path, con
     archive_write_close(ext);
     archive_write_free(ext);
 
-    return true;
+    return extraction_successful;
 }
 
 bool ArchiveUtils::extract_tar_gz_from_memory(const std::string& archive_content, const std::string& destination_path) {
