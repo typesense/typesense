@@ -4057,7 +4057,9 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
     // if `filter_curated_hits` is enabled, we will remove curated hits that don't match filter condition
     std::set<uint32_t> included_ids_set;
 
-    if(filter_result_iterator->validity == filter_result_iterator_t::valid && filter_curated_hits) {
+    if(!filter_result_iterator->is_filter_provided() || !filter_curated_hits) {
+        included_ids_set.insert(included_ids_vec.begin(), included_ids_vec.end());
+    } else if(filter_result_iterator->validity == filter_result_iterator_t::valid) {
         for (const auto &included_id: included_ids_vec) {
             auto result = filter_result_iterator->is_valid(included_id);
 
@@ -4069,8 +4071,6 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
                 included_ids_set.insert(included_id);
             }
         }
-    } else {
-        included_ids_set.insert(included_ids_vec.begin(), included_ids_vec.end());
     }
 
     std::map<size_t, std::vector<uint32_t>> included_ids_grouped;  // pos -> seq_ids
