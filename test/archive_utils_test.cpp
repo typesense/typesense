@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "archive_utils.h"
+#include "tsconfig.h"
 #include <fstream>
 #include <cstdio>
 #include <filesystem>
@@ -9,6 +10,7 @@ protected:
     void SetUp() override {
         temp_dir = std::filesystem::temp_directory_path() / "archive_utils_test";
         std::filesystem::create_directory(temp_dir);
+        Config::get_instance().set_data_dir(temp_dir.string());
     }
 
     void TearDown() override {
