@@ -3118,27 +3118,3 @@ int copy_data(struct archive *ar, struct archive *aw) {
     }
 }
 
-bool test_file_upload(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    std::string extract_path = "/tmp/extracted_" + std::to_string(std::time(nullptr));
-
-    // Extract the uploaded file content
-    std::string archive_content = req->body;
-
-    // Use ArchiveUtils to extract the tar.gz from memory
-    bool extraction_success = ArchiveUtils::extract_tar_gz_from_memory(archive_content, extract_path);
-
-    if (!extraction_success) {
-        LOG(ERROR) << "Failed to extract archive to: " << extract_path;
-        res->set_500("Failed to extract archive.");
-        return false;
-    }
-
-    LOG(INFO) << "File successfully extracted to: " << extract_path;
-    nlohmann::json response = {
-        {"message", "File uploaded and extracted successfully"},
-        {"extract_path", extract_path}
-    };
-    res->set_200(response.dump());
-    return true;
-}
-

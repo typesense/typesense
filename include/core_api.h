@@ -211,5 +211,3 @@ bool del_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
 bool get_conversation_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
-bool test_file_upload(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
