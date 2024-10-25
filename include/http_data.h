@@ -254,6 +254,7 @@ struct http_req {
     static constexpr const char* USER_HEADER = "x-typesense-user-id";
     static constexpr const char* AGENT_HEADER = "user-agent";
     static constexpr const char* CONTENT_TYPE_HEADER = "content-type";
+    static constexpr const char* OCTET_STREAM_HEADER_VALUE = "application/octet-stream";
 
     h2o_req_t* _req;
     std::string http_method;
