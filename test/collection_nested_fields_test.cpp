@@ -1959,6 +1959,38 @@ TEST_F(CollectionNestedFieldsTest, NestedFieldWithExplicitWeight) {
     ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionNestedFieldsTest, ObjectArrayAllowEmpty) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "addresses", "type": "object[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "addresses": []
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    doc1 = R"({
+        "addresses": [{"street": "foobar"}]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    doc1 = R"({
+        "addresses": []
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+}
+
 TEST_F(CollectionNestedFieldsTest, NestedFieldWithGeopointArray) {
     nlohmann::json schema = R"({
         "name": "coll1",
