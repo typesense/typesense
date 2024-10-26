@@ -7659,9 +7659,7 @@ Option<uint32_t> Index::get_ref_seq_id(const sort_by& sort_field, const uint32_t
         ref_collection_name = sort_field.nested_join_collection_names.back();
     }
 
-    auto get_ref_seq_id_op = get_ref_seq_id_helper(sort_field, ref_seq_id, collection_name, references_ptr,
-                                                   ref_collection_name);
-    return get_ref_seq_id_op;
+    return get_ref_seq_id_helper(sort_field, ref_seq_id, collection_name, references_ptr, ref_collection_name);
 }
 
 Option<uint32_t> Index::get_ref_seq_id_helper(const sort_by& sort_field, const uint32_t& seq_id, std::string& coll_name,
