@@ -2573,7 +2573,7 @@ TEST_F(CollectionSpecificMoreTest, AnalyticsFullFirstQuery) {
 
     nlohmann::json doc;
     doc["id"] = "0";
-    doc["title"] = "Cool trousers";
+    doc["title"] = "Cool cotton trousers";
     doc["color"] = "blue";
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
@@ -2583,6 +2583,14 @@ TEST_F(CollectionSpecificMoreTest, AnalyticsFullFirstQuery) {
                              "<mark>", "</mark>", {2, 3}).get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("cool", res["request_params"]["first_q"].get<std::string>());
+
+    res = coll1->search("cool pants", {"title", "color"}, "", {}, {}, {2, 0}, 10, 1, FREQUENCY, {true}, 1,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {2, 3}).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("cool pants", res["request_params"]["first_q"].get<std::string>());
+
     Config::get_instance().set_enable_search_analytics(false);
 }
 

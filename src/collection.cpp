@@ -3141,7 +3141,11 @@ void Collection::expand_search_query(const string& raw_query, size_t offset, siz
             }
         }
 
-        if(!first_q.empty()) {
+        if(qleaves.size() != raw_token_index+1) {
+            first_q = raw_query;
+        }
+
+        if(!first_q.empty() && first_q.back() ==  ' ') {
             first_q.pop_back();
         }
     }
