@@ -1071,7 +1071,7 @@ public:
                                                 const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
 
     Option<uint32_t> get_ref_seq_id(const sort_by& sort_field, const uint32_t& seq_id,
-                                    const std::map<basic_string<char>, reference_filter_result_t>& references,
+                                    const std::map<std::string, reference_filter_result_t>& references,
                                     std::string& ref_collection_name) const;
 
     void get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<uint32_t>& result_ids) const;

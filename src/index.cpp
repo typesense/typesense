@@ -7636,7 +7636,7 @@ std::string multiple_references_message(const std::string& coll_name, const uint
 }
 
 Option<uint32_t> Index::get_ref_seq_id(const sort_by& sort_field, const uint32_t& seq_id,
-                                       const std::map<basic_string<char>, reference_filter_result_t>& references,
+                                       const std::map<std::string, reference_filter_result_t>& references,
                                        std::string& ref_collection_name) const {
     auto collection_name = get_collection_name_with_lock();
     ref_collection_name = sort_field.reference_collection_name;
