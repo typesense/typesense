@@ -2314,6 +2314,116 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
     ASSERT_EQ("Could not find a field named `)` in the schema for sorting.", res_op.error());
 
     collectionManager.drop_collection("coll1");
+
+    schema =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string", "infix": true},
+                    {"name": "product_description", "type": "string"},
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["product_description"], "model_config": {"model_name": "ts/e5-small"}}},
+                    {"name": "rating", "type": "int32"},
+                    {"name": "stocks", "type": "object"},
+                    {"name": "stocks.*", "type": "auto", "optional": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair.",
+                "rating": "2",
+                "stocks": {
+                    "26": {
+                        "rec": true
+                    }
+                }
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "soap",
+                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients.",
+                "rating": "4",
+                "stocks": {
+                    "26": {
+                        "rec": false
+                    }
+                }
+            })"_json,
+            R"({
+                "product_id": "product_c",
+                "product_name": "comb",
+                "product_description": "Experience the natural elegance and gentle care of our handcrafted wooden combs – because your hair deserves the best.",
+                "rating": "3",
+                "stocks": {}
+            })"_json,
+            R"({
+                "product_id": "product_d",
+                "product_name": "hair oil",
+                "product_description": "Revitalize your hair with our nourishing hair oil – nature's secret to lustrous, healthy locks.",
+                "rating": "1",
+                "stocks": {
+                    "26": {
+                        "rec": false
+                    }
+                }
+            })"_json
+    };
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"sort_by", "_eval([(stocks.26.rec:true):3, (stocks.26.rec:false):2]):desc"},
+            {"include_fields", "product_id, product_name, stocks"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"]["product_id"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("stocks"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"].count("26"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"]["26"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"]["26"].count("rec"));
+    ASSERT_TRUE(res_obj["hits"][0]["document"]["stocks"]["26"]["rec"]);
+
+    ASSERT_EQ("product_d", res_obj["hits"][1]["document"]["product_id"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"].count("stocks"));
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["stocks"].size());
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["stocks"].count("26"));
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["stocks"]["26"].size());
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["stocks"]["26"].count("rec"));
+    ASSERT_FALSE(res_obj["hits"][1]["document"]["stocks"]["26"]["rec"]);
+
+    ASSERT_EQ("product_b", res_obj["hits"][2]["document"]["product_id"]);
+    ASSERT_EQ(1, res_obj["hits"][2]["document"].count("stocks"));
+    ASSERT_EQ(1, res_obj["hits"][2]["document"]["stocks"].size());
+    ASSERT_EQ(1, res_obj["hits"][2]["document"]["stocks"].count("26"));
+    ASSERT_EQ(1, res_obj["hits"][2]["document"]["stocks"]["26"].size());
+    ASSERT_EQ(1, res_obj["hits"][2]["document"]["stocks"]["26"].count("rec"));
+    ASSERT_FALSE(res_obj["hits"][2]["document"]["stocks"]["26"]["rec"]);
+
+    ASSERT_EQ("product_c", res_obj["hits"][3]["document"]["product_id"]);
+    ASSERT_EQ(1, res_obj["hits"][3]["document"].count("stocks"));
+    ASSERT_EQ(0, res_obj["hits"][3]["document"]["stocks"].size());
 }
 
 TEST_F(CollectionSortingTest, DisallowIdAsDefaultSortingField) {

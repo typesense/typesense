@@ -573,7 +573,7 @@ private:
 
     void update_async_references(const std::string& collection_name, const field& afield,
                                  std::vector<index_record>& iter_batch,
-                                 const std::vector<reference_pair_t>& async_referenced_ins = {});
+                                 const std::set<reference_pair_t>& async_referenced_ins = {});
 
     std::string get_collection_name_with_lock() const {
         std::shared_lock lock(mutex);
@@ -590,6 +590,10 @@ private:
 
     Option<int64_t> get_geo_distance(const std::string& geo_field_name, const uint32_t& seq_id,
                                      const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
+
+    Option<uint32_t> get_ref_seq_id_helper(const sort_by& sort_field, const uint32_t& seq_id, std::string& prev_coll_name,
+                                           std::map<std::string, reference_filter_result_t> const*& references,
+                                           std::string& ref_coll_name) const;
 
 public:
     // for limiting number of results on multiple candidates / query rewrites
@@ -772,12 +776,12 @@ public:
                                      const bool use_addition_fields = false,
                                      const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>(),
                                      const std::string& collection_name = "",
-                                     const spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>& async_referenced_ins =
-                                            spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>());
+                                     const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins =
+                                            spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
 
     void index_field_in_memory(const std::string& collection_name, const field& afield,
                                std::vector<index_record>& iter_batch,
-                               const std::vector<reference_pair_t>& async_referenced_ins = {});
+                               const std::set<reference_pair_t>& async_referenced_ins = {});
 
     template<class T>
     void iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func);
@@ -1018,10 +1022,6 @@ public:
                                   bool enable_typos_for_numerical_tokens,
                                   bool enable_typos_for_alpha_numerical_tokens) const;
 
-    Option<bool> ref_compute_sort_scores(const sort_by& sort_field, const uint32_t& seq_id, uint32_t& ref_seq_id,
-                                         bool& reference_found, const std::map<basic_string<char>, reference_filter_result_t>& references,
-                                         const std::string& collection_name) const;
-
     Option<bool> compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
                                      std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                                      const std::vector<size_t>& geopoint_indices, uint32_t seq_id,
@@ -1070,9 +1070,9 @@ public:
                                                 const std::map<basic_string<char>, reference_filter_result_t>& references,
                                                 const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
 
-    Option<uint32_t> get_ref_seq_id(const sort_by& sort_field, const uint32_t& seq_id, std::string& prev_coll_name,
-                                    std::map<std::string, reference_filter_result_t> const*& references,
-                                    std::string& ref_coll_name) const;
+    Option<uint32_t> get_ref_seq_id(const sort_by& sort_field, const uint32_t& seq_id,
+                                    const std::map<std::string, reference_filter_result_t>& references,
+                                    std::string& ref_collection_name) const;
 
     void get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<uint32_t>& result_ids) const;
 

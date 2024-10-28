@@ -18,8 +18,12 @@ struct reference_info_t {
             collection(std::move(collection)), field(std::move(field)), is_async(is_async),
             referenced_field_name(std::move(referenced_field_name)) {}
 
-    bool operator < (const reference_info_t& pair) const {
-        return collection < pair.collection;
+    bool operator < (const reference_info_t& other) const noexcept {
+        if (collection == other.collection) {
+            return field < other.field;
+        }
+
+        return collection < other.collection;
     }
 };
 

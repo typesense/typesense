@@ -137,7 +137,7 @@ private:
     spp::sparse_hash_map<std::string, std::string> referenced_in;
 
     /// "field name" -> List of <collection, field> pairs where this collection is referenced and is marked as `async`.
-    spp::sparse_hash_map<std::string, std::vector<reference_pair_t>> async_referenced_ins;
+    spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins;
 
     /// Reference helper fields that are part of an object. The reference doc of these fields will be included in the
     /// object rather than in the document.
@@ -374,8 +374,8 @@ public:
                const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model = nullptr,
                spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>(),
                const nlohmann::json& metadata = {},
-               spp::sparse_hash_map<std::string, std::vector<reference_pair_t>> async_referenced_ins =
-                       spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>());
+               spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins =
+                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
 
     ~Collection();
 
@@ -645,7 +645,7 @@ public:
 
     spp::sparse_hash_map<std::string, reference_info_t> get_reference_fields();
 
-    spp::sparse_hash_map<std::string, std::vector<reference_pair_t>> get_async_referenced_ins();
+    spp::sparse_hash_map<std::string, std::set<reference_pair_t>> get_async_referenced_ins();
 
     // highlight ops
 

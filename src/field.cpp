@@ -629,10 +629,6 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
 
     if(it != obj.end()) {
         if(it.value().is_array()) {
-            if(it.value().empty()) {
-                return Option<bool>(404, "Field `" + the_field.name + "` not found.");
-            }
-
             has_array = true;
             for(auto& ele: it.value()) {
                 has_obj_array = has_obj_array || ele.is_object();

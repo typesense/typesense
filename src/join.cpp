@@ -617,6 +617,11 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
 
                 if (!doc.contains(key)) {
                     if (!original_doc.contains(key)) {
+                        auto const& schema = collection->get_schema();
+                        auto it = schema.find(field_name);
+                        if (it == schema.end() || it->optional) {
+                            continue;
+                        }
                         return Option<bool>(400, "Could not find `" + key +
                                                  "` key in the document to include the referenced document.");
                     }
