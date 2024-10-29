@@ -4456,7 +4456,7 @@ TEST_F(CollectionOverrideTest, AvoidTypoMatchingWhenOverlapWithCuratedData) {
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10,
                                  "", 30, 5, "",
-                                 10, pinned_hits, {}, {}, 3,
+                                 1, pinned_hits, {}, {}, 3,
                                  "<mark>", "</mark>", {}, UINT_MAX,
                                  true, false, true, "",
                                  false, 6000 * 1000, 4, 7,
@@ -4467,7 +4467,8 @@ TEST_F(CollectionOverrideTest, AvoidTypoMatchingWhenOverlapWithCuratedData) {
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
 
-    results = coll3->search("Mediatek", {"title"}, "", {}, {},
+    // only typo match found: we should return both curated and typo hits
+    results = coll3->search("snapdragan", {"title"}, "", {}, {},
                             {2}, 50, 1, FREQUENCY,
                             {false}, Index::DROP_TOKENS_THRESHOLD,
                             spp::sparse_hash_set<std::string>(),
@@ -4480,7 +4481,7 @@ TEST_F(CollectionOverrideTest, AvoidTypoMatchingWhenOverlapWithCuratedData) {
                             fallback, 4, {off}, INT16_MAX,
                             INT16_MAX, 2, false).get();
 
-    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
 }

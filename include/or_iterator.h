@@ -81,6 +81,7 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
                 }
 
                 auto id = its[0].id();
+                istate.num_keyword_matches++;
                 single_filter_result_t filter_result;
                 if(take_id(istate, id, is_excluded, filter_result)) {
                     func(filter_result, its);
@@ -114,6 +115,7 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
 
                 if(equals2(its)) {
                     auto id = its[0].id();
+                    istate.num_keyword_matches++;
                     single_filter_result_t filter_result;
                     if(take_id(istate, id, is_excluded, filter_result)) {
                         func(filter_result, its);
@@ -152,6 +154,7 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
 
                 if(equals(its)) {
                     auto id = its[0].id();
+                    istate.num_keyword_matches++;
                     single_filter_result_t filter_result;
                     if(take_id(istate, id, is_excluded, filter_result)) {
                         func(filter_result, its);

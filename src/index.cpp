@@ -1702,7 +1702,7 @@ Option<bool> Index::search_all_candidates(const size_t num_search_fields,
                                           const text_match_type_t match_type,
                                           const std::vector<search_field_t>& the_fields,
                                           filter_result_iterator_t* const filter_result_iterator,
-                                          const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
+                                          const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
                                           const std::unordered_set<uint32_t>& excluded_group_ids,
                                           const std::vector<sort_by>& sort_fields,
                                           std::vector<tok_candidates>& token_candidates_vec,
@@ -1711,6 +1711,7 @@ Option<bool> Index::search_all_candidates(const size_t num_search_fields,
                                           const std::vector<token_t>& dropped_tokens,
                                           Topster*& topster,
                                           spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                                          size_t& num_keyword_matches,
                                           uint32_t*& all_result_ids, size_t& all_result_ids_len,
                                           const size_t typo_tokens_threshold,
                                           const size_t group_limit,
@@ -1777,9 +1778,11 @@ Option<bool> Index::search_all_candidates(const size_t num_search_fields,
                                                              prioritize_num_matching_fields,
                                                              filter_result_iterator,
                                                              total_cost, syn_orig_num_tokens,
-                                                             exclude_token_ids, exclude_token_ids_size, excluded_group_ids,
+                                                             excluded_result_ids, excluded_result_ids_size,
+                                                             excluded_group_ids,
                                                              sort_order, field_values, geopoint_indices,
-                                                             id_buff, all_result_ids, all_result_ids_len,
+                                                             id_buff, num_keyword_matches,
+                                                             all_result_ids, all_result_ids_len,
                                                              collection_name);
         if (!search_across_fields_op.ok()) {
             return search_across_fields_op;
@@ -4125,8 +4128,8 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                         const std::vector<token_t>& query_tokens,
                                         const std::vector<token_t>& dropped_tokens,
                                         const text_match_type_t match_type,
-                                        const uint32_t* exclude_token_ids,
-                                        size_t exclude_token_ids_size,
+                                        const uint32_t* excluded_result_ids,
+                                        size_t excluded_result_ids_size,
                                         filter_result_iterator_t* const filter_result_iterator,
                                         const std::vector<uint32_t>& curated_ids,
                                         const std::unordered_set<uint32_t>& excluded_group_ids,
@@ -4215,6 +4218,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
         unique_tokens.clear();
         token_candidates_vec.clear();
         size_t token_index = 0;
+        size_t num_keyword_matches = 0;
 
         while(token_index < query_tokens.size()) {
             // For each token, look up the generated cost for this iteration and search using that cost
@@ -4399,11 +4403,11 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
             std::vector<uint32_t> id_buff;
             auto search_all_candidates_op = search_all_candidates(num_search_fields, match_type, the_fields,
                                                                   filter_result_iterator,
-                                                                  exclude_token_ids, exclude_token_ids_size, excluded_group_ids,
+                                                                  excluded_result_ids, excluded_result_ids_size, excluded_group_ids,
                                                                   sort_fields, token_candidates_vec, searched_queries, qtoken_set,
                                                                   dropped_tokens, topster,
-                                                                  groups_processed, all_result_ids, all_result_ids_len,
-                                                                  typo_tokens_threshold, group_limit, group_by_fields, 
+                                                                  groups_processed, num_keyword_matches, all_result_ids, all_result_ids_len,
+                                                                  typo_tokens_threshold, group_limit, group_by_fields,
                                                                   group_missing_values, query_tokens,
                                                                   num_typos, prefixes, prioritize_exact_match, prioritize_token_position,
                                                                   prioritize_num_matching_fields, exhaustive_search, max_candidates,
@@ -4429,10 +4433,11 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
 
         auto results_count = group_limit != 0 ? groups_processed.size() : all_result_ids_len;
         if(!exhaustive_search && (results_count >= typo_tokens_threshold ||
-                                 (results_count == 0 && !curated_ids.empty()))) {
+                                 (num_keyword_matches >= typo_tokens_threshold && !curated_ids.empty()))) {
             // if typo threshold is breached, we are done
-            // Also, if there are curated hits, results_count will be zero when all hits overlap with curated hits
-            // in that case, we should not think that no results were found.
+            // Also, if there are curated hits where all hits overlap with curated hits, we will end up
+            // with result_count=0. We use num_keyword_matches to handle this scenario as we should not end up
+            // looking for typo matches then.
             return Option<bool>(true);
         }
 
@@ -4576,12 +4581,13 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
                                          const bool prioritize_num_matching_fields,
                                          filter_result_iterator_t* const filter_result_iterator,
                                          const uint32_t total_cost, const int syn_orig_num_tokens,
-                                         const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
+                                         const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
                                          const std::unordered_set<uint32_t>& excluded_group_ids,
                                          const int* sort_order,
                                          std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                          const std::vector<size_t>& geopoint_indices,
                                          std::vector<uint32_t>& id_buff,
+                                         size_t& num_keyword_matches,
                                          uint32_t*& all_result_ids, size_t& all_result_ids_len,
                                          const std::string& collection_name) const {
 
@@ -4634,7 +4640,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
     // used to track plists that must be destructed once done
     std::vector<posting_list_t*> expanded_plists;
 
-    result_iter_state_t istate(exclude_token_ids, exclude_token_ids_size, filter_result_iterator);
+    result_iter_state_t istate(excluded_result_ids, excluded_result_ids_size, filter_result_iterator);
 
     // for each token, find the posting lists across all query_by fields
     for(size_t ti = 0; ti < query_tokens.size(); ti++) {
@@ -4885,6 +4891,8 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
         }
         result_ids.push_back(seq_id);
     });
+
+    num_keyword_matches = istate.num_keyword_matches;
 
     if (!status.ok()) {
         for(posting_list_t* plist: expanded_plists) {

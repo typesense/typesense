@@ -20,6 +20,8 @@ struct result_iter_state_t {
     size_t excluded_result_ids_index = 0;
     size_t filter_ids_index = 0;
 
+    size_t num_keyword_matches = 0;
+
     filter_result_iterator_t* fit = nullptr;
 
     result_iter_state_t() = default;
