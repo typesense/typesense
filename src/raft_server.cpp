@@ -250,8 +250,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     auto resource_check = cached_resource_stat_t::get_instance().has_enough_resources(raft_dir_path,
                                   config->get_disk_used_max_percentage(), config->get_memory_used_max_percentage());
 
-    if (resource_check != cached_resource_stat_t::OK && request->http_method != "DELETE" &&
-        request->path_without_query != "/health" && request->path_without_query != "/config") {
+    if (resource_check != cached_resource_stat_t::OK && request->do_resource_check()) {
         response->set_422("Rejecting write: running out of resource type: " +
                           std::string(magic_enum::enum_name(resource_check)));
         response->final = true;

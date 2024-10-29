@@ -6,19 +6,50 @@
 #include <timsort.hpp>
 
 Option<bool> single_value_filter_query(nlohmann::json& document, const std::string& field_name,
-                                       const std::string& ref_field_type, std::string& filter_query) {
-    auto const& value = document[field_name];
+                                       const std::string& ref_field_type, std::string& filter_value) {
+    auto const& json_value = document[field_name];
 
-    if (value.is_null()) {
-        return Option<bool>(422, "Field `" + field_name + "` has `null` value.");
+    if (json_value.is_null()) {
+        return Option<bool>(422, "Field `" + field_name + "` cannot have `null` value.");
     }
 
-    if (value.is_string() && ref_field_type == field_types::STRING) {
-        filter_query += value.get<std::string>();
-    } else if (value.is_number_integer() && (ref_field_type == field_types::INT64 ||
-                                             (ref_field_type == field_types::INT32 &&
-                                              StringUtils::is_int32_t(std::to_string(value.get<int64_t>()))))) {
-        filter_query += std::to_string(value.get<int64_t>());
+    if (json_value.is_string() && ref_field_type == field_types::STRING) {
+        std::string value = json_value.get<std::string>();
+        if (value.empty()) {
+            return Option<bool>(400, "Error with field `" + field_name + "`: Value cannot be empty.");
+        }
+
+        // Special symbols are ignored when enclosed inside backticks.
+        bool is_backtick_present = false;
+        bool special_symbols_present = false;
+        bool in_backtick = false;
+        auto const size = value.size();
+        for (size_t i = 0; i < size; i++) {
+            auto c = value[i];
+            if (c == '`') {
+                in_backtick = !in_backtick;
+                is_backtick_present = true;
+            } else if (!in_backtick && (c == '(' || c == ')' ||
+                                        (c == '&' && i + 1 < size && value[i + 1] == '&') ||
+                                        (c == '|' && i + 1 < size && value[i + 1] == '|'))) {
+                special_symbols_present = true;
+                if (is_backtick_present) {
+                    break;
+                }
+            }
+        }
+
+        if (is_backtick_present && special_symbols_present) {
+            // Value containing special symbols cannot be parsed.
+            return Option<bool>(400, "Filter value `" + value + "` cannot be parsed.");
+        } else if (!is_backtick_present) {
+            value = "`" + json_value.get<std::string>() + "`";
+        }
+        filter_value += value;
+    } else if (json_value.is_number_integer() && (ref_field_type == field_types::INT64 ||
+                                                  (ref_field_type == field_types::INT32 &&
+                                                   StringUtils::is_int32_t(std::to_string(json_value.get<int64_t>()))))) {
+        filter_value += std::to_string(json_value.get<int64_t>());
     } else {
         return Option<bool>(400, "Field `" + field_name + "` must have `" + ref_field_type + "` value.");
     }
@@ -80,9 +111,9 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                 // Having the same number of values makes it easier to update the references in the future.
                 document[reference_helper_field].insert(document[reference_helper_field].begin(),
                                                         document[field_name].size(),
-                                                        Collection::reference_helper_sentinel_value);
+                                                        Index::reference_helper_sentinel_value);
             } else {
-                document[reference_helper_field] = Collection::reference_helper_sentinel_value;
+                document[reference_helper_field] = Index::reference_helper_sentinel_value;
             }
 
             continue;
@@ -132,7 +163,7 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                     auto id = object_array[i].at(keys[1]).get<std::string>();
                     auto ref_doc_id_op = ref_collection->doc_id_to_seq_id_with_lock(id);
                     if (!ref_doc_id_op.ok() && is_async_reference) {
-                        auto const& value = nlohmann::json::array({i, Collection::reference_helper_sentinel_value});
+                        auto const& value = nlohmann::json::array({i, Index::reference_helper_sentinel_value});
                         document[reference_helper_field] += value;
                     } else if (!ref_doc_id_op.ok()) {
                         return Option<bool>(400, "Referenced document having `id: " + id +
@@ -158,7 +189,7 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                     auto id = item.value().get<std::string>();
                     auto ref_doc_id_op = ref_collection->doc_id_to_seq_id_with_lock(id);
                     if (!ref_doc_id_op.ok() && is_async_reference) {
-                        document[reference_helper_field] += Collection::reference_helper_sentinel_value;
+                        document[reference_helper_field] += Index::reference_helper_sentinel_value;
                     } else if (!ref_doc_id_op.ok()) {
                         return Option<bool>(400, "Referenced document having `id: " + id +
                                                  "` not found in the collection `" +=
@@ -173,7 +204,7 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                 auto id = document[field_name].get<std::string>();
                 auto ref_doc_id_op = ref_collection->doc_id_to_seq_id_with_lock(id);
                 if (!ref_doc_id_op.ok() && is_async_reference) {
-                    document[reference_helper_field] = Collection::reference_helper_sentinel_value;
+                    document[reference_helper_field] = Index::reference_helper_sentinel_value;
                 } else if (!ref_doc_id_op.ok()) {
                     return Option<bool>(400, "Referenced document having `id: " + id +
                                              "` not found in the collection `" +=
@@ -253,7 +284,7 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                 }
 
                 if (filter_result.count == 0 && is_async_reference) {
-                    document[reference_helper_field] += nlohmann::json::array({i, Collection::reference_helper_sentinel_value});
+                    document[reference_helper_field] += nlohmann::json::array({i, Index::reference_helper_sentinel_value});
                 } else if (filter_result.count != 1) {
                     // Constraints similar to foreign key apply here. The reference match must be unique and not null.
                     return  Option<bool>(400, filter_result.count < 1 ?
@@ -282,17 +313,17 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                 return Option<bool>(400, "Expected `" + field_name + "` to be an array.");
             }
 
-            for (const auto &item: document[field_name].items()) {
-                auto const& item_value = item.value();
-                if (item_value.is_string() && ref_field_type == field_types::STRING) {
-                    filter_values.emplace_back(item_value.get<std::string>());
-                } else if (item_value.is_number_integer() && (ref_field_type == field_types::INT64 ||
-                                                              (ref_field_type == field_types::INT32 &&
-                                                               StringUtils::is_int32_t(std::to_string(item_value.get<int64_t>()))))) {
-                    filter_values.emplace_back(std::to_string(item_value.get<int64_t>()));
-                } else {
-                    return Option<bool>(400, "Field `" + field_name + "` must only have `" += ref_field_type + "` values.");
+            nlohmann::json temp_doc;
+            for (size_t i = 0; i < document[field_name].size(); i++) {
+                temp_doc[field_name] = document[field_name].at(i);
+                std::string value;
+                auto single_value_filter_query_op = single_value_filter_query(temp_doc, field_name, ref_field_type,
+                                                                              value);
+                if (!single_value_filter_query_op.ok()) {
+                    // We don't accept null value in an array of values. No need to handle 422 code.
+                    return single_value_filter_query_op;
                 }
+                filter_values.emplace_back(value);
             }
 
             document[reference_helper_field] = nlohmann::json::array();
@@ -329,9 +360,9 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
 
             if (filter_result.count == 0 && is_async_reference) {
                 if (is_reference_array_field) {
-                    document[reference_helper_field] += Collection::reference_helper_sentinel_value;
+                    document[reference_helper_field] += Index::reference_helper_sentinel_value;
                 } else {
-                    document[reference_helper_field] = Collection::reference_helper_sentinel_value;
+                    document[reference_helper_field] = Index::reference_helper_sentinel_value;
                 }
             } else if (filter_result.count != 1) {
                 // Constraints similar to foreign key apply here. The reference match must be unique and not null.
@@ -382,7 +413,7 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
         nlohmann::json ref_doc;
         auto get_doc_op = ref_collection->get_document_from_store(ref_doc_seq_id, ref_doc);
         if (!get_doc_op.ok()) {
-            if (ref_doc_seq_id == Collection::reference_helper_sentinel_value) {
+            if (ref_doc_seq_id == Index::reference_helper_sentinel_value) {
                 return Option<bool>(true);
             }
             return Option<bool>(get_doc_op.code(), error_prefix + get_doc_op.error());
@@ -442,7 +473,7 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
         auto get_doc_op = ref_collection->get_document_from_store(ref_doc_seq_id, ref_doc);
         if (!get_doc_op.ok()) {
             // Referenced document is not yet indexed.
-            if (ref_doc_seq_id == Collection::reference_helper_sentinel_value) {
+            if (ref_doc_seq_id == Index::reference_helper_sentinel_value) {
                 continue;
             }
             return Option<bool>(get_doc_op.code(), error_prefix + get_doc_op.error());
@@ -586,6 +617,11 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
 
                 if (!doc.contains(key)) {
                     if (!original_doc.contains(key)) {
+                        auto const& schema = collection->get_schema();
+                        auto it = schema.find(field_name);
+                        if (it == schema.end() || it->optional) {
+                            continue;
+                        }
                         return Option<bool>(400, "Could not find `" + key +
                                                  "` key in the document to include the referenced document.");
                     }

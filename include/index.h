@@ -136,6 +136,7 @@ struct search_args {
     facet_query_t facet_query;
     std::vector<uint32_t> num_typos;
     size_t max_facet_values;
+    size_t fetch_size;
     size_t per_page;
     size_t offset;
     token_ordering token_order;
@@ -166,8 +167,8 @@ struct search_args {
 
     spp::sparse_hash_map<uint64_t, uint32_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
-    Topster* topster;
-    Topster* curated_topster;
+    Topster* topster = nullptr;
+    Topster* curated_topster = nullptr;
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
 
@@ -184,7 +185,7 @@ struct search_args {
                 filter_node_t* filter_tree_root, std::vector<facet>& facets,
                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by>& sort_fields_std, facet_query_t facet_query, const std::vector<uint32_t>& num_typos,
-                size_t max_facet_values, size_t max_hits, size_t per_page, size_t offset, token_ordering token_order,
+                size_t max_facet_values, size_t fetch_size, size_t per_page, size_t offset, token_ordering token_order,
                 const std::vector<bool>& prefixes, size_t drop_tokens_threshold, size_t typo_tokens_threshold,
                 const std::vector<std::string>& group_by_fields, size_t group_limit,
                 const bool group_missing_values,
@@ -199,7 +200,8 @@ struct search_args {
             field_query_tokens(field_query_tokens), 
             search_fields(search_fields), match_type(match_type), filter_tree_root(filter_tree_root), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
-            facet_query(facet_query), num_typos(num_typos), max_facet_values(max_facet_values), per_page(per_page),
+            facet_query(facet_query), num_typos(num_typos), max_facet_values(max_facet_values),
+            fetch_size(fetch_size), per_page(per_page),
             offset(offset), token_order(token_order), prefixes(prefixes),
             drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
             group_by_fields(group_by_fields), group_limit(group_limit),
@@ -217,9 +219,6 @@ struct search_args {
             drop_tokens_mode(drop_tokens_mode), enable_lazy_filter(enable_lazy_filter),
             max_filter_by_candidates(max_filter_by_candidates) {
 
-        const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
-        topster = new Topster(topster_size, group_limit);
-        curated_topster = new Topster(topster_size, group_limit);
     }
 
     ~search_args() {
@@ -495,7 +494,7 @@ private:
                                        std::vector<std::vector<art_leaf*>>& searched_queries,
                                        tsl::htrie_map<char, token_leaf>& qtoken_set,
                                        const std::vector<token_t>& dropped_tokens,
-                                       Topster* topster,
+                                       Topster*& topster,
                                        spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                        uint32_t*& all_result_ids, size_t& all_result_ids_len,
                                        const size_t typo_tokens_threshold,
@@ -539,7 +538,7 @@ private:
 
     void collate_included_ids(const std::vector<token_t>& q_included_tokens,
                               const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
-                              Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries) const;
+                              Topster*& curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries) const;
 
     static void compute_facet_stats(facet &a_facet, const std::string& raw_value,
                                     const std::string & field_type, const size_t count);
@@ -574,7 +573,28 @@ private:
 
     void update_async_references(const std::string& collection_name, const field& afield,
                                  std::vector<index_record>& iter_batch,
-                                 const std::vector<reference_pair_t>& async_referenced_ins = {});
+                                 const std::set<reference_pair_t>& async_referenced_ins = {});
+
+    std::string get_collection_name_with_lock() const {
+        std::shared_lock lock(mutex);
+        return get_collection_name();
+    }
+
+    std::string get_collection_name() const {
+        // Index name is: collection_name + std::to_string(0)
+        return name.empty() ? "" : name.substr(0, name.size() - 1);
+    }
+
+    Option<uint32_t> get_sort_index_value(const std::string& field_name,
+                                          const uint32_t& seq_id) const;
+
+    Option<int64_t> get_geo_distance(const std::string& geo_field_name, const uint32_t& seq_id,
+                                     const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
+
+    Option<uint32_t> get_ref_seq_id_helper(const sort_by& sort_field, const uint32_t& seq_id, std::string& prev_coll_name,
+                                           std::map<std::string, reference_filter_result_t> const*& references,
+                                           std::string& ref_coll_name) const;
+
 public:
     // for limiting number of results on multiple candidates / query rewrites
     enum {TYPO_TOKENS_THRESHOLD = 1};
@@ -595,6 +615,11 @@ public:
     // in the query that have the least individual hits one by one until enough results are found.
     static const int DROP_TOKENS_THRESHOLD = 1;
 
+    enum {DEFAULT_TOPSTER_SIZE = 250};
+
+    /// Value used when async_reference is true and a reference doc is not found.
+    static constexpr int64_t reference_helper_sentinel_value = UINT32_MAX;
+
     Index() = delete;
 
     Index(const std::string& name,
@@ -608,7 +633,7 @@ public:
 
     ~Index();
 
-    static void concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids);
+    static void concat_topster_ids(Topster*& topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids);
 
     int64_t score_results2(const std::vector<sort_by> & sort_fields, const uint16_t & query_index,
                            const size_t field_id, const bool field_is_array, const uint32_t total_cost,
@@ -623,7 +648,7 @@ public:
 
     void score_results(const std::vector<sort_by> &sort_fields, const uint16_t &query_index, const uint8_t &field_id,
                        bool field_is_array, const uint32_t total_cost,
-                       Topster *topster, const std::vector<art_leaf *> &query_suggestion,
+                       Topster*& topster, const std::vector<art_leaf *> &query_suggestion,
                        spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                        const uint32_t seq_id, const int sort_order[3],
                        std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
@@ -687,7 +712,8 @@ public:
                 const int max_facet_values,
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
-                const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
+                const std::vector<uint32_t>& num_typos, Topster*& topster, Topster*& curated_topster,
+                const size_t fetch_size,
                 const size_t per_page,
                 const size_t offset, const token_ordering token_order, const std::vector<bool>& prefixes,
                 const size_t drop_tokens_threshold, size_t& all_result_ids_len,
@@ -750,12 +776,12 @@ public:
                                      const bool use_addition_fields = false,
                                      const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>(),
                                      const std::string& collection_name = "",
-                                     const spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>& async_referenced_ins =
-                                            spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>());
+                                     const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins =
+                                            spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
 
     void index_field_in_memory(const std::string& collection_name, const field& afield,
                                std::vector<index_record>& iter_batch,
-                               const std::vector<reference_pair_t>& async_referenced_ins = {});
+                               const std::set<reference_pair_t>& async_referenced_ins = {});
 
     template<class T>
     void iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func);
@@ -787,8 +813,7 @@ public:
     // the following methods are not synchronized because their parent calls are synchronized or they are const/static
 
     Option<bool> search_wildcard(filter_node_t const* const& filter_tree_root,
-                                 const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
-                                 const std::vector<sort_by>& sort_fields, Topster* topster, Topster* curated_topster,
+                                 const std::vector<sort_by>& sort_fields, Topster*& topster, Topster*& curated_topster,
                                  spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                  std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                                  const std::vector<std::string>& group_by_fields,
@@ -862,8 +887,7 @@ public:
     [[nodiscard]] Option<bool> do_synonym_search(const std::vector<search_field_t>& the_fields,
                                                  const text_match_type_t match_type,
                                                  filter_node_t const* const& filter_tree_root,
-                                                 const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
-                                                 const std::vector<sort_by>& sort_fields_std, Topster* curated_topster,
+                                                 const std::vector<sort_by>& sort_fields_std, Topster*& curated_topster,
                                                  const token_ordering& token_order,
                                                  const size_t typo_tokens_threshold, const size_t group_limit,
                                                  const std::vector<std::string>& group_by_fields,
@@ -909,8 +933,7 @@ public:
                                   const std::set<uint32_t>& curated_ids,
                                   const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
                                   const std::unordered_set<uint32_t>& excluded_group_ids,
-                                  Topster* curated_topster,
-                                  const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
+                                  Topster*& curated_topster,
                                   bool is_wildcard_query, const std::string& collection_name = "") const;
 
     [[nodiscard]] Option<bool> fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
@@ -926,7 +949,7 @@ public:
                                                    const std::vector<uint32_t>& num_typos,
                                                    std::vector<std::vector<art_leaf*>>& searched_queries,
                                                    tsl::htrie_map<char, token_leaf>& qtoken_set,
-                                                   Topster* topster, spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                                                   Topster*& topster, spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                                    uint32_t*& all_result_ids, size_t& all_result_ids_len,
                                                    const size_t group_limit, const std::vector<std::string>& group_by_fields,
                                                    const bool group_missing_values,
@@ -966,7 +989,7 @@ public:
                                       const size_t num_search_fields,
                                       const text_match_type_t match_type,
                                       const std::vector<sort_by>& sort_fields,
-                                      Topster* topster,
+                                      Topster*& topster,
                                       spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                       std::vector<std::vector<art_leaf*>>& searched_queries,
                                       tsl::htrie_map<char, token_leaf>& qtoken_set,
@@ -990,28 +1013,6 @@ public:
                                       uint32_t*& all_result_ids, size_t& all_result_ids_len,
                                       const std::string& collection_name = "") const;
 
-    void
-    search_fields(const std::vector<filter>& filters,
-                  const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
-                  const std::vector<sort_by>& sort_fields_std,
-                  const size_t min_typo, const std::vector<uint32_t>& num_typos,
-                  Topster* topster, Topster* curated_topster, const token_ordering& token_order,
-                  const std::vector<bool>& prefixes, const size_t drop_tokens_threshold,
-                  spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
-                  std::vector<std::vector<art_leaf*>>& searched_queries,
-                  const size_t typo_tokens_threshold, const size_t group_limit,
-                  const std::vector<std::string>& group_by_fields, bool prioritize_exact_match,
-                  const bool exhaustive_search, const size_t concurrency, size_t min_len_1typo, size_t min_len_2typo,
-                  const size_t max_candidates, const std::vector<enable_t>& infixes, const size_t max_extra_prefix,
-                  const size_t max_extra_suffix, uint32_t* filter_ids, uint32_t filter_ids_length,
-                  const std::set<uint32_t>& curated_ids, const std::vector<uint32_t>& curated_ids_sorted,
-                  const size_t num_search_fields, const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
-                  std::vector<Topster*>& ftopsters, bool is_wildcard_query, bool split_join_tokens,
-                  std::vector<query_tokens_t>& field_query_tokens,
-                  const std::vector<search_field_t>& the_fields, size_t& all_result_ids_len,
-                  uint32_t*& all_result_ids,
-                  spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) const;
-
     void process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
                                   std::vector<std::string>& query_tokens,
                                   token_ordering token_order,
@@ -1020,10 +1021,6 @@ public:
                                   nlohmann::json& override_metadata,
                                   bool enable_typos_for_numerical_tokens,
                                   bool enable_typos_for_alpha_numerical_tokens) const;
-
-    Option<bool> ref_compute_sort_scores(const sort_by& sort_field, const uint32_t& seq_id, uint32_t& ref_seq_id,
-                                         bool& reference_found, const std::map<basic_string<char>, reference_filter_result_t>& references,
-                                         const std::string& collection_name) const;
 
     Option<bool> compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
                                      std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
@@ -1049,17 +1046,15 @@ public:
     Option<bool> seq_ids_outside_top_k(const std::string& field_name, size_t k,
                                        std::vector<uint32_t>& outside_seq_ids);
 
-    Option<bool> get_related_ids(const std::string& collection_name,
-                                 const std::string& field_name,
-                                 const uint32_t& seq_id, std::vector<uint32_t>& result) const;
+    Option<bool> get_related_ids(const std::string& field_name, const uint32_t& seq_id,
+                                 std::vector<uint32_t>& result) const;
 
     Option<bool> get_object_array_related_id(const std::string& collection_name,
                                              const std::string& reference_helper_field_name,
                                              const uint32_t& seq_id, const uint32_t& object_index,
                                              uint32_t& result) const;
 
-    Option<uint32_t> get_sort_index_value_with_lock(const std::string& collection_name,
-                                                    const std::string& field_name,
+    Option<uint32_t> get_sort_index_value_with_lock(const std::string& field_name,
                                                     const uint32_t& seq_id) const;
 
     friend class filter_result_iterator_t;
@@ -1068,8 +1063,16 @@ public:
 
     void aggregate_facet(const size_t group_limit, facet& this_facet, facet& acc_facet) const;
 
-    float get_distance(const string& geo_field_name, const uint32_t& seq_id,
-                       const S2LatLng& reference_lat_lng) const;
+    Option<int64_t> get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
+                                               const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
+
+    Option<int64_t> get_referenced_geo_distance(const sort_by& sort_field, uint32_t seq_id,
+                                                const std::map<basic_string<char>, reference_filter_result_t>& references,
+                                                const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
+
+    Option<uint32_t> get_ref_seq_id(const sort_by& sort_field, const uint32_t& seq_id,
+                                    const std::map<std::string, reference_filter_result_t>& references,
+                                    std::string& ref_collection_name) const;
 
     void get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<uint32_t>& result_ids) const;
 

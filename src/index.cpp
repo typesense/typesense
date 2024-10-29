@@ -567,7 +567,7 @@ batch_memory_index(Index *index,
                  const bool generate_embeddings,
                  const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
                  const std::string& collection_name,
-                 const spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>& async_referenced_ins) {
+                 const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
     const size_t concurrency = 4;
     const size_t num_threads = std::min(concurrency, iter_batch.size());
     const size_t window_size = (num_threads == 0) ? 0 :
@@ -651,7 +651,7 @@ batch_memory_index(Index *index,
 
             const field& f = (field_name == "id") ?
                              field("id", field_types::STRING, false) : indexable_schema.at(field_name);
-            std::vector<reference_pair_t> async_references;
+            std::set<reference_pair_t> async_references;
             auto it = async_referenced_ins.find(field_name);
             if (it != async_referenced_ins.end()) {
                 async_references = it->second;
@@ -682,7 +682,7 @@ batch_memory_index(Index *index,
 
 void Index::index_field_in_memory(const std::string& collection_name, const field& afield,
                                   std::vector<index_record>& iter_batch,
-                                  const std::vector<reference_pair_t>& async_referenced_ins) {
+                                  const std::set<reference_pair_t>& async_referenced_ins) {
     // indexes a given field of all documents in the batch
 
     if(afield.name == "id") {
@@ -1171,7 +1171,7 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
 
 void Index::update_async_references(const std::string& collection_name, const field& afield,
                                     std::vector<index_record>& iter_batch,
-                                    const std::vector<reference_pair_t>& async_referenced_ins) {
+                                    const std::set<reference_pair_t>& async_referenced_ins) {
     for (auto& record: iter_batch) {
         if (!record.indexed.ok() || record.is_update) {
             continue;
@@ -1281,6 +1281,7 @@ void Index::update_async_references(const std::string& collection_name, const fi
             if (!update_op.ok()) {
                 record.index_failure(400, "Error while updating async reference field `" + reference_field_name +
                                          "` of collection `" += reference_collection_name + "`: " += update_op.error());
+                break;
             }
         }
     }
@@ -1708,7 +1709,7 @@ Option<bool> Index::search_all_candidates(const size_t num_search_fields,
                                           std::vector<std::vector<art_leaf*>>& searched_queries,
                                           tsl::htrie_map<char, token_leaf>& qtoken_set,
                                           const std::vector<token_t>& dropped_tokens,
-                                          Topster* topster,
+                                          Topster*& topster,
                                           spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                           uint32_t*& all_result_ids, size_t& all_result_ids_len,
                                           const size_t typo_tokens_threshold,
@@ -1976,7 +1977,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
             }
             auto doc_id = ref_index.at(reference_doc_id);
 
-            if (doc_id == Collection::reference_helper_sentinel_value) {
+            if (doc_id == Index::reference_helper_sentinel_value) {
                 continue;
             }
 
@@ -2351,6 +2352,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                   search_params->included_ids, search_params->excluded_ids,
                   search_params->sort_fields_std, search_params->num_typos,
                   search_params->topster, search_params->curated_topster,
+                  search_params->fetch_size,
                   search_params->per_page, search_params->offset, search_params->token_order,
                   search_params->prefixes, search_params->drop_tokens_threshold,
                   search_params->all_result_ids_len, search_params->groups_processed,
@@ -2398,7 +2400,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
 
 void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
                                  const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
-                                 Topster* curated_topster,
+                                 Topster*& curated_topster,
                                  std::vector<std::vector<art_leaf*>> & searched_queries) const {
 
     if(included_ids_map.empty()) {
@@ -2428,7 +2430,7 @@ void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
     }
 }
 
-void Index::concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) {
+void Index::concat_topster_ids(Topster*& topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) {
     if(topster->distinct) {
         for(auto &group_topster_entry: topster->group_kv_map) {
             Topster* group_topster = group_topster_entry.second;
@@ -2863,7 +2865,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const int max_facet_values,
                    const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                    const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
-                   const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
+                   const std::vector<uint32_t>& num_typos, Topster*& topster, Topster*& curated_topster,
+                   const size_t fetch_size,
                    const size_t per_page,
                    const size_t offset, const token_ordering token_order, const std::vector<bool>& prefixes,
                    const size_t drop_tokens_threshold, size_t& all_result_ids_len,
@@ -2915,7 +2918,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
 #endif
 
-    size_t fetch_size = offset + per_page;
+    size_t topster_size = std::max<size_t>(fetch_size, DEFAULT_TOPSTER_SIZE);
+    if(filter_result_iterator->approx_filter_ids_length != 0 && filter_result_iterator->reference.empty()) {
+        topster_size = std::min<size_t>(topster_size, filter_result_iterator->approx_filter_ids_length);
+    } else {
+        topster_size = std::min<size_t>(topster_size, num_seq_ids());
+    }
+    topster_size = std::max((size_t)1, topster_size);  // needs to be atleast 1 since scoring is mandatory
+    topster = new Topster(topster_size, group_limit);
+    curated_topster = new Topster(topster_size, group_limit);
 
     std::set<uint32_t> curated_ids;
     std::map<size_t, std::map<size_t, uint32_t>> included_ids_map;  // outer pos => inner pos => list of IDs
@@ -2926,6 +2937,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         group_missing_values, filter_curated_hits,
                         filter_result_iterator, curated_ids, included_ids_map,
                         included_ids_vec, excluded_group_ids);
+    collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
     filter_result_iterator->reset();
     search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
@@ -2980,7 +2992,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                     filter_result_iterator, all_result_ids, all_result_ids_len,
                                                     groups_processed, curated_ids,
                                                     excluded_result_ids, excluded_result_ids_size, excluded_group_ids,
-                                                    curated_topster, included_ids_map, is_wildcard_query,
+                                                    curated_topster, is_wildcard_query,
                                                     collection_name);
 
         filter_iterator_guard.release();
@@ -3048,8 +3060,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             all_result_ids_len = seq_ids->num_ids();
             goto process_search_results;
         }
-
-        collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
 
         if (!vector_query.field_name.empty()) {
             auto k = vector_query.k == 0 ? std::max<size_t>(vector_query.k, fetch_size) : vector_query.k;
@@ -3222,7 +3232,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 filter_iterator_guard.reset(filter_result_iterator);
             }
 
-            auto search_wildcard_op = search_wildcard(filter_tree_root, included_ids_map, sort_fields_std, topster,
+            auto search_wildcard_op = search_wildcard(filter_tree_root, sort_fields_std, topster,
                                                       curated_topster, groups_processed, searched_queries, group_limit, group_by_fields,
                                                       group_missing_values,
                                                       curated_ids, curated_ids_sorted,
@@ -3360,7 +3370,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
 
         // do synonym based searches
-       auto do_synonym_search_op = do_synonym_search(the_fields, match_type, filter_tree_root, included_ids_map,
+       auto do_synonym_search_op = do_synonym_search(the_fields, match_type, filter_tree_root,
                                                      sort_fields_std, curated_topster, token_order, 0, group_limit,
                                                      group_by_fields, group_missing_values, prioritize_exact_match, prioritize_token_position,
                                                      prioritize_num_matching_fields, exhaustive_search, concurrency, prefixes,
@@ -4047,7 +4057,9 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
     // if `filter_curated_hits` is enabled, we will remove curated hits that don't match filter condition
     std::set<uint32_t> included_ids_set;
 
-    if(filter_result_iterator->validity == filter_result_iterator_t::valid && filter_curated_hits) {
+    if(!filter_result_iterator->is_filter_provided() || !filter_curated_hits) {
+        included_ids_set.insert(included_ids_vec.begin(), included_ids_vec.end());
+    } else if(filter_result_iterator->validity == filter_result_iterator_t::valid) {
         for (const auto &included_id: included_ids_vec) {
             auto result = filter_result_iterator->is_valid(included_id);
 
@@ -4059,8 +4071,6 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
                 included_ids_set.insert(included_id);
             }
         }
-    } else {
-        included_ids_set.insert(included_ids_vec.begin(), included_ids_vec.end());
     }
 
     std::map<size_t, std::vector<uint32_t>> included_ids_grouped;  // pos -> seq_ids
@@ -4122,7 +4132,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                         const std::vector<uint32_t>& num_typos,
                                         std::vector<std::vector<art_leaf*>> & searched_queries,
                                         tsl::htrie_map<char, token_leaf>& qtoken_set,
-                                        Topster* topster, spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                                        Topster*& topster, spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                         uint32_t*& all_result_ids, size_t & all_result_ids_len,
                                         const size_t group_limit, const std::vector<std::string>& group_by_fields,
                                         const bool group_missing_values,
@@ -4551,7 +4561,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
                                          const size_t num_search_fields,
                                          const text_match_type_t match_type,
                                          const std::vector<sort_by>& sort_fields,
-                                         Topster* topster,
+                                         Topster*& topster,
                                          spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                          std::vector<std::vector<art_leaf*>>& searched_queries,
                                          tsl::htrie_map<char, token_leaf>& qtoken_set,
@@ -4917,194 +4927,6 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
     return Option<bool>(true);
 }
 
-Option<bool> Index::ref_compute_sort_scores(const sort_by& sort_field, const uint32_t& seq_id, uint32_t& ref_seq_id,
-                                            bool& reference_found, const std::map<basic_string<char>, reference_filter_result_t>& references,
-                                            const std::string& collection_name) const {
-    auto const& ref_collection_name = sort_field.reference_collection_name;
-    auto const& multiple_references_error_message = "Multiple references found to sort by on `" +
-                                                    ref_collection_name + "." + sort_field.name + "`.";
-
-    if (sort_field.is_nested_join_sort_by()) {
-        // Get the reference doc_id by following through all the nested join collections.
-        ref_seq_id = seq_id;
-        std::string prev_coll_name = collection_name;
-        for (const auto &coll_name: sort_field.nested_join_collection_names) {
-            // Joined on ref collection
-            if (references.count(coll_name) > 0) {
-                auto const& count = references.at(coll_name).count;
-                if (count == 0) {
-                    reference_found = false;
-                    break;
-                } else if (count == 1) {
-                    ref_seq_id = references.at(coll_name).docs[0];
-                } else {
-                    return Option<bool>(400, multiple_references_error_message);
-                }
-            } else {
-                auto& cm = CollectionManager::get_instance();
-                auto ref_collection = cm.get_collection(coll_name);
-                if (ref_collection == nullptr) {
-                    return Option<bool>(400, "Referenced collection `" + coll_name +
-                                             "` in `sort_by` not found.");
-                }
-
-                // Current collection has a reference.
-                if (ref_collection->is_referenced_in(prev_coll_name)) {
-                    auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(prev_coll_name);
-                    if (!get_reference_field_op.ok()) {
-                        return Option<bool>(get_reference_field_op.code(), get_reference_field_op.error());
-                    }
-                    auto const& field_name = get_reference_field_op.get();
-
-                    auto prev_coll = cm.get_collection(prev_coll_name);
-                    if (prev_coll == nullptr) {
-                        return Option<bool>(400, "Referenced collection `" + prev_coll_name +
-                                                 "` in `sort_by` not found.");
-                    }
-
-                    auto sort_index_op = prev_coll->get_sort_index_value_with_lock(field_name, ref_seq_id);
-                    if (!sort_index_op.ok()) {
-                        if (sort_index_op.code() == 400) {
-                            return Option<bool>(400, sort_index_op.error());
-                        }
-                        reference_found = false;
-                        break;
-                    } else {
-                        ref_seq_id = sort_index_op.get();
-                    }
-                }
-                    // Joined collection has a reference
-                else {
-                    std::string joined_coll_having_reference;
-                    for (const auto &reference: references) {
-                        if (ref_collection->is_referenced_in(reference.first)) {
-                            joined_coll_having_reference = reference.first;
-                            break;
-                        }
-                    }
-
-                    if (joined_coll_having_reference.empty()) {
-                        reference_found = false;
-                        return Option<bool>(true);
-                    }
-
-                    auto joined_collection = cm.get_collection(joined_coll_having_reference);
-                    if (joined_collection == nullptr) {
-                        return Option<bool>(400, "Referenced collection `" + joined_coll_having_reference +
-                                                 "` in `sort_by` not found.");
-                    }
-
-                    auto reference_field_name_op = ref_collection->get_referenced_in_field_with_lock(joined_coll_having_reference);
-                    if (!reference_field_name_op.ok()) {
-                        return Option<bool>(reference_field_name_op.code(), reference_field_name_op.error());
-                    }
-
-                    auto const& reference_field_name = reference_field_name_op.get();
-                    auto const& reference = references.at(joined_coll_having_reference);
-                    auto const& count = reference.count;
-
-                    if (count == 0) {
-                        reference_found = false;
-                        break;
-                    } else if (count == 1) {
-                        auto op = joined_collection->get_sort_index_value_with_lock(reference_field_name,
-                                                                                    reference.docs[0]);
-                        if (!op.ok()) {
-                            return Option<bool>(op.code(), op.error());
-                        }
-
-                        ref_seq_id = op.get();
-                    } else {
-                        return Option<bool>(400, multiple_references_error_message);
-                    }
-                }
-            }
-
-            prev_coll_name = coll_name;
-        }
-    } else if (references.count(ref_collection_name) > 0) { // Joined on ref collection
-        auto const& count = references.at(ref_collection_name).count;
-        if (count == 0) {
-            reference_found = false;
-        } else if (count == 1) {
-            ref_seq_id = references.at(ref_collection_name).docs[0];
-        } else {
-            return Option<bool>(400, multiple_references_error_message);
-        }
-    } else {
-        auto& cm = CollectionManager::get_instance();
-        auto ref_collection = cm.get_collection(ref_collection_name);
-        if (ref_collection == nullptr) {
-            return Option<bool>(400, "Referenced collection `" + ref_collection_name +
-                                     "` in `sort_by` not found.");
-        }
-
-        // Current collection has a reference.
-        if (ref_collection->is_referenced_in(collection_name)) {
-            auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(collection_name);
-            if (!get_reference_field_op.ok()) {
-                return Option<bool>(get_reference_field_op.code(), get_reference_field_op.error());
-            }
-            auto const& field_name = get_reference_field_op.get();
-            auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
-
-            if (sort_index.count(reference_helper_field_name) == 0) {
-                return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in sort_index.");
-            } else if (sort_index.at(reference_helper_field_name)->count(seq_id) == 0) {
-                reference_found = false;
-            } else {
-                ref_seq_id = sort_index.at(reference_helper_field_name)->at(seq_id);
-            }
-        }
-            // Joined collection has a reference
-        else {
-            std::string joined_coll_having_reference;
-            for (const auto &reference: references) {
-                if (ref_collection->is_referenced_in(reference.first)) {
-                    joined_coll_having_reference = reference.first;
-                    break;
-                }
-            }
-
-            if (joined_coll_having_reference.empty()) {
-                reference_found = false;
-                return Option<bool>(true);
-            }
-
-            auto joined_collection = cm.get_collection(joined_coll_having_reference);
-            if (joined_collection == nullptr) {
-                return Option<bool>(400, "Referenced collection `" + joined_coll_having_reference +
-                                         "` in `sort_by` not found.");
-            }
-
-            auto reference_field_name_op = ref_collection->get_referenced_in_field_with_lock(joined_coll_having_reference);
-            if (!reference_field_name_op.ok()) {
-                return Option<bool>(reference_field_name_op.code(), reference_field_name_op.error());
-            }
-
-            auto const& reference_field_name = reference_field_name_op.get();
-            auto const& reference = references.at(joined_coll_having_reference);
-            auto const& count = reference.count;
-
-            if (count == 0) {
-                reference_found = false;
-            } else if (count == 1) {
-                auto op = joined_collection->get_sort_index_value_with_lock(reference_field_name,
-                                                                            reference.docs[0]);
-                if (!op.ok()) {
-                    return Option<bool>(op.code(), op.error());
-                }
-
-                ref_seq_id = op.get();
-            } else {
-                return Option<bool>(400, multiple_references_error_message);
-            }
-        }
-    }
-
-    return Option<bool>(true);
-}
-
 Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
                                         std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                                         const std::vector<size_t>& geopoint_indices,
@@ -5116,40 +4938,18 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
     int64_t geopoint_distances[3];
 
     for(auto& i: geopoint_indices) {
-        auto geopoints = field_values[i];
-        int64_t dist = INT32_MAX;
-
+        auto const& sort_field = sort_fields[i];
         S2LatLng reference_lat_lng;
-        GeoPoint::unpack_lat_lng(sort_fields[i].geopoint, reference_lat_lng);
+        GeoPoint::unpack_lat_lng(sort_field.geopoint, reference_lat_lng);
 
-        if(geopoints != nullptr) {
-            auto it = geopoints->find(seq_id);
-
-            if(it != geopoints->end()) {
-                int64_t packed_latlng = it->second;
-                S2LatLng s2_lat_lng;
-                GeoPoint::unpack_lat_lng(packed_latlng, s2_lat_lng);
-                dist = GeoPoint::distance(s2_lat_lng, reference_lat_lng);
-            }
-        } else {
-            // indicates geo point array
-            auto field_it = geo_array_index.at(sort_fields[i].name);
-            auto it = field_it->find(seq_id);
-
-            if(it != field_it->end()) {
-                int64_t* latlngs = it->second;
-                for(size_t li = 0; li < latlngs[0]; li++) {
-                    S2LatLng s2_lat_lng;
-                    int64_t packed_latlng = latlngs[li + 1];
-                    GeoPoint::unpack_lat_lng(packed_latlng, s2_lat_lng);
-                    int64_t this_dist = GeoPoint::distance(s2_lat_lng, reference_lat_lng);
-                    if(this_dist < dist) {
-                        dist = this_dist;
-                    }
-                }
-            }
+        auto get_geo_distance_op = !sort_field.reference_collection_name.empty() ?
+                                        get_referenced_geo_distance(sort_field, seq_id, references, reference_lat_lng) :
+                                            get_geo_distance(sort_field.name, seq_id, reference_lat_lng);
+        if (!get_geo_distance_op.ok()) {
+            return Option<bool>(get_geo_distance_op.code(), get_geo_distance_op.error());
         }
 
+        int64_t dist = get_geo_distance_op.get();
         if(dist < sort_fields[i].exclude_radius) {
             dist = 0;
         }
@@ -5173,13 +4973,22 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         auto reference_found = true;
         auto const& is_reference_sort = !sort_fields[i].reference_collection_name.empty();
         auto is_random_sort = sort_fields[i].random_sort.is_enabled;
+        auto is_sort_with_pivot_val = (sort_fields[i].pivot_val != INT64_MAX
+                                       && sort_fields[i].sort_by_action == sort_by::pivot);
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
         if (is_reference_sort) {
-            auto const& ref_compute_op = ref_compute_sort_scores(sort_fields[i], seq_id, ref_seq_id, reference_found,
-                                                                 references, collection_name);
-            if (!ref_compute_op.ok()) {
-                return ref_compute_op;
+            std::string ref_collection_name;
+            auto get_ref_seq_id_op = get_ref_seq_id(sort_fields[i], seq_id, references, ref_collection_name);
+            if (!get_ref_seq_id_op.ok()) {
+                return Option<bool>(get_ref_seq_id_op.code(), "Error while sorting on `" + sort_fields[i].reference_collection_name
+                                                                + "." + sort_fields[i].name + ": " + get_ref_seq_id_op.error());
+            }
+
+            if (get_ref_seq_id_op.get() == reference_helper_sentinel_value) { // No references found.
+                reference_found = false;
+            } else {
+                ref_seq_id = get_ref_seq_id_op.get();
             }
         }
 
@@ -5274,6 +5083,12 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         } else {
             if(is_random_sort) {
                 scores[i] = sort_fields[i].random_sort.generate_random();
+            } else if(is_sort_with_pivot_val) {
+                auto sort_index_it = sort_index.find(sort_fields[i].name);
+                auto val = get_doc_val_from_sort_index(sort_index_it, seq_id);
+                if(val != INT64_MAX) {
+                    scores[i] = std::abs(sort_fields[i].pivot_val - val);
+                }
             } else if (!is_reference_sort || reference_found) {
                 auto it = field_values[i]->find(is_reference_sort ? ref_seq_id : seq_id);
                 scores[i] = (it == field_values[i]->end()) ? default_score : it->second;
@@ -5315,8 +5130,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
                                      const std::set<uint32_t>& curated_ids,
                                      const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
                                      const std::unordered_set<uint32_t>& excluded_group_ids,
-                                     Topster* curated_topster,
-                                     const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
+                                     Topster*& curated_topster,
                                      bool is_wildcard_query, const std::string& collection_name) const {
 
     uint32_t* phrase_result_ids = nullptr;
@@ -5407,7 +5221,6 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
 
     curate_filtered_ids(curated_ids, excluded_result_ids,
                         excluded_result_ids_size, phrase_result_ids, phrase_result_count, curated_ids_sorted);
-    collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
 
     // AND phrase id matches with filter ids
     if(filter_result_iterator->validity) {
@@ -5488,8 +5301,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
 Option<bool> Index::do_synonym_search(const std::vector<search_field_t>& the_fields,
                                       const text_match_type_t match_type,
                                       filter_node_t const* const& filter_tree_root,
-                                      const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
-                                      const std::vector<sort_by>& sort_fields_std, Topster* curated_topster,
+                                      const std::vector<sort_by>& sort_fields_std, Topster*& curated_topster,
                                       const token_ordering& token_order,
                                       const size_t typo_tokens_threshold, const size_t group_limit,
                                       const std::vector<std::string>& group_by_fields, 
@@ -5538,7 +5350,6 @@ Option<bool> Index::do_synonym_search(const std::vector<search_field_t>& the_fie
         }
     }
 
-    collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
     return Option<bool>(true);
 }
 
@@ -5954,8 +5765,7 @@ void Index::curate_filtered_ids(const std::set<uint32_t>& curated_ids,
 }
 
 Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root,
-                                    const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
-                                    const std::vector<sort_by>& sort_fields, Topster* topster, Topster* curated_topster,
+                                    const std::vector<sort_by>& sort_fields, Topster*& topster, Topster*& curated_topster,
                                     spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                     std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                                     const std::vector<std::string>& group_by_fields, 
@@ -6394,7 +6204,7 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
 
 void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index,
                           const uint8_t & field_id, const bool field_is_array, const uint32_t total_cost,
-                          Topster* topster,
+                          Topster*& topster,
                           const std::vector<art_leaf *> &query_suggestion,
                           spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                           const uint32_t seq_id, const int sort_order[3],
@@ -7665,20 +7475,23 @@ int64_t Index::reference_string_sort_score(const string &field_name, const uint3
     return str_sort_index.at(field_name)->rank(seq_id);
 }
 
-Option<bool> Index::get_related_ids(const std::string& collection_name, const string& field_name,
-                                    const uint32_t& seq_id, std::vector<uint32_t>& result) const {
+Option<bool> Index::get_related_ids(const string& field_name, const uint32_t& seq_id,
+                                    std::vector<uint32_t>& result) const {
     std::shared_lock lock(mutex);
 
     auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
     if (search_schema.count(reference_helper_field_name) == 0) {
-        return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" + collection_name + "`.");
+        return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" +
+                                    get_collection_name() + "`.");
     }
 
-    auto const no_match_op = Option<bool>(400, "Could not find `" + reference_helper_field_name + "` value for doc `" +
+    auto const field_not_found_op = Option<bool>(400, "Could not find `" + reference_helper_field_name +
+                                                      "` in the collection `" + get_collection_name() + "`.");
+    auto const no_match_op = Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
                                                std::to_string(seq_id) + "`.");
     if (search_schema.at(reference_helper_field_name).is_singular()) {
         if (sort_index.count(reference_helper_field_name) == 0) {
-            return no_match_op;
+            return field_not_found_op;
         }
 
         auto const& ref_index = sort_index.at(reference_helper_field_name);
@@ -7688,14 +7501,14 @@ Option<bool> Index::get_related_ids(const std::string& collection_name, const st
         }
 
         const uint32_t id = it->second;
-        if (id != Collection::reference_helper_sentinel_value) {
+        if (id != Index::reference_helper_sentinel_value) {
             result.emplace_back(id);
         }
         return Option<bool>(true);
     }
 
     if (reference_index.count(reference_helper_field_name) == 0) {
-        return no_match_op;
+        return field_not_found_op;
     }
 
     size_t ids_len = 0;
@@ -7729,18 +7542,21 @@ Option<bool> Index::get_object_array_related_id(const std::string& collection_na
     return Option<bool>(true);
 }
 
-Option<uint32_t> Index::get_sort_index_value_with_lock(const std::string& collection_name,
-                                                       const std::string& field_name,
+Option<uint32_t> Index::get_sort_index_value_with_lock(const std::string& field_name,
                                                        const uint32_t& seq_id) const {
     std::shared_lock lock(mutex);
+    return get_sort_index_value(field_name, seq_id);
+}
 
+Option<uint32_t> Index::get_sort_index_value(const std::string& field_name,
+                                             const uint32_t& seq_id) const {
     auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
     if (search_schema.count(reference_helper_field_name) == 0) {
         return Option<uint32_t>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" +
-                                        collection_name + "`.");
+                                     get_collection_name() + "`.");
     } else if (search_schema.at(reference_helper_field_name).is_array()) {
         return Option<uint32_t>(400, "Cannot sort on `" + reference_helper_field_name + "` in the collection, `" +
-                                        collection_name + "` is `" + search_schema.at(reference_helper_field_name).type + "`.");
+                                     get_collection_name() + "` is `" + search_schema.at(reference_helper_field_name).type + "`.");
     } else if (sort_index.count(reference_helper_field_name) == 0 ||
                 sort_index.at(reference_helper_field_name)->count(seq_id) == 0) {
         return Option<uint32_t>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
@@ -7750,11 +7566,15 @@ Option<uint32_t> Index::get_sort_index_value_with_lock(const std::string& collec
     return Option<uint32_t>(sort_index.at(reference_helper_field_name)->at(seq_id));
 }
 
-float Index::get_distance(const string& geo_field_name, const uint32_t& seq_id,
-                          const S2LatLng& reference_lat_lng) const {
+Option<int64_t> Index::get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
+                                                  const S2LatLng& reference_lat_lng, const bool& round_distance) const {
     std::unique_lock lock(mutex);
+    return get_geo_distance(geo_field_name, seq_id, reference_lat_lng, round_distance);
+}
 
-    int64_t distance = 0;
+Option<int64_t> Index::get_geo_distance(const std::string& geo_field_name, const uint32_t& seq_id,
+                                        const S2LatLng& reference_lat_lng, const bool& round_distance) const {
+    int64_t distance = INT32_MAX;
     if (sort_index.count(geo_field_name) != 0) {
         auto& geo_index = sort_index.at(geo_field_name);
 
@@ -7765,7 +7585,7 @@ float Index::get_distance(const string& geo_field_name, const uint32_t& seq_id,
             GeoPoint::unpack_lat_lng(packed_latlng, s2_lat_lng);
             distance = GeoPoint::distance(s2_lat_lng, reference_lat_lng);
         }
-    } else {
+    } else if (geo_array_index.count(geo_field_name) != 0) {
         // indicates geo point array
         auto field_it = geo_array_index.at(geo_field_name);
         auto it = field_it->find(seq_id);
@@ -7782,9 +7602,191 @@ float Index::get_distance(const string& geo_field_name, const uint32_t& seq_id,
                 }
             }
         }
+    } else {
+        return Option<int64_t>(400, "Could not find `" + geo_field_name + "` field in the index of `" += get_collection_name() +
+                                    "` collection.");
     }
 
-    return std::round((double)distance * 1000.0) / 1000.0;
+    if (round_distance) {
+        distance = std::round((double)distance * 1000.0) / 1000.0;
+    }
+
+    return Option<int64_t>(distance);
+}
+
+std::string multiple_references_message(const std::string& coll_name, const uint32_t& seq_id,
+                                        const std::string& ref_coll_name) {
+    auto const& multiple_references_error_message = "`" + coll_name + "` collection's `Sequence ID: " +
+                                                    std::to_string(seq_id) + "` document references multiple documents of `" +
+                                                    ref_coll_name + "` collection.";
+    auto& cm = CollectionManager::get_instance();
+    auto coll = cm.get_collection(coll_name);
+    if (coll == nullptr) {
+        return multiple_references_error_message;
+    }
+
+    nlohmann::json doc;
+    auto get_op = coll->get_document_from_store(seq_id, doc);
+    if (!get_op.ok() || !doc.contains("id") || !doc.at("id").is_string()) {
+        return multiple_references_error_message;
+    }
+
+    return "`" + coll_name + "` collection's `id: " + doc.at("id").get<std::string>() +
+            "` document references multiple documents of `" + ref_coll_name + "` collection.";
+}
+
+Option<uint32_t> Index::get_ref_seq_id(const sort_by& sort_field, const uint32_t& seq_id,
+                                       const std::map<std::string, reference_filter_result_t>& references,
+                                       std::string& ref_collection_name) const {
+    auto collection_name = get_collection_name_with_lock();
+    ref_collection_name = sort_field.reference_collection_name;
+    auto const* references_ptr = &(references);
+    auto ref_seq_id = seq_id;
+
+    if (sort_field.is_nested_join_sort_by()) {
+        // Get the reference doc_id by following through all the nested join collections.
+        for (size_t i = 0; i < sort_field.nested_join_collection_names.size() - 1; i++) {
+            ref_collection_name = sort_field.nested_join_collection_names[i];
+            auto get_ref_seq_id_op = get_ref_seq_id_helper(sort_field, ref_seq_id, collection_name, references_ptr,
+                                                           ref_collection_name);
+            if (!get_ref_seq_id_op.ok() || get_ref_seq_id_op.get() == reference_helper_sentinel_value) { // No references found.
+                return get_ref_seq_id_op;
+            } else {
+                ref_seq_id = get_ref_seq_id_op.get();
+            }
+        }
+
+        ref_collection_name = sort_field.nested_join_collection_names.back();
+    }
+
+    return get_ref_seq_id_helper(sort_field, ref_seq_id, collection_name, references_ptr, ref_collection_name);
+}
+
+Option<uint32_t> Index::get_ref_seq_id_helper(const sort_by& sort_field, const uint32_t& seq_id, std::string& coll_name,
+                                              std::map<std::string, reference_filter_result_t> const*& references,
+                                              std::string& ref_coll_name) const {
+    uint32_t ref_seq_id = reference_helper_sentinel_value;
+
+    if (references != nullptr && references->count(ref_coll_name) > 0) { // Joined on ref collection
+        auto& ref_result = references->at(ref_coll_name);
+        auto const& count = ref_result.count;
+        if (count == 1) {
+            ref_seq_id = ref_result.docs[0];
+            references = ref_result.coll_to_references;
+        } else if (count > 1) {
+            return Option<uint32_t>(400, multiple_references_message(coll_name, seq_id, ref_coll_name));
+        }
+    } else {
+        auto& cm = CollectionManager::get_instance();
+        auto ref_collection = cm.get_collection(ref_coll_name);
+        if (ref_collection == nullptr) {
+            return Option<uint32_t>(400, "Referenced collection `" + ref_coll_name +
+                                         "` in `sort_by` not found.");
+        }
+
+        // Current collection has a reference.
+        if (ref_collection->is_referenced_in(coll_name)) {
+            auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(coll_name);
+            if (!get_reference_field_op.ok()) {
+                return Option<uint32_t>(get_reference_field_op.code(), get_reference_field_op.error());
+            }
+            auto const& field_name = get_reference_field_op.get();
+
+            std::vector<uint32_t> ref_ids;
+            auto related_ids_op = Option<bool>(true);
+            if (coll_name == get_collection_name_with_lock()) {
+                related_ids_op = get_related_ids(field_name, seq_id, ref_ids);
+            } else {
+                auto prev_coll = cm.get_collection(coll_name);
+                if (prev_coll == nullptr) {
+                    return Option<uint32_t>(400, "Referenced collection `" + coll_name +
+                                                 "` in `sort_by` not found.");
+                }
+                related_ids_op = prev_coll->get_related_ids(field_name, seq_id, ref_ids);
+            }
+            if (!related_ids_op.ok()) {
+                if (related_ids_op.code() == 400) {
+                    return Option<uint32_t>(400, related_ids_op.error());
+                }
+            } else if (ref_ids.size() > 1) {
+                return Option<uint32_t>(400, multiple_references_message(coll_name, seq_id, ref_coll_name));
+            } else if (ref_ids.size() == 1) {
+                ref_seq_id = ref_ids.front();
+            }
+        }
+            // Joined collection has a reference
+        else if (references != nullptr) {
+            std::string joined_coll_having_reference;
+            for (const auto &reference: *references) {
+                if (ref_collection->is_referenced_in(reference.first)) {
+                    joined_coll_having_reference = reference.first;
+                    break;
+                }
+            }
+
+            if (!joined_coll_having_reference.empty()) {
+                auto joined_collection = cm.get_collection(joined_coll_having_reference);
+                if (joined_collection == nullptr) {
+                    return Option<uint32_t>(400, "Referenced collection `" + joined_coll_having_reference +
+                                                 "` in `sort_by` not found.");
+                }
+
+                auto reference_field_name_op = ref_collection->get_referenced_in_field_with_lock(joined_coll_having_reference);
+                if (!reference_field_name_op.ok()) {
+                    return Option<uint32_t>(reference_field_name_op.code(), reference_field_name_op.error());
+                }
+
+                auto const& reference_field_name = reference_field_name_op.get();
+                auto& ref_result = references->at(joined_coll_having_reference);
+                auto const& count = ref_result.count;
+
+                if (count == 1) {
+                    std::vector<uint32_t> ref_ids;
+                    auto related_ids_op = joined_collection->get_related_ids(reference_field_name, ref_result.docs[0],
+                                                                             ref_ids);
+                    if (!related_ids_op.ok()) {
+                        if (related_ids_op.code() == 400) {
+                            return Option<uint32_t>(400, related_ids_op.error());
+                        }
+                    } else if (ref_ids.size() > 1) {
+                        return Option<uint32_t>(400, multiple_references_message(joined_coll_having_reference,
+                                                                                 ref_result.docs[0], ref_coll_name));
+                    } else if (ref_ids.size() == 1) {
+                        ref_seq_id = ref_ids.front();
+                        references = ref_result.coll_to_references;
+                    }
+                } else if (count > 1) {
+                    return Option<uint32_t>(400, multiple_references_message(coll_name, seq_id,
+                                                                             joined_coll_having_reference));
+                }
+            }
+        }
+    }
+
+    coll_name = ref_coll_name;
+    return Option<uint32_t>(ref_seq_id);
+}
+
+Option<int64_t> Index::get_referenced_geo_distance(const sort_by& sort_field, uint32_t seq_id,
+                                                   const std::map<basic_string<char>, reference_filter_result_t>& references,
+                                                   const S2LatLng& reference_lat_lng, const bool& round_distance) const {
+    std::string ref_collection_name;
+    auto get_ref_seq_id_op = get_ref_seq_id(sort_field, seq_id, references, ref_collection_name);
+    if (!get_ref_seq_id_op.ok()) {
+        return Option<int64_t>(400, get_ref_seq_id_op.error());
+    } else if (get_ref_seq_id_op.get() == reference_helper_sentinel_value) { // No references found.
+        return Option<int64_t>(0);
+    } else {
+        seq_id = get_ref_seq_id_op.get();
+    }
+
+    auto& cm = CollectionManager::get_instance();
+    auto ref_collection = cm.get_collection(ref_collection_name);
+    if (ref_collection == nullptr) {
+        return Option<int64_t>(400, "Referenced collection `" + ref_collection_name + "` in `sort_by` not found.");
+    }
+
+    return ref_collection->get_geo_distance_with_lock(sort_field.name, seq_id, reference_lat_lng, round_distance);
 }
 
 void Index::get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs,
@@ -7804,7 +7806,7 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
                                const std::vector<sort_by>& sort_fields_std, const int* sort_order,
                                const vector_query_t& vector_query) const {
 
-    auto compute_text_match_aux_score = [&] (std::vector<KV*> result_ids) {
+    auto compute_text_match_aux_score = [&] (std::vector<KV*> result_ids, size_t found_ids_offset) {
         std::vector<posting_list_t::iterator_t> its;
         std::vector<posting_list_t*> expanded_plists;
 
@@ -7836,13 +7838,46 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
         }
 
         if (!its.empty()) {
-            for(auto& kv : result_ids) {
-                int64_t match_score = 0;
+            std::vector<posting_list_t::iterator_t> matching_its;
+            //sort the result ids
+            std::sort(result_ids.begin(), result_ids.end(), [&](const auto& kv1, const auto& kv2) {
+                return kv1->key < kv2->key;
+            });
 
-                score_results2(sort_fields_std, search_query_size, 0, false, 0,
-                               match_score, kv->key, sort_order, false, false, false, 1,
-                               -1, its);
-                kv->text_match_score = match_score;
+            for(auto& kv : result_ids) {
+                auto seq_id = kv->key;
+                matching_its.clear();
+                for(auto& it : its) {
+                    if (it.valid()) {
+                        it.skip_to(seq_id);
+                        if(it.valid() && it.id() == seq_id) {
+                            matching_its.push_back((it.clone()));
+                        }
+                    }
+                }
+
+                if(!matching_its.empty()) {
+                    int64_t match_score = 0;
+
+                    score_results2(sort_fields_std, search_query_size, 0, false, 0,
+                                   match_score, kv->key, sort_order, false, false, false, 1,
+                                   -1, matching_its);
+                    kv->text_match_score = match_score;
+                }
+            }
+
+            //assign scores as per their ranks
+            std::sort(result_ids.begin(), result_ids.end(), [&](const auto& kv1, const auto& kv2) {
+                return kv1->text_match_score > kv2->text_match_score;
+            });
+
+            //start after already found ids
+            for(int i = 0; i < result_ids.size(); ++i) {
+                auto& kv = result_ids[i];
+                if(kv->text_match_score) {  //skip the ids which have 0 text match score
+                    kv->text_match_score = float_to_int64_t(
+                            (1.0 / (found_ids_offset + i)) * (1.0 - vector_query.alpha));
+                }
             }
         }
 
@@ -7886,7 +7921,41 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
     }
 
     if (!text_match_ids.empty()) {
-        compute_text_match_aux_score(text_match_ids);
+        compute_text_match_aux_score(text_match_ids, topster->kv_map.size() - text_match_ids.size() + 1);
+    }
+
+    //rerank results
+    std::unordered_map<int32_t, int32_t> semantic_seq_id_ranks;
+    std::unordered_map<int32_t, int32_t> keyword_seq_id_ranks;
+    std::vector<KV*> kvs;
+
+    for(const auto& kv : topster->kv_map) {
+        kvs.push_back(kv.second);
+    }
+
+    // compute ranks as per keyword search first
+    std::stable_sort(kvs.begin(), kvs.end(), [&](const auto& kv1, const auto& kv2) {
+        return std::tie(kv1->text_match_score, kv1->key) > std::tie(kv2->text_match_score, kv2->key);
+    });
+
+    for(auto i = 0; i < kvs.size(); ++i) {
+        keyword_seq_id_ranks.emplace(kvs[i]->key, i+1);
+    }
+
+    // compute ranks as per semantic search
+    std::stable_sort(kvs.begin(), kvs.end(), [&](const auto& kv1, const auto& kv2) {
+       return kv1->vector_distance  < kv2->vector_distance;
+    });
+
+    for(auto i = 0; i < kvs.size(); ++i) {
+        semantic_seq_id_ranks.emplace(kvs[i]->key, i+1);
+    }
+
+    //compute fusion_score
+    for(auto& kv : topster->kv_map) {
+        auto seq_id = kv.second->key;
+        kv.second->scores[kv.second->match_score_index] = float_to_int64_t((1.0/keyword_seq_id_ranks[seq_id]) * (1.0 - vector_query.alpha) +
+                                                            (1.0/semantic_seq_id_ranks[seq_id]) * vector_query.alpha);
     }
 }
 

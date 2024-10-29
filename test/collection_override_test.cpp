@@ -4340,7 +4340,23 @@ TEST_F(CollectionOverrideTest, FilterPinnedHits) {
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
 
+    // Filter does not match but with filter_curated_hits = true
     filter_curated_hits = true;
+
+    results = coll3->search("2023", {"title"}, "title: foobarbaz", {}, {},
+                            {0}, 50, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10,
+                            "", 30, 5, "",
+                            10, pinned_hits, {}, {}, 3,
+                            "<mark>", "</mark>", {}, UINT_MAX,
+                            true, false, true, "",
+                            false, 6000 * 1000, 4, 7,
+                            fallback, 4, {off}, INT16_MAX,
+                            INT16_MAX, 2, filter_curated_hits ).get();
+    ASSERT_EQ(0, results["hits"].size());
+
     // Filter should apply on curated results
     results = coll3->search("2023", {"title"}, "points: >70", {}, {},
                             {0}, 50, 1, FREQUENCY,

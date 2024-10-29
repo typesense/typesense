@@ -50,8 +50,6 @@ private:
 
     const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
-    const size_t DEFAULT_TOPSTER_SIZE = 250;
-
     struct highlight_t {
         size_t field_index;
         std::string field;
@@ -139,7 +137,7 @@ private:
     spp::sparse_hash_map<std::string, std::string> referenced_in;
 
     /// "field name" -> List of <collection, field> pairs where this collection is referenced and is marked as `async`.
-    spp::sparse_hash_map<std::string, std::vector<reference_pair_t>> async_referenced_ins;
+    spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins;
 
     /// Reference helper fields that are part of an object. The reference doc of these fields will be included in the
     /// object rather than in the document.
@@ -215,6 +213,8 @@ private:
                                           bool enable_nested_fields,
                                           const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
                                           tsl::htrie_set<char>& object_reference_helper_fields);
+
+    static bool check_and_add_nested_field(tsl::htrie_map<char, field>& nested_fields, const field& nested_field);
 
     static bool facet_count_compare(const facet_count_t& a, const facet_count_t& b) {
         return std::tie(a.count, a.fhash) > std::tie(b.count, b.fhash);
@@ -362,9 +362,6 @@ public:
 
     static constexpr const char* COLLECTION_METADATA = "metadata";
 
-    /// Value used when async_reference is true and a reference doc is not found.
-    static constexpr int64_t reference_helper_sentinel_value = UINT32_MAX;
-
     // methods
 
     Collection() = delete;
@@ -377,8 +374,8 @@ public:
                const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model = nullptr,
                spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>(),
                const nlohmann::json& metadata = {},
-               spp::sparse_hash_map<std::string, std::vector<reference_pair_t>> async_referenced_ins =
-                       spp::sparse_hash_map<std::string, std::vector<reference_pair_t>>());
+               spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins =
+                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
 
     ~Collection();
 
@@ -541,7 +538,7 @@ public:
                                   const std::string& highlight_start_tag="<mark>",
                                   const std::string& highlight_end_tag="</mark>",
                                   std::vector<uint32_t> raw_query_by_weights={},
-                                  size_t limit_hits=UINT32_MAX,
+                                  size_t limit_hits=1000000,
                                   bool prioritize_exact_match=true,
                                   bool pre_segmented_query=false,
                                   bool enable_overrides=true,
@@ -648,7 +645,7 @@ public:
 
     spp::sparse_hash_map<std::string, reference_info_t> get_reference_fields();
 
-    spp::sparse_hash_map<std::string, std::vector<reference_pair_t>> get_async_referenced_ins();
+    spp::sparse_hash_map<std::string, std::set<reference_pair_t>> get_async_referenced_ins();
 
     // highlight ops
 
@@ -724,6 +721,9 @@ public:
 
     Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
                                  std::vector<uint32_t>& result) const;
+
+    Option<int64_t> get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
+                                               const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
 };
 
 template<class T>

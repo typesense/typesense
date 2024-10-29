@@ -5009,6 +5009,21 @@ TEST_F(CollectionVectorTest, TestDistanceThresholdWithIP) {
     ASSERT_EQ(18, res["hits"][4]["document"]["rank_score"].get<size_t>());
     ASSERT_EQ(3.4028232635611926e+38, res["hits"][4]["vector_distance"].get<float>());
 
+    // with missing field name
+    req_params = {
+            {"collection", "products"},
+            {"q", "document"},
+            {"query_by", "name"},
+            {"sort_by", "_text_match:desc,"
+                        "_vector_query(embeddingx:([0.11731103425347378, -0.6694758317235057, -0.6211945774857595, -0.27966758971688255, -0.4683744007950299],"
+                        "distance_threshold:1)):asc,"
+                        "rank_score:desc"},
+            {"exclude_fields", "embedding"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Malformed vector query string: could not find a field named `embeddingx`.", search_op.error());
 
     //inner product distances should work when distance_threshold is not given
     req_params = {
@@ -5088,6 +5103,13 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
 
     ASSERT_TRUE(add_op.ok());
 
+    add_op = coll->add(R"({
+        "name": "puma",
+        "id": "3"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
     bool use_aux_score = false;
 
     auto res = coll->search("nike running shoes", {"name", "embedding"}, "", {},
@@ -5108,14 +5130,16 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
                              "", true, true, false, 0, true,
                              true, DEFAULT_FILTER_BY_CANDIDATES, use_aux_score).get();
 
-    ASSERT_EQ(3, res["hits"].size());
+    ASSERT_EQ(4, res["hits"].size());
     ASSERT_FLOAT_EQ(0.09585630893707275, res["hits"][0]["vector_distance"].get<float>());
     ASSERT_FLOAT_EQ(0.07914221286773682, res["hits"][1]["vector_distance"].get<float>());
     ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.2496563196182251, res["hits"][3]["vector_distance"].get<float>());
 
-    ASSERT_EQ("517734", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string >());
-    ASSERT_EQ("0", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string >());
-    ASSERT_EQ("0", res["hits"][2]["text_match_info"]["best_field_score"].get<std::string >());
+    ASSERT_EQ(1060320051, res["hits"][0]["text_match"].get<std::size_t>());
+    ASSERT_EQ(0, res["hits"][1]["text_match"].get<std::size_t>());
+    ASSERT_EQ(0, res["hits"][2]["text_match"].get<std::size_t>());
+    ASSERT_EQ(0, res["hits"][3]["text_match"].get<std::size_t>());
 
     use_aux_score = true;
 
@@ -5138,12 +5162,14 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
                             true, DEFAULT_FILTER_BY_CANDIDATES, use_aux_score).get();
 
 
-    ASSERT_EQ(3, res["hits"].size());
+    ASSERT_EQ(4, res["hits"].size());
     ASSERT_FLOAT_EQ(0.09585630893707275, res["hits"][0]["vector_distance"].get<float>());
     ASSERT_FLOAT_EQ(0.07914221286773682, res["hits"][1]["vector_distance"].get<float>());
     ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.2496563196182251, res["hits"][3]["vector_distance"].get<float>());
 
-    ASSERT_EQ("517734", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string >());
-    ASSERT_EQ("1618996288", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
-    ASSERT_EQ("1618996288", res["hits"][2]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ(1060320051, res["hits"][0]["text_match"].get<std::size_t>());
+    ASSERT_EQ(1051931443, res["hits"][1]["text_match"].get<std::size_t>());
+    ASSERT_EQ(1047457519, res["hits"][2]["text_match"].get<std::size_t>());
+    ASSERT_EQ(0, res["hits"][3]["text_match"].get<std::size_t>()); //document with id:3 won't have any text_match
 }

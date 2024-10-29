@@ -56,7 +56,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model,
                        spp::sparse_hash_map<std::string, std::string> referenced_in,
                        const nlohmann::json& metadata,
-                       spp::sparse_hash_map<std::string, std::vector<reference_pair_t>> async_referenced_ins) :
+                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins) :
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
@@ -157,7 +157,7 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
             if (existing_document.contains(reference_helper_field_name) &&
                 existing_document[reference_helper_field_name].is_number_integer()) {
                 const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name].get<int64_t>();
-                if (existing_ref_seq_id != Collection::reference_helper_sentinel_value &&
+                if (existing_ref_seq_id != Index::reference_helper_sentinel_value &&
                     existing_ref_seq_id != ref_seq_id) {
                     return Option<bool>(400, "Document `id: " + id + "` already has a reference to document `" +=
                                                 std::to_string(existing_ref_seq_id) + "` of `" += ref_coll_name +
@@ -204,7 +204,7 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
                 }
 
                 const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name][j].get<int64_t>();
-                if (existing_ref_seq_id != Collection::reference_helper_sentinel_value &&
+                if (existing_ref_seq_id != Index::reference_helper_sentinel_value &&
                     existing_ref_seq_id != ref_seq_id) {
                     return Option<bool>(400, "Document `id: " + id + "` at `" += field_name +
                                                 "` reference array field and index `" + std::to_string(j) +
@@ -379,6 +379,7 @@ nlohmann::json Collection::get_summary_json() const {
 
         if (!coll_field.reference.empty()) {
             field_json[fields::reference] = coll_field.reference;
+            field_json[fields::async_reference] = coll_field.is_async_reference;
         }
 
         fields_arr.push_back(field_json);
@@ -421,6 +422,57 @@ Option<nlohmann::json> Collection::add(const std::string & json_str,
     return Option<nlohmann::json>(document);
 }
 
+bool Collection::check_and_add_nested_field(tsl::htrie_map<char, field>& nested_fields, const field& nested_field) {
+    // if field is an object or object_array field, we have to remove matching children
+    if(nested_field.is_object()) {
+        auto it = nested_fields.equal_prefix_range(nested_field.name + ".");
+        if(it.first != it.second) {
+            // children exist, and they should be removed
+            std::vector<std::string> child_fields;
+            for(auto child_field = it.first; child_field != it.second; child_field++) {
+                child_fields.push_back(child_field.key());
+            }
+
+            for(const auto& child_field: child_fields) {
+                nested_fields.erase(child_field);
+            }
+        }
+    }
+
+    // we will only add a child if none of the parent already exists
+    std::vector<std::string> name_parts;
+    StringUtils::split(nested_field.name, name_parts, ".");
+
+    if(name_parts.size() == 1) {
+        // dot not found
+        if(nested_fields.find(nested_field.name) == nested_fields.end()) {
+            nested_fields[nested_field.name] = nested_field;
+            return true;
+        }
+
+        return false;
+    }
+
+    std::string parent_path;
+
+    for(size_t i = 0; i < name_parts.size(); i++) {
+        if (!parent_path.empty()) {
+            parent_path += ".";
+        }
+
+        parent_path += name_parts[i];
+
+        if (nested_fields.find(parent_path) != nested_fields.end()) {
+            // parent found, so we will not add this field
+            return false;
+        }
+    }
+
+    // emplace only if no parent path is found
+    nested_fields[nested_field.name] = nested_field;
+    return true;
+}
+
 nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                                     const index_operation_t& operation, const std::string& id,
                                     const DIRTY_VALUES& dirty_values, const bool& return_doc, const bool& return_id,
@@ -436,6 +488,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
     // ensures that document IDs are not repeated within the same batch
     std::set<std::string> batch_doc_ids;
+    bool found_batch_new_field = false;
 
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
@@ -497,21 +550,17 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             for(auto& new_field: new_fields) {
                 if(search_schema.find(new_field.name) == search_schema.end()) {
                     found_new_field = true;
+                    found_batch_new_field = true;
                     search_schema.emplace(new_field.name, new_field);
                     fields.emplace_back(new_field);
                     if(new_field.nested) {
-                        nested_fields.emplace(new_field.name, new_field);
+                        check_and_add_nested_field(nested_fields, new_field);
                     }
                 }
             }
 
             if(found_new_field) {
-                auto persist_op = persist_collection_meta();
-                if(!persist_op.ok()) {
-                    record.index_failure(persist_op.code(), persist_op.error());
-                } else {
-                    index->refresh_schemas(new_fields, {});
-                }
+                index->refresh_schemas(new_fields, {});
             }
         }
 
@@ -519,9 +568,12 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
         do_batched_index:
 
-
         if((i+1) % index_batch_size == 0 || i == json_lines.size()-1 || repeated_doc) {
             batch_index(index_records, json_lines, num_indexed, return_doc, return_id, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries);
+
+            if(found_batch_new_field) {
+                persist_collection_meta();
+            }
 
             // to return the document for the single doc add cases
             if(index_records.size() == 1) {
@@ -699,16 +751,21 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                     index_record.index_success();
                 }
             }
+
             res["success"] = index_record.indexed.ok();
 
             if (return_doc & index_record.indexed.ok()) {
                 res["document"] = index_record.is_update ? index_record.new_doc : index_record.doc;
             }
+
             if (return_id & index_record.indexed.ok()) {
                 res["id"] = index_record.is_update ? index_record.new_doc["id"] : index_record.doc["id"];
             }
+
             if(!index_record.indexed.ok()) {
-                res["document"] = json_out[index_record.position];
+                if(return_doc) {
+                    res["document"] = json_out[index_record.position];
+                }
                 res["error"] = index_record.indexed.error();
                 if (!index_record.embedding_res.empty()) {
                     res["embedding_error"] = nlohmann::json::object();
@@ -719,16 +776,21 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
             }
         } else {
             res["success"] = false;
-            res["document"] = json_out[index_record.position];
             res["error"] = index_record.indexed.error();
+            res["code"] = index_record.indexed.code();
+
+            if(return_doc) {
+                res["document"] = json_out[index_record.position];
+            }
+
+            if (return_id && index_record.doc.contains("id")) {
+                res["id"] = index_record.doc["id"];
+            }
+
             if (!index_record.embedding_res.empty()) {
                 res["embedding_error"] = nlohmann::json::object();
                 res["error"] = index_record.embedding_res["error"];
                 res["embedding_error"] = index_record.embedding_res;
-            }
-            res["code"] = index_record.indexed.code();
-            if (return_id && index_record.doc.contains("id")) {
-                res["id"] = index_record.doc["id"];
             }
         }
 
@@ -1329,26 +1391,40 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                 if(!field_it.value().is_geopoint()) {
                     // check for null value order
-                    const std::string& sort_params_str = sort_field_std.name.substr(paran_start + 1,
+                    const std::string &sort_params_str = sort_field_std.name.substr(paran_start + 1,
                                                                                     sort_field_std.name.size() -
-                                                                                    paran_start - 2);
+                                                                                    paran_start -
+                                                                                    2);
+                    std::vector<std::string> value_params, param_parts;
+                    StringUtils::split(sort_params_str, value_params, ",");
 
-                    std::vector<std::string> param_parts;
-                    StringUtils::split(sort_params_str, param_parts, ":");
+                    for(const auto& value_param : value_params) {
+                        StringUtils::split(value_param, param_parts, ":");
 
-                    if(param_parts.size() != 2) {
-                        return Option<bool>(400, error);
-                    }
+                        if (param_parts.size() != 2) {
+                            return Option<bool>(400, error);
+                        }
 
-                    if(param_parts[0] != sort_field_const::missing_values) {
-                        return Option<bool>(400, error);
-                    }
+                        if (param_parts[0] == sort_field_const::pivot) {
+                            if (!StringUtils::is_integer(param_parts[1])) {
+                                return Option<bool>(400, error);
+                            }
+                            sort_field_std.pivot_val = std::stoll(param_parts[1]);
+                            sort_field_std.sort_by_action = sort_by::pivot;
+                            sort_field_std.name = actual_field_name;
+                        } else {
+                            if (param_parts[0] != sort_field_const::missing_values) {
+                                return Option<bool>(400, error);
+                            }
 
-                    auto missing_values_op = magic_enum::enum_cast<sort_by::missing_values_t>(param_parts[1]);
-                    if(missing_values_op.has_value()) {
-                        sort_field_std.missing_values = missing_values_op.value();
-                    } else {
-                        return Option<bool>(400, error);
+                            auto missing_values_op = magic_enum::enum_cast<sort_by::missing_values_t>(
+                                    param_parts[1]);
+                            if (missing_values_op.has_value()) {
+                                sort_field_std.missing_values = missing_values_op.value();
+                            } else {
+                                return Option<bool>(400, error);
+                            }
+                        }
                     }
                 }
 
@@ -1617,6 +1693,12 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
     }
 
     return Option<bool>(true);
+}
+
+Option<int64_t> Collection::get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
+                                                       const S2LatLng& reference_lat_lng, const bool& round_distance) const {
+    std::shared_lock lock(mutex);
+    return index->get_geo_distance_with_lock(geo_field_name, seq_id, reference_lat_lng, round_distance);
 }
 
 Option<nlohmann::json> Collection::search(std::string raw_query,
@@ -2101,15 +2183,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     size_t fetch_size = std::min<size_t>(offset + per_page, limit_hits);
 
-    size_t max_hits = DEFAULT_TOPSTER_SIZE;
-
-    // ensure that `max_hits` never exceeds number of documents in collection
-    if(weighted_search_fields.size() <= 1 || query == "*") {
-        max_hits = std::min(std::max(fetch_size, max_hits), get_num_documents());
-    } else {
-        max_hits = std::min(std::max(fetch_size, max_hits), get_num_documents());
-    }
-
     if(token_order == NOT_SET) {
         if(default_sorting_field.empty()) {
             token_order = FREQUENCY;
@@ -2303,8 +2376,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
                                                  match_type,
                                                  filter_tree_root, facets, included_ids, excluded_ids,
-                                                 sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
-                                                 per_page, offset, token_order, prefixes,
+                                                 sort_fields_std, facet_query, num_typos, max_facet_values,
+                                                 fetch_size, per_page, offset, token_order, prefixes,
                                                  drop_tokens_threshold, typo_tokens_threshold,
                                                  group_by_fields, group_limit, group_missing_values,
                                                  default_sorting_field,
@@ -2352,7 +2425,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     if(match_score_index >= 0 && sort_fields_std[match_score_index].text_match_buckets > 0) {
         size_t num_buckets = sort_fields_std[match_score_index].text_match_buckets;
-        const size_t max_kvs_bucketed = std::min<size_t>(DEFAULT_TOPSTER_SIZE, raw_result_kvs.size());
+        const size_t max_kvs_bucketed = std::min<size_t>(Index::DEFAULT_TOPSTER_SIZE, raw_result_kvs.size());
 
         if(max_kvs_bucketed >= num_buckets) {
             spp::sparse_hash_map<uint64_t, int64_t> result_scores;
@@ -2439,8 +2512,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     const long start_result_index = offset;
 
-    // `end_result_index` could be -1 when max_hits is 0
-    const long end_result_index = std::min(fetch_size, std::min(max_hits, result_group_kvs.size())) - 1;
+    // `end_result_index` could be -1, so use signed type
+    const long end_result_index = std::min(fetch_size, result_group_kvs.size()) - 1;
 
     // handle which fields have to be highlighted
 
@@ -2677,8 +2750,16 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                     S2LatLng reference_lat_lng;
                     GeoPoint::unpack_lat_lng(sort_field.geopoint, reference_lat_lng);
 
-                    geo_distances[sort_field.name] = index->get_distance(sort_field.name, field_order_kv->key,
-                                                                         reference_lat_lng);
+                    auto get_geo_distance_op = !sort_field.reference_collection_name.empty() ?
+                                                index->get_referenced_geo_distance(sort_field, field_order_kv->key,
+                                                                                   field_order_kv->reference_filter_results,
+                                                                                   reference_lat_lng, true) :
+                                                   index->get_geo_distance_with_lock(sort_field.name, field_order_kv->key,
+                                                                                     reference_lat_lng, true);
+                    if (!get_geo_distance_op.ok()) {
+                        return Option<nlohmann::json>(get_geo_distance_op.code(), get_geo_distance_op.error());
+                    }
+                    geo_distances[sort_field.name] = get_geo_distance_op.get();
                 } else if(sort_field.geopoint != 0) {
                     geo_distances[sort_field.name] = std::abs(field_order_kv->scores[sort_field_index]);
                 } else if(sort_field.name == sort_field_const::vector_query &&
@@ -3060,7 +3141,11 @@ void Collection::expand_search_query(const string& raw_query, size_t offset, siz
             }
         }
 
-        if(!first_q.empty()) {
+        if(qleaves.size() != raw_token_index+1) {
+            first_q = raw_query;
+        }
+
+        if(!first_q.empty() && first_q.back() ==  ' ') {
             first_q.pop_back();
         }
     }
@@ -3604,8 +3689,8 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
 }
 
 Option<bool> Collection::get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
-                                               std::vector<uint32_t>& result) const {
-    return index->get_related_ids(name, ref_field_name, seq_id, result);
+                                         std::vector<uint32_t>& result) const {
+    return index->get_related_ids(ref_field_name, seq_id, result);
 }
 
 Option<bool> Collection::get_object_array_related_id(const std::string& ref_field_name,
@@ -5047,15 +5132,12 @@ spp::sparse_hash_map<std::string, reference_info_t> Collection::get_reference_fi
     return reference_fields;
 }
 
-spp::sparse_hash_map<std::string, std::vector<reference_pair_t>> Collection::get_async_referenced_ins() {
+spp::sparse_hash_map<std::string, std::set<reference_pair_t>> Collection::get_async_referenced_ins() {
     std::shared_lock lock(mutex);
     return async_referenced_ins;
 };
 
 Option<bool> Collection::persist_collection_meta() {
-    // first compact nested fields (to keep only parents of expanded children)
-    field::compact_nested_fields(nested_fields);
-
     std::string coll_meta_json;
     StoreStatus status = store->get(Collection::get_meta_key(name), coll_meta_json);
 
@@ -5096,7 +5178,6 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     // Update schema with additions (deletions can only be made later)
     std::vector<field> new_fields;
     tsl::htrie_map<char, field> schema_additions;
-    std::vector<std::string> nested_field_names;
     bool found_embedding_field = false;
 
     std::unique_lock ulock(mutex);
@@ -5116,8 +5197,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         if(f.nested) {
-            nested_fields.emplace(f.name, f);
-            nested_field_names.push_back(f.name);
+            check_and_add_nested_field(nested_fields, f);
         }
 
         if(f.embed.count(fields::from) != 0) {
@@ -5136,8 +5216,6 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         fields.push_back(f);
     }
-
-    field::compact_nested_fields(nested_fields);
 
     ulock.unlock();
     std::shared_lock shlock(mutex);
@@ -5652,7 +5730,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
 
                 if(f.nested && enable_nested_fields) {
-                    updated_nested_fields.emplace(f.name, f);
+                    check_and_add_nested_field(updated_nested_fields, f);
 
                     // should also add children if the field is an object
                     auto prefix_it = search_schema.equal_prefix_range(field_name);
@@ -5660,7 +5738,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                         bool exact_key_match = (prefix_kv.key().size() == field_name.size());
                         if(!exact_key_match) {
                             updated_search_schema.emplace(prefix_kv.key(), prefix_kv.value());
-                            updated_nested_fields.emplace(prefix_kv.key(), prefix_kv.value());
+                            check_and_add_nested_field(updated_nested_fields, prefix_kv.value());
 
                             if(prefix_kv.value().embed.count(fields::from) != 0) {
                                 embedding_fields.emplace(prefix_kv.key(), prefix_kv.value());
@@ -5765,9 +5843,6 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
                     reindex_fields.push_back(new_field);
                     updated_search_schema[new_field.name] = new_field;
-                    if(new_field.nested) {
-                        updated_nested_fields[new_field.name] = new_field;
-                    }
                 }
             }
         }
@@ -5992,7 +6067,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
     if(enable_nested_fields) {
         for(auto& new_field: new_fields) {
             if(new_field.nested) {
-                nested_fields.emplace(new_field.name, new_field);
+                check_and_add_nested_field(nested_fields, new_field);
             }
         }
 
@@ -6005,6 +6080,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
         for(const auto& flattened_field: flattened_fields) {
             if(schema.find(flattened_field.name) == schema.end()) {
                 new_fields.push_back(flattened_field);
+                check_and_add_nested_field(nested_fields, flattened_field);
             }
         }
     }
@@ -6033,7 +6109,7 @@ Index* Collection::init_index() {
         search_schema.emplace(field.name, field);
 
         if(field.nested) {
-            nested_fields.emplace(field.name, field);
+            check_and_add_nested_field(nested_fields, field);
         }
 
         if(field.embed.count(fields::from) != 0) {
@@ -6066,8 +6142,6 @@ Index* Collection::init_index() {
             }
         }
     }
-
-    field::compact_nested_fields(nested_fields);
 
     synonym_index = new SynonymIndex(store);
 
@@ -6568,7 +6642,7 @@ void Collection::add_referenced_ins(const std::set<reference_info_t>& ref_infos)
 
         referenced_in.emplace(ref_info.collection, ref_info.field);
         if (ref_info.is_async) {
-            async_referenced_ins[referenced_field_name].emplace_back(ref_info.collection, ref_info.field);
+            async_referenced_ins[referenced_field_name].emplace(ref_info.collection, ref_info.field);
         }
     }
 }
@@ -6586,7 +6660,7 @@ void Collection::add_referenced_in(const std::string& collection_name, const std
 
     referenced_in.emplace(collection_name, field_name);
     if (is_async) {
-        async_referenced_ins[referenced_field_name].emplace_back(collection_name, field_name);
+        async_referenced_ins[referenced_field_name].emplace(collection_name, field_name);
     }
 }
 
@@ -6607,13 +6681,13 @@ Option<std::string> Collection::get_referenced_in_field(const std::string& colle
 Option<bool> Collection::get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
                                                    std::vector<uint32_t>& result) const {
     std::shared_lock lock(mutex);
-    return index->get_related_ids(name, field_name, seq_id, result);
+    return index->get_related_ids(field_name, seq_id, result);
 }
 
 Option<uint32_t> Collection::get_sort_index_value_with_lock(const std::string& field_name,
                                                             const uint32_t& seq_id) const {
     std::shared_lock lock(mutex);
-    return index->get_sort_index_value_with_lock(name, field_name, seq_id);
+    return index->get_sort_index_value_with_lock(field_name, seq_id);
 }
 
 std::shared_mutex& Collection::get_lifecycle_mutex() {

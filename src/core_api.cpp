@@ -20,6 +20,7 @@
 #include "conversation_model_manager.h"
 #include "conversation_model.h"
 #include "recommendations_model_manager.h"
+#include "archive_utils.h"
 
 using namespace std::chrono_literals;
 

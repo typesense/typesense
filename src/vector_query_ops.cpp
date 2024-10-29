@@ -168,6 +168,11 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                     auto search_schema = const_cast<Collection*>(coll)->get_schema();
                     auto vector_field_it = search_schema.find(vector_query.field_name);
 
+                    if(vector_field_it == search_schema.end()) {
+                        return Option<bool>(400, "Malformed vector query string: could not find a field named "
+                                                 "`" + vector_query.field_name + "`.");
+                    }
+
                     if(!StringUtils::is_float(param_kv[1])) {
                         return Option<bool>(400, "Malformed vector query string: "
                                                  "`distance_threshold` parameter must be a float.");

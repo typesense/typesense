@@ -2318,7 +2318,8 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
     search_op = coll->search("Jeremy", {"name"}, extreme_filter,
                              {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("`filter_by` has too many operations. Maximum allowed: 100", search_op.error());
+    ASSERT_EQ("`filter_by` has too many operations. Maximum allowed: 100. Use `--filter-by-max-ops` command line "
+              "argument to customize this value.", search_op.error());
 
     collectionManager.dispose();
     delete store;
@@ -2342,7 +2343,8 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
     search_op = coll->search("Jeremy", {"name"}, extreme_filter,
                              {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("`filter_by` has too many operations. Maximum allowed: 109", search_op.error());
+    ASSERT_EQ("`filter_by` has too many operations. Maximum allowed: 109. Use `--filter-by-max-ops` command line "
+              "argument to customize this value.", search_op.error());
 
     collectionManager.drop_collection("ComplexFilterQueryCollection");
 }
@@ -3088,4 +3090,109 @@ TEST_F(CollectionFilteringTest, MaxFilterByCandidates) {
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_EQ("Independent19", res_obj["hits"][0]["document"]["title"]);
+}
+
+TEST_F(CollectionFilteringTest, FilterOnObjectFields) {
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string", "infix": true},
+                    {"name": "product_description", "type": "string"},
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["product_description"], "model_config": {"model_name": "ts/e5-small"}}},
+                    {"name": "rating", "type": "int32"},
+                    {"name": "stocks", "type": "object"},
+                    {"name": "stocks.*", "type": "auto", "optional": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair.",
+                "rating": "2",
+                "stocks": {
+                    "26": {
+                        "rec": true
+                    }
+                }
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "soap",
+                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients.",
+                "rating": "4",
+                "stocks": {
+                    "26": {
+                        "rec": false
+                    }
+                }
+            })"_json,
+            R"({
+                "product_id": "product_c",
+                "product_name": "comb",
+                "product_description": "Experience the natural elegance and gentle care of our handcrafted wooden combs – because your hair deserves the best.",
+                "rating": "3",
+                "stocks": {}
+            })"_json
+    };
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "stocks.26.rec:true"},
+            {"include_fields", "product_id, product_name, stocks"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"]["product_id"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("stocks"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"].count("26"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"]["26"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"]["26"].count("rec"));
+    ASSERT_TRUE(res_obj["hits"][0]["document"]["stocks"]["26"]["rec"]);
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "stocks.26.rec:false"},
+            {"include_fields", "product_id, product_name, stocks"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("product_b", res_obj["hits"][0]["document"]["product_id"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("stocks"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"].count("26"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"]["26"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"]["26"].count("rec"));
+    ASSERT_FALSE(res_obj["hits"][0]["document"]["stocks"]["26"]["rec"]);
 }
