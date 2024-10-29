@@ -4973,8 +4973,10 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         auto reference_found = true;
         auto const& is_reference_sort = !sort_fields[i].reference_collection_name.empty();
         auto is_random_sort = sort_fields[i].random_sort.is_enabled;
-        auto is_sort_with_pivot_val = (sort_fields[i].pivot_val != INT64_MAX
-                                       && sort_fields[i].sort_by_action == sort_by::pivot);
+        auto is_decay_function_sort = (sort_fields[i].sort_by_param == sort_by::linear ||
+                                        sort_fields[i].sort_by_param == sort_by::exp ||
+                                        sort_fields[i].sort_by_param == sort_by::gauss ||
+                                        sort_fields[i].sort_by_param == sort_by::diff);
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
         if (is_reference_sort) {
@@ -5083,12 +5085,12 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         } else {
             if(is_random_sort) {
                 scores[i] = sort_fields[i].random_sort.generate_random();
-            } else if(is_sort_with_pivot_val) {
-                auto sort_index_it = sort_index.find(sort_fields[i].name);
-                auto val = get_doc_val_from_sort_index(sort_index_it, seq_id);
-                if(val != INT64_MAX) {
-                    scores[i] = std::abs(sort_fields[i].pivot_val - val);
+            } else if(is_decay_function_sort) {
+                auto score = compute_decay_function_score(sort_fields[i], seq_id);
+                if(score == INT64_MAX) {
+                    return Option<bool>(400, "Error computing decay function score.");
                 }
+                scores[i] = float_to_int64_t(score);
             } else if (!is_reference_sort || reference_found) {
                 auto it = field_values[i]->find(is_reference_sort ? ref_seq_id : seq_id);
                 scores[i] = (it == field_values[i]->end()) ? default_score : it->second;
@@ -7957,6 +7959,42 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
         kv.second->scores[kv.second->match_score_index] = float_to_int64_t((1.0/keyword_seq_id_ranks[seq_id]) * (1.0 - vector_query.alpha) +
                                                             (1.0/semantic_seq_id_ranks[seq_id]) * vector_query.alpha);
     }
+}
+
+float Index::compute_decay_function_score(const sort_by& sort_field, uint32_t seq_id) const {
+    float res;
+    int64_t origin_distance_with_offset;
+    double variance;
+
+    auto sort_index_it = sort_index.find(sort_field.name);
+    auto val = get_doc_val_from_sort_index(sort_index_it, seq_id);
+
+    if(val == INT64_MAX) {
+        return INT64_MAX;
+    }
+
+    origin_distance_with_offset = std::abs(sort_field.origin_val - val) - sort_field.offset;
+
+    switch(sort_field.sort_by_param) {
+        case sort_by::gauss:
+            variance =  std::pow(sort_field.scale,2)/(2 * std::log(sort_field.decay_val));
+            res = std::exp(std::pow(std::max((int64_t)0, origin_distance_with_offset), 2)/(2 * variance));
+            break;
+        case sort_by::exp:
+            variance = std::log(sort_field.decay_val)/sort_field.scale;
+            res = std::exp(variance * std::max((int64_t)0, origin_distance_with_offset));
+            break;
+        case sort_by::linear:
+            variance = sort_field.scale/(1.0 - sort_field.decay_val);
+            res = std::max((double)0.f, (variance - std::max((int64_t)0, origin_distance_with_offset))/variance);
+            break;
+        case sort_by::diff:
+            res = origin_distance_with_offset;
+            break;
+        default:
+            break;
+    }
+    return res;
 }
 
 /*

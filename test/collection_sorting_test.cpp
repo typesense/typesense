@@ -2977,7 +2977,7 @@ TEST_F(CollectionSortingTest, TestSortByRandomOrder) {
     ASSERT_EQ("Could not find a field named `_random` in the schema for sorting.", results_op.error());
 }
 
-TEST_F(CollectionSortingTest, TestSortByOtherField) {
+TEST_F(CollectionSortingTest, DiffFunctionSort) {
     auto schema_json = R"({
             "name": "products",
             "fields":[
@@ -3001,7 +3001,7 @@ TEST_F(CollectionSortingTest, TestSortByOtherField) {
 
     //put 1728383250 + 3000 as base value
     sort_fields = {
-            sort_by("timestamp(pivot: 1728386250)", "asc"),
+            sort_by("timestamp(origin: 1728386250, func: diff)", "asc"),
     };
 
     auto results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
@@ -3020,7 +3020,7 @@ TEST_F(CollectionSortingTest, TestSortByOtherField) {
 
     //desc sort
     sort_fields = {
-            sort_by("timestamp(pivot: 1728386250)", "desc"),
+            sort_by("timestamp(func:diff, origin: 1728386250)", "desc"),
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
@@ -3035,4 +3035,147 @@ TEST_F(CollectionSortingTest, TestSortByOtherField) {
     ASSERT_EQ(1728385250, results["hits"][3]["document"]["timestamp"].get<size_t>());
     ASSERT_EQ("3", results["hits"][4]["document"]["id"]);
     ASSERT_EQ(1728386250, results["hits"][4]["document"]["timestamp"].get<size_t>());
+}
+
+TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
+    auto schema_json = R"({
+            "name": "products",
+            "fields":[
+            {
+                "name": "name","type": "string",
+                "name": "timestamp","type": "int64"
+            }]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+
+    std::vector<std::string> products = {"Samsung Smartphone", "Vivo SmartPhone", "Oneplus Smartphone", "Pixel Smartphone", "Moto Smartphone"};
+    nlohmann::json doc;
+    for (auto i = 0; i < products.size(); ++i) {
+        doc["name"] = products[i];
+        doc["timestamp"] = 1728383250 + i * 1000;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    //non integer scale value
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, scale: 100.4, func: linear)", "asc"),
+    };
+
+    auto results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("sort_by: scale param should be non-zero integer.", results.error());
+
+    //non integer origin value
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250.5, scale: 100, func: linear)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("sort_by: origin param should be integer.", results.error());
+
+    //non integer offset value
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, scale: 100, func: linear, offset: -2.5)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("sort_by: offset param should be integer.", results.error());
+
+    //0 scale value
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, scale: 0, func: linear, offset: -2)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("sort_by: scale param should be non-zero integer.", results.error());
+
+    //missing scale param
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, func: linear, offset: -2)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("Bad syntax. origin and scale are mandatory params for decay function linear", results.error());
+
+    //missing origin param
+    sort_fields = {
+            sort_by("timestamp(scale: 100, func: linear, offset: -2)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("Bad syntax. origin and scale are mandatory params for decay function linear", results.error());
+
+    //decay value should be between 0.0 to 1.0
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, func: linear, scale: -10, decay: 1.4)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("sort_by: decay param should be float in range [0.0, 1.0].", results.error());
+
+    //only gauss, linear, diff, and exp keys are supported for decay functions
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, func: expo, scale: -10, decay: 0.4)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("Bad syntax. Not a valid decay function key `expo`.", results.error());
+
+    //missing func
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("Bad syntax. Missing param `func`.", results.error());
+
+    //correct params
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250, func: exp, scale: -10, decay: 0.4)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_TRUE(results.ok());
+}
+
+TEST_F(CollectionSortingTest, DecayFunctionsTest) {
+    auto schema_json = R"({
+            "name": "products",
+            "fields":[
+                {"name": "product_name","type": "string"},
+                {"name": "timestamp","type": "int64"}
+            ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+
+    std::vector<std::string> products = {"Samsung Smartphone", "Vivo SmartPhone", "Oneplus Smartphone", "Pixel Smartphone", "Moto Smartphone"};
+    nlohmann::json doc;
+    for (auto i = 0; i < products.size(); ++i) {
+        doc["product_name"] = products[i];
+        doc["timestamp"] = 1728383250 + i * 1000;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    sort_fields = {
+            sort_by("timestamp(origin: 1728385250, func: gauss, scale: 1000, decay: 0.5)", "desc"),
+    };
+
+    auto results = coll->search("smartphone", {"product_name"}, "", {}, sort_fields, {0}).get();
+    ASSERT_EQ(5, results["hits"].size());
+    //score reduces by half respecting gaussian curve with scale value from origin
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ(1728385250, results["hits"][0]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("3", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ(1728386250, results["hits"][1]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"]);
+    ASSERT_EQ(1728384250, results["hits"][2]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("4", results["hits"][3]["document"]["id"]);
+    ASSERT_EQ(1728387250, results["hits"][3]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][4]["document"]["id"]);
+    ASSERT_EQ(1728383250, results["hits"][4]["document"]["timestamp"].get<size_t>());
 }
