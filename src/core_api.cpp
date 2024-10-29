@@ -3186,21 +3186,18 @@ bool del_recommendations_model(const std::shared_ptr<http_req>& req, const std::
 bool put_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
     
-    if (!req->params.count("name") || !req->params.count("collection")) {
-        res->set_400("Missing required parameters 'name' and 'collection'.");
+    if (req->params.count("name") && !req->params["name"].empty()) {
+        req_json["name"] = req->params["name"];
+    }
+    if (req->params.count("collection") && !req->params["collection"].empty()) {
+        req_json["collection"] = req->params["collection"];
+    }
+
+    if (!req->params.count("id")) {
+        res->set_400("Missing required parameter 'id'.");
         return false;
     }
-
-    req_json = {
-        {"name", req->params["name"]},
-        {"collection", req->params["collection"]}
-    };
-
-    std::string model_id = "";
-    if (req->params.count("id")) {
-        req_json["id"] = req->params["id"];
-        model_id = req->params["id"];
-    }
+    std::string model_id = req->params["id"];
 
     const std::string model_data = req->body;
     auto update_op = RecommendationsModelManager::update_model(model_id, req_json, model_data);
@@ -3209,6 +3206,10 @@ bool put_recommendations_model(const std::shared_ptr<http_req>& req, const std::
         return false;
     }
 
-    res->set_200(update_op.get().dump());
+    nlohmann::json response = update_op.get();
+    if (response.contains("model_path")) {
+        response.erase("model_path");
+    }
+    res->set_200(response.dump());
     return true;
 }

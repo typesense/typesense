@@ -67,6 +67,11 @@ Option<bool> RecommendationsModel::create_model(const std::string& model_id, con
         return Option<bool>(500, "Failed to extract model archive");
     }
 
+    std::string onnx_path = model_path + "/model.onnx";
+    if (!std::filesystem::exists(onnx_path)) {
+        return Option<bool>(400, "Missing required model.onnx file in archive");
+    }
+
     return Option<bool>(true);
 }
 
