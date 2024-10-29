@@ -1081,7 +1081,7 @@ public:
                             const std::vector<sort_by>& sort_fields_std, const int* sort_order,
                             const vector_query_t& vector_query) const;
 
-    int64_t compute_decay_function_score(const sort_by& sort_field, uint32_t seq_id) const;
+    float compute_decay_function_score(const sort_by& sort_field, uint32_t seq_id) const;
 };
 
 template<class T>

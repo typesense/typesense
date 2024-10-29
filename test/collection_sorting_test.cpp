@@ -3136,10 +3136,9 @@ TEST_F(CollectionSortingTest, DecayFunctionsTest) {
     auto schema_json = R"({
             "name": "products",
             "fields":[
-            {
-                "name": "name","type": "string",
-                "name": "timestamp","type": "int64"
-            }]
+                {"name": "product_name","type": "string"},
+                {"name": "timestamp","type": "int64"}
+            ]
     })"_json;
 
     auto coll_op = collectionManager.create_collection(schema_json);
@@ -3149,15 +3148,26 @@ TEST_F(CollectionSortingTest, DecayFunctionsTest) {
     std::vector<std::string> products = {"Samsung Smartphone", "Vivo SmartPhone", "Oneplus Smartphone", "Pixel Smartphone", "Moto Smartphone"};
     nlohmann::json doc;
     for (auto i = 0; i < products.size(); ++i) {
-        doc["name"] = products[i];
+        doc["product_name"] = products[i];
         doc["timestamp"] = 1728383250 + i * 1000;
         ASSERT_TRUE(coll->add(doc.dump()).ok());
     }
 
     sort_fields = {
-            sort_by("timestamp(origin: 1728386250, exp, scale: -1000, decay: 1)", "asc"),
+            sort_by("timestamp(origin: 1728385250, gauss, scale: 1000, decay: 0.5)", "desc"),
     };
 
-    auto results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
-    LOG(INFO) << results.dump();
+    auto results = coll->search("smartphone", {"product_name"}, "", {}, sort_fields, {0}).get();
+    ASSERT_EQ(5, results["hits"].size());
+    //score reduces by half respecting gaussian curve with scale value from origin
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ(1728385250, results["hits"][0]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("3", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ(1728386250, results["hits"][1]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"]);
+    ASSERT_EQ(1728384250, results["hits"][2]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("4", results["hits"][3]["document"]["id"]);
+    ASSERT_EQ(1728387250, results["hits"][3]["document"]["timestamp"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][4]["document"]["id"]);
+    ASSERT_EQ(1728383250, results["hits"][4]["document"]["timestamp"].get<size_t>());
 }

@@ -5096,7 +5096,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 if(score == INT64_MAX) {
                     return Option<bool>(400, "Error computing decay function score.");
                 }
-                scores[i] = score;
+                scores[i] = float_to_int64_t(score);
             } else if (!is_reference_sort || reference_found) {
                 auto it = field_values[i]->find(is_reference_sort ? ref_seq_id : seq_id);
                 scores[i] = (it == field_values[i]->end()) ? default_score : it->second;
@@ -7967,8 +7967,9 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
     }
 }
 
-int64_t Index::compute_decay_function_score(const sort_by& sort_field, uint32_t seq_id) const {
-    int64_t res, origin_distance_with_offset;
+float Index::compute_decay_function_score(const sort_by& sort_field, uint32_t seq_id) const {
+    float res;
+    int64_t origin_distance_with_offset;
     double variance;
 
     auto sort_index_it = sort_index.find(sort_field.name);
