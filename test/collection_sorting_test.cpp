@@ -3061,7 +3061,7 @@ TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
 
     //non integer scale value
     sort_fields = {
-            sort_by("timestamp(origin: 1728386250, scale: 100.4, linear)", "asc"),
+            sort_by("timestamp(origin: 1728386250, scale: 100.4, func: linear)", "asc"),
     };
 
     auto results = coll->search("*", {}, "", {}, sort_fields, {0});
@@ -3069,7 +3069,7 @@ TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
 
     //non integer origin value
     sort_fields = {
-            sort_by("timestamp(origin: 1728386250.5, scale: 100, linear)", "asc"),
+            sort_by("timestamp(origin: 1728386250.5, scale: 100, func: linear)", "asc"),
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0});
@@ -3077,7 +3077,7 @@ TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
 
     //non integer offset value
     sort_fields = {
-            sort_by("timestamp(origin: 1728386250, scale: 100, linear, offset: -2.5)", "asc"),
+            sort_by("timestamp(origin: 1728386250, scale: 100, func: linear, offset: -2.5)", "asc"),
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0});
@@ -3085,7 +3085,7 @@ TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
 
     //0 scale value
     sort_fields = {
-            sort_by("timestamp(origin: 1728386250, scale: 0, linear, offset: -2)", "asc"),
+            sort_by("timestamp(origin: 1728386250, scale: 0, func: linear, offset: -2)", "asc"),
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0});
@@ -3093,7 +3093,7 @@ TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
 
     //missing scale param
     sort_fields = {
-            sort_by("timestamp(origin: 1728386250, linear, offset: -2)", "asc"),
+            sort_by("timestamp(origin: 1728386250, func: linear, offset: -2)", "asc"),
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0});
@@ -3101,7 +3101,7 @@ TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
 
     //missing origin param
     sort_fields = {
-            sort_by("timestamp(scale: 100, linear, offset: -2)", "asc"),
+            sort_by("timestamp(scale: 100, func: linear, offset: -2)", "asc"),
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0});
@@ -3109,7 +3109,7 @@ TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
 
     //decay value should be between 0.0 to 1.0
     sort_fields = {
-            sort_by("timestamp(origin: 1728386250, linear, scale: -10, decay: 1.4)", "asc"),
+            sort_by("timestamp(origin: 1728386250, func: linear, scale: -10, decay: 1.4)", "asc"),
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0});
@@ -3117,7 +3117,7 @@ TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
 
     //only gauss, linear, and exp keys are supported for decay functions
     sort_fields = {
-            sort_by("timestamp(origin: 1728386250, expo, scale: -10, decay: 0.4)", "asc"),
+            sort_by("timestamp(origin: 1728386250, func: expo, scale: -10, decay: 0.4)", "asc"),
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0});
@@ -3125,7 +3125,7 @@ TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
 
     //correct params
     sort_fields = {
-            sort_by("timestamp(origin: 1728386250, exp, scale: -10, decay: 0.4)", "asc"),
+            sort_by("timestamp(origin: 1728386250, func: exp, scale: -10, decay: 0.4)", "asc"),
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0});
@@ -3154,7 +3154,7 @@ TEST_F(CollectionSortingTest, DecayFunctionsTest) {
     }
 
     sort_fields = {
-            sort_by("timestamp(origin: 1728385250, gauss, scale: 1000, decay: 0.5)", "desc"),
+            sort_by("timestamp(origin: 1728385250, func: gauss, scale: 1000, decay: 0.5)", "desc"),
     };
 
     auto results = coll->search("smartphone", {"product_name"}, "", {}, sort_fields, {0}).get();

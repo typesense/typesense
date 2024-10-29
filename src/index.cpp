@@ -4974,8 +4974,8 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         auto const& is_reference_sort = !sort_fields[i].reference_collection_name.empty();
         auto is_random_sort = sort_fields[i].random_sort.is_enabled;
         auto is_sort_with_origin_val = (sort_fields[i].origin_val != INT64_MAX
-                                       && sort_fields[i].sort_by_action == sort_by::origin);
-        auto is_decay_function_sort = (sort_fields[i].sort_by_action != sort_by::none
+                                       && sort_fields[i].sort_by_param == sort_by::origin);
+        auto is_decay_function_sort = (sort_fields[i].sort_by_param != sort_by::none
                                         && !is_sort_with_origin_val);
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
@@ -7981,7 +7981,7 @@ float Index::compute_decay_function_score(const sort_by& sort_field, uint32_t se
 
     origin_distance_with_offset = std::abs(sort_field.origin_val - val) - sort_field.offset;
 
-    switch(sort_field.sort_by_action) {
+    switch(sort_field.sort_by_param) {
         case sort_by::gauss:
             variance =  std::pow(sort_field.scale,2)/(2 * std::log(sort_field.decay_val));
             res = std::exp(std::pow(std::max((int64_t)0, origin_distance_with_offset), 2)/(2 * variance));

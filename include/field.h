@@ -438,6 +438,7 @@ namespace sort_field_const {
     static const std::string scale = "scale";
     static const std::string offset = "offset";
     static const std::string decay = "decay";
+    static const std::string func = "func";
 }
 
 namespace ref_include {
@@ -510,7 +511,7 @@ struct sort_by {
         normal,
     };
 
-    enum sort_by_action_t {
+    enum sort_by_params_t {
         none,
         origin,
         gauss,
@@ -550,7 +551,7 @@ struct sort_by {
     int64_t scale = INT64_MAX;
     int64_t offset = 0;
     float decay_val = 0.5f;
-    sort_by_action_t sort_by_action = none;
+    sort_by_params_t sort_by_param = none;
 
     sort_by(const std::string & name, const std::string & order):
             name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
@@ -587,7 +588,7 @@ struct sort_by {
         nested_join_collection_names = other.nested_join_collection_names;
         vector_query = other.vector_query;
         random_sort = other.random_sort;
-        sort_by_action = other.sort_by_action;
+        sort_by_param = other.sort_by_param;
         origin_val = other.origin_val;
         scale = other.scale;
         offset = other.offset;

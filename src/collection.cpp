@@ -1402,23 +1402,20 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                         param_parts.clear();
                         StringUtils::split(value_param, param_parts, ":");
 
-                        if(param_parts.size() == 1 ) {
-                            if(param_parts[0]!= sort_field_const::gauss && param_parts[0]!= sort_field_const::exp
-                                && param_parts[0]!= sort_field_const::linear) {
-                                return Option<bool>(400, "Bad syntax. Not a valid decay function key `" + param_parts[0] + "`.");
-                            }
-                            auto action_op = magic_enum::enum_cast<sort_by::sort_by_action_t>(param_parts[0]);
-                            if(action_op.has_value()) {
-                                sort_field_std.sort_by_action = action_op.value();
-                            }
-                            continue;
-                        }
-
-                        if (param_parts.size() > 2) {
+                        if (param_parts.size() != 2) {
                             return Option<bool>(400, error);
                         }
 
-                        if(param_parts[0] == sort_field_const::scale) {
+                        if(param_parts[0] == sort_field_const::func) {
+                            if(param_parts[1]!= sort_field_const::gauss && param_parts[1]!= sort_field_const::exp
+                               && param_parts[1]!= sort_field_const::linear) {
+                                return Option<bool>(400, "Bad syntax. Not a valid decay function key `" + param_parts[1] + "`.");
+                            }
+                            auto action_op = magic_enum::enum_cast<sort_by::sort_by_params_t>(param_parts[1]);
+                            if(action_op.has_value()) {
+                                sort_field_std.sort_by_param = action_op.value();
+                            }
+                        } else if(param_parts[0] == sort_field_const::scale) {
                             if (!StringUtils::is_integer(param_parts[1]) || param_parts[1] == "0") {
                                 return Option<bool>(400, "sort_by: scale param should be non-zero integer.");
                             }
@@ -1457,12 +1454,12 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                         }
                     }
 
-                    if(sort_field_std.sort_by_action != sort_by::none && (sort_field_std.origin_val == INT64_MAX
+                    if(sort_field_std.sort_by_param != sort_by::none && (sort_field_std.origin_val == INT64_MAX
                         || sort_field_std.scale == INT64_MAX)) {
                         return Option<bool>(400, "Bad syntax. origin and scale are mandatory params for decay function.");
-                    } else if(sort_field_std.sort_by_action == sort_by::none && sort_field_std.origin_val != INT64_MAX) {
+                    } else if(sort_field_std.sort_by_param == sort_by::none && sort_field_std.origin_val != INT64_MAX) {
                         //it's an origin based pivot sort
-                        sort_field_std.sort_by_action = sort_by::origin;
+                        sort_field_std.sort_by_param = sort_by::origin;
                     }
                 } else {
                     const std::string& geo_coordstr = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
