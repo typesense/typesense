@@ -153,3 +153,36 @@ void ArchiveUtils::cleanup(const std::string& file_path) {
         throw std::runtime_error("Failed to delete temporary directory: " + tmp_dir);
     }
 }
+
+bool ArchiveUtils::verify_tar_gz_archive(const std::string& archive_content) {
+    struct archive* a = archive_read_new();
+    if (!a) {
+        return false;
+    }
+
+    bool is_valid = true;
+
+    archive_read_support_format_all(a);
+    archive_read_support_filter_all(a);
+
+    if (archive_read_open_memory(a, archive_content.data(), archive_content.size()) != ARCHIVE_OK) {
+        is_valid = false;
+    }
+
+    struct archive_entry* entry;
+    while (is_valid) {
+        int r = archive_read_next_header(a, &entry);
+        if (r == ARCHIVE_EOF) {
+            break;
+        }
+        if (r < ARCHIVE_WARN) {
+            is_valid = false;
+            break;
+        }
+    }
+
+    archive_read_close(a);
+    archive_read_free(a);
+
+    return is_valid;
+}
