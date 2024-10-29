@@ -77,6 +77,9 @@ bool ArchiveUtils::extract_tar_gz_from_file(const std::string& archive_path, con
 }
 
 bool ArchiveUtils::extract_tar_gz_from_memory(const std::string& archive_content, const std::string& destination_path) {
+    if (archive_content.empty()) {
+        return false;
+    }
     std::string temp_file_path = create_temp_tar_gz(archive_content);
     bool result = extract_tar_gz_from_file(temp_file_path, destination_path);
     cleanup(temp_file_path);

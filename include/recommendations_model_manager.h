@@ -16,9 +16,10 @@ public:
     RecommendationsModelManager& operator=(const RecommendationsModelManager&) = delete;
 
     static Option<nlohmann::json> get_model(const std::string& model_id);
-    static Option<std::string> add_model(nlohmann::json& model, const std::string& model_id, const bool write_to_disk);
+    static Option<std::string> add_model(nlohmann::json& model,std::string model_id, const bool write_to_disk, const std::string model_data = "");
     static Option<nlohmann::json> delete_model(const std::string& model_id);
     static Option<nlohmann::json> get_all_models();
+    static Option<nlohmann::json> update_model(const std::string& model_id, nlohmann::json model, const std::string& model_data);
     static Option<int> init(Store* store);
 
 private:

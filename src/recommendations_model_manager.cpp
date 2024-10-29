@@ -11,32 +11,35 @@ Option<nlohmann::json> RecommendationsModelManager::get_model(const std::string&
     return Option<nlohmann::json>(it->second);
 }
 
-Option<std::string> RecommendationsModelManager::add_model(nlohmann::json& model_json, const std::string& model_id, const bool write_to_disk) {
+Option<std::string> RecommendationsModelManager::add_model(nlohmann::json& model_json,std::string model_id, const bool write_to_disk, const std::string model_data) {
     std::unique_lock lock(models_mutex);
 
     if (models.find(model_id) != models.end()) {
-        return Option<std::string>(409, "Model already exists");
+        return Option<std::string>(409, "Model id already exists");
     }
 
     model_json["id"] = model_id.empty() ? sole::uuid4().str() : model_id;
+    model_id = model_json["id"];
     model_json["model_path"] = RecommendationsModel::get_model_subdir(model_json["id"]);
-
-
 
     auto validate_op = RecommendationsModel::validate_model(model_json);
     if(!validate_op.ok()) {
         return Option<std::string>(validate_op.code(), validate_op.error());
     }
 
-    models[model_json["id"]] = model_json;
 
     if(write_to_disk) {
         auto model_key = get_model_key(model_json["id"]);
+        auto create_op = RecommendationsModel::create_model(model_json["id"], model_json, model_data);
+        if(!create_op.ok()) {
+            return Option<std::string>(create_op.code(), create_op.error());
+        }
         bool insert_op = store->insert(model_key, model_json.dump(0));
         if(!insert_op) {
             return Option<std::string>(500, "Error while inserting model into the store");
         }
     }
+    models[model_json["id"]] = model_json;
 
     return Option<std::string>(model_id);
 }
@@ -86,9 +89,14 @@ Option<nlohmann::json> RecommendationsModelManager::delete_model(const std::stri
 
     nlohmann::json model = it->second;
 
+    auto delete_op = RecommendationsModel::delete_model(model_id);
+    if(!delete_op.ok()) {
+        return Option<nlohmann::json>(delete_op.code(), delete_op.error());
+    }
+
     auto model_key = get_model_key(model_id);
-    bool delete_op = store->remove(model_key);
-    if(!delete_op) {
+    bool remove_op = store->remove(model_key);
+    if(!remove_op) {
         return Option<nlohmann::json>(500, "Error while deleting model from the store");
     }
     
@@ -107,4 +115,38 @@ Option<nlohmann::json> RecommendationsModelManager::get_all_models() {
 
 const std::string RecommendationsModelManager::get_model_key(const std::string& model_id) {
     return std::string(MODEL_KEY_PREFIX) + "_" + model_id;
+}
+
+Option<nlohmann::json> RecommendationsModelManager::update_model(const std::string& model_id, nlohmann::json model, const std::string& model_data) {
+    std::unique_lock lock(models_mutex);
+    auto it = models.find(model_id);
+    if (it == models.end()) {
+        return Option<nlohmann::json>(404, "Model not found");
+    }
+
+    nlohmann::json model_copy = it->second;
+
+    for (auto& [key, value] : model.items()) {
+        model_copy[key] = value;
+    }
+
+    auto validate_res = RecommendationsModel::validate_model(model_copy);
+    if (!validate_res.ok()) {
+        return Option<nlohmann::json>(validate_res.code(), validate_res.error());
+    }
+
+    auto model_key = get_model_key(model_id);
+    bool insert_op = store->insert(model_key, model_copy.dump(0));
+    if(!insert_op) {
+        return Option<nlohmann::json>(500, "Error while inserting model into the store");
+    }
+
+    auto update_op = RecommendationsModel::update_model(model_id, model_copy, model_data);
+    if(!update_op.ok()) {
+        return Option<nlohmann::json>(update_op.code(), update_op.error());
+    }
+
+    models[model_id] = model_copy;
+
+    return Option<nlohmann::json>(model_copy);
 }
