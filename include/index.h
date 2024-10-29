@@ -817,8 +817,7 @@ public:
                                  spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                  std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                                  const std::vector<std::string>& group_by_fields,
-                                 const bool group_missing_values, const std::set<uint32_t>& curated_ids,
-                                 const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
+                                 const bool group_missing_values, const uint32_t* exclude_token_ids,
                                  size_t exclude_token_ids_size, const std::unordered_set<uint32_t>& excluded_group_ids,
                                  uint32_t*& all_result_ids, size_t& all_result_ids_len,
                                  filter_result_iterator_t* const filter_result_iterator,
@@ -831,8 +830,7 @@ public:
     Option<bool> search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
                               size_t max_extra_prefix, size_t max_extra_suffix) const;
 
-    void curate_filtered_ids(const std::set<uint32_t>& curated_ids,
-                             const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, uint32_t*& filter_ids,
+    void curate_filtered_ids(const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, uint32_t*& filter_ids,
                              uint32_t& filter_ids_length, const std::vector<uint32_t>& curated_ids_sorted) const;
 
     Option<bool> populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
@@ -926,14 +924,11 @@ public:
                                   const int sort_order[3],
                                   std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                                   const std::vector<size_t>& geopoint_indices,
-                                  const std::vector<uint32_t>& curated_ids_sorted,
                                   filter_result_iterator_t*& filter_result_iterator,
                                   uint32_t*& all_result_ids, size_t& all_result_ids_len,
                                   spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
-                                  const std::set<uint32_t>& curated_ids,
                                   const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
                                   const std::unordered_set<uint32_t>& excluded_group_ids,
-                                  Topster*& curated_topster,
                                   bool is_wildcard_query, const std::string& collection_name = "") const;
 
     [[nodiscard]] Option<bool> fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
