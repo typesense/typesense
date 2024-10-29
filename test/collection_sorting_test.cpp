@@ -2977,7 +2977,7 @@ TEST_F(CollectionSortingTest, TestSortByRandomOrder) {
     ASSERT_EQ("Could not find a field named `_random` in the schema for sorting.", results_op.error());
 }
 
-TEST_F(CollectionSortingTest, TestSortByOtherField) {
+TEST_F(CollectionSortingTest, DiffFunctionSort) {
     auto schema_json = R"({
             "name": "products",
             "fields":[
@@ -3001,7 +3001,7 @@ TEST_F(CollectionSortingTest, TestSortByOtherField) {
 
     //put 1728383250 + 3000 as base value
     sort_fields = {
-            sort_by("timestamp(origin: 1728386250)", "asc"),
+            sort_by("timestamp(origin: 1728386250, func: diff)", "asc"),
     };
 
     auto results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
@@ -3020,7 +3020,7 @@ TEST_F(CollectionSortingTest, TestSortByOtherField) {
 
     //desc sort
     sort_fields = {
-            sort_by("timestamp(origin: 1728386250)", "desc"),
+            sort_by("timestamp(func:diff, origin: 1728386250)", "desc"),
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0}).get();
@@ -3097,7 +3097,7 @@ TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0});
-    ASSERT_EQ("Bad syntax. origin and scale are mandatory params for decay function.", results.error());
+    ASSERT_EQ("Bad syntax. origin and scale are mandatory params for decay function linear", results.error());
 
     //missing origin param
     sort_fields = {
@@ -3105,7 +3105,7 @@ TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0});
-    ASSERT_EQ("Bad syntax. origin and scale are mandatory params for decay function.", results.error());
+    ASSERT_EQ("Bad syntax. origin and scale are mandatory params for decay function linear", results.error());
 
     //decay value should be between 0.0 to 1.0
     sort_fields = {
@@ -3115,13 +3115,21 @@ TEST_F(CollectionSortingTest, DecayFunctionsValidation) {
     results = coll->search("*", {}, "", {}, sort_fields, {0});
     ASSERT_EQ("sort_by: decay param should be float in range [0.0, 1.0].", results.error());
 
-    //only gauss, linear, and exp keys are supported for decay functions
+    //only gauss, linear, diff, and exp keys are supported for decay functions
     sort_fields = {
             sort_by("timestamp(origin: 1728386250, func: expo, scale: -10, decay: 0.4)", "asc"),
     };
 
     results = coll->search("*", {}, "", {}, sort_fields, {0});
     ASSERT_EQ("Bad syntax. Not a valid decay function key `expo`.", results.error());
+
+    //missing func
+    sort_fields = {
+            sort_by("timestamp(origin: 1728386250)", "asc"),
+    };
+
+    results = coll->search("*", {}, "", {}, sort_fields, {0});
+    ASSERT_EQ("Bad syntax. Missing param `func`.", results.error());
 
     //correct params
     sort_fields = {

@@ -4973,10 +4973,10 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         auto reference_found = true;
         auto const& is_reference_sort = !sort_fields[i].reference_collection_name.empty();
         auto is_random_sort = sort_fields[i].random_sort.is_enabled;
-        auto is_sort_with_origin_val = (sort_fields[i].origin_val != INT64_MAX
-                                       && sort_fields[i].sort_by_param == sort_by::origin);
-        auto is_decay_function_sort = (sort_fields[i].sort_by_param != sort_by::none
-                                        && !is_sort_with_origin_val);
+        auto is_decay_function_sort = (sort_fields[i].sort_by_param == sort_by::linear ||
+                                        sort_fields[i].sort_by_param == sort_by::exp ||
+                                        sort_fields[i].sort_by_param == sort_by::gauss ||
+                                        sort_fields[i].sort_by_param == sort_by::diff);
 
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
         if (is_reference_sort) {
@@ -5085,12 +5085,6 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         } else {
             if(is_random_sort) {
                 scores[i] = sort_fields[i].random_sort.generate_random();
-            } else if(is_sort_with_origin_val) {
-                auto sort_index_it = sort_index.find(sort_fields[i].name);
-                auto val = get_doc_val_from_sort_index(sort_index_it, seq_id);
-                if(val != INT64_MAX) {
-                    scores[i] = std::abs(sort_fields[i].origin_val - val);
-                }
             } else if(is_decay_function_sort) {
                 auto score = compute_decay_function_score(sort_fields[i], seq_id);
                 if(score == INT64_MAX) {
@@ -7993,6 +7987,9 @@ float Index::compute_decay_function_score(const sort_by& sort_field, uint32_t se
         case sort_by::linear:
             variance = sort_field.scale/(1.0 - sort_field.decay_val);
             res = std::max((double)0.f, (variance - std::max((int64_t)0, origin_distance_with_offset))/variance);
+            break;
+        case sort_by::diff:
+            res = origin_distance_with_offset;
             break;
         default:
             break;

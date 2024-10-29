@@ -439,6 +439,7 @@ namespace sort_field_const {
     static const std::string offset = "offset";
     static const std::string decay = "decay";
     static const std::string func = "func";
+    static const std::string diff = "diff";
 }
 
 namespace ref_include {
@@ -513,7 +514,7 @@ struct sort_by {
 
     enum sort_by_params_t {
         none,
-        origin,
+        diff,
         gauss,
         exp,
         linear,

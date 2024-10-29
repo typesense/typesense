@@ -1408,7 +1408,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                         if(param_parts[0] == sort_field_const::func) {
                             if(param_parts[1]!= sort_field_const::gauss && param_parts[1]!= sort_field_const::exp
-                               && param_parts[1]!= sort_field_const::linear) {
+                               && param_parts[1]!= sort_field_const::linear && param_parts[1]!= sort_field_const::diff) {
                                 return Option<bool>(400, "Bad syntax. Not a valid decay function key `" + param_parts[1] + "`.");
                             }
                             auto action_op = magic_enum::enum_cast<sort_by::sort_by_params_t>(param_parts[1]);
@@ -1454,13 +1454,21 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                         }
                     }
 
-                    if(sort_field_std.sort_by_param != sort_by::none && (sort_field_std.origin_val == INT64_MAX
-                        || sort_field_std.scale == INT64_MAX)) {
-                        return Option<bool>(400, "Bad syntax. origin and scale are mandatory params for decay function.");
-                    } else if(sort_field_std.sort_by_param == sort_by::none && sort_field_std.origin_val != INT64_MAX) {
-                        //it's an origin based pivot sort
-                        sort_field_std.sort_by_param = sort_by::origin;
+                    if((sort_field_std.sort_by_param == sort_by::linear || sort_field_std.sort_by_param == sort_by::exp ||
+                        sort_field_std.sort_by_param == sort_by::gauss) && (sort_field_std.origin_val == INT64_MAX ||
+                        sort_field_std.scale == INT64_MAX)) {
+                            return Option<bool>(400, "Bad syntax. origin and scale are mandatory params for decay function "
+                                + std::string(magic_enum::enum_name(sort_field_std.sort_by_param)));
+
+                    } else if(sort_field_std.sort_by_param == sort_by::diff && sort_field_std.origin_val == INT64_MAX) {
+                            return Option<bool>(400, "Bad syntax. origin param is mandatory for diff function.");
+
+                    } else if(sort_field_std.sort_by_param != sort_by::linear && sort_field_std.sort_by_param != sort_by::exp &&
+                              sort_field_std.sort_by_param != sort_by::gauss && sort_field_std.sort_by_param != sort_by::diff &&
+                              sort_field_std.origin_val != INT64_MAX) {
+                            return Option<bool>(400, "Bad syntax. Missing param `func`.");
                     }
+
                 } else {
                     const std::string& geo_coordstr = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
 
