@@ -2461,7 +2461,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                        enable_typos_for_numerical_tokens, enable_synonyms, synonym_prefix,
                                        synonyms_num_typos, enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches);
 
-    // filter_tree_root might be updated in Index::static_filter_query_eval.
+    // filter_tree_root might've been updated during search. Example: Index::static_filter_query_eval.
     filter_tree_root_guard.release();
     filter_tree_root_guard.reset(filter_tree_root);
 

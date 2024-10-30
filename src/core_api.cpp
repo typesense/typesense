@@ -671,7 +671,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     nlohmann::json response;
-    response["results"] = nlohmann::json::array();
 
     nlohmann::json& searches = req_json["searches"];
 
@@ -702,7 +701,14 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
     }
 
-    bool conversation = orig_req_params["conversation"] == "true";
+    const char* UNION_RESULT = "union_result";
+    auto is_union = false;
+    auto it = req_json.find(UNION_RESULT);
+    if (it != req_json.end() && it.value().is_boolean()) {
+        is_union = it.value();
+    }
+
+    bool conversation = orig_req_params["conversation"] == "true" && !is_union;
     bool conversation_history = orig_req_params.find("conversation_id") != orig_req_params.end();
     std::string common_query;
 
@@ -758,85 +764,48 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
     }
 
-    for(size_t i = 0; i < searches.size(); i++) {
-        auto& search_params = searches[i];
-
-        if(!search_params.is_object()) {
-            res->set_400("The value of `searches` must be an array of objects.");
+    if (is_union) {
+        Option<bool> union_op = CollectionManager::do_union(req->params, req->embedded_params_vec, searches,
+                                                            response, req->conn_ts);
+        if(!union_op.ok() && union_op.code() == 408) {
+            res->set(union_op.code(), union_op.error());
+            req->overloaded = true;
             return false;
         }
+    } else {
+        response["results"] = nlohmann::json::array();
 
-        req->params = orig_req_params;
+        for(size_t i = 0; i < searches.size(); i++) {
+            auto& search_params = searches[i];
+            req->params = orig_req_params;
 
-        for(auto& search_item: search_params.items()) {
-            if(search_item.key() == "cache_ttl") {
-                // cache ttl can be applied only from an embedded key: cannot be a multi search param
-                continue;
-            }
-
-            if(conversation && search_item.key() == "q") {
-                // q is common for all searches
-                res->set_400("`q` parameter cannot be used in POST body if `conversation` is enabled. Please set `q` as a query parameter in the request, instead of inside the POST body");
+            auto validate_op = multi_search_validate_and_add_params(req->params, search_params, conversation);
+            if (!validate_op.ok()) {
+                res->set_400(validate_op.error());
                 return false;
             }
 
-            if(conversation && search_item.key() == "conversation_model_id") {
-                // conversation_model_id is common for all searches
-                res->set_400("`conversation_model_id` cannot be used in POST body. Please set `conversation_model_id` as a query parameter in the request, instead of inside the POST body");
-                return false;
+            std::string results_json_str;
+            Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i],
+                                                                  results_json_str, req->conn_ts);
+
+            if(search_op.ok()) {
+                auto results_json = nlohmann::json::parse(results_json_str);
+                if(conversation) {
+                    results_json["request_params"]["q"] = common_query;
+                }
+                response["results"].push_back(results_json);
+            } else {
+                if(search_op.code() == 408) {
+                    res->set(search_op.code(), search_op.error());
+                    req->overloaded = true;
+                    return false;
+                }
+                nlohmann::json err_res;
+                err_res["error"] = search_op.error();
+                err_res["code"] = search_op.code();
+                response["results"].push_back(err_res);
             }
-
-            if(conversation && search_item.key() == "conversation_id") {
-                // conversation_id is common for all searches
-                res->set_400("`conversation_id` cannot be used in POST body. Please set `conversation_id` as a query parameter in the request, instead of inside the POST body");
-                return false;
-            }
-
-            if(search_item.key() == "conversation") {
-                res->set_400("`conversation` cannot be used in POST body. Please set `conversation` as a query parameter in the request, instead of inside the POST body");
-                return false;
-            }
-
-            // overwrite = false since req params will contain embedded params and so has higher priority
-            bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
-            if(!populated) {
-                res->set_400("One or more search parameters are malformed.");
-                return false;
-            }
-        }
-
-        if(req->params.count("conversation") != 0) {
-            req->params.erase("conversation");
-        }
-
-        if(req->params.count("conversation_id") != 0) {
-            req->params.erase("conversation_id");
-        }
-
-        if(req->params.count("conversation_model_id") != 0) {
-            req->params.erase("conversation_model_id");
-        }
-
-        std::string results_json_str;
-        Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i],
-                                                              results_json_str, req->conn_ts);
-
-        if(search_op.ok()) {
-            auto results_json = nlohmann::json::parse(results_json_str);
-            if(conversation) {
-                results_json["request_params"]["q"] = common_query;
-            }
-            response["results"].push_back(results_json);
-        } else {
-            if(search_op.code() == 408) {
-                res->set(search_op.code(), search_op.error());
-                req->overloaded = true;
-                return false;
-            }
-            nlohmann::json err_res;
-            err_res["error"] = search_op.error();
-            err_res["code"] = search_op.code();
-            response["results"].push_back(err_res);
         }
     }
 

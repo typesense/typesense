@@ -11,6 +11,7 @@
 #include "stopwords_manager.h"
 #include "conversation_model.h"
 #include "field.h"
+#include "core_api_utils.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -1195,119 +1196,7 @@ Option<bool> add_unsigned_int_list_param(const std::string& param_name, const st
     return Option<bool>(true);
 }
 
-Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
-                                          nlohmann::json& embedded_params,
-                                          std::string& results_json_str,
-                                          uint64_t start_ts) {
-
-    auto begin = std::chrono::high_resolution_clock::now();
-
-    const char *NUM_TYPOS = "num_typos";
-    const char *MIN_LEN_1TYPO = "min_len_1typo";
-    const char *MIN_LEN_2TYPO = "min_len_2typo";
-
-    const char *PREFIX = "prefix";
-    const char *DROP_TOKENS_THRESHOLD = "drop_tokens_threshold";
-    const char *TYPO_TOKENS_THRESHOLD = "typo_tokens_threshold";
-    const char *FILTER = "filter_by";
-    const char *QUERY = "q";
-    const char *QUERY_BY = "query_by";
-    const char *QUERY_BY_WEIGHTS = "query_by_weights";
-    const char *SORT_BY = "sort_by";
-
-    const char *FACET_BY = "facet_by";
-    const char *FACET_QUERY = "facet_query";
-    const char *FACET_QUERY_NUM_TYPOS = "facet_query_num_typos";
-    const char *MAX_FACET_VALUES = "max_facet_values";
-    const char *FACET_STRATEGY = "facet_strategy";
-
-    const char *FACET_RETURN_PARENT = "facet_return_parent";
-
-    const char *VECTOR_QUERY = "vector_query";
-
-    const char* REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
-    const char* REMOTE_EMBEDDING_NUM_TRIES = "remote_embedding_num_tries";
-
-    const char *GROUP_BY = "group_by";
-    const char *GROUP_LIMIT = "group_limit";
-    const char *GROUP_MISSING_VALUES = "group_missing_values";
-
-    const char *LIMIT_HITS = "limit_hits";
-    const char *PER_PAGE = "per_page";
-    const char *PAGE = "page";
-    const char *OFFSET = "offset";
-    const char *LIMIT = "limit";
-    const char *RANK_TOKENS_BY = "rank_tokens_by";
-    const char *INCLUDE_FIELDS = "include_fields";
-    const char *EXCLUDE_FIELDS = "exclude_fields";
-
-    const char *PINNED_HITS = "pinned_hits";
-    const char *HIDDEN_HITS = "hidden_hits";
-    const char *ENABLE_OVERRIDES = "enable_overrides";
-    const char *FILTER_CURATED_HITS = "filter_curated_hits";
-    const char *ENABLE_SYNONYMS = "enable_synonyms";
-
-    const char *MAX_CANDIDATES = "max_candidates";
-
-    const char *INFIX = "infix";
-    const char *MAX_EXTRA_PREFIX = "max_extra_prefix";
-    const char *MAX_EXTRA_SUFFIX = "max_extra_suffix";
-
-    // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
-    const char *SNIPPET_THRESHOLD = "snippet_threshold";
-
-    // the number of tokens that should surround the highlighted text
-    const char *HIGHLIGHT_AFFIX_NUM_TOKENS = "highlight_affix_num_tokens";
-
-    // list of fields which will be highlighted fully without snippeting
-    const char *HIGHLIGHT_FULL_FIELDS = "highlight_full_fields";
-    const char *HIGHLIGHT_FIELDS = "highlight_fields";
-
-    const char *HIGHLIGHT_START_TAG = "highlight_start_tag";
-    const char *HIGHLIGHT_END_TAG = "highlight_end_tag";
-
-    const char *PRIORITIZE_EXACT_MATCH = "prioritize_exact_match";
-    const char *PRIORITIZE_TOKEN_POSITION = "prioritize_token_position";
-    const char *PRE_SEGMENTED_QUERY = "pre_segmented_query";
-
-    const char *SEARCH_CUTOFF_MS = "search_cutoff_ms";
-    const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
-    const char *SPLIT_JOIN_TOKENS = "split_join_tokens";
-
-    const char *TEXT_MATCH_TYPE = "text_match_type";
-
-    const char *ENABLE_HIGHLIGHT_V1 = "enable_highlight_v1";
-
-    const char *FACET_SAMPLE_PERCENT = "facet_sample_percent";
-    const char *FACET_SAMPLE_THRESHOLD = "facet_sample_threshold";
-
-    const char *CONVERSATION = "conversation";
-    const char *CONVERSATION_ID = "conversation_id";
-    const char *SYSTEM_PROMPT = "system_prompt";
-    const char *CONVERSATION_MODEL_ID = "conversation_model_id";
-
-    const char *DROP_TOKENS_MODE = "drop_tokens_mode";
-    const char *PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
-    const char *OVERRIDE_TAGS = "override_tags";
-
-    const char *VOICE_QUERY = "voice_query";
-
-    const char *ENABLE_TYPOS_FOR_NUMERICAL_TOKENS = "enable_typos_for_numerical_tokens";
-    const char *ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS = "enable_typos_for_alpha_numerical_tokens";
-    const char *ENABLE_LAZY_FILTER = "enable_lazy_filter";
-    const char *MAX_FILTER_BY_CANDIDATES = "max_filter_by_candidates";
-
-    const char *SYNONYM_PREFIX = "synonym_prefix";
-    const char *SYNONYM_NUM_TYPOS = "synonym_num_typos";
-
-    //query time flag to enable analyitcs for that query
-    const char *ENABLE_ANALYTICS = "enable_analytics";
-
-    //for hybrid search, compute text_match_score for only vector search results and vector_distance for only text_match results
-    const char* RERANK_HYBRID_MATCHES = "rerank_hybrid_matches";
-
-    const char* VALIDATE_FIELD_NAMES = "validate_field_names";
-
+Option<bool> apply_embedded_params(nlohmann::json& embedded_params, std::map<std::string, std::string>& req_params) {
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -1320,6 +1209,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         }
     }
 
+    return Option<bool>(true);
+}
+
+Option<bool> apply_preset(std::map<std::string, std::string>& req_params) {
     const auto preset_it = req_params.find("preset");
 
     if(preset_it != req_params.end()) {
@@ -1343,9 +1236,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         }
     }
 
+    return Option<bool>(true);
+}
+
+Option<bool> get_stopword_set(const std::map<std::string, std::string>& req_params, std::string& stopwords_set) {
     //check if stopword set is supplied
     const auto stopword_it = req_params.find("stopwords");
-    std::string stopwords_set="";
 
     if(stopword_it != req_params.end()) {
         stopwords_set = stopword_it->second;
@@ -1353,6 +1249,183 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         if(!StopwordsManager::get_instance().stopword_exists(stopwords_set)) {
             return Option<bool>(404, "Could not find the stopword set named `" + stopwords_set + "`.");
         }
+    }
+
+    return Option<bool>(true);
+}
+
+void update_app_metrics(const uint64_t& timeMillis) {
+    AppMetrics::get_instance().increment_count(AppMetrics::SEARCH_LABEL, 1);
+    AppMetrics::get_instance().increment_duration(AppMetrics::SEARCH_LABEL, timeMillis);
+}
+
+Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req_params,
+                                         std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
+                                         nlohmann::json& response, uint64_t start_ts) {
+    auto const orig_req_params = req_params;
+    Option<bool> union_return = Option<bool>(true);
+
+    for(size_t i = 0; i < searches.size(); i++) {
+        auto& search_params = searches[i];
+        req_params = orig_req_params;
+
+        auto validate_op = multi_search_validate_and_add_params(req_params, search_params, false);
+        if (!validate_op.ok()) {
+            union_return = std::move(validate_op);
+            break;
+        }
+
+        auto begin = std::chrono::high_resolution_clock::now();
+        // todo: check equality of lengths:
+
+        auto& embedded_params = embedded_params_vec[i];
+        // enrich params with values from embedded params
+        auto apply_embedded_params_op = apply_embedded_params(embedded_params, req_params);
+        if (!apply_embedded_params_op.ok()) {
+            union_return = std::move(apply_embedded_params_op);
+            break;
+        }
+
+        auto apply_preset_op = apply_preset(req_params);
+        if (!apply_preset_op.ok()) {
+            union_return = std::move(apply_preset_op);
+            break;
+        }
+
+        std::string stopwords_set;
+        auto get_stopwords_op = get_stopword_set(req_params, stopwords_set);
+        if (!get_stopwords_op.ok()) {
+            union_return = std::move(get_stopwords_op);
+            break;
+        }
+
+        CollectionManager & collectionManager = CollectionManager::get_instance();
+        const std::string& orig_coll_name = req_params["collection"];
+        auto collection = collectionManager.get_collection(orig_coll_name);
+
+        if (collection == nullptr) {
+            union_return = Option<bool>(404, "`" + orig_coll_name + "` collection not found.");
+            break;
+        }
+
+        collection_search_args args;
+        auto init_op = collection_search_args::init(req_params, collection->get_num_documents(), stopwords_set, start_ts,
+                                                    args);
+        if (!init_op.ok()) {
+            union_return = std::move(init_op);
+            break;
+        }
+
+        Option<nlohmann::json> result_op = collection->search(args.raw_query, args.search_fields, args.filter_query, args.facet_fields,
+                                                              args.sort_fields, args.num_typos,
+                                                              args.per_page,
+                                                              args.page,
+                                                              args.token_order, args.prefixes, args.drop_tokens_threshold,
+                                                              args.include_fields, args.exclude_fields,
+                                                              args.max_facet_values,
+                                                              args.simple_facet_query,
+                                                              args.snippet_threshold,
+                                                              args.highlight_affix_num_tokens,
+                                                              args.highlight_full_fields,
+                                                              args.typo_tokens_threshold,
+                                                              args.pinned_hits_str,
+                                                              args.hidden_hits_str,
+                                                              args.group_by_fields,
+                                                              args.group_limit,
+                                                              args.highlight_start_tag,
+                                                              args.highlight_end_tag,
+                                                              args.query_by_weights,
+                                                              args.limit_hits,
+                                                              args.prioritize_exact_match,
+                                                              args.pre_segmented_query,
+                                                              args.enable_overrides,
+                                                              args.highlight_fields,
+                                                              args.exhaustive_search,
+                                                              args.search_cutoff_ms,
+                                                              args.min_len_1typo,
+                                                              args.min_len_2typo,
+                                                              args.split_join_tokens,
+                                                              args.max_candidates,
+                                                              args.infixes,
+                                                              args.max_extra_prefix,
+                                                              args.max_extra_suffix,
+                                                              args.facet_query_num_typos,
+                                                              args.filter_curated_hits_option,
+                                                              args.prioritize_token_position,
+                                                              args.vector_query,
+                                                              args.enable_highlight_v1,
+                                                              args.start_ts,
+                                                              args.match_type,
+                                                              args.facet_sample_percent,
+                                                              args.facet_sample_threshold,
+                                                              args.offset,
+                                                              args.facet_strategy,
+                                                              args.remote_embedding_timeout_ms,
+                                                              args.remote_embedding_num_tries,
+                                                              args.stopwords_set,
+                                                              args.facet_return_parent,
+                                                              args.ref_include_exclude_fields_vec,
+                                                              args.drop_tokens_mode_str,
+                                                              args.prioritize_num_matching_fields,
+                                                              args.group_missing_values,
+                                                              args.conversation,
+                                                              args.conversation_model_id,
+                                                              args.conversation_id,
+                                                              args.override_tags,
+                                                              args.voice_query,
+                                                              args.enable_typos_for_numerical_tokens,
+                                                              args.enable_synonyms,
+                                                              args.synonym_prefix,
+                                                              args.synonym_num_typos,
+                                                              args.enable_lazy_filter,
+                                                              args.enable_typos_for_alpha_numerical_tokens,
+                                                              args.max_filter_by_candidates,
+                                                              args.rerank_hybrid_matches);
+
+        auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                            std::chrono::high_resolution_clock::now() - begin).count();
+        update_app_metrics(timeMillis);
+
+        if(!result_op.ok()) {
+            union_return = Option<bool>(result_op.code(), result_op.error());
+            break;
+        }
+
+        // todo: do union
+    }
+
+    if (!union_return.ok()) {
+        response["error"] = union_return.error();
+        response["code"] = union_return.code();
+    } else {
+        // todo: add union result into `response`.
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
+                                          nlohmann::json& embedded_params,
+                                          std::string& results_json_str,
+                                          uint64_t start_ts) {
+
+    auto begin = std::chrono::high_resolution_clock::now();
+
+    // enrich params with values from embedded params
+    auto const apply_embedded_params_op = apply_embedded_params(embedded_params, req_params);
+    if (!apply_embedded_params_op.ok()) {
+        return apply_embedded_params_op;
+    }
+
+    auto const apply_preset_op = apply_preset(req_params);
+    if (!apply_preset_op.ok()) {
+        return apply_preset_op;
+    }
+
+    std::string stopwords_set;
+    auto const get_stopwords_op = get_stopword_set(req_params, stopwords_set);
+    if (!get_stopwords_op.ok()) {
+        return get_stopwords_op;
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -1363,394 +1436,82 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         return Option<bool>(404, "Not found.");
     }
 
-    // check presence of mandatory params here
-
-    if(req_params.count(QUERY) == 0 && req_params.count(VOICE_QUERY) == 0) {
-        return Option<bool>(400, std::string("Parameter `") + QUERY + "` is required.");
+    collection_search_args args;
+    auto init_op = collection_search_args::init(req_params, collection->get_num_documents(), stopwords_set, start_ts,
+                                                args);
+    if (!init_op.ok()) {
+        return init_op;
     }
 
-    // end check for mandatory params
+    Option<nlohmann::json> result_op = collection->search(args.raw_query, args.search_fields, args.filter_query, args.facet_fields,
+                                                          args.sort_fields, args.num_typos,
+                                                          args.per_page,
+                                                          args.page,
+                                                          args.token_order, args.prefixes, args.drop_tokens_threshold,
+                                                          args.include_fields, args.exclude_fields,
+                                                          args.max_facet_values,
+                                                          args.simple_facet_query,
+                                                          args.snippet_threshold,
+                                                          args.highlight_affix_num_tokens,
+                                                          args.highlight_full_fields,
+                                                          args.typo_tokens_threshold,
+                                                          args.pinned_hits_str,
+                                                          args.hidden_hits_str,
+                                                          args.group_by_fields,
+                                                          args.group_limit,
+                                                          args.highlight_start_tag,
+                                                          args.highlight_end_tag,
+                                                          args.query_by_weights,
+                                                          args.limit_hits,
+                                                          args.prioritize_exact_match,
+                                                          args.pre_segmented_query,
+                                                          args.enable_overrides,
+                                                          args.highlight_fields,
+                                                          args.exhaustive_search,
+                                                          args.search_cutoff_ms,
+                                                          args.min_len_1typo,
+                                                          args.min_len_2typo,
+                                                          args.split_join_tokens,
+                                                          args.max_candidates,
+                                                          args.infixes,
+                                                          args.max_extra_prefix,
+                                                          args.max_extra_suffix,
+                                                          args.facet_query_num_typos,
+                                                          args.filter_curated_hits_option,
+                                                          args.prioritize_token_position,
+                                                          args.vector_query,
+                                                          args.enable_highlight_v1,
+                                                          args.start_ts,
+                                                          args.match_type,
+                                                          args.facet_sample_percent,
+                                                          args.facet_sample_threshold,
+                                                          args.offset,
+                                                          args.facet_strategy,
+                                                          args.remote_embedding_timeout_ms,
+                                                          args.remote_embedding_num_tries,
+                                                          args.stopwords_set,
+                                                          args.facet_return_parent,
+                                                          args.ref_include_exclude_fields_vec,
+                                                          args.drop_tokens_mode_str,
+                                                          args.prioritize_num_matching_fields,
+                                                          args.group_missing_values,
+                                                          args.conversation,
+                                                          args.conversation_model_id,
+                                                          args.conversation_id,
+                                                          args.override_tags,
+                                                          args.voice_query,
+                                                          args.enable_typos_for_numerical_tokens,
+                                                          args.enable_synonyms,
+                                                          args.synonym_prefix,
+                                                          args.synonym_num_typos,
+                                                          args.enable_lazy_filter,
+                                                          args.enable_typos_for_alpha_numerical_tokens,
+                                                          args.max_filter_by_candidates,
+                                                          args.rerank_hybrid_matches);
 
-    const std::string& raw_query = req_params[QUERY];
-    std::vector<uint32_t> num_typos = {2};
-    size_t min_len_1typo = 4;
-    size_t min_len_2typo = 7;
-    std::vector<bool> prefixes = {true};
-    size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD;
-    size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD;
-
-    std::vector<std::string> search_fields;
-    std::string filter_query;
-    std::vector<std::string> facet_fields;
-    std::vector<sort_by> sort_fields;
-    size_t per_page = 10;
-    size_t page = 0;
-    size_t offset = 0;
-    token_ordering token_order = NOT_SET;
-
-    std::vector<std::string> facet_return_parent;
-
-    std::string vector_query;
-
-    std::vector<std::string> include_fields_vec;
-    std::vector<std::string> exclude_fields_vec;
-    std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec;
-    spp::sparse_hash_set<std::string> include_fields;
-    spp::sparse_hash_set<std::string> exclude_fields;
-
-    size_t max_facet_values = 10;
-    std::string simple_facet_query;
-    size_t facet_query_num_typos = 2;
-    size_t snippet_threshold = 30;
-    size_t highlight_affix_num_tokens = 4;
-    std::string highlight_full_fields;
-    std::string pinned_hits_str;
-    std::string hidden_hits_str;
-    std::vector<std::string> group_by_fields;
-    size_t group_limit = 3;
-    bool group_missing_values = true;
-    std::string highlight_start_tag = "<mark>";
-    std::string highlight_end_tag = "</mark>";
-    std::vector<uint32_t> query_by_weights;
-    size_t limit_hits = 1000000;
-    bool prioritize_exact_match = true;
-    bool prioritize_token_position = false;
-    bool pre_segmented_query = false;
-    bool enable_overrides = true;
-    bool enable_synonyms = true;
-    bool synonym_prefix = false;
-    size_t synonym_num_typos = 0;
-
-    bool filter_curated_hits_option = false;
-    std::string highlight_fields;
-    bool exhaustive_search = false;
-    size_t search_cutoff_ms = 30 * 1000;
-    enable_t split_join_tokens = fallback;
-    size_t max_candidates = 0;
-    std::vector<enable_t> infixes;
-    size_t max_extra_prefix = INT16_MAX;
-    size_t max_extra_suffix = INT16_MAX;
-    bool enable_highlight_v1 = true;
-    text_match_type_t match_type = max_score;
-    bool enable_typos_for_numerical_tokens = true;
-    bool enable_typos_for_alpha_numerical_tokens = true;
-    bool enable_lazy_filter = Config::get_instance().get_enable_lazy_filter();
-    size_t max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES;
-
-    std::string facet_strategy = "automatic";
-
-    size_t remote_embedding_timeout_ms = 5000;
-    size_t remote_embedding_num_tries = 2;
-    
-    size_t facet_sample_percent = 100;
-    size_t facet_sample_threshold = 0;
-
-    bool conversation = false;
-    std::string conversation_id;
-    std::string conversation_model_id;
-
-    std::string drop_tokens_mode_str = "right_to_left";
-    bool prioritize_num_matching_fields = true;
-    std::string override_tags;
-
-    std::string voice_query;
-    bool enable_analytics = true;
-    bool rerank_hybrid_matches = false;
-    bool validate_field_names = true;
-
-    std::unordered_map<std::string, size_t*> unsigned_int_values = {
-        {MIN_LEN_1TYPO, &min_len_1typo},
-        {MIN_LEN_2TYPO, &min_len_2typo},
-        {DROP_TOKENS_THRESHOLD, &drop_tokens_threshold},
-        {TYPO_TOKENS_THRESHOLD, &typo_tokens_threshold},
-        {MAX_FACET_VALUES, &max_facet_values},
-        {LIMIT_HITS, &limit_hits},
-        {SNIPPET_THRESHOLD, &snippet_threshold},
-        {HIGHLIGHT_AFFIX_NUM_TOKENS, &highlight_affix_num_tokens},
-        {PAGE, &page},
-        {OFFSET, &offset},
-        {PER_PAGE, &per_page},
-        {LIMIT, &per_page},
-        {GROUP_LIMIT, &group_limit},
-        {SEARCH_CUTOFF_MS, &search_cutoff_ms},
-        {MAX_EXTRA_PREFIX, &max_extra_prefix},
-        {MAX_EXTRA_SUFFIX, &max_extra_suffix},
-        {MAX_CANDIDATES, &max_candidates},
-        {FACET_QUERY_NUM_TYPOS, &facet_query_num_typos},
-        {FACET_SAMPLE_PERCENT, &facet_sample_percent},
-        {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
-        {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
-        {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
-        {SYNONYM_NUM_TYPOS, &synonym_num_typos},
-        {MAX_FILTER_BY_CANDIDATES, &max_filter_by_candidates}
-    };
-
-    std::unordered_map<std::string, std::string*> str_values = {
-        {FILTER, &filter_query},
-        {VECTOR_QUERY, &vector_query},
-        {FACET_QUERY, &simple_facet_query},
-        {HIGHLIGHT_FIELDS, &highlight_fields},
-        {HIGHLIGHT_FULL_FIELDS, &highlight_full_fields},
-        {HIGHLIGHT_START_TAG, &highlight_start_tag},
-        {HIGHLIGHT_END_TAG, &highlight_end_tag},
-        {PINNED_HITS, &pinned_hits_str},
-        {HIDDEN_HITS, &hidden_hits_str},
-        {CONVERSATION_ID, &conversation_id},
-        {DROP_TOKENS_MODE, &drop_tokens_mode_str},
-        {OVERRIDE_TAGS, &override_tags},
-        {CONVERSATION_MODEL_ID, &conversation_model_id},
-        {VOICE_QUERY, &voice_query},
-        {FACET_STRATEGY, &facet_strategy},
-    };
-
-    std::unordered_map<std::string, bool*> bool_values = {
-        {PRIORITIZE_EXACT_MATCH, &prioritize_exact_match},
-        {PRIORITIZE_TOKEN_POSITION, &prioritize_token_position},
-        {PRE_SEGMENTED_QUERY, &pre_segmented_query},
-        {EXHAUSTIVE_SEARCH, &exhaustive_search},
-        {ENABLE_OVERRIDES, &enable_overrides},
-        {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
-        {CONVERSATION, &conversation},
-        {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
-        {GROUP_MISSING_VALUES, &group_missing_values},
-        {ENABLE_TYPOS_FOR_NUMERICAL_TOKENS, &enable_typos_for_numerical_tokens},
-        {ENABLE_SYNONYMS, &enable_synonyms},
-        {SYNONYM_PREFIX, &synonym_prefix},
-        {ENABLE_LAZY_FILTER, &enable_lazy_filter},
-        {ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS, &enable_typos_for_alpha_numerical_tokens},
-        {FILTER_CURATED_HITS, &filter_curated_hits_option},
-        {ENABLE_ANALYTICS, &enable_analytics},
-        {RERANK_HYBRID_MATCHES, &rerank_hybrid_matches},
-        {VALIDATE_FIELD_NAMES, &validate_field_names}
-    };
-
-    std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
-        {QUERY_BY, &search_fields},
-        {FACET_BY, &facet_fields},
-        {GROUP_BY, &group_by_fields},
-        {INCLUDE_FIELDS, &include_fields_vec},
-        {EXCLUDE_FIELDS, &exclude_fields_vec},
-        {FACET_RETURN_PARENT, &facet_return_parent},
-    };
-
-    std::unordered_map<std::string, std::vector<uint32_t>*> int_list_values = {
-        {QUERY_BY_WEIGHTS, &query_by_weights},
-        {NUM_TYPOS, &num_typos},
-    };
-
-    for(const auto& kv: req_params) {
-        const std::string& key = kv.first;
-        const std::string& val = kv.second;
-
-        if(key == PREFIX) {
-            if(val == "true" || val == "false") {
-                prefixes = {(val == "true")};
-            } else {
-                prefixes.clear();
-                std::vector<std::string> prefix_str;
-                StringUtils::split(val, prefix_str, ",");
-                for(auto& prefix_s : prefix_str) {
-                    prefixes.push_back(prefix_s == "true");
-                }
-            }
-        }
-
-        else if(key == SPLIT_JOIN_TOKENS) {
-            if(val == "false") {
-                split_join_tokens = off;
-            } else if(val == "true") {
-                split_join_tokens = fallback;
-            } else {
-                auto enable_op = magic_enum::enum_cast<enable_t>(val);
-                if(enable_op.has_value()) {
-                    split_join_tokens = enable_op.value();
-                }
-            }
-        }
-
-        else if(key == TEXT_MATCH_TYPE) {
-            auto match_op = magic_enum::enum_cast<text_match_type_t>(val);
-            if(match_op.has_value()) {
-                match_type = match_op.value();
-            }
-        }
-
-        else {
-            auto find_int_it = unsigned_int_values.find(key);
-            if(find_int_it != unsigned_int_values.end()) {
-                const auto& op = add_unsigned_int_param(key, val, find_int_it->second);
-                if(!op.ok()) {
-                    return op;
-                }
-
-                continue;
-            }
-
-            auto find_str_it = str_values.find(key);
-            if(find_str_it != str_values.end()) {
-                *find_str_it->second = val;
-                continue;
-            }
-
-            auto find_bool_it = bool_values.find(key);
-            if(find_bool_it != bool_values.end()) {
-                *find_bool_it->second = (val == "true");
-                continue;
-            }
-
-            auto find_str_list_it = str_list_values.find(key);
-            if(find_str_list_it != str_list_values.end()) {
-
-                if(key == FACET_BY){
-                    StringUtils::split_facet(val, *find_str_list_it->second);
-                }
-                else if(key == INCLUDE_FIELDS || key == EXCLUDE_FIELDS){
-                    auto op = StringUtils::split_include_exclude_fields(val, *find_str_list_it->second);
-                    if (!op.ok()) {
-                        return op;
-                    }
-                }
-                else{
-                    StringUtils::split(val, *find_str_list_it->second, ",");
-                }
-                continue;
-            }
-
-            auto find_int_list_it = int_list_values.find(key);
-            if(find_int_list_it != int_list_values.end()) {
-                add_unsigned_int_list_param(key, val, find_int_list_it->second);
-                continue;
-            }
-        }
-    }
-
-    // special defaults
-    if(!req_params[FACET_QUERY].empty() && req_params.count(PER_PAGE) == 0) {
-        // for facet query we will set per_page to zero if it is not explicitly overridden
-        per_page = 0;
-    }
-
-    auto initialize_op = Join::initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec, exclude_fields_vec,
-                                                                         ref_include_exclude_fields_vec);
-    if (!initialize_op.ok()) {
-        return initialize_op;
-    }
-
-    include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
-    exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
-
-    bool parsed_sort_by = parse_sort_by_str(req_params[SORT_BY], sort_fields);
-
-    if(!parsed_sort_by) {
-        return Option<bool>(400,std::string("Parameter `") + SORT_BY + "` is malformed.");
-    }
-
-    if(sort_fields.size() > 3) {
-        return Option<bool>(400, "Only upto 3 sort fields are allowed.");
-    }
-
-    if(req_params.count(INFIX) != 0) {
-        std::vector<std::string> infix_strs;
-        StringUtils::split(req_params[INFIX], infix_strs, ",");
-
-        for(auto& infix_str: infix_strs) {
-            auto infix_op = magic_enum::enum_cast<enable_t>(infix_str);
-            if(infix_op.has_value()) {
-                infixes.push_back(infix_op.value());
-            }
-        }
-    } else {
-        infixes.push_back(off);
-    }
-
-    if(req_params.count(RANK_TOKENS_BY) != 0) {
-        StringUtils::toupper(req_params[RANK_TOKENS_BY]);
-        if (req_params[RANK_TOKENS_BY] == "DEFAULT_SORTING_FIELD") {
-            token_order = MAX_SCORE;
-        } else if(req_params[RANK_TOKENS_BY] == "FREQUENCY") {
-            token_order = FREQUENCY;
-        }
-    }
-
-    if(!max_candidates) {
-        max_candidates = exhaustive_search ? Index::COMBINATION_MAX_LIMIT :
-                         (collection->get_num_documents() < 500000 ? Index::NUM_CANDIDATES_DEFAULT_MAX :
-                          Index::NUM_CANDIDATES_DEFAULT_MIN);
-    }
-
-
-    Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, filter_query, facet_fields,
-                                                          sort_fields, num_typos,
-                                                          per_page,
-                                                          page,
-                                                          token_order, prefixes, drop_tokens_threshold,
-                                                          include_fields, exclude_fields,
-                                                          max_facet_values,
-                                                          simple_facet_query,
-                                                          snippet_threshold,
-                                                          highlight_affix_num_tokens,
-                                                          highlight_full_fields,
-                                                          typo_tokens_threshold,
-                                                          pinned_hits_str,
-                                                          hidden_hits_str,
-                                                          group_by_fields,
-                                                          group_limit,
-                                                          highlight_start_tag,
-                                                          highlight_end_tag,
-                                                          query_by_weights,
-                                                          limit_hits,
-                                                          prioritize_exact_match,
-                                                          pre_segmented_query,
-                                                          enable_overrides,
-                                                          highlight_fields,
-                                                          exhaustive_search,
-                                                          search_cutoff_ms,
-                                                          min_len_1typo,
-                                                          min_len_2typo,
-                                                          split_join_tokens,
-                                                          max_candidates,
-                                                          infixes,
-                                                          max_extra_prefix,
-                                                          max_extra_suffix,
-                                                          facet_query_num_typos,
-                                                          filter_curated_hits_option,
-                                                          prioritize_token_position,
-                                                          vector_query,
-                                                          enable_highlight_v1,
-                                                          start_ts,
-                                                          match_type,
-                                                          facet_sample_percent,
-                                                          facet_sample_threshold,
-                                                          offset,
-                                                          facet_strategy,
-                                                          remote_embedding_timeout_ms,
-                                                          remote_embedding_num_tries,
-                                                          stopwords_set,
-                                                          facet_return_parent,
-                                                          ref_include_exclude_fields_vec,
-                                                          drop_tokens_mode_str,
-                                                          prioritize_num_matching_fields,
-                                                          group_missing_values,
-                                                          conversation,
-                                                          conversation_model_id,
-                                                          conversation_id,
-                                                          override_tags,
-                                                          voice_query,
-                                                          enable_typos_for_numerical_tokens,
-                                                          enable_synonyms,
-                                                          synonym_prefix,
-                                                          synonym_num_typos,
-                                                          enable_lazy_filter,
-                                                          enable_typos_for_alpha_numerical_tokens,
-                                                          max_filter_by_candidates,
-                                                          rerank_hybrid_matches,
-                                                          validate_field_names);
-
-    uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::high_resolution_clock::now() - begin).count();
-
-    AppMetrics::get_instance().increment_count(AppMetrics::SEARCH_LABEL, 1);
-    AppMetrics::get_instance().increment_duration(AppMetrics::SEARCH_LABEL, timeMillis);
+    auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                        std::chrono::high_resolution_clock::now() - begin).count();
+    update_app_metrics(timeMillis);
 
     if(!result_op.ok()) {
         return Option<bool>(result_op.code(), result_op.error());
@@ -1759,8 +1520,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     nlohmann::json result = result_op.get();
 
     if(Config::get_instance().get_enable_search_analytics()) {
-        if(enable_analytics && result.contains("found")) {
-            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
+        if(args.enable_analytics && result.contains("found")) {
+            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(args.raw_query);
             if(result["found"].get<size_t>() != 0) {
                 const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
                         result["request_params"]["first_q"].get<std::string>());
@@ -1773,14 +1534,14 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         }
     }
 
-    if(exclude_fields.count("search_time_ms") == 0) {
+    if(args.exclude_fields.count("search_time_ms") == 0) {
         result["search_time_ms"] = timeMillis;
     }
 
-    if(page == 0 && offset != 0) {
-        result["offset"] = offset;
+    if(args.page == 0 && args.offset != 0) {
+        result["offset"] = args.offset;
     } else {
-        result["page"] = (page == 0) ? 1 : page;
+        result["page"] = (args.page == 0) ? 1 : args.page;
     }
 
     results_json_str = result.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
@@ -2341,4 +2102,354 @@ Option<bool> CollectionManager::update_collection_metadata(const std::string& co
     }
 
     return Option<bool>(400, "failed to insert into store.");
+}
+
+Option<bool> collection_search_args::init(std::map<std::string, std::string>& req_params,
+                                          const uint32_t& coll_num_documents,
+                                          const std::string& stopwords_set,
+                                          const uint64_t& start_ts,
+                                          collection_search_args& args) {
+    // check presence of mandatory params here
+
+    if(req_params.count(QUERY) == 0 && req_params.count(VOICE_QUERY) == 0) {
+        return Option<bool>(400, std::string("Parameter `") + QUERY + "` is required.");
+    }
+
+    // end check for mandatory params
+
+    const std::string& raw_query = req_params[QUERY];
+    std::vector<uint32_t> num_typos = {2};
+    size_t min_len_1typo = 4;
+    size_t min_len_2typo = 7;
+    std::vector<bool> prefixes = {true};
+    size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD;
+    size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD;
+
+    std::vector<std::string> search_fields;
+    std::string filter_query;
+    std::vector<std::string> facet_fields;
+    std::vector<sort_by> sort_fields;
+    size_t per_page = 10;
+    size_t page = 0;
+    size_t offset = 0;
+    token_ordering token_order = NOT_SET;
+
+    std::vector<std::string> facet_return_parent;
+
+    std::string vector_query;
+
+    std::vector<std::string> include_fields_vec;
+    std::vector<std::string> exclude_fields_vec;
+    std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec;
+    spp::sparse_hash_set<std::string> include_fields;
+    spp::sparse_hash_set<std::string> exclude_fields;
+
+    size_t max_facet_values = 10;
+    std::string simple_facet_query;
+    size_t facet_query_num_typos = 2;
+    size_t snippet_threshold = 30;
+    size_t highlight_affix_num_tokens = 4;
+    std::string highlight_full_fields;
+    std::string pinned_hits_str;
+    std::string hidden_hits_str;
+    std::vector<std::string> group_by_fields;
+    size_t group_limit = 3;
+    bool group_missing_values = true;
+    std::string highlight_start_tag = "<mark>";
+    std::string highlight_end_tag = "</mark>";
+    std::vector<uint32_t> query_by_weights;
+    size_t limit_hits = 1000000;
+    bool prioritize_exact_match = true;
+    bool prioritize_token_position = false;
+    bool pre_segmented_query = false;
+    bool enable_overrides = true;
+    bool enable_synonyms = true;
+    bool synonym_prefix = false;
+    size_t synonym_num_typos = 0;
+
+    bool filter_curated_hits_option = false;
+    std::string highlight_fields;
+    bool exhaustive_search = false;
+    size_t search_cutoff_ms = 30 * 1000;
+    enable_t split_join_tokens = fallback;
+    size_t max_candidates = 0;
+    std::vector<enable_t> infixes;
+    size_t max_extra_prefix = INT16_MAX;
+    size_t max_extra_suffix = INT16_MAX;
+    bool enable_highlight_v1 = true;
+    text_match_type_t match_type = max_score;
+    bool enable_typos_for_numerical_tokens = true;
+    bool enable_typos_for_alpha_numerical_tokens = true;
+    bool enable_lazy_filter = Config::get_instance().get_enable_lazy_filter();
+    size_t max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES;
+
+    std::string facet_strategy = "automatic";
+
+    size_t remote_embedding_timeout_ms = 5000;
+    size_t remote_embedding_num_tries = 2;
+
+    size_t facet_sample_percent = 100;
+    size_t facet_sample_threshold = 0;
+
+    bool conversation = false;
+    std::string conversation_id;
+    std::string conversation_model_id;
+
+    std::string drop_tokens_mode_str = "right_to_left";
+    bool prioritize_num_matching_fields = true;
+    std::string override_tags;
+
+    std::string voice_query;
+    bool enable_analytics = true;
+    bool rerank_hybrid_matches = false;
+    bool validate_field_names = true;
+
+    std::unordered_map<std::string, size_t*> unsigned_int_values = {
+            {MIN_LEN_1TYPO, &min_len_1typo},
+            {MIN_LEN_2TYPO, &min_len_2typo},
+            {DROP_TOKENS_THRESHOLD, &drop_tokens_threshold},
+            {TYPO_TOKENS_THRESHOLD, &typo_tokens_threshold},
+            {MAX_FACET_VALUES, &max_facet_values},
+            {LIMIT_HITS, &limit_hits},
+            {SNIPPET_THRESHOLD, &snippet_threshold},
+            {HIGHLIGHT_AFFIX_NUM_TOKENS, &highlight_affix_num_tokens},
+            {PAGE, &page},
+            {OFFSET, &offset},
+            {PER_PAGE, &per_page},
+            {LIMIT, &per_page},
+            {GROUP_LIMIT, &group_limit},
+            {SEARCH_CUTOFF_MS, &search_cutoff_ms},
+            {MAX_EXTRA_PREFIX, &max_extra_prefix},
+            {MAX_EXTRA_SUFFIX, &max_extra_suffix},
+            {MAX_CANDIDATES, &max_candidates},
+            {FACET_QUERY_NUM_TYPOS, &facet_query_num_typos},
+            {FACET_SAMPLE_PERCENT, &facet_sample_percent},
+            {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
+            {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
+            {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
+            {SYNONYM_NUM_TYPOS, &synonym_num_typos},
+            {MAX_FILTER_BY_CANDIDATES, &max_filter_by_candidates}
+    };
+
+    std::unordered_map<std::string, std::string*> str_values = {
+            {FILTER, &filter_query},
+            {VECTOR_QUERY, &vector_query},
+            {FACET_QUERY, &simple_facet_query},
+            {HIGHLIGHT_FIELDS, &highlight_fields},
+            {HIGHLIGHT_FULL_FIELDS, &highlight_full_fields},
+            {HIGHLIGHT_START_TAG, &highlight_start_tag},
+            {HIGHLIGHT_END_TAG, &highlight_end_tag},
+            {PINNED_HITS, &pinned_hits_str},
+            {HIDDEN_HITS, &hidden_hits_str},
+            {CONVERSATION_ID, &conversation_id},
+            {DROP_TOKENS_MODE, &drop_tokens_mode_str},
+            {OVERRIDE_TAGS, &override_tags},
+            {CONVERSATION_MODEL_ID, &conversation_model_id},
+            {VOICE_QUERY, &voice_query},
+            {FACET_STRATEGY, &facet_strategy},
+    };
+
+    std::unordered_map<std::string, bool*> bool_values = {
+            {PRIORITIZE_EXACT_MATCH, &prioritize_exact_match},
+            {PRIORITIZE_TOKEN_POSITION, &prioritize_token_position},
+            {PRE_SEGMENTED_QUERY, &pre_segmented_query},
+            {EXHAUSTIVE_SEARCH, &exhaustive_search},
+            {ENABLE_OVERRIDES, &enable_overrides},
+            {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
+            {CONVERSATION, &conversation},
+            {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
+            {GROUP_MISSING_VALUES, &group_missing_values},
+            {ENABLE_TYPOS_FOR_NUMERICAL_TOKENS, &enable_typos_for_numerical_tokens},
+            {ENABLE_SYNONYMS, &enable_synonyms},
+            {SYNONYM_PREFIX, &synonym_prefix},
+            {ENABLE_LAZY_FILTER, &enable_lazy_filter},
+            {ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS, &enable_typos_for_alpha_numerical_tokens},
+            {FILTER_CURATED_HITS, &filter_curated_hits_option},
+            {ENABLE_ANALYTICS, &enable_analytics},
+            {RERANK_HYBRID_MATCHES, &rerank_hybrid_matches},
+            {VALIDATE_FIELD_NAMES, &validate_field_names}
+    };
+
+    std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
+            {QUERY_BY, &search_fields},
+            {FACET_BY, &facet_fields},
+            {GROUP_BY, &group_by_fields},
+            {INCLUDE_FIELDS, &include_fields_vec},
+            {EXCLUDE_FIELDS, &exclude_fields_vec},
+            {FACET_RETURN_PARENT, &facet_return_parent},
+    };
+
+    std::unordered_map<std::string, std::vector<uint32_t>*> int_list_values = {
+            {QUERY_BY_WEIGHTS, &query_by_weights},
+            {NUM_TYPOS, &num_typos},
+    };
+
+    for(const auto& kv: req_params) {
+        const std::string& key = kv.first;
+        const std::string& val = kv.second;
+
+        if(key == PREFIX) {
+            if(val == "true" || val == "false") {
+                prefixes = {(val == "true")};
+            } else {
+                prefixes.clear();
+                std::vector<std::string> prefix_str;
+                StringUtils::split(val, prefix_str, ",");
+                for(auto& prefix_s : prefix_str) {
+                    prefixes.push_back(prefix_s == "true");
+                }
+            }
+        }
+
+        else if(key == SPLIT_JOIN_TOKENS) {
+            if(val == "false") {
+                split_join_tokens = off;
+            } else if(val == "true") {
+                split_join_tokens = fallback;
+            } else {
+                auto enable_op = magic_enum::enum_cast<enable_t>(val);
+                if(enable_op.has_value()) {
+                    split_join_tokens = enable_op.value();
+                }
+            }
+        }
+
+        else if(key == TEXT_MATCH_TYPE) {
+            auto match_op = magic_enum::enum_cast<text_match_type_t>(val);
+            if(match_op.has_value()) {
+                match_type = match_op.value();
+            }
+        }
+
+        else {
+            auto find_int_it = unsigned_int_values.find(key);
+            if(find_int_it != unsigned_int_values.end()) {
+                const auto& op = add_unsigned_int_param(key, val, find_int_it->second);
+                if(!op.ok()) {
+                    return op;
+                }
+
+                continue;
+            }
+
+            auto find_str_it = str_values.find(key);
+            if(find_str_it != str_values.end()) {
+                *find_str_it->second = val;
+                continue;
+            }
+
+            auto find_bool_it = bool_values.find(key);
+            if(find_bool_it != bool_values.end()) {
+                *find_bool_it->second = (val == "true");
+                continue;
+            }
+
+            auto find_str_list_it = str_list_values.find(key);
+            if(find_str_list_it != str_list_values.end()) {
+
+                if(key == FACET_BY){
+                    StringUtils::split_facet(val, *find_str_list_it->second);
+                }
+                else if(key == INCLUDE_FIELDS || key == EXCLUDE_FIELDS){
+                    auto op = StringUtils::split_include_exclude_fields(val, *find_str_list_it->second);
+                    if (!op.ok()) {
+                        return op;
+                    }
+                }
+                else{
+                    StringUtils::split(val, *find_str_list_it->second, ",");
+                }
+                continue;
+            }
+
+            auto find_int_list_it = int_list_values.find(key);
+            if(find_int_list_it != int_list_values.end()) {
+                add_unsigned_int_list_param(key, val, find_int_list_it->second);
+                continue;
+            }
+        }
+    }
+
+    // special defaults
+    if(!req_params[FACET_QUERY].empty() && req_params.count(PER_PAGE) == 0) {
+        // for facet query we will set per_page to zero if it is not explicitly overridden
+        per_page = 0;
+    }
+
+    auto initialize_op = Join::initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec, exclude_fields_vec,
+                                                                         ref_include_exclude_fields_vec);
+    if (!initialize_op.ok()) {
+        return initialize_op;
+    }
+
+    include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
+    exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
+
+    bool parsed_sort_by = CollectionManager::parse_sort_by_str(req_params[SORT_BY], sort_fields);
+
+    if(!parsed_sort_by) {
+        return Option<bool>(400, std::string("Parameter `") + SORT_BY + "` is malformed.");
+    }
+
+    if(sort_fields.size() > 3) {
+        return Option<bool>(400, "Only upto 3 sort fields are allowed.");
+    }
+
+    if(req_params.count(INFIX) != 0) {
+        std::vector<std::string> infix_strs;
+        StringUtils::split(req_params[INFIX], infix_strs, ",");
+
+        for(auto& infix_str: infix_strs) {
+            auto infix_op = magic_enum::enum_cast<enable_t>(infix_str);
+            if(infix_op.has_value()) {
+                infixes.push_back(infix_op.value());
+            }
+        }
+    } else {
+        infixes.push_back(off);
+    }
+
+    if(req_params.count(RANK_TOKENS_BY) != 0) {
+        StringUtils::toupper(req_params[RANK_TOKENS_BY]);
+        if (req_params[RANK_TOKENS_BY] == "DEFAULT_SORTING_FIELD") {
+            token_order = MAX_SCORE;
+        } else if(req_params[RANK_TOKENS_BY] == "FREQUENCY") {
+            token_order = FREQUENCY;
+        }
+    }
+
+    if(!max_candidates) {
+        max_candidates = exhaustive_search ? Index::COMBINATION_MAX_LIMIT :
+                         (coll_num_documents < 500000 ? Index::NUM_CANDIDATES_DEFAULT_MAX :
+                          Index::NUM_CANDIDATES_DEFAULT_MIN);
+    }
+
+    args = collection_search_args(raw_query, search_fields, filter_query,
+                                  facet_fields, sort_fields,
+                                  num_typos, per_page, page, token_order,
+                                  prefixes, drop_tokens_threshold,
+                                  include_fields, exclude_fields,
+                                  max_facet_values, simple_facet_query, snippet_threshold,
+                                  highlight_affix_num_tokens, highlight_full_fields,
+                                  typo_tokens_threshold, pinned_hits_str, hidden_hits_str,
+                                  group_by_fields, group_limit,
+                                  highlight_start_tag, highlight_end_tag,
+                                  query_by_weights, limit_hits, prioritize_exact_match,
+                                  pre_segmented_query, enable_overrides, highlight_fields,
+                                  exhaustive_search, search_cutoff_ms, min_len_1typo, min_len_2typo,
+                                  split_join_tokens, max_candidates, infixes,
+                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
+                                  filter_curated_hits_option, prioritize_token_position, vector_query,
+                                  enable_highlight_v1, start_ts, match_type,
+                                  facet_sample_percent, facet_sample_threshold, offset,
+                                  facet_strategy, remote_embedding_timeout_ms, remote_embedding_num_tries,
+                                  stopwords_set, facet_return_parent,
+                                  ref_include_exclude_fields_vec,
+                                  drop_tokens_mode_str, prioritize_num_matching_fields, group_missing_values,
+                                  conversation, conversation_model_id, conversation_id,
+                                  override_tags, voice_query, enable_typos_for_numerical_tokens,
+                                  enable_synonyms, synonym_prefix, synonym_num_typos, enable_lazy_filter,
+                                  enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
+                                  rerank_hybrid_matches, enable_analytics, validate_field_names);
+    return Option<bool>(true);
 }
