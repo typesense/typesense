@@ -2897,7 +2897,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
 
         if(exclude_fields.count("conversation_history") == 0) {
-            result["conversation"]["conversation_history"] = conversation_history;
+            auto get_conversation_op = ConversationManager::get_instance().get_conversation(add_conversation_op.get());
+            if(!get_conversation_op.ok()) {
+                return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
+            }
+            result["conversation"]["conversation_history"] = get_conversation_op.get();
+            result["conversation"]["conversation_history"].erase("id");
         }
         result["conversation"]["conversation_id"] = add_conversation_op.get();
     }
