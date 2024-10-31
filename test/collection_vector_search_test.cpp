@@ -3242,6 +3242,24 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
     ASSERT_TRUE(history["conversation"].is_array());
 
     ASSERT_EQ("how many products are there for clothing category?", history["conversation"][0]["user"]);
+
+    results_op = coll->search("what are the sizes?", {"embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                 10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
+                                 true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
+                                 true, 0, max_score, 100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, true,
+                                 conversation_model_config["id"].get<std::string>(), conversation_id);
+    ASSERT_TRUE(results_op.ok());
+
+    results = results_op.get();
+
+    ASSERT_TRUE(results.contains("conversation"));
+    ASSERT_TRUE(results["conversation"].is_object());
+    ASSERT_TRUE(results["conversation"].contains("conversation_history"));
+    ASSERT_TRUE(results["conversation"]["conversation_history"].is_object());
+    ASSERT_EQ(4, results["conversation"]["conversation_history"]["conversation"].size());
 }
 
 TEST_F(CollectionVectorTest, TestImageEmbeddingWithWrongModel) {
