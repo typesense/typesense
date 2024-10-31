@@ -4486,6 +4486,54 @@ TEST_F(CollectionOverrideTest, AvoidTypoMatchingWhenOverlapWithCuratedData) {
     ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionOverrideTest, PinnedHitsAndFilteredFaceting) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "someprop", "index": true, "type": "string" },
+          {"name": "somefacet", "index": true, "type": "string", "facet": true },
+          {"name": "someotherfacet", "index": true, "type": "string", "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({"id": "4711", "someprop": "doc 4711", "somefacet": "sfa", "someotherfacet": "sofa"})"_json;
+    nlohmann::json doc2 = R"({"id": "4712", "someprop": "doc 4712", "somefacet": "sfb", "someotherfacet": "sofb"})"_json;
+    nlohmann::json doc3 = R"({"id": "4713", "someprop": "doc 4713", "somefacet": "sfc", "someotherfacet": "sofc"})"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    auto pinned_hits = "4712:1";
+    bool filter_curated_hits = true;
+
+    auto results = coll1->search("*", {}, "somefacet:=sfa", {"somefacet"}, {},
+                                 {2}, 50, 1, FREQUENCY,
+                                 {false}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10,
+                                 "", 30, 5, "",
+                                 1, pinned_hits, {}, {}, 3,
+                                 "<mark>", "</mark>", {}, UINT_MAX,
+                                 true, false, true, "",
+                                 false, 6000 * 1000, 4, 7,
+                                 fallback, 4, {off}, INT16_MAX,
+                                 INT16_MAX, 2, filter_curated_hits).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("4711", results["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("sfa", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"].get<int>());
+}
+
 TEST_F(CollectionOverrideTest, OverridesWithSemanticSearch) {
     auto schema_json = R"({
             "name": "products",

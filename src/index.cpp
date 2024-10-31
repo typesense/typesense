@@ -4078,6 +4078,10 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
         }
     }
 
+    included_ids_vec.clear();
+    included_ids_vec.insert(included_ids_vec.begin(), included_ids_set.begin(), included_ids_set.end());
+    std::sort(included_ids_vec.begin(), included_ids_vec.end());
+
     std::map<size_t, std::vector<uint32_t>> included_ids_grouped;  // pos -> seq_ids
     std::vector<uint32_t> all_positions;
 
@@ -4088,7 +4092,6 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
         }
         included_ids_grouped[seq_id_pos.second].push_back(seq_id_pos.first);
     }
-
 
     for(const auto& pos_ids: included_ids_grouped) {
         size_t outer_pos = pos_ids.first;
