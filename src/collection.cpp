@@ -2457,7 +2457,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
-    auto search_op = index->run_search(search_params, name, facet_index_types,
+    auto search_op = index->run_search(search_params, facet_index_types,
                                        enable_typos_for_numerical_tokens, enable_synonyms, synonym_prefix,
                                        synonyms_num_typos, enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches);
 
