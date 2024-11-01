@@ -5174,7 +5174,7 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
     ASSERT_EQ(0, res["hits"][3]["text_match"].get<std::size_t>()); //document with id:3 won't have any text_match
 }
 
-TEST_F(CollectionAllFieldsTest, EmbedFieldMustBeFloatArray) {
+TEST_F(CollectionVectorTest, EmbedFieldMustBeFloatArray) {
     Collection *coll1;
 
     std::vector<field> fields = {
