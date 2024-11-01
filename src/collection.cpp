@@ -5137,10 +5137,11 @@ Option<bool> Collection::remove_synonym(const std::string &id) {
 }
 
 void Collection::synonym_reduction(const std::vector<std::string>& tokens,
+                                     const std::string& locale,
                                      std::vector<std::vector<std::string>>& results,
                                      bool synonym_prefix, uint32_t synonym_num_typos) const {
     std::shared_lock lock(mutex);
-    return synonym_index->synonym_reduction(tokens, results, synonym_prefix, synonym_num_typos);
+    return synonym_index->synonym_reduction(tokens, locale, results, synonym_prefix, synonym_num_typos);
 }
 
 Option<override_t> Collection::get_override(const std::string& override_id) {

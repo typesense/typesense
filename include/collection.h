@@ -642,6 +642,7 @@ public:
     Option<bool> remove_synonym(const std::string & id);
 
     void synonym_reduction(const std::vector<std::string>& tokens,
+                           const std::string& locale,
                            std::vector<std::vector<std::string>>& results,
                            bool synonym_prefix = false, uint32_t synonym_num_typos = 0) const;
 

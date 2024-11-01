@@ -3278,8 +3278,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
         }
 
-        if(enable_synonyms) {
-            synonym_index->synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms,
+        auto search_field_it = search_schema.find(the_fields[0].name);
+        const bool found_search_field = (search_field_it != search_schema.end());
+
+        if(enable_synonyms && found_search_field) {
+            synonym_index->synonym_reduction(q_include_tokens, search_field_it->locale,
+                                             field_query_tokens[0].q_synonyms,
                                              synonym_prefix, synonym_num_typos);
         }
 
@@ -3287,7 +3291,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             syn_orig_num_tokens = field_query_tokens[0].q_include_tokens.size();
         }
 
-        const bool& do_stemming = (search_schema.find(the_fields[0].name) != search_schema.end() && search_schema.at(the_fields[0].name).stem);
+        const bool do_stemming = found_search_field && search_field_it->stem;
         for(const auto& q_syn_vec: field_query_tokens[0].q_synonyms) {
             std::vector<token_t> q_pos_syn;
             for(size_t j=0; j < q_syn_vec.size(); j++) {

@@ -202,7 +202,7 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
     coll_mul_fields->add_synonym(synonym1);
 
     results.clear();
-    coll_mul_fields->synonym_reduction({"red", "nyc", "tshirt"}, results);
+    coll_mul_fields->synonym_reduction({"red", "nyc", "tshirt"}, "", results);
 
     ASSERT_EQ(1, results.size());
     ASSERT_EQ(4, results[0].size());
@@ -215,7 +215,7 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
     // when no synonyms exist, reduction should return nothing
 
     results.clear();
-    coll_mul_fields->synonym_reduction({"foo", "bar", "baz"}, results);
+    coll_mul_fields->synonym_reduction({"foo", "bar", "baz"}, "", results);
     ASSERT_EQ(0, results.size());
 
     // compression and also ensure that it does not revert back to expansion rule
@@ -228,7 +228,7 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
     })"_json;
     coll_mul_fields->add_synonym(synonym2);
 
-    coll_mul_fields->synonym_reduction({"red", "new", "york", "tshirt"}, results);
+    coll_mul_fields->synonym_reduction({"red", "new", "york", "tshirt"}, "", results);
 
     ASSERT_EQ(1, results.size());
     ASSERT_EQ(3, results[0].size());
@@ -247,7 +247,7 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
     })"_json;
     coll_mul_fields->add_synonym(synonym3);
 
-    coll_mul_fields->synonym_reduction({"new", "york", "t", "shirt"}, results);
+    coll_mul_fields->synonym_reduction({"new", "york", "t", "shirt"}, "", results);
 
     ASSERT_EQ(1, results.size());
     ASSERT_EQ(2, results[0].size());
@@ -266,7 +266,7 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
     })"_json;
     coll_mul_fields->add_synonym(synonym4);
 
-    coll_mul_fields->synonym_reduction({"red", "new", "york", "cap"}, results);
+    coll_mul_fields->synonym_reduction({"red", "new", "york", "cap"}, "", results);
 
     ASSERT_EQ(1, results.size());
     ASSERT_EQ(3, results[0].size());
@@ -286,7 +286,7 @@ TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
     auto op = coll_mul_fields->add_synonym(synonym1);
 
     std::vector<std::vector<std::string>> results;
-    coll_mul_fields->synonym_reduction({"ipod"}, results);
+    coll_mul_fields->synonym_reduction({"ipod"}, "", results);
 
     ASSERT_EQ(2, results.size());
     ASSERT_EQ(2, results[0].size());
@@ -301,7 +301,7 @@ TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
 
     // multiple tokens
     results.clear();
-    coll_mul_fields->synonym_reduction({"i", "pod"}, results);
+    coll_mul_fields->synonym_reduction({"i", "pod"}, "", results);
 
     ASSERT_EQ(2, results.size());
     ASSERT_EQ(1, results[0].size());
@@ -318,7 +318,7 @@ TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
     coll_mul_fields->add_synonym(synonym2);
 
     results.clear();
-    coll_mul_fields->synonym_reduction({"united", "states"}, results);
+    coll_mul_fields->synonym_reduction({"united", "states"}, "", results);
     ASSERT_EQ(4, results.size());
 
     ASSERT_EQ(1, results[0].size());
@@ -352,7 +352,7 @@ TEST_F(CollectionSynonymsTest, SynonymBelongingToMultipleSets) {
     coll_mul_fields->add_synonym(synonym2);
 
     std::vector<std::vector<std::string>> results;
-    coll_mul_fields->synonym_reduction({"smart", "phone"}, results);
+    coll_mul_fields->synonym_reduction({"smart", "phone"}, "", results);
 
     ASSERT_EQ(3, results.size());
     ASSERT_EQ(2, results[0].size());
@@ -734,9 +734,18 @@ TEST_F(CollectionSynonymsTest, DeleteAndUpsertDuplicationOfSynonms) {
 }
 
 TEST_F(CollectionSynonymsTest, UpsertAndSearch) {
-    std::vector<field> fields = {field("title", field_types::STRING, false),
-                                 field("points", field_types::INT32, false)};
-    auto coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "title", "type": "string", "locale": "da" },
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
 
     nlohmann::json doc;
     doc["title"] = "Rose gold rosenblade, 500 stk";
@@ -1043,6 +1052,66 @@ TEST_F(CollectionSynonymsTest, SynonymForKorean) {
 
     res = coll1->search("구울", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(3, res["hits"].size());
+}
+
+TEST_F(CollectionSynonymsTest, SynonymWithLocaleMatch) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "title_en", "type": "string"},
+          {"name": "title_es", "type": "string", "locale": "es"},
+          {"name": "title_de", "type": "string", "locale": "de"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    std::vector<std::vector<std::string>> records = {
+        {"Brun New Shoe", "Zapato  nuevo / Sandalen", "Nagelneuer Schuh"},
+        {"Marrones socks", "Calcetines marrones / Schuh", "Braune Socken"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title_en"] = records[i][0];
+        doc["title_es"] = records[i][1];
+        doc["title_de"] = records[i][2];
+
+        auto add_op = coll1->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    nlohmann::json synonym1 = R"({
+        "id": "syn-1",
+        "root": "",
+        "synonyms": ["marrones", "brun"],
+        "locale": "es"
+    })"_json;
+
+    ASSERT_TRUE(coll1->add_synonym(synonym1).ok());
+
+    nlohmann::json synonym2 = R"({
+        "id": "syn-2",
+        "root": "",
+        "synonyms": ["schuh", "sandalen"],
+        "locale": "de"
+    })"_json;
+
+    ASSERT_TRUE(coll1->add_synonym(synonym2).ok());
+
+    // the "es" synonym should NOT be resolved to en locale (missing locale field)
+    auto res = coll1->search("brun", {"title_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"]);
+
+    // the "de" synonym should not work for "es"
+    res = coll1->search("schuh", {"title_es"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"]);
 }
 
 TEST_F(CollectionSynonymsTest, MultipleSynonymSubstitution) {
