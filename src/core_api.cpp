@@ -19,7 +19,7 @@
 #include "conversation_manager.h"
 #include "conversation_model_manager.h"
 #include "conversation_model.h"
-#include "recommendations_model_manager.h"
+#include "personalization_model_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -3097,17 +3097,18 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     return true;
 }
 
-bool post_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool post_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
     
-    if (!req->params.count("name") || !req->params.count("collection")) {
-        res->set_400("Missing required parameters 'name' and 'collection'.");
+    if (!req->params.count("name") || !req->params.count("collection") || !req->params.count("type")) {
+        res->set_400("Missing required parameters 'name', 'collection' and 'type'.");
         return false;
     }
 
     req_json = {
         {"name", req->params["name"]},
-        {"collection", req->params["collection"]}
+        {"collection", req->params["collection"]},
+        {"type", req->params["type"]}
     };
 
     std::string model_id;
@@ -3117,7 +3118,7 @@ bool post_recommendations_model(const std::shared_ptr<http_req>& req, const std:
     }
 
     const std::string model_data = req->body;
-    auto create_op = RecommendationsModelManager::add_model(req_json, model_id, true, model_data);
+    auto create_op = PersonalizationModelManager::add_model(req_json, model_id, true, model_data);
     if(!create_op.ok()) {
         res->set(create_op.code(), create_op.error());
         return false;
@@ -3129,10 +3130,10 @@ bool post_recommendations_model(const std::shared_ptr<http_req>& req, const std:
     return true;
 }
 
-bool get_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool get_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string& model_id = req->params["id"];
     
-    auto model_op = RecommendationsModelManager::get_model(model_id);
+    auto model_op = PersonalizationModelManager::get_model(model_id);
     if (!model_op.ok()) {
         res->set(model_op.code(), model_op.error());
         return false;
@@ -3147,8 +3148,8 @@ bool get_recommendations_model(const std::shared_ptr<http_req>& req, const std::
     return true;
 }
 
-bool get_recommendations_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto models_op = RecommendationsModelManager::get_all_models();
+bool get_personalization_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto models_op = PersonalizationModelManager::get_all_models();
     if (!models_op.ok()) {
         res->set(models_op.code(), models_op.error());
         return false;
@@ -3165,15 +3166,14 @@ bool get_recommendations_models(const std::shared_ptr<http_req>& req, const std:
     return true;
 }
 
-bool del_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool del_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string& model_id = req->params["id"];
     
-    auto delete_op = RecommendationsModelManager::delete_model(model_id);
+    auto delete_op = PersonalizationModelManager::delete_model(model_id);
     if (!delete_op.ok()) {
         res->set(delete_op.code(), delete_op.error());
         return false;
     }
-
 
     auto deleted_model = delete_op.get();
     if (deleted_model.contains("model_path")) {
@@ -3183,7 +3183,7 @@ bool del_recommendations_model(const std::shared_ptr<http_req>& req, const std::
     return true;
 }
 
-bool put_recommendations_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool put_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
     
     if (req->params.count("name") && !req->params["name"].empty()) {
@@ -3191,6 +3191,9 @@ bool put_recommendations_model(const std::shared_ptr<http_req>& req, const std::
     }
     if (req->params.count("collection") && !req->params["collection"].empty()) {
         req_json["collection"] = req->params["collection"];
+    }
+    if (req->params.count("type") && !req->params["type"].empty()) {
+        req_json["type"] = req->params["type"];
     }
 
     if (!req->params.count("id")) {
@@ -3200,7 +3203,7 @@ bool put_recommendations_model(const std::shared_ptr<http_req>& req, const std::
     std::string model_id = req->params["id"];
 
     const std::string model_data = req->body;
-    auto update_op = RecommendationsModelManager::update_model(model_id, req_json, model_data);
+    auto update_op = PersonalizationModelManager::update_model(model_id, req_json, model_data);
     if(!update_op.ok()) {
         res->set(update_op.code(), update_op.error());
         return false;

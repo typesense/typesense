@@ -1,17 +1,17 @@
-#include "recommendations_model.h"
+#include "personalization_model.h"
 #include "collection_manager.h"
 #include "archive_utils.h"
 #include <iostream>
 #include <filesystem>
 
-std::string RecommendationsModel::get_model_subdir(const std::string& model_id) {
+std::string PersonalizationModel::get_model_subdir(const std::string& model_id) {
     std::string model_dir = EmbedderManager::get_model_dir();
     
     if (model_dir.back() != '/') {
         model_dir += '/';
     }
     
-    std::string full_path = model_dir + "rem_" + model_id;
+    std::string full_path = model_dir + "per_" + model_id;
     
     if (!std::filesystem::exists(full_path)) {
         std::filesystem::create_directories(full_path);
@@ -20,15 +20,15 @@ std::string RecommendationsModel::get_model_subdir(const std::string& model_id) 
     return full_path;
 }
 
-RecommendationsModel::RecommendationsModel(const std::string& model_id)
+PersonalizationModel::PersonalizationModel(const std::string& model_id)
     : model_id_(model_id) {
     model_path_ = get_model_subdir(model_id_);
 }
 
-RecommendationsModel::~RecommendationsModel() {
+PersonalizationModel::~PersonalizationModel() {
 }
 
-Option<bool> RecommendationsModel::validate_model(const nlohmann::json& model_json) {
+Option<bool> PersonalizationModel::validate_model(const nlohmann::json& model_json) {
     if (!model_json.contains("id") || !model_json["id"].is_string()) {
         return Option<bool>(400, "Missing or invalid 'id' field.");
     }
@@ -37,6 +37,37 @@ Option<bool> RecommendationsModel::validate_model(const nlohmann::json& model_js
     }
     if (!model_json.contains("collection") || !model_json["collection"].is_string()) {
         return Option<bool>(400, "Missing or invalid 'collection' field.");
+    }
+    const std::string& name = model_json["name"].get<std::string>();
+    size_t slash_pos = name.find('/');
+    
+    if (slash_pos == std::string::npos || name.find('/', slash_pos + 1) != std::string::npos) {
+        return Option<bool>(400, "Model name must contain exactly one '/' character.");
+    }
+
+    std::string namespace_part = name.substr(0, slash_pos);
+    if (namespace_part != "ts") {
+        return Option<bool>(400, "Model namespace must be 'ts'.");
+    }
+
+    std::string model_name = name.substr(slash_pos + 1);
+    if (model_name.empty()) {
+        return Option<bool>(400, "Model name part cannot be empty.");
+    }
+
+    if (!model_json.contains("type") || !model_json["type"].is_string()) {
+        return Option<bool>(400, "Missing or invalid 'type' field. Must be either 'recommendation' or 'search'.");
+    }
+
+    const std::string& type = model_json["type"].get<std::string>();
+    if (type != "recommendation" && type != "search") {
+        return Option<bool>(400, "Invalid type. Must be either 'recommendation' or 'search'.");
+    }
+
+    auto type_names = valid_model_names.find(type);
+    if (type_names == valid_model_names.end() || 
+        std::find(type_names->second.begin(), type_names->second.end(), model_name) == type_names->second.end()) {
+        return Option<bool>(400, "Invalid model name for type. Use 'tyrec-1' for recommendation and 'tyrec-2' for search.");
     }
 
     auto& collection_manager = CollectionManager::get_instance();
@@ -48,7 +79,7 @@ Option<bool> RecommendationsModel::validate_model(const nlohmann::json& model_js
     return Option<bool>(true);
 }
 
-Option<bool> RecommendationsModel::create_model(const std::string& model_id, const nlohmann::json& model_json, const std::string model_data) {
+Option<bool> PersonalizationModel::create_model(const std::string& model_id, const nlohmann::json& model_json, const std::string model_data) {
     std::string model_path = get_model_subdir(model_id);
     std::string metadata_path = model_path + "/metadata.json";
     std::ofstream metadata_file(metadata_path);
@@ -75,7 +106,7 @@ Option<bool> RecommendationsModel::create_model(const std::string& model_id, con
     return Option<bool>(true);
 }
 
-Option<bool> RecommendationsModel::update_model(const std::string& model_id, const nlohmann::json& model_json, const std::string model_data) {
+Option<bool> PersonalizationModel::update_model(const std::string& model_id, const nlohmann::json& model_json, const std::string model_data) {
     std::string model_path = get_model_subdir(model_id);
 
     std::string metadata_path = model_path + "/metadata.json";
@@ -111,7 +142,7 @@ Option<bool> RecommendationsModel::update_model(const std::string& model_id, con
     return Option<bool>(true);
 }
 
-Option<bool> RecommendationsModel::delete_model(const std::string& model_id) {
+Option<bool> PersonalizationModel::delete_model(const std::string& model_id) {
     std::string model_path = get_model_subdir(model_id);
     
     if (!std::filesystem::exists(model_path)) {

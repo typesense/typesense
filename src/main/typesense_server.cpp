@@ -103,11 +103,11 @@ void master_server_routes() {
     server->put("/conversations/models/:id", put_conversation_model);
     server->del("/conversations/models/:id", del_conversation_model);
     
-    server->post("/recommendations/models", post_recommendations_model);
-    server->get("/recommendations/models", get_recommendations_models);
-    server->get("/recommendations/models/:id", get_recommendations_model);
-    server->del("/recommendations/models/:id", del_recommendations_model);
-    server->put("/recommendations/models/:id", put_recommendations_model);
+    server->post("/personalization/models", post_personalization_model);
+    server->get("/personalization/models", get_personalization_models);
+    server->get("/personalization/models/:id", get_personalization_model);
+    server->del("/personalization/models/:id", del_personalization_model);
+    server->put("/personalization/models/:id", put_personalization_model);
 
     server->get("/limits", get_rate_limits);
     server->get("/limits/active", get_active_throttles);

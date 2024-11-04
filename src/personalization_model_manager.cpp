@@ -1,8 +1,8 @@
-#include "recommendations_model_manager.h"
+#include "personalization_model_manager.h"
 #include "sole.hpp"
 #include <glog/logging.h>
 
-Option<nlohmann::json> RecommendationsModelManager::get_model(const std::string& model_id) {
+Option<nlohmann::json> PersonalizationModelManager::get_model(const std::string& model_id) {
     std::shared_lock lock(models_mutex);
     auto it = models.find(model_id);
     if (it == models.end()) {
@@ -11,7 +11,7 @@ Option<nlohmann::json> RecommendationsModelManager::get_model(const std::string&
     return Option<nlohmann::json>(it->second);
 }
 
-Option<std::string> RecommendationsModelManager::add_model(nlohmann::json& model_json,std::string model_id, const bool write_to_disk, const std::string model_data) {
+Option<std::string> PersonalizationModelManager::add_model(nlohmann::json& model_json, std::string model_id, const bool write_to_disk, const std::string model_data) {
     std::unique_lock lock(models_mutex);
 
     if (models.find(model_id) != models.end()) {
@@ -20,17 +20,16 @@ Option<std::string> RecommendationsModelManager::add_model(nlohmann::json& model
 
     model_json["id"] = model_id.empty() ? sole::uuid4().str() : model_id;
     model_id = model_json["id"];
-    model_json["model_path"] = RecommendationsModel::get_model_subdir(model_json["id"]);
+    model_json["model_path"] = PersonalizationModel::get_model_subdir(model_json["id"]);
 
-    auto validate_op = RecommendationsModel::validate_model(model_json);
+    auto validate_op = PersonalizationModel::validate_model(model_json);
     if(!validate_op.ok()) {
         return Option<std::string>(validate_op.code(), validate_op.error());
     }
 
-
     if(write_to_disk) {
         auto model_key = get_model_key(model_json["id"]);
-        auto create_op = RecommendationsModel::create_model(model_json["id"], model_json, model_data);
+        auto create_op = PersonalizationModel::create_model(model_json["id"], model_json, model_data);
         if(!create_op.ok()) {
             return Option<std::string>(create_op.code(), create_op.error());
         }
@@ -44,14 +43,14 @@ Option<std::string> RecommendationsModelManager::add_model(nlohmann::json& model
     return Option<std::string>(model_id);
 }
 
-Option<int> RecommendationsModelManager::init(Store* store) {
-    RecommendationsModelManager::store = store;
+Option<int> PersonalizationModelManager::init(Store* store) {
+    PersonalizationModelManager::store = store;
 
     std::vector<std::string> model_strs;
     store->scan_fill(std::string(MODEL_KEY_PREFIX) + "_", std::string(MODEL_KEY_PREFIX) + "`", model_strs);
 
     if(!model_strs.empty()) {
-        LOG(INFO) << "Found " << model_strs.size() << " recommendation model(s).";
+        LOG(INFO) << "Found " << model_strs.size() << " personalization model(s).";
     }
 
     int loaded_models = 0;
@@ -69,7 +68,7 @@ Option<int> RecommendationsModelManager::init(Store* store) {
 
         auto add_op = add_model(model_json, model_id, false);
         if(!add_op.ok()) {
-            LOG(ERROR) << "Error while loading recommendation model: " << model_id << ", error: " << add_op.error();
+            LOG(ERROR) << "Error while loading personalization model: " << model_id << ", error: " << add_op.error();
             continue;
         }
 
@@ -79,8 +78,7 @@ Option<int> RecommendationsModelManager::init(Store* store) {
     return Option<int>(loaded_models);
 }
 
-
-Option<nlohmann::json> RecommendationsModelManager::delete_model(const std::string& model_id) {
+Option<nlohmann::json> PersonalizationModelManager::delete_model(const std::string& model_id) {
     std::unique_lock lock(models_mutex);
     auto it = models.find(model_id);
     if (it == models.end()) {
@@ -89,7 +87,7 @@ Option<nlohmann::json> RecommendationsModelManager::delete_model(const std::stri
 
     nlohmann::json model = it->second;
 
-    auto delete_op = RecommendationsModel::delete_model(model_id);
+    auto delete_op = PersonalizationModel::delete_model(model_id);
     if(!delete_op.ok()) {
         return Option<nlohmann::json>(delete_op.code(), delete_op.error());
     }
@@ -104,7 +102,7 @@ Option<nlohmann::json> RecommendationsModelManager::delete_model(const std::stri
     return Option<nlohmann::json>(model);
 }
 
-Option<nlohmann::json> RecommendationsModelManager::get_all_models() {
+Option<nlohmann::json> PersonalizationModelManager::get_all_models() {
     std::shared_lock lock(models_mutex);
     nlohmann::json models_json = nlohmann::json::array();
     for (auto& [id, model] : models) {
@@ -113,11 +111,11 @@ Option<nlohmann::json> RecommendationsModelManager::get_all_models() {
     return Option<nlohmann::json>(models_json);
 }
 
-const std::string RecommendationsModelManager::get_model_key(const std::string& model_id) {
+const std::string PersonalizationModelManager::get_model_key(const std::string& model_id) {
     return std::string(MODEL_KEY_PREFIX) + "_" + model_id;
 }
 
-Option<nlohmann::json> RecommendationsModelManager::update_model(const std::string& model_id, nlohmann::json model, const std::string& model_data) {
+Option<nlohmann::json> PersonalizationModelManager::update_model(const std::string& model_id, nlohmann::json model, const std::string& model_data) {
     std::unique_lock lock(models_mutex);
     auto it = models.find(model_id);
     if (it == models.end()) {
@@ -130,7 +128,7 @@ Option<nlohmann::json> RecommendationsModelManager::update_model(const std::stri
         model_copy[key] = value;
     }
 
-    auto validate_res = RecommendationsModel::validate_model(model_copy);
+    auto validate_res = PersonalizationModel::validate_model(model_copy);
     if (!validate_res.ok()) {
         return Option<nlohmann::json>(validate_res.code(), validate_res.error());
     }
@@ -141,7 +139,7 @@ Option<nlohmann::json> RecommendationsModelManager::update_model(const std::stri
         return Option<nlohmann::json>(500, "Error while inserting model into the store");
     }
 
-    auto update_op = RecommendationsModel::update_model(model_id, model_copy, model_data);
+    auto update_op = PersonalizationModel::update_model(model_id, model_copy, model_data);
     if(!update_op.ok()) {
         return Option<nlohmann::json>(update_op.code(), update_op.error());
     }

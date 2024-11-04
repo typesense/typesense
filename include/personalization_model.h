@@ -1,13 +1,19 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <map>
 #include "embedder_manager.h"
 #include <json.hpp>
 
-class RecommendationsModel {
+class PersonalizationModel {
 public:
-    RecommendationsModel(const std::string& model_path);
-    ~RecommendationsModel();
+    static inline const std::map<std::string, std::vector<std::string>> valid_model_names = {
+        {"recommendation", {"tyrec-1"}},
+        {"search", {"tyrec-2"}}
+    };
+    
+    PersonalizationModel(const std::string& model_path);
+    ~PersonalizationModel();
 
     static std::string get_model_subdir(const std::string& model_id);
     static Option<bool> validate_model(const nlohmann::json& model_json);
