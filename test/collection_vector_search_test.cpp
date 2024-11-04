@@ -5191,3 +5191,41 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
     ASSERT_EQ(1047457519, res["hits"][2]["text_match"].get<std::size_t>());
     ASSERT_EQ(0, res["hits"][3]["text_match"].get<std::size_t>()); //document with id:3 won't have any text_match
 }
+
+TEST_F(CollectionVectorTest, EmbedFieldMustBeFloatArray) {
+    Collection *coll1;
+
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("embedding", field_types::STRING, false)  // intentionally wrong type
+    };
+
+    nlohmann::json field_json;
+    field_json["name"] = "embedding";
+    field_json["type"] = "string";  // wrong type
+    field_json["embed"] = nlohmann::json::object();
+    field_json["embed"]["from"] = {"title"};
+    field_json["embed"]["model_config"] = nlohmann::json::object();
+    field_json["embed"]["model_config"]["model_name"] = "ts/e5-small";
+
+    std::vector<field> parsed_fields;
+    std::string fallback_field_type;
+    auto arr = nlohmann::json::array();
+    arr.push_back(field_json);
+
+    auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, parsed_fields);
+
+    ASSERT_FALSE(field_op.ok());
+    ASSERT_EQ("Fields with the `embed` parameter can only be of type `float[]`.", field_op.error());
+
+    // Try with int[] type as well
+    field_json["type"] = "int[]";
+    arr.clear();
+    arr.push_back(field_json);
+    parsed_fields.clear();
+
+    field_op = field::json_fields_to_fields(false, arr, fallback_field_type, parsed_fields);
+
+    ASSERT_FALSE(field_op.ok());
+    ASSERT_EQ("Fields with the `embed` parameter can only be of type `float[]`.", field_op.error());
+}
