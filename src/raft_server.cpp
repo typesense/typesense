@@ -268,14 +268,15 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     bool route_found = server->get_route(request->route_hash, &rpath);
 
     if(route_found && rpath->handler == patch_update_collection) {
-        if(get_alter_in_progress()) {
+        if(get_alter_in_progress(request->params["collection"])) {
+            // This is checked only during live writes from a http request: we do this because we want to only
+            // throttle concurrent successive alter requests, but want to allow an alter that happens after another
+            // finishes via raft log replay.
             response->set_422("Another collection update operation is in progress.");
             response->final = true;
             auto req_res = new async_req_res_t(request, response, true);
             return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
         }
-
-        set_alter_in_progress(true);
     }
 
     std::shared_lock lock(node_mutex);

@@ -26,7 +26,23 @@ using namespace std::chrono_literals;
 std::shared_mutex mutex;
 LRU::Cache<uint64_t, cached_res_t> res_cache;
 
-std::atomic<bool> alter_in_progress = false;
+std::shared_mutex alter_mutex;
+std::set<std::string> alters_in_progress;
+
+class alter_guard_t {
+    std::string collection_name;
+public:
+    alter_guard_t(const std::string& collection) {
+        std::unique_lock ulock(alter_mutex);
+        collection_name = collection;
+        alters_in_progress.insert(collection_name);
+    }
+
+    ~alter_guard_t() {
+        std::unique_lock ulock(alter_mutex);
+        alters_in_progress.erase(collection_name);
+    }
+};
 
 // used to log the queries that were in-flight during a crash
 std::mutex ifq_mutex;
@@ -54,12 +70,9 @@ void init_api(uint32_t cache_num_entries) {
     res_cache.capacity(cache_num_entries);
 }
 
-void set_alter_in_progress(bool in_progress) {
-    alter_in_progress = in_progress;
-}
-
-bool get_alter_in_progress() {
-    return alter_in_progress;
+bool get_alter_in_progress(const std::string& collection) {
+    std::shared_lock lock(alter_mutex);
+    return alters_in_progress.count(collection) != 0;
 }
 
 void log_running_queries() {
@@ -316,25 +329,26 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
     nlohmann::json req_json;
     std::set<std::string> allowed_keys = {"metadata", "fields"};
 
+    // Ensures that only one alter can run per collection.
+    // The actual check for this, happens in `ReplicationState::write` which is called only during live writes.
+    alter_guard_t alter_guard(req->params["collection"]);
+
     try {
         req_json = nlohmann::json::parse(req->body);
     } catch(const std::exception& e) {
         //LOG(ERROR) << "JSON error: " << e.what();
         res->set_400("Bad JSON.");
-        alter_in_progress = false;
         return false;
     }
 
     if(req_json.empty()) {
         res->set_400("Alter payload is empty.");
-        alter_in_progress = false;
         return false;
     }
 
     for(auto it : req_json.items()) {
         if(allowed_keys.count(it.key()) == 0) {
             res->set_400("Only `fields` and `metadata` can be updated at the moment.");
-            alter_in_progress = false;
             return false;
         }
     }
@@ -344,14 +358,12 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
 
     if(collection == nullptr) {
         res->set_404();
-        alter_in_progress = false;
         return false;
     }
 
     if(req_json.contains("metadata")) {
         if(!req_json["metadata"].is_object()) {
             res->set_400("The `metadata` value should be an object.");
-            alter_in_progress = false;
             return false;
         }
 
@@ -359,7 +371,6 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         auto op = collectionManager.update_collection_metadata(req->params["collection"], req_json["metadata"]);
         if(!op.ok()) {
             res->set(op.code(), op.error());
-            alter_in_progress = false;
             return false;
         }
     }
@@ -370,14 +381,12 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         auto alter_op = collection->alter(alter_payload);
         if(!alter_op.ok()) {
             res->set(alter_op.code(), alter_op.error());
-            alter_in_progress = false;
             return false;
         }
         // without this line, response will return full api key without being masked
         req_json["fields"] = alter_payload["fields"];
     }
 
-    alter_in_progress = false;
     res->set_200(req_json.dump());
     return true;
 }

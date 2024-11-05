@@ -9,9 +9,7 @@ bool handle_authentication(std::map<std::string, std::string>& req_params,
                            const std::string& body, const route_path& rpath,
                            const std::string& req_auth_key);
 
-void set_alter_in_progress(bool in_progress);
-
-bool get_alter_in_progress();
+bool get_alter_in_progress(const std::string& collection);
 
 // Collections
 
