@@ -3632,7 +3632,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                         // old_score + (1 / rank_of_document) * WEIGHT)
                         found_kv->vector_distance = vec_result.second;
-                        found_kv->text_match_score  = found_kv->scores[found_kv->match_score_index];
                         int64_t match_score = float_to_int64_t(
                                 (int64_t_to_float(found_kv->scores[found_kv->match_score_index])) +
                                 ((1.0 / (seq_id_to_rank[seq_id] + 1)) * VECTOR_SEARCH_WEIGHT));
@@ -7889,15 +7888,6 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
             std::sort(result_ids.begin(), result_ids.end(), [&](const auto& kv1, const auto& kv2) {
                 return kv1->text_match_score > kv2->text_match_score;
             });
-
-            //start after already found ids
-            for(int i = 0; i < result_ids.size(); ++i) {
-                auto& kv = result_ids[i];
-                if(kv->text_match_score) {  //skip the ids which have 0 text match score
-                    kv->text_match_score = float_to_int64_t(
-                            (1.0 / (found_ids_offset + i)) * (1.0 - vector_query.alpha));
-                }
-            }
         }
 
         for(posting_list_t* plist: expanded_plists) {
