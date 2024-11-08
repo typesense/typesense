@@ -1289,7 +1289,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
         // overwrite = true as embedded params have higher priority
         if (!AuthManager::add_item_to_params(req_params, item, true)) {
-            return Option<bool>(400, "Error while applying embedded parameters.");
+            return Option<bool>(400, "Error applying search parameters inside Scoped Search API key");
         }
     }
 
