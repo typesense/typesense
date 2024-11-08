@@ -2933,6 +2933,64 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
     return true;
 }
 
+bool post_import_plurals(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const char *BATCH_SIZE = "batch_size";
+
+    if(req->params.count(BATCH_SIZE) == 0) {
+        req->params[BATCH_SIZE] = "40";
+    }
+
+    if(!StringUtils::is_uint32_t(req->params[BATCH_SIZE])) {
+        res->final = true;
+        res->set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
+        stream_response(req, res);
+        return false;
+    }
+
+    std::vector<std::string> json_lines;
+    StringUtils::split(req->body, json_lines, "\n", false, false);
+
+    if(req->last_chunk_aggregate) {
+        //LOG(INFO) << "req->last_chunk_aggregate is true";
+        req->body = "";
+    }
+
+    // When only one partial record arrives as a chunk, an empty body is pushed to response stream
+    bool single_partial_record_body = (json_lines.empty() && !req->body.empty());
+    std::stringstream response_stream;
+
+    if(!single_partial_record_body) {
+        if(!StemmerManager::get_instance().dump_dictionary(json_lines)) {
+            res->set_400("Bad/malformed dictionary import.");
+            stream_response(req, res);
+        }
+
+        for (size_t i = 0; i < json_lines.size(); i++) {
+            bool res_start = (res->status_code == 0) && (i == 0);
+
+            if(res_start) {
+                // indicates first import result to be streamed
+                response_stream << json_lines[i];
+            } else {
+                response_stream << "\n" << json_lines[i];
+            }
+        }
+
+        // Since we use `res->status_code == 0` for flagging `res_start`, we will only set this
+        // when we have accumulated enough response data to stream.
+        // Otherwise, we will send an empty line as first response.
+        res->status_code = 200;
+    }
+
+    res->content_type_header = "text/plain; charset=utf-8";
+    res->body = response_stream.str();
+
+    res->final.store(req->last_chunk_aggregate);
+    stream_response(req, res);
+
+    return true;
+}
+
 bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     HttpProxy& proxy = HttpProxy::get_instance();
 

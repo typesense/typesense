@@ -82,6 +82,9 @@ void master_server_routes() {
     server->post("/analytics/events", post_create_event);
     server->post("/analytics/aggregate_events", post_write_analytics_to_db);
 
+    // for plurals, nouns
+    server->post("/stemming/plurals/import", post_import_plurals);
+
     // meta
     server->get("/metrics.json", get_metrics_json);
     server->get("/stats.json", get_stats_json);
