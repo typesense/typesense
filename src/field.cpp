@@ -812,6 +812,7 @@ Option<bool> field::fields_to_json_fields(const std::vector<field>& fields, cons
         field_val[fields::store] = field.store;
         field_val[fields::stem] = field.stem;
         field_val[fields::range_index] = field.range_index;
+        field_val[fields::stem_dictionary] = field.stem_dictionary;
 
         if(field.embed.count(fields::from) != 0) {
             field_val[fields::embed] = field.embed;

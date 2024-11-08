@@ -136,7 +136,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "store":true,
               "type":"string",
               "range_index":false,
-              "stem":false
+              "stem":false,
+              "stem_dictionary": false
             },
             {
               "facet":false,
@@ -150,7 +151,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "store":true,
               "type":"string",
               "range_index":false,
-              "stem":false
+              "stem":false,
+              "stem_dictionary": false
             },
             {
               "facet":true,
@@ -164,7 +166,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "store":true,
               "type":"string[]",
               "range_index":false,
-              "stem":false
+              "stem":false,
+              "stem_dictionary": false
             },
             {
               "facet":true,
@@ -178,7 +181,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "store":true,
               "type":"int32",
               "range_index":false,
-              "stem":false
+              "stem":false,
+              "stem_dictionary": false
             },
             {
               "facet":false,
@@ -192,7 +196,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "store":true,
               "type":"geopoint",
               "range_index":false,
-              "stem":false
+              "stem":false,
+              "stem_dictionary": false
             },
             {
               "facet":false,
@@ -206,7 +211,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "store":true,
               "type":"string",
               "range_index":false,
-              "stem":false
+              "stem":false,
+              "stem_dictionary": false
             },
             {
               "facet":false,
@@ -220,7 +226,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "store":true,
               "type":"int32",
               "range_index":false,
-              "stem":false
+              "stem":false,
+              "stem_dictionary": false
             },
             {
               "facet":false,
@@ -235,7 +242,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "store":true,
               "type":"object",
               "range_index":false,
-              "stem":false
+              "stem":false,
+              "stem_dictionary": false
             },
             {
               "facet":false,
@@ -251,7 +259,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"float[]",
               "vec_dist":"cosine",
               "range_index":false,
-              "stem":false
+              "stem":false,
+              "stem_dictionary": false
             },
             {
               "async_reference":true,
@@ -267,7 +276,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"string",
               "reference":"Products.product_id",
               "range_index":false,
-              "stem":false
+              "stem":false,
+              "stem_dictionary": false
             },
             {
               "facet":false,
@@ -281,7 +291,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "store":true,
               "type":"int64",
               "range_index":false,
-              "stem":false
+              "stem":false,
+              "stem_dictionary": false
             }
           ],
           "id":0,
@@ -1669,7 +1680,8 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "store":true,
                     "type":"string",
                     "range_index":false,
-                    "stem":false
+                    "stem":false,
+                    "stem_dictionary": false
                 },
                 {
                     "facet":true,
@@ -1684,7 +1696,8 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "store":true,
                     "type":"int32",
                     "range_index":false,
-                    "stem":false
+                    "stem":false,
+                    "stem_dictionary": false
                 },{
                     "facet":true,
                     "index":true,
@@ -1698,7 +1711,8 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "store":true,
                     "type":"int32",
                     "range_index":false,
-                    "stem":false
+                    "stem":false,
+                    "stem_dictionary": false
                 },{
                     "facet":true,
                     "index":true,
@@ -1712,7 +1726,8 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "store":true,
                     "type":"int32",
                     "range_index":false,
-                    "stem":false
+                    "stem":false,
+                    "stem_dictionary": false
                 }
             ],
             "id":1,
