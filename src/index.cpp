@@ -7824,7 +7824,7 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
                                const std::vector<sort_by>& sort_fields_std, const int* sort_order,
                                const vector_query_t& vector_query) const {
 
-    auto compute_text_match_aux_score = [&] (std::vector<KV*> result_ids, size_t found_ids_offset) {
+    auto compute_text_match_aux_score = [&] (std::vector<KV*>& result_ids, size_t found_ids_offset) {
         std::vector<posting_list_t::iterator_t> its;
         std::vector<posting_list_t*> expanded_plists;
 
@@ -7883,11 +7883,6 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
                     kv->text_match_score = match_score;
                 }
             }
-
-            //assign scores as per their ranks
-            std::sort(result_ids.begin(), result_ids.end(), [&](const auto& kv1, const auto& kv2) {
-                return kv1->text_match_score > kv2->text_match_score;
-            });
         }
 
         for(posting_list_t* plist: expanded_plists) {
