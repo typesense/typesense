@@ -3,6 +3,7 @@
 #include <app_metrics.h>
 #include <regex>
 #include <analytics_manager.h>
+#include <housekeeper.h>
 #include "typesense_server_utils.h"
 #include "core_api.h"
 #include "string_utils.h"
@@ -44,24 +45,17 @@ public:
     }
 };
 
-// used to log the queries that were in-flight during a crash
-std::mutex ifq_mutex;
-std::unordered_map<uint64_t, std::shared_ptr<http_req>> in_flight_queries;
 
 class in_flight_req_guard_t {
     uint64_t req_id;
 public:
     in_flight_req_guard_t(const std::shared_ptr<http_req>& req) {
-        std::unique_lock ifq_lock(ifq_mutex);
-        in_flight_queries.emplace(req->start_ts, req);
         req_id = req->start_ts;
-        ifq_lock.unlock();
+        HouseKeeper::get_instance().add_req(req);
     }
 
     ~in_flight_req_guard_t() {
-        std::unique_lock ifq_lock(ifq_mutex);
-        in_flight_queries.erase(req_id);
-        ifq_lock.unlock();
+        HouseKeeper::get_instance().remove_req(req_id);
     }
 };
 
@@ -73,29 +67,6 @@ void init_api(uint32_t cache_num_entries) {
 bool get_alter_in_progress(const std::string& collection) {
     std::shared_lock lock(alter_mutex);
     return alters_in_progress.count(collection) != 0;
-}
-
-void log_running_queries() {
-    std::unique_lock ifq_lock(ifq_mutex);
-    if(in_flight_queries.empty()) {
-        LOG(INFO) << "No in-flight search queries were found.";
-        return ;
-    }
-
-    LOG(INFO) << "Dump of in-flight search queries:";
-
-    for(const auto& kv: in_flight_queries) {
-        std::string query_string = "?";
-        std::string search_payload = kv.second->body;
-        StringUtils::erase_char(search_payload, '\n');
-        for(const auto& param_kv: kv.second->params) {
-            if(param_kv.first != http_req::AUTH_HEADER && param_kv.first != http_req::USER_HEADER) {
-                query_string += param_kv.first + "=" + param_kv.second + "&";
-            }
-        }
-
-        LOG(INFO) << "id=" << kv.first << ", qs=" << query_string << ", body=" << search_payload;
-    }
 }
 
 bool handle_authentication(std::map<std::string, std::string>& req_params,
@@ -418,7 +389,7 @@ bool get_debug(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
     }
 
     if(log_inflight_queries) {
-        log_running_queries();
+        HouseKeeper::get_instance().log_running_queries();
     }
 
     nlohmann::json result;
