@@ -2146,11 +2146,7 @@ bool post_snapshot(const std::shared_ptr<http_req>& req, const std::shared_ptr<h
     res->content_type_header = "application/json";
 
     if(req->params.count(SNAPSHOT_PATH) == 0) {
-        req->last_chunk_aggregate = true;
-        res->final = true;
-        res->set_400(std::string("Parameter `") + SNAPSHOT_PATH + "` is required.");
-        stream_response(req, res);
-        return false;
+        req->params[SNAPSHOT_PATH] = "";
     }
 
     server->do_snapshot(req->params[SNAPSHOT_PATH], req, res);

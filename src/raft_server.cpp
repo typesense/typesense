@@ -534,10 +534,10 @@ void* ReplicationState::save_snapshot(void* arg) {
         bool meta_copied = butil::CopyDirectory(src_meta_dir, dest_state_dir, true);
 
         sa->replication_state->ext_snapshot_succeeded = snapshot_copied && meta_copied;
-
-        // notify on demand closure that external snapshotting is done
-        sa->replication_state->notify();
     }
+
+    // notify on demand closure that external snapshotting is done
+    sa->replication_state->notify();
 
     // NOTE: *must* do a dummy write here since snapshots cannot be triggered if no write has happened since the
     // last snapshot. By doing a dummy write right after a snapshot, we ensure that this can never be the case.
@@ -894,7 +894,8 @@ void ReplicationState::do_snapshot(const std::string& snapshot_path, const std::
         return ;
     }
 
-    LOG(INFO) << "Triggering an on demand snapshot...";
+    LOG(INFO) << "Triggering an on demand snapshot"
+              << (!snapshot_path.empty() ? " with external snapshot path..." : "...");
 
     thread_pool->enqueue([&snapshot_path, req, res, this]() {
         OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res);
@@ -1163,6 +1164,9 @@ void OnDemandSnapshotClosure::Run() {
     std::unique_ptr<OnDemandSnapshotClosure> self_guard(this);
 
     replication_state->wait(); // until on demand snapshotting completes
+
+    auto ext_snapshot_path = replication_state->get_ext_snapshot_path();
+
     replication_state->set_ext_snapshot_path("");
 
     req->last_chunk_aggregate = true;
@@ -1171,7 +1175,7 @@ void OnDemandSnapshotClosure::Run() {
     nlohmann::json response;
     uint32_t status_code;
 
-    if(status().ok() && replication_state->get_ext_snapshot_succeeded()) {
+    if(status().ok() && (ext_snapshot_path.empty() || replication_state->get_ext_snapshot_succeeded())) {
         LOG(INFO) << "On demand snapshot succeeded!";
         status_code = 201;
         response["success"] = true;
