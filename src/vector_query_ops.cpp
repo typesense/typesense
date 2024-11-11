@@ -13,7 +13,7 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
     while(i < vector_query_str.size()) {
         if(vector_query_str[i] == '(' || vector_query_str[i] == '[') {
             // If we hit a bracket before a colon, it's a missing colon error
-            return Option<bool>(400, "Malformed vector query string: `:` is missing.");
+            return Option<bool>(400, "Malformed vector query string: `:` is missing after the vector field name.");
         }
         if(vector_query_str[i] != ':') {
             vector_query.field_name += vector_query_str[i];
