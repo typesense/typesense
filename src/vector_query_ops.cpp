@@ -11,15 +11,14 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
     // field_name([0.34, 0.66, 0.12, 0.68], exact: false, k: 10)
     size_t i = 0;
     while(i < vector_query_str.size()) {
+        if(vector_query_str[i] == '(' || vector_query_str[i] == '[') {
+            // If we hit a bracket before a colon, it's a missing colon error
+            return Option<bool>(400, "Malformed vector query string: `:` is missing.");
+        }
         if(vector_query_str[i] != ':') {
             vector_query.field_name += vector_query_str[i];
             i++;
         } else {
-            if(vector_query_str[i] != ':') {
-                // missing ":"
-                return Option<bool>(400, "Malformed vector query string: `:` is missing.");
-            }
-
             // field name is done
             i++;
 
@@ -265,5 +264,6 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
         }
     }
 
-    return Option<bool>(400, "Malformed vector query string.");
+    // We hit the end of the string without finding a colon
+    return Option<bool>(400, "Malformed vector query string: `:` is missing.");
 }

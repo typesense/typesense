@@ -72,5 +72,10 @@ TEST_F(VectorQueryOpsTest, ParseVectorQueryString) {
     vector_query._reset();
     parsed = VectorQueryOps::parse_vector_query_str("vec([0.34, 0.66, 0.12, 0.68])", vector_query, false, nullptr, false);
     ASSERT_FALSE(parsed.ok());
-    ASSERT_EQ("Malformed vector query string.", parsed.error());
+    ASSERT_EQ("Malformed vector query string: `:` is missing.", parsed.error());
+
+    vector_query._reset();
+    parsed = VectorQueryOps::parse_vector_query_str("vec([0.34, 0.66, 0.12, 0.68], k: 10)", vector_query, false, nullptr, false);
+    ASSERT_FALSE(parsed.ok());
+    ASSERT_EQ("Malformed vector query string: `:` is missing.", parsed.error());
 }
