@@ -1791,7 +1791,8 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
               "sort":false,
               "stem":false,
               "store": true,
-              "type":"string"
+              "type":"string",
+              "stem_dictionary": false
             }
           ],
           "name":"cp2",
@@ -2004,7 +2005,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "store":true,
                     "type":"string",
                     "range_index":false,
-                    "stem":false
+                    "stem":false,
+                    "stem_dictionary": false
                 },
                 {
                     "facet":true,
@@ -2019,7 +2021,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "store":true,
                     "type":"int32",
                     "range_index":false,
-                    "stem":false
+                    "stem":false,
+                    "stem_dictionary": false
                 },{
                     "facet":true,
                     "index":true,
@@ -2033,7 +2036,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "store":true,
                     "type":"int32",
                     "range_index":false,
-                    "stem":false
+                    "stem":false,
+                    "stem_dictionary": false
                 },{
                     "facet":true,
                     "index":true,
@@ -2047,7 +2051,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "store":true,
                     "type":"int32",
                     "range_index":false,
-                    "stem":false
+                    "stem":false,
+                    "stem_dictionary": false
                 }
             ],
             "id":1,
@@ -2099,7 +2104,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "store":true,
                     "type":"string",
                     "range_index":false,
-                    "stem":false
+                    "stem":false,
+                    "stem_dictionary": false
                 },
                 {
                     "facet":true,
@@ -2114,7 +2120,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "store":true,
                     "type":"int32",
                     "range_index":false,
-                    "stem":false
+                    "stem":false,
+                    "stem_dictionary": false
                 },{
                     "facet":true,
                     "index":true,
@@ -2128,7 +2135,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "store":true,
                     "type":"int32",
                     "range_index":false,
-                    "stem":false
+                    "stem":false,
+                    "stem_dictionary": false
                 },{
                     "facet":true,
                     "index":true,
@@ -2142,7 +2150,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "store":true,
                     "type":"int32",
                     "range_index":false,
-                    "stem":false
+                    "stem":false,
+                    "stem_dictionary": false
                 }
             ],
             "id":1,
@@ -2353,7 +2362,8 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "sort":false,
                     "stem":false,
                     "store":false,
-                    "type":"string"
+                    "type":"string",
+                    "stem_dictionary": false
                 },
                 {
                     "facet":false,
@@ -2365,7 +2375,8 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "sort":true,
                     "stem":false,
                     "store":true,
-                    "type":"int32"
+                    "type":"int32",
+                    "stem_dictionary": false
                 }],
                 "name":"collection3",
                 "num_documents":0,

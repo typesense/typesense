@@ -3313,3 +3313,47 @@ TEST_F(CollectionSpecificMoreTest, PopulateIncludeExcludeFields) {
         ASSERT_EQ(1, output_include_fields.count(item));
     }
 }
+
+TEST_F(CollectionSpecificMoreTest, StemmingPlurals) {
+    nlohmann::json schema = R"({
+         "name": "titles",
+         "fields": [
+           {"name": "title", "type": "string", "stem_dictionary": true }
+         ]
+       })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+
+    auto coll_stem = coll_stem_res.get();
+
+    std::string json_line = "{\"word\": \"people\", \"root\":\"person\"}";
+    std::vector<std::string> json_lines;
+    json_lines.push_back(json_line);
+
+    ASSERT_TRUE(StemmerManager::get_instance().save_words(json_lines));
+
+    schema = R"({
+         "name": "titles_no_stem",
+         "fields": [
+           {"name": "title", "type": "string", "stem_dictionary": false }
+         ]
+       })"_json;
+
+    auto coll_no_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_no_stem_res.ok());
+
+    auto coll_no_stem = coll_no_stem_res.get();
+
+
+    nlohmann::json doc;
+    doc["title"] = "people of america";
+    ASSERT_TRUE(coll_stem->add(doc.dump()).ok());
+
+    auto results = coll_stem->search("person", {"title"}, "", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("people of america", results["hits"][0]["document"]["title"].get<std::string>());
+
+    results = coll_no_stem->search("person", {"title"}, "", {}, sort_fields, {0}).get();
+    ASSERT_EQ(0, results["hits"].size());
+}

@@ -118,6 +118,10 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         field_json[fields::stem] = false;
     }
 
+    if(field_json.count(fields::stem_dictionary) == 0) {
+        field_json[fields::stem_dictionary] = false;
+    }
+
     if (field_json.count(fields::range_index) != 0) {
         if (!field_json.at(fields::range_index).is_boolean()) {
             return Option<bool>(400, std::string("The `range_index` property of the field `") +
@@ -427,8 +431,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
                   field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
                   field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], 
-                  field_json[fields::store], field_json[fields::stem], field_json[fields::hnsw_params],
-                  field_json[fields::async_reference])
+                  field_json[fields::store], field_json[fields::stem], field_json[fields::stem_dictionary],
+                  field_json[fields::hnsw_params], field_json[fields::async_reference])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
@@ -808,6 +812,7 @@ Option<bool> field::fields_to_json_fields(const std::vector<field>& fields, cons
         field_val[fields::store] = field.store;
         field_val[fields::stem] = field.stem;
         field_val[fields::range_index] = field.range_index;
+        field_val[fields::stem_dictionary] = field.stem_dictionary;
 
         if(field.embed.count(fields::from) != 0) {
             field_val[fields::embed] = field.embed;

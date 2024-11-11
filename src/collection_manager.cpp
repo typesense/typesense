@@ -87,6 +87,10 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::stem] = false;
         }
 
+        if(field_obj.count(fields::stem_dictionary) == 0) {
+            field_obj[fields::stem_dictionary] = false;
+        }
+
         if(field_obj.count(fields::range_index) == 0) {
             field_obj[fields::range_index] = false;
         }
@@ -123,7 +127,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
                 field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed],
-                field_obj[fields::range_index], field_obj[fields::store], field_obj[fields::stem],
+                field_obj[fields::range_index], field_obj[fields::store], field_obj[fields::stem], field_obj[fields::stem_dictionary],
                 field_obj[fields::hnsw_params], field_obj[fields::async_reference]);
 
         // value of `sort` depends on field type
