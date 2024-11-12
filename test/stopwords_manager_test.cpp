@@ -100,6 +100,16 @@ TEST_F(StopwordsManagerTest, GetStopword) {
     get_op = stopwordsManager.get_stopword("country", stopwordStruct);
     ASSERT_TRUE(get_op.ok());
     ASSERT_EQ(4, stopwordStruct.stopwords.size()); //as United States will be tokenized and counted 2 stopwords
+
+    //stopwords with double quote won't be tokenized as multiple stopwords
+    stopwords = R"({"stopwords": ["\"Iron Man\"", "Thor", "Hulk"], "locale": "en"})"_json;
+
+    upsert_op = stopwordsManager.upsert_stopword("Avengers", stopwords);
+    ASSERT_TRUE(upsert_op.ok());
+
+    get_op = stopwordsManager.get_stopword("Avengers", stopwordStruct);
+    ASSERT_TRUE(get_op.ok());
+    ASSERT_EQ(3, stopwordStruct.stopwords.size()); //Iron Man won't be tokenized and counted as single stopwords
 }
 
 TEST_F(StopwordsManagerTest, DeleteStopword) {
@@ -318,6 +328,31 @@ TEST_F(StopwordsManagerTest, StopwordsBasics) {
     search_op = collectionManager.do_search(req->params, embedded_params, json_results, now_ts);
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("Could not find the stopword set named `article`.", search_op.error());
+
+    //add stopword with double quote
+    stopword_value = R"(
+            {"stopwords": ["\"Iron Man\"", "Thor"], "locale": "en"}
+        )"_json;
+
+    req->params["collection"] = "coll1";
+    req->params["name"] = "avengers";
+    req->body = stopword_value.dump();
+
+    result = put_upsert_stopword(req, res);
+    if(!result) {
+        LOG(ERROR) << res->body;
+        FAIL();
+    }
+
+    req->params["collection"] = "coll1";
+    req->params["q"] = "Iron Man";
+    req->params["query_by"] = "title";
+    req->params["stopwords"] = "avengers";
+
+    search_op = collectionManager.do_search(req->params, embedded_params, json_results, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_results);
+    ASSERT_EQ(0, results["hits"].size());  //whole query will be removed by stopword set
 
     collectionManager.drop_collection("coll1");
 }

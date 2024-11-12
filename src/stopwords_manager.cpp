@@ -59,15 +59,21 @@ Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name,
     std::vector<std::string> tokens;
     spp::sparse_hash_set<std::string> stopwords_set;
     const auto& stopwords = stopwords_json[STOPWORD_VALUES];
+    std::vector<char> custom_symbols;
 
     for (const auto &stopword: stopwords.items()) {
         const auto& val = stopword.value().get<std::string>();
-        Tokenizer(val, true, false, locale, {}, {}).tokenize(tokens);
 
-        for(const auto& tok : tokens) {
+        if (val[0] == '\"') {  //if starts with '"', should add ' ' as custom symbol to tokenize whole string
+            custom_symbols.push_back(' ');
+        }
+        Tokenizer(val, true, false, locale, custom_symbols, {}).tokenize(tokens);
+
+        for (const auto& tok : tokens) {
             stopwords_set.emplace(tok);
         }
         tokens.clear();
+        custom_symbols.clear();
     }
     stopword_configs[stopword_name] = stopword_struct_t{stopword_name, stopwords_set, locale};
     return Option<bool>(true);

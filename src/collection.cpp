@@ -3614,6 +3614,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         q_exclude_tokens = {};
         q_include_tokens = {query};
     } else {
+        std::string processed_query = query;
         std::vector<std::string> tokens;
         std::vector<std::string> tokens_non_stemmed;
         stopword_struct_t stopwordStruct;
@@ -3623,24 +3624,24 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                 LOG(ERROR) << stopword_op.error();
                 LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set;
             }
+
+            StringUtils::tolowercase(processed_query);
+            for (const auto val: stopwordStruct.stopwords) {
+                processed_query = StringUtils::remove_words_from_string(processed_query, val);
+            }
         }
 
         if(already_segmented) {
-            StringUtils::split(query, tokens, " ");
+            StringUtils::split(processed_query, tokens, " ");
         } else {
             std::vector<char> custom_symbols = symbols_to_index;
             custom_symbols.push_back('-');
             custom_symbols.push_back('"');
 
-            Tokenizer(query, true, false, locale, custom_symbols, token_separators, stemmer).tokenize(tokens);
+            Tokenizer(processed_query, true, false, locale, custom_symbols, token_separators, stemmer).tokenize(tokens);
             if(stemmer) {
-                Tokenizer(query, true, false, locale, custom_symbols, token_separators, nullptr).tokenize(tokens_non_stemmed);
+                Tokenizer(processed_query, true, false, locale, custom_symbols, token_separators, nullptr).tokenize(tokens_non_stemmed);
             }
-        }
-
-        for (const auto val: stopwordStruct.stopwords) {
-            tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
-            tokens_non_stemmed.erase(std::remove(tokens_non_stemmed.begin(), tokens_non_stemmed.end(), val), tokens_non_stemmed.end());
         }
 
         bool exclude_operator_prior = false;

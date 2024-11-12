@@ -557,3 +557,8 @@ size_t StringUtils::split_facet(const std::string &s, std::vector<std::string> &
 size_t StringUtils::get_occurence_count(const std::string &str, char symbol) {
     return std::count(str.begin(), str.end(), symbol);
 }
+
+std::string StringUtils::remove_words_from_string(const std::string &s, const std::string &word) {
+    std::regex reg("\\s*\\b" + word + "\\b");
+    return std::regex_replace(s, reg, "");
+}
