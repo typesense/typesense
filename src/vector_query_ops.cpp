@@ -8,7 +8,7 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                                                     const Collection* coll,
                                                     const bool allow_empty_query) {
     // FORMAT:
-    // field_name([0.34, 0.66, 0.12, 0.68], exact: false, k: 10)
+    // field_name:([0.34, 0.66, 0.12, 0.68], k: 10)
     size_t i = 0;
     while(i < vector_query_str.size()) {
         if(vector_query_str[i] == '(' || vector_query_str[i] == '[') {
