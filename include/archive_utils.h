@@ -12,6 +12,7 @@ public:
     static constexpr const char* TAR_GZ_EXTENSION = ".tar.gz";
     static bool extract_tar_gz_from_file(const std::string& archive_path, const std::string& destination_path);
     static bool extract_tar_gz_from_memory(const std::string& archive_content, const std::string& destination_path);
+    static bool verify_tar_gz_archive(const std::string& archive_content);
 private:
     static constexpr size_t BUFFER_SIZE = (10 * 1024 * 1024);
 

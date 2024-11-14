@@ -11,6 +11,7 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "thread_local_vars.h"
 #include "core_api.h"
+#include "personalization_model_manager.h"
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -645,6 +646,13 @@ int ReplicationState::init_db() {
             nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
             batched_indexer->load_state(batch_indexer_state);
         }
+    }
+
+    auto personalization_models_init = PersonalizationModelManager::init(store);
+    if(!personalization_models_init.ok()) {
+        LOG(INFO) << "Failed to initialize personalization model manager: " << personalization_models_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << personalization_models_init.get() << " personalization model(s).";
     }
 
     return 0;
