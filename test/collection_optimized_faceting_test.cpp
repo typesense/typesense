@@ -1947,9 +1947,9 @@ TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParentDeepNested) {
     auto results = search_op.get();
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("{\"specification\":{\"detail\":{\"width\":30}}}", results["facet_counts"][0]["counts"][0]["parent"].dump());
+    ASSERT_EQ("{\"width\":30}", results["facet_counts"][0]["counts"][0]["parent"].dump());
     ASSERT_EQ("30", results["facet_counts"][0]["counts"][0]["value"]);
-    ASSERT_EQ("{\"specification\":{\"detail\":{\"width\":25}}}", results["facet_counts"][0]["counts"][1]["parent"].dump());
+    ASSERT_EQ("{\"width\":25}", results["facet_counts"][0]["counts"][1]["parent"].dump());
     ASSERT_EQ("25", results["facet_counts"][0]["counts"][1]["value"]);
 }
 
@@ -2058,7 +2058,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParentArrayFields) {
                                    fallback, 4, {off}, INT16_MAX, INT16_MAX,
                                    2, 2, false, "",
                                    true, 0, max_score, 100,
-                                   0, 0, "exhaustive", 30000,
+                                   0, 0, "top_values", 30000,
                                    2, "", {"tags.id"});
 
     if(!search_op.ok()) {
@@ -2072,6 +2072,113 @@ TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParentArrayFields) {
     ASSERT_EQ("tag-2", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ("{\"id\":\"tag-1\",\"name\":\"name for tag-1\"}", results["facet_counts"][0]["counts"][1]["parent"].dump());
     ASSERT_EQ("tag-1", results["facet_counts"][0]["counts"][1]["value"]);
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParentArrayFields2) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "nestedCategories", "type": "object"},
+          {"name": "nestedCategories.categories.FullPath", "type": "string[]", "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+        "nestedCategories": {
+            "categories": [
+                {"FullPath": "foobar"}
+            ]
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_op = coll1->search("*", {}, "", {"nestedCategories.categories.FullPath"},
+                                   {}, {2}, 10, 1, FREQUENCY, {true},
+                                   1, spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "",
+                                   30, 4, "",
+                                   Index::TYPO_TOKENS_THRESHOLD, "", "", {},
+                                   3, "<mark>", "</mark>", {},
+                                   UINT32_MAX, true, false, true,
+                                   "", false, 6000 * 1000, 4, 7,
+                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                   2, 2, false, "",
+                                   true, 0, max_score, 100,
+                                   0, 0, "top_values", 30000,
+                                   2, "", {"nestedCategories.categories.FullPath"});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    auto results = search_op.get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(R"({"FullPath":"foobar"})", results["facet_counts"][0]["counts"][0]["parent"].dump());
+    ASSERT_EQ("foobar", results["facet_counts"][0]["counts"][0]["value"]);
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParentArrayFields3) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "nestedCategories", "type": "object"},
+          {"name": "nestedCategories.categories", "type": "string[]", "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+        "nestedCategories": {
+            "categories": [
+                "hello", "world"
+            ]
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_op = coll1->search("*", {}, "", {"nestedCategories.categories"},
+                                   {}, {2}, 10, 1, FREQUENCY, {true},
+                                   1, spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "",
+                                   30, 4, "",
+                                   Index::TYPO_TOKENS_THRESHOLD, "", "", {},
+                                   3, "<mark>", "</mark>", {},
+                                   UINT32_MAX, true, false, true,
+                                   "", false, 6000 * 1000, 4, 7,
+                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                   2, 2, false, "",
+                                   true, 0, max_score, 100,
+                                   0, 0, "top_values", 30000,
+                                   2, "", {"nestedCategories.categories"});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    auto results = search_op.get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("{\"categories\":[\"hello\",\"world\"]}", results["facet_counts"][0]["counts"][0]["parent"].dump());
+    ASSERT_EQ("world", results["facet_counts"][0]["counts"][0]["value"]);
+
+    ASSERT_EQ("{\"categories\":[\"hello\",\"world\"]}", results["facet_counts"][0]["counts"][1]["parent"].dump());
+    ASSERT_EQ("hello", results["facet_counts"][0]["counts"][1]["value"]);
 }
 
 TEST_F(CollectionOptimizedFacetingTest, FacetSortByAlpha) {

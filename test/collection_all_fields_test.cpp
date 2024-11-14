@@ -1800,4 +1800,3 @@ TEST_F(CollectionAllFieldsTest, GeopointSortValue) {
               " The sort index is used during GeoSearch.", create_op.error());
 
 }
-

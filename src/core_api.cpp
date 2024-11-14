@@ -3,6 +3,7 @@
 #include <app_metrics.h>
 #include <regex>
 #include <analytics_manager.h>
+#include <housekeeper.h>
 #include "typesense_server_utils.h"
 #include "core_api.h"
 #include "string_utils.h"
@@ -19,33 +20,42 @@
 #include "conversation_manager.h"
 #include "conversation_model_manager.h"
 #include "conversation_model.h"
-#include "archive_utils.h"
+#include "personalization_model_manager.h"
 
 using namespace std::chrono_literals;
 
 std::shared_mutex mutex;
 LRU::Cache<uint64_t, cached_res_t> res_cache;
 
-std::atomic<bool> alter_in_progress = false;
+std::shared_mutex alter_mutex;
+std::set<std::string> alters_in_progress;
 
-// used to log the queries that were in-flight during a crash
-std::mutex ifq_mutex;
-std::unordered_map<uint64_t, std::shared_ptr<http_req>> in_flight_queries;
+class alter_guard_t {
+    std::string collection_name;
+public:
+    alter_guard_t(const std::string& collection) {
+        std::unique_lock ulock(alter_mutex);
+        collection_name = collection;
+        alters_in_progress.insert(collection_name);
+    }
+
+    ~alter_guard_t() {
+        std::unique_lock ulock(alter_mutex);
+        alters_in_progress.erase(collection_name);
+    }
+};
+
 
 class in_flight_req_guard_t {
     uint64_t req_id;
 public:
     in_flight_req_guard_t(const std::shared_ptr<http_req>& req) {
-        std::unique_lock ifq_lock(ifq_mutex);
-        in_flight_queries.emplace(req->start_ts, req);
         req_id = req->start_ts;
-        ifq_lock.unlock();
+        HouseKeeper::get_instance().add_req(req);
     }
 
     ~in_flight_req_guard_t() {
-        std::unique_lock ifq_lock(ifq_mutex);
-        in_flight_queries.erase(req_id);
-        ifq_lock.unlock();
+        HouseKeeper::get_instance().remove_req(req_id);
     }
 };
 
@@ -54,35 +64,9 @@ void init_api(uint32_t cache_num_entries) {
     res_cache.capacity(cache_num_entries);
 }
 
-void set_alter_in_progress(bool in_progress) {
-    alter_in_progress = in_progress;
-}
-
-bool get_alter_in_progress() {
-    return alter_in_progress;
-}
-
-void log_running_queries() {
-    std::unique_lock ifq_lock(ifq_mutex);
-    if(in_flight_queries.empty()) {
-        LOG(INFO) << "No in-flight search queries were found.";
-        return ;
-    }
-
-    LOG(INFO) << "Dump of in-flight search queries:";
-
-    for(const auto& kv: in_flight_queries) {
-        std::string query_string = "?";
-        std::string search_payload = kv.second->body;
-        StringUtils::erase_char(search_payload, '\n');
-        for(const auto& param_kv: kv.second->params) {
-            if(param_kv.first != http_req::AUTH_HEADER && param_kv.first != http_req::USER_HEADER) {
-                query_string += param_kv.first + "=" + param_kv.second + "&";
-            }
-        }
-
-        LOG(INFO) << "id=" << kv.first << ", qs=" << query_string << ", body=" << search_payload;
-    }
+bool get_alter_in_progress(const std::string& collection) {
+    std::shared_lock lock(alter_mutex);
+    return alters_in_progress.count(collection) != 0;
 }
 
 bool handle_authentication(std::map<std::string, std::string>& req_params,
@@ -316,25 +300,26 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
     nlohmann::json req_json;
     std::set<std::string> allowed_keys = {"metadata", "fields"};
 
+    // Ensures that only one alter can run per collection.
+    // The actual check for this, happens in `ReplicationState::write` which is called only during live writes.
+    alter_guard_t alter_guard(req->params["collection"]);
+
     try {
         req_json = nlohmann::json::parse(req->body);
     } catch(const std::exception& e) {
         //LOG(ERROR) << "JSON error: " << e.what();
         res->set_400("Bad JSON.");
-        alter_in_progress = false;
         return false;
     }
 
     if(req_json.empty()) {
         res->set_400("Alter payload is empty.");
-        alter_in_progress = false;
         return false;
     }
 
     for(auto it : req_json.items()) {
         if(allowed_keys.count(it.key()) == 0) {
             res->set_400("Only `fields` and `metadata` can be updated at the moment.");
-            alter_in_progress = false;
             return false;
         }
     }
@@ -344,14 +329,12 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
 
     if(collection == nullptr) {
         res->set_404();
-        alter_in_progress = false;
         return false;
     }
 
     if(req_json.contains("metadata")) {
         if(!req_json["metadata"].is_object()) {
             res->set_400("The `metadata` value should be an object.");
-            alter_in_progress = false;
             return false;
         }
 
@@ -359,7 +342,6 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         auto op = collectionManager.update_collection_metadata(req->params["collection"], req_json["metadata"]);
         if(!op.ok()) {
             res->set(op.code(), op.error());
-            alter_in_progress = false;
             return false;
         }
     }
@@ -370,14 +352,12 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         auto alter_op = collection->alter(alter_payload);
         if(!alter_op.ok()) {
             res->set(alter_op.code(), alter_op.error());
-            alter_in_progress = false;
             return false;
         }
         // without this line, response will return full api key without being masked
         req_json["fields"] = alter_payload["fields"];
     }
 
-    alter_in_progress = false;
     res->set_200(req_json.dump());
     return true;
 }
@@ -409,7 +389,7 @@ bool get_debug(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
     }
 
     if(log_inflight_queries) {
-        log_running_queries();
+        HouseKeeper::get_instance().log_running_queries();
     }
 
     nlohmann::json result;
@@ -986,7 +966,13 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
 
         if(!exclude_conversation_history) {
-            response["conversation"]["conversation_history"] = new_conversation_history;
+            auto get_conversation_op = ConversationManager::get_instance().get_conversation(add_conversation_op.get());
+            if(!get_conversation_op.ok()) {
+                res->set_400(get_conversation_op.error());
+                return false;
+            }
+            response["conversation"]["conversation_history"] = get_conversation_op.get();
+            response["conversation"]["conversation_history"].erase("id");
         }
         response["conversation"]["conversation_id"] = add_conversation_op.get();
 
@@ -2160,11 +2146,7 @@ bool post_snapshot(const std::shared_ptr<http_req>& req, const std::shared_ptr<h
     res->content_type_header = "application/json";
 
     if(req->params.count(SNAPSHOT_PATH) == 0) {
-        req->last_chunk_aggregate = true;
-        res->final = true;
-        res->set_400(std::string("Parameter `") + SNAPSHOT_PATH + "` is required.");
-        stream_response(req, res);
-        return false;
+        req->params[SNAPSHOT_PATH] = "";
     }
 
     server->do_snapshot(req->params[SNAPSHOT_PATH], req, res);
@@ -3097,24 +3079,122 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     return true;
 }
 
-// Helper function to copy data from one archive to another
-int copy_data(struct archive *ar, struct archive *aw) {
-    int r;
-    const void *buff;
-    size_t size;
-    la_int64_t offset;
-
-    for (;;) {
-        r = archive_read_data_block(ar, &buff, &size, &offset);
-        if (r == ARCHIVE_EOF)
-            return (ARCHIVE_OK);
-        if (r < ARCHIVE_OK)
-            return (r);
-        r = archive_write_data_block(aw, buff, size, offset);
-        if (r < ARCHIVE_OK) {
-            LOG(WARNING) << "Error writing data block: " << archive_error_string(aw);
-            return (r);
-        }
+bool post_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+    
+    if (!req->params.count("name") || !req->params.count("collection") || !req->params.count("type")) {
+        res->set_400("Missing required parameters 'name', 'collection' and 'type'.");
+        return false;
     }
+
+    req_json = {
+        {"name", req->params["name"]},
+        {"collection", req->params["collection"]},
+        {"type", req->params["type"]}
+    };
+
+    std::string model_id;
+    if (req->params.count("id")) {
+        req_json["id"] = req->params["id"];
+        model_id = req->params["id"];
+    }
+
+    const std::string model_data = req->body;
+    auto create_op = PersonalizationModelManager::add_model(req_json, model_id, true, model_data);
+    if(!create_op.ok()) {
+        res->set(create_op.code(), create_op.error());
+        return false;
+    }
+    
+    auto model = create_op.get();
+    res->set_200(nlohmann::json{{"ok", true}, {"model_id", model}}.dump());
+    
+    return true;
 }
 
+bool get_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+    
+    auto model_op = PersonalizationModelManager::get_model(model_id);
+    if (!model_op.ok()) {
+        res->set(model_op.code(), model_op.error());
+        return false;
+    }
+
+    auto model = model_op.get();
+
+    if (model.contains("model_path")) {
+        model.erase("model_path");
+    }
+    res->set_200(model.dump());
+    return true;
+}
+
+bool get_personalization_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto models_op = PersonalizationModelManager::get_all_models();
+    if (!models_op.ok()) {
+        res->set(models_op.code(), models_op.error());
+        return false;
+    }
+
+    auto models = models_op.get();
+    for (auto& model : models) {
+        if (model.contains("model_path")) {
+            model.erase("model_path");
+        }
+    }
+
+    res->set_200(models.dump());
+    return true;
+}
+
+bool del_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+    
+    auto delete_op = PersonalizationModelManager::delete_model(model_id);
+    if (!delete_op.ok()) {
+        res->set(delete_op.code(), delete_op.error());
+        return false;
+    }
+
+    auto deleted_model = delete_op.get();
+    if (deleted_model.contains("model_path")) {
+        deleted_model.erase("model_path");
+    }
+    res->set_200(deleted_model.dump());
+    return true;
+}
+
+bool put_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+    
+    if (req->params.count("name") && !req->params["name"].empty()) {
+        req_json["name"] = req->params["name"];
+    }
+    if (req->params.count("collection") && !req->params["collection"].empty()) {
+        req_json["collection"] = req->params["collection"];
+    }
+    if (req->params.count("type") && !req->params["type"].empty()) {
+        req_json["type"] = req->params["type"];
+    }
+
+    if (!req->params.count("id")) {
+        res->set_400("Missing required parameter 'id'.");
+        return false;
+    }
+    std::string model_id = req->params["id"];
+
+    const std::string model_data = req->body;
+    auto update_op = PersonalizationModelManager::update_model(model_id, req_json, model_data);
+    if(!update_op.ok()) {
+        res->set(update_op.code(), update_op.error());
+        return false;
+    }
+
+    nlohmann::json response = update_op.get();
+    if (response.contains("model_path")) {
+        response.erase("model_path");
+    }
+    res->set_200(response.dump());
+    return true;
+}

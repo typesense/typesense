@@ -86,3 +86,15 @@ TEST_F(ArchiveUtilsTest, ExtractTarGzFromMemoryInvalidContent) {
 
     ASSERT_FALSE(ArchiveUtils::extract_tar_gz_from_memory(invalid_content, extract_path));
 }
+
+TEST_F(ArchiveUtilsTest, VerifyTarGzArchive) {
+    std::string archive_path = create_test_tar_gz();
+    std::ifstream archive_file(archive_path, std::ios::binary);
+    std::string archive_content((std::istreambuf_iterator<char>(archive_file)), std::istreambuf_iterator<char>());
+    ASSERT_TRUE(ArchiveUtils::verify_tar_gz_archive(archive_content));
+}
+
+TEST_F(ArchiveUtilsTest, VerifyTarGzArchiveInvalid) {
+    std::string invalid_content = "This is not a valid tar.gz content";
+    ASSERT_FALSE(ArchiveUtils::verify_tar_gz_archive(invalid_content));
+}

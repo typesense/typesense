@@ -2897,7 +2897,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
 
         if(exclude_fields.count("conversation_history") == 0) {
-            result["conversation"]["conversation_history"] = conversation_history;
+            auto get_conversation_op = ConversationManager::get_instance().get_conversation(add_conversation_op.get());
+            if(!get_conversation_op.ok()) {
+                return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
+            }
+            result["conversation"]["conversation_history"] = get_conversation_op.get();
+            result["conversation"]["conversation_history"].erase("id");
         }
         result["conversation"]["conversation_id"] = add_conversation_op.get();
     }
@@ -3825,44 +3830,66 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
     return true;
 }
 
-nlohmann::json Collection::get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document,
-                                            const std::string& val, bool is_array) const {
-    std::vector<std::string> tokens;
-    StringUtils::split(facet_field_name, tokens, ".");
-    std::vector<nlohmann::json> level_docs;
+nlohmann::json Collection::get_parent_object(const nlohmann::json& parent, const nlohmann::json& child,
+                                 const std::vector<std::string>& field_path, size_t field_index,
+                                 const std::string& val) {
+    if(field_index == field_path.size()) {
+        std::string str_val;
 
-    auto doc = document[tokens[0]];
-    level_docs.push_back(doc);
-    for(auto i = 1; i < tokens.size()-1; ++i) { //just to ignore last token which uis our facet field
-        if(doc.contains(tokens[i])) {
-            doc = doc[tokens[i]];
-            level_docs.push_back(doc);
-        } else {
-            LOG(ERROR) << tokens[i] << " not found in document";
+        if(child.is_string()) {
+            str_val = child.get<std::string>();
+        } else if(child.is_number_integer()) {
+            str_val = std::to_string(child.get<int>());
+        } else if(child.is_number_float()) {
+            str_val = std::to_string(child.get<float>());
+        }  else if(child.is_boolean()) {
+            str_val = std::to_string(child.get<bool>());
         }
-    }
-    bool parent_found = false;
-    for(auto i = level_docs.size()-1; i >0; --i) {
-        if(level_docs[i].size() > 1) {
-            doc = level_docs[i];
-            parent_found = true;
-            break;
+
+        if(str_val == val) {
+            return parent;
         }
-    }
 
-    if(!parent_found) {
-        doc = level_docs[0]; //return the top most root
-
-        if(is_array) {
-            const auto& field = tokens[tokens.size() - 1];
-            for(const auto& obj : doc) {
-                if(obj[field] == val) {
-                    return obj;
+        if(child.is_array()) {
+            for(const auto& ele: child) {
+                if(ele.is_string() && ele == val) {
+                    return parent;
                 }
             }
         }
+
+        return nlohmann::json();
     }
-    return doc;
+
+    const auto& fname = field_path[field_index];
+
+    // intermediate must be either an object or an array of objects
+
+    if(child.is_object() && child.contains(fname)) {
+        return get_parent_object(child, child[fname], field_path, field_index+1, val);
+    } else if(child.is_array()) {
+        nlohmann::json doc;
+        for(const auto& ele: child) {
+            doc = get_parent_object(ele, ele, field_path, field_index, val);
+            if(!doc.empty()) {
+                return doc;
+            }
+        }
+    }
+
+    return nlohmann::json();
+}
+
+nlohmann::json Collection::get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document,
+                                            const std::string& val, bool is_array) const {
+    std::vector<std::string> field_path;
+    StringUtils::split(facet_field_name, field_path, ".");
+
+    if(!document.contains(field_path[0])) {
+        return document;
+    }
+
+    return get_parent_object(document, document[field_path[0]], field_path, 1, val);
 }
 
 bool Collection::is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const {
@@ -5110,10 +5137,11 @@ Option<bool> Collection::remove_synonym(const std::string &id) {
 }
 
 void Collection::synonym_reduction(const std::vector<std::string>& tokens,
+                                     const std::string& locale,
                                      std::vector<std::vector<std::string>>& results,
                                      bool synonym_prefix, uint32_t synonym_num_typos) const {
     std::shared_lock lock(mutex);
-    return synonym_index->synonym_reduction(tokens, results, synonym_prefix, synonym_num_typos);
+    return synonym_index->synonym_reduction(tokens, locale, results, synonym_prefix, synonym_num_typos);
 }
 
 Option<override_t> Collection::get_override(const std::string& override_id) {

@@ -3278,8 +3278,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
         }
 
-        if(enable_synonyms) {
-            synonym_index->synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms,
+        auto search_field_it = search_schema.find(the_fields[0].name);
+        const bool found_search_field = (search_field_it != search_schema.end());
+
+        if(enable_synonyms && found_search_field) {
+            synonym_index->synonym_reduction(q_include_tokens, search_field_it->locale,
+                                             field_query_tokens[0].q_synonyms,
                                              synonym_prefix, synonym_num_typos);
         }
 
@@ -3287,7 +3291,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             syn_orig_num_tokens = field_query_tokens[0].q_include_tokens.size();
         }
 
-        const bool& do_stemming = (search_schema.find(the_fields[0].name) != search_schema.end() && search_schema.at(the_fields[0].name).stem);
+        const bool do_stemming = found_search_field && search_field_it->stem;
         for(const auto& q_syn_vec: field_query_tokens[0].q_synonyms) {
             std::vector<token_t> q_pos_syn;
             for(size_t j=0; j < q_syn_vec.size(); j++) {
@@ -3628,7 +3632,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                         // old_score + (1 / rank_of_document) * WEIGHT)
                         found_kv->vector_distance = vec_result.second;
-                        found_kv->text_match_score  = found_kv->scores[found_kv->match_score_index];
                         int64_t match_score = float_to_int64_t(
                                 (int64_t_to_float(found_kv->scores[found_kv->match_score_index])) +
                                 ((1.0 / (seq_id_to_rank[seq_id] + 1)) * VECTOR_SEARCH_WEIGHT));
@@ -4078,6 +4081,10 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
         }
     }
 
+    included_ids_vec.clear();
+    included_ids_vec.insert(included_ids_vec.begin(), included_ids_set.begin(), included_ids_set.end());
+    std::sort(included_ids_vec.begin(), included_ids_vec.end());
+
     std::map<size_t, std::vector<uint32_t>> included_ids_grouped;  // pos -> seq_ids
     std::vector<uint32_t> all_positions;
 
@@ -4088,7 +4095,6 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
         }
         included_ids_grouped[seq_id_pos.second].push_back(seq_id_pos.first);
     }
-
 
     for(const auto& pos_ids: included_ids_grouped) {
         size_t outer_pos = pos_ids.first;
@@ -7818,7 +7824,7 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
                                const std::vector<sort_by>& sort_fields_std, const int* sort_order,
                                const vector_query_t& vector_query) const {
 
-    auto compute_text_match_aux_score = [&] (std::vector<KV*> result_ids, size_t found_ids_offset) {
+    auto compute_text_match_aux_score = [&] (std::vector<KV*>& result_ids, size_t found_ids_offset) {
         std::vector<posting_list_t::iterator_t> its;
         std::vector<posting_list_t*> expanded_plists;
 
@@ -7875,20 +7881,6 @@ void Index::compute_aux_scores(Topster *topster, const std::vector<search_field_
                                    match_score, kv->key, sort_order, false, false, false, 1,
                                    -1, matching_its);
                     kv->text_match_score = match_score;
-                }
-            }
-
-            //assign scores as per their ranks
-            std::sort(result_ids.begin(), result_ids.end(), [&](const auto& kv1, const auto& kv2) {
-                return kv1->text_match_score > kv2->text_match_score;
-            });
-
-            //start after already found ids
-            for(int i = 0; i < result_ids.size(); ++i) {
-                auto& kv = result_ids[i];
-                if(kv->text_match_score) {  //skip the ids which have 0 text match score
-                    kv->text_match_score = float_to_int64_t(
-                            (1.0 / (found_ids_offset + i)) * (1.0 - vector_query.alpha));
                 }
             }
         }

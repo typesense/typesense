@@ -3242,6 +3242,24 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
     ASSERT_TRUE(history["conversation"].is_array());
 
     ASSERT_EQ("how many products are there for clothing category?", history["conversation"][0]["user"]);
+
+    results_op = coll->search("what are the sizes?", {"embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                 10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
+                                 true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
+                                 true, 0, max_score, 100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, true,
+                                 conversation_model_config["id"].get<std::string>(), conversation_id);
+    ASSERT_TRUE(results_op.ok());
+
+    results = results_op.get();
+
+    ASSERT_TRUE(results.contains("conversation"));
+    ASSERT_TRUE(results["conversation"].is_object());
+    ASSERT_TRUE(results["conversation"].contains("conversation_history"));
+    ASSERT_TRUE(results["conversation"]["conversation_history"].is_object());
+    ASSERT_EQ(4, results["conversation"]["conversation_history"]["conversation"].size());
 }
 
 TEST_F(CollectionVectorTest, TestImageEmbeddingWithWrongModel) {
@@ -5136,7 +5154,7 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
     ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
     ASSERT_FLOAT_EQ(0.2496563196182251, res["hits"][3]["vector_distance"].get<float>());
 
-    ASSERT_EQ(1060320051, res["hits"][0]["text_match"].get<std::size_t>());
+    ASSERT_EQ(1736172819517014137, res["hits"][0]["text_match"].get<std::size_t>());
     ASSERT_EQ(0, res["hits"][1]["text_match"].get<std::size_t>());
     ASSERT_EQ(0, res["hits"][2]["text_match"].get<std::size_t>());
     ASSERT_EQ(0, res["hits"][3]["text_match"].get<std::size_t>());
@@ -5168,8 +5186,46 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
     ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
     ASSERT_FLOAT_EQ(0.2496563196182251, res["hits"][3]["vector_distance"].get<float>());
 
-    ASSERT_EQ(1060320051, res["hits"][0]["text_match"].get<std::size_t>());
-    ASSERT_EQ(1051931443, res["hits"][1]["text_match"].get<std::size_t>());
-    ASSERT_EQ(1047457519, res["hits"][2]["text_match"].get<std::size_t>());
+    ASSERT_EQ(1736172819517014137, res["hits"][0]["text_match"].get<std::size_t>());
+    ASSERT_EQ(2211897868288, res["hits"][1]["text_match"].get<std::size_t>());
+    ASSERT_EQ(1108091338752, res["hits"][2]["text_match"].get<std::size_t>());
     ASSERT_EQ(0, res["hits"][3]["text_match"].get<std::size_t>()); //document with id:3 won't have any text_match
+}
+
+TEST_F(CollectionVectorTest, EmbedFieldMustBeFloatArray) {
+    Collection *coll1;
+
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("embedding", field_types::STRING, false)  // intentionally wrong type
+    };
+
+    nlohmann::json field_json;
+    field_json["name"] = "embedding";
+    field_json["type"] = "string";  // wrong type
+    field_json["embed"] = nlohmann::json::object();
+    field_json["embed"]["from"] = {"title"};
+    field_json["embed"]["model_config"] = nlohmann::json::object();
+    field_json["embed"]["model_config"]["model_name"] = "ts/e5-small";
+
+    std::vector<field> parsed_fields;
+    std::string fallback_field_type;
+    auto arr = nlohmann::json::array();
+    arr.push_back(field_json);
+
+    auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, parsed_fields);
+
+    ASSERT_FALSE(field_op.ok());
+    ASSERT_EQ("Fields with the `embed` parameter can only be of type `float[]`.", field_op.error());
+
+    // Try with int[] type as well
+    field_json["type"] = "int[]";
+    arr.clear();
+    arr.push_back(field_json);
+    parsed_fields.clear();
+
+    field_op = field::json_fields_to_fields(false, arr, fallback_field_type, parsed_fields);
+
+    ASSERT_FALSE(field_op.ok());
+    ASSERT_EQ("Fields with the `embed` parameter can only be of type `float[]`.", field_op.error());
 }

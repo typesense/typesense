@@ -363,6 +363,10 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
+        if(collection_name != "6490_searchproductsprod_7qnnmget2ttehgxfus2ski2yxa") {
+            //continue;
+        }
+
         auto captured_store = store;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
                               &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit,
@@ -411,6 +415,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     std::unique_lock<std::mutex> lock_process(m_process);
     cv_process.wait(lock_process, [&](){
         return num_processed == num_collections;
+        // return num_processed == 1;
     });
 
     // load presets
@@ -1284,7 +1289,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
         // overwrite = true as embedded params have higher priority
         if (!AuthManager::add_item_to_params(req_params, item, true)) {
-            return Option<bool>(400, "Error while applying embedded parameters.");
+            return Option<bool>(400, "Error applying search parameters inside Scoped Search API key");
         }
     }
 

@@ -8354,7 +8354,7 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
 
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Error while applying embedded parameters.", search_op.error());
+    ASSERT_EQ("Error applying search parameters inside Scoped Search API key", search_op.error());
 
     req_params = {
             {"collection", "Products"},

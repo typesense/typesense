@@ -514,7 +514,8 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     bool is_binary_body = false;
     if (content_type_header_cursor != -1) {
         h2o_iovec_t& slot = req->headers.entries[content_type_header_cursor].value;
-        is_binary_body = (std::string(slot.base) == http_req::OCTET_STREAM_HEADER_VALUE);
+        std::string content_type = std::string(slot.base, slot.len);
+        is_binary_body = (content_type == http_req::OCTET_STREAM_HEADER_VALUE);
     }
 
     std::shared_ptr<http_req> request = std::make_shared<http_req>(req, rpath->http_method, path_without_query,

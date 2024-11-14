@@ -516,7 +516,7 @@ int run_server(const Config & config, const std::string & version, void (*master
             ConversationManager::get_instance().run();
         });
           
-        HouseKeeper::get_instance().init(config.get_housekeeping_interval());
+        HouseKeeper::get_instance().init();
         std::thread housekeeping_thread([]() {
             HouseKeeper::get_instance().run();
         });

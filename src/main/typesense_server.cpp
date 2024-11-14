@@ -1,3 +1,4 @@
+#include <housekeeper.h>
 #include "typesense_server_utils.h"
 #include "core_api.h"
 #include "tsconfig.h"
@@ -103,6 +104,12 @@ void master_server_routes() {
     server->put("/conversations/models/:id", put_conversation_model);
     server->del("/conversations/models/:id", del_conversation_model);
     
+    server->post("/personalization/models", post_personalization_model);
+    server->get("/personalization/models", get_personalization_models);
+    server->get("/personalization/models/:id", get_personalization_model);
+    server->del("/personalization/models/:id", del_personalization_model);
+    server->put("/personalization/models/:id", put_personalization_model);
+
     server->get("/limits", get_rate_limits);
     server->get("/limits/active", get_active_throttles);
     server->get("/limits/exceeds", get_limit_exceed_counts);
@@ -131,7 +138,7 @@ void crash_callback(int sig, backward::StackTrace& st) {
         }
     }
 
-    log_running_queries();
+    HouseKeeper::get_instance().log_running_queries();
     LOG(ERROR) << "Typesense " << TYPESENSE_VERSION << " is terminating abruptly.";
 }
 

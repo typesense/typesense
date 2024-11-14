@@ -239,6 +239,10 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     }
 
     if(field_json.count(fields::embed) != 0) {
+        if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
+            return Option<bool>(400, "Fields with the `embed` parameter can only be of type `float[]`.");
+        }
+
         if(!field_json[fields::embed].is_object()) {
             return Option<bool>(400, "Property `" + fields::embed + "` must be an object.");
         }

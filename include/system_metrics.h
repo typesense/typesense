@@ -139,8 +139,6 @@ private:
 
     static uint64_t linux_get_mem_available_bytes();
 
-    static uint64_t get_memory_active_bytes();
-
     static uint64_t get_memory_non_proc_bytes();
 
 public:
@@ -151,6 +149,8 @@ public:
         uint64_t memory_used_bytes = get_memory_used_bytes();
         non_proc_mem_bytes = memory_used_bytes - get_memory_active_bytes();
     }
+
+    static uint64_t get_memory_active_bytes();
 
     static void linux_get_network_data(const std::string & stat_path, uint64_t& received_bytes, uint64_t& sent_bytes);
 

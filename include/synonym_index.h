@@ -56,6 +56,7 @@ private:
     std::map<uint32_t, synonym_t> synonym_definitions;
 
     void synonym_reduction_internal(const std::vector<std::string>& tokens,
+                                    const std::string& locale,
                                     size_t start_window_size,
                                     size_t start_index_pos,
                                     std::set<std::string>& processed_tokens,
@@ -79,6 +80,7 @@ public:
     static std::string get_synonym_key(const std::string & collection_name, const std::string & synonym_id);
 
     void synonym_reduction(const std::vector<std::string>& tokens,
+                           const std::string& locale,
                            std::vector<std::vector<std::string>>& results,
                            bool synonym_prefix, uint32_t synonym_num_typos) const;
 

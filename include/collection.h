@@ -462,6 +462,10 @@ public:
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, nlohmann::json &document,
                                std::string &value) const;
 
+    static nlohmann::json get_parent_object(const nlohmann::json& parent, const nlohmann::json& child,
+                                     const std::vector<std::string>& field_path, size_t field_index,
+                                     const std::string& val);
+
     nlohmann::json get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document,
                                     const std::string& val, bool is_array) const;
 
@@ -638,6 +642,7 @@ public:
     Option<bool> remove_synonym(const std::string & id);
 
     void synonym_reduction(const std::vector<std::string>& tokens,
+                           const std::string& locale,
                            std::vector<std::vector<std::string>>& results,
                            bool synonym_prefix = false, uint32_t synonym_num_typos = 0) const;
 

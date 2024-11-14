@@ -297,11 +297,6 @@ void BatchedIndexer::run() {
                                 orig_res->set_400("Bad request.");
                                 orig_res->final = true;
                                 async_res = false;
-
-                                // clean up state
-                                if(api_action == "collections:update") {
-                                    set_alter_in_progress(false);
-                                }
                             }
                             prev_body = orig_req->body;
                         } else {

@@ -2,6 +2,7 @@
 #include "posting.h"
 
 void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& tokens,
+                                            const std::string& locale,
                                             size_t start_window_size, size_t start_index_pos,
                                             std::set<std::string>& processed_tokens,
                                             std::vector<std::vector<std::string>>& results,
@@ -47,6 +48,10 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
                         auto syn_index = it.id();
                         const auto &syn_def = synonym_definitions.at(syn_index);
 
+                        if(syn_def.locale != locale) {
+                            break;
+                        }
+
                         for (const auto &syn_def_tokens: syn_def.synonyms) {
                             std::vector<std::string> new_tokens;
 
@@ -69,7 +74,7 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
                             processed_tokens.emplace(syn_def_tokens_str);
 
                             recursed = true;
-                            synonym_reduction_internal(new_tokens, window_len,
+                            synonym_reduction_internal(new_tokens, locale, window_len,
                                                        start_index, processed_tokens, results, orig_tokens,
                                                        synonym_prefix, synonym_num_typos);
                         }
@@ -94,6 +99,7 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
 }
 
 void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
+                                     const std::string& locale,
                                      std::vector<std::vector<std::string>>& results,
                                      bool synonym_prefix, uint32_t synonym_num_typos) const {
     std::shared_lock lock(mutex);
@@ -102,7 +108,7 @@ void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
     }
 
     std::set<std::string> processed_tokens;
-    synonym_reduction_internal(tokens, tokens.size(), 0, processed_tokens, results, tokens,
+    synonym_reduction_internal(tokens, locale, tokens.size(), 0, processed_tokens, results, tokens,
                                synonym_prefix, synonym_num_typos);
 }
 

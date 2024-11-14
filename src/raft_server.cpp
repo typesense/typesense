@@ -11,6 +11,7 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "thread_local_vars.h"
 #include "core_api.h"
+#include "personalization_model_manager.h"
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -268,14 +269,15 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     bool route_found = server->get_route(request->route_hash, &rpath);
 
     if(route_found && rpath->handler == patch_update_collection) {
-        if(get_alter_in_progress()) {
+        if(get_alter_in_progress(request->params["collection"])) {
+            // This is checked only during live writes from a http request: we do this because we want to only
+            // throttle concurrent successive alter requests, but want to allow an alter that happens after another
+            // finishes via raft log replay.
             response->set_422("Another collection update operation is in progress.");
             response->final = true;
             auto req_res = new async_req_res_t(request, response, true);
             return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
         }
-
-        set_alter_in_progress(true);
     }
 
     std::shared_lock lock(node_mutex);
@@ -533,10 +535,10 @@ void* ReplicationState::save_snapshot(void* arg) {
         bool meta_copied = butil::CopyDirectory(src_meta_dir, dest_state_dir, true);
 
         sa->replication_state->ext_snapshot_succeeded = snapshot_copied && meta_copied;
-
-        // notify on demand closure that external snapshotting is done
-        sa->replication_state->notify();
     }
+
+    // notify on demand closure that external snapshotting is done
+    sa->replication_state->notify();
 
     // NOTE: *must* do a dummy write here since snapshots cannot be triggered if no write has happened since the
     // last snapshot. By doing a dummy write right after a snapshot, we ensure that this can never be the case.
@@ -644,6 +646,13 @@ int ReplicationState::init_db() {
             nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
             batched_indexer->load_state(batch_indexer_state);
         }
+    }
+
+    auto personalization_models_init = PersonalizationModelManager::init(store);
+    if(!personalization_models_init.ok()) {
+        LOG(INFO) << "Failed to initialize personalization model manager: " << personalization_models_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << personalization_models_init.get() << " personalization model(s).";
     }
 
     return 0;
@@ -893,7 +902,8 @@ void ReplicationState::do_snapshot(const std::string& snapshot_path, const std::
         return ;
     }
 
-    LOG(INFO) << "Triggering an on demand snapshot...";
+    LOG(INFO) << "Triggering an on demand snapshot"
+              << (!snapshot_path.empty() ? " with external snapshot path..." : "...");
 
     thread_pool->enqueue([&snapshot_path, req, res, this]() {
         OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res);
@@ -1162,6 +1172,9 @@ void OnDemandSnapshotClosure::Run() {
     std::unique_ptr<OnDemandSnapshotClosure> self_guard(this);
 
     replication_state->wait(); // until on demand snapshotting completes
+
+    auto ext_snapshot_path = replication_state->get_ext_snapshot_path();
+
     replication_state->set_ext_snapshot_path("");
 
     req->last_chunk_aggregate = true;
@@ -1170,7 +1183,7 @@ void OnDemandSnapshotClosure::Run() {
     nlohmann::json response;
     uint32_t status_code;
 
-    if(status().ok() && replication_state->get_ext_snapshot_succeeded()) {
+    if(status().ok() && (ext_snapshot_path.empty() || replication_state->get_ext_snapshot_succeeded())) {
         LOG(INFO) << "On demand snapshot succeeded!";
         status_code = 201;
         response["success"] = true;
