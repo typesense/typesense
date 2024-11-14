@@ -37,7 +37,7 @@ protected:
     }
 
     void TearDown() override {
-        std::string test_dir = "/tmp/typesense_test/models";
+        std::string test_dir = "/tmp/typesense_test";
         system(("rm -rf " + test_dir).c_str());
         collectionManager.dispose();
         delete store;

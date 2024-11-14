@@ -86,6 +86,8 @@ TEST_F(PersonalizationModelManagerTest, AddModelDuplicate) {
     nlohmann::json model = create_valid_model("test_id");
     auto result1 = PersonalizationModelManager::add_model(model, "test_id", true);
     ASSERT_FALSE(result1.ok());
+    ASSERT_EQ(result1.code(), 409);
+    ASSERT_EQ(result1.error(), "Model id already exists");
 }
 
 TEST_F(PersonalizationModelManagerTest, GetModelSuccess) {
@@ -98,6 +100,7 @@ TEST_F(PersonalizationModelManagerTest, GetModelNotFound) {
     auto result = PersonalizationModelManager::get_model("nonexistent");
     ASSERT_FALSE(result.ok());
     ASSERT_EQ(result.code(), 404);
+    ASSERT_EQ(result.error(), "Model not found");
 }
 
 TEST_F(PersonalizationModelManagerTest, DeleteModelSuccess) {
@@ -107,12 +110,15 @@ TEST_F(PersonalizationModelManagerTest, DeleteModelSuccess) {
 
     auto get_result = PersonalizationModelManager::get_model("test_id");
     ASSERT_FALSE(get_result.ok());
+    ASSERT_EQ(get_result.code(), 404);
+    ASSERT_EQ(get_result.error(), "Model not found");
 }
 
 TEST_F(PersonalizationModelManagerTest, DeleteModelNotFound) {
     auto result = PersonalizationModelManager::delete_model("nonexistent");
     ASSERT_FALSE(result.ok());
     ASSERT_EQ(result.code(), 404);
+    ASSERT_EQ(result.error(), "Model not found");
 }
 
 TEST_F(PersonalizationModelManagerTest, GetAllModelsEmpty) {
@@ -151,6 +157,7 @@ TEST_F(PersonalizationModelManagerTest, UpdateModelNotFound) {
     auto result = PersonalizationModelManager::update_model("nonexistent", update, "");
     ASSERT_FALSE(result.ok());
     ASSERT_EQ(result.code(), 404);
+    ASSERT_EQ(result.error(), "Model not found");
 }
 
 TEST_F(PersonalizationModelManagerTest, UpdateModelInvalidData) {
@@ -158,4 +165,6 @@ TEST_F(PersonalizationModelManagerTest, UpdateModelInvalidData) {
     update["name"] = "invalid/name";
     auto update_result = PersonalizationModelManager::update_model("test_id", update, "");
     ASSERT_FALSE(update_result.ok());
+    ASSERT_EQ(update_result.code(), 400);
+    ASSERT_EQ(update_result.error(), "Model namespace must be 'ts'.");
 }
