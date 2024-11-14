@@ -8,7 +8,7 @@ embedding_res_t CLIPImageEmbedder::embed(const std::string& encoded_image) {
     std::unique_lock<std::mutex> lock(mutex_);
     // process image
     auto processed_image_op = image_processor_.process_image(encoded_image);
-
+    lock.unlock();
     if (!processed_image_op.ok()) {
         nlohmann::json error_json;
         error_json["error"] = processed_image_op.error();
@@ -31,7 +31,9 @@ embedding_res_t CLIPImageEmbedder::embed(const std::string& encoded_image) {
 
     // run inference
     // LOG(INFO) << "Running image embedder";
+    lock.lock();
     auto output_tensors = session_->Run(Ort::RunOptions{nullptr}, input_names.data(), &input_tensor, 1, output_names.data(), output_names.size());
+    lock.unlock();
 
     // get output tensor
     auto output_tensor = output_tensors.front().GetTensorMutableData<float>();
@@ -52,13 +54,14 @@ embedding_res_t CLIPImageEmbedder::embed(const std::string& encoded_image) {
 
 
 std::vector<embedding_res_t> CLIPImageEmbedder::batch_embed(const std::vector<std::string>& inputs) {
-    std::unique_lock<std::mutex> lock(mutex_);
     std::vector<processed_image_t> processed_images;
     std::unordered_map<int, embedding_res_t> results;
 
     int i = 0;
     for (const auto& input : inputs) {
+        std::unique_lock<std::mutex> lock(mutex_);
         auto processed_image_op = image_processor_.process_image(input);
+        lock.unlock();
 
         if (!processed_image_op.ok()) {
             nlohmann::json error_json;
@@ -110,7 +113,9 @@ std::vector<embedding_res_t> CLIPImageEmbedder::batch_embed(const std::vector<st
 
     // run inference
     // LOG(INFO) << "Running image embedder";
+    std::unique_lock<std::mutex> lock(mutex_);
     auto output_tensors = session_->Run(Ort::RunOptions{nullptr}, input_names.data(), input_tensors.data(), input_tensors.size(), output_names.data(), output_names.size());
+    lock.unlock();
 
     // get output tensor
     auto output_tensor = output_tensors.front().GetTensorMutableData<float>();
