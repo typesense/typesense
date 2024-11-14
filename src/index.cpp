@@ -7456,7 +7456,11 @@ void Index::process_embed_results(std::vector<std::pair<index_record*, std::stri
                 embedding_vals = existing_embedding;
             }
 
-            doc[the_field.name] = embedding_vals;
+            if(value_to_embed.first->is_update) {
+                value_to_embed.first->new_doc[the_field.name] = embedding_vals;
+            }
+            value_to_embed.first->doc[the_field.name] = embedding_vals;
+
             count++;
         }
     }
