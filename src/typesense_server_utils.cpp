@@ -485,6 +485,8 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     EmbedderManager::set_model_dir(config.get_data_dir() + "/models");
 
+    EmbedderManager::get_instance().migrate_public_models();
+
     // first we start the peering service
 
     ReplicationState replication_state(server, batch_indexer, &store, analytics_store,
