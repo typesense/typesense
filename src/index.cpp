@@ -2344,15 +2344,12 @@ Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string
     return Option<filter_result_t>(filter_result);
 }
 
-Option<bool> Index::run_search(search_args* search_params,
-                               const std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
-                               bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
-                               bool enable_typos_for_alpha_numerical_tokens, bool rerank_hybrid_matches) {
+Option<bool> Index::run_search(search_args* search_params) {
 
     auto res = search(search_params->field_query_tokens,
                   search_params->search_fields,
                   search_params->match_type,
-                  search_params->filter_tree_root, search_params->facets, search_params->facet_query,
+                  search_params->filter_tree_root_guard, search_params->facets, search_params->facet_query,
                   search_params->max_facet_values,
                   search_params->included_ids, search_params->excluded_ids,
                   search_params->sort_fields_std, search_params->num_typos,
@@ -2388,15 +2385,15 @@ Option<bool> Index::run_search(search_args* search_params,
                   search_params->facet_sample_percent,
                   search_params->facet_sample_threshold,
                   search_params->drop_tokens_mode,
-                  facet_index_types,
-                  enable_typos_for_numerical_tokens,
-                  enable_synonyms,
-                  synonym_prefix,
-                  synonym_num_typos,
+                  search_params->facet_index_types,
+                  search_params->enable_typos_for_numerical_tokens,
+                  search_params->enable_synonyms,
+                  search_params->synonym_prefix,
+                  search_params->synonym_num_typos,
                   search_params->enable_lazy_filter,
-                  enable_typos_for_alpha_numerical_tokens,
+                  search_params->enable_typos_for_alpha_numerical_tokens,
                   search_params->max_filter_by_candidates,
-                  rerank_hybrid_matches,
+                  search_params->rerank_hybrid_matches,
                   search_params->validate_field_names
     );
 
@@ -2454,7 +2451,7 @@ void Index::concat_topster_ids(Topster*& topster, spp::sparse_hash_map<uint64_t,
 
 bool Index::static_filter_query_eval(const override_t* override,
                                      std::vector<std::string>& tokens,
-                                     filter_node_t*& filter_tree_root,
+                                     std::unique_ptr<filter_node_t>& filter_tree_root,
                                      const bool& validate_field_names) const {
     std::string query = StringUtils::join(tokens, " ");
     bool tag_matched = (!override->rule.tags.empty() && override->rule.filter_by.empty() &&
@@ -2471,11 +2468,10 @@ bool Index::static_filter_query_eval(const override_t* override,
                                                             store, "", new_filter_tree_root, validate_field_names);
         if (filter_op.ok()) {
             if (filter_tree_root == nullptr) {
-                filter_tree_root = new_filter_tree_root;
+                filter_tree_root.reset(new_filter_tree_root);
             } else {
-                auto root = new filter_node_t(AND, filter_tree_root,
-                                                        new_filter_tree_root);
-                filter_tree_root = root;
+                auto root = new filter_node_t(AND, filter_tree_root.release(), new_filter_tree_root);
+                filter_tree_root.reset(root);
             }
             return true;
         } else {
@@ -2583,7 +2579,7 @@ bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const 
 void Index::process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
                                      std::vector<std::string>& query_tokens,
                                      token_ordering token_order,
-                                     filter_node_t*& filter_tree_root,
+                                     std::unique_ptr<filter_node_t>& filter_tree_root,
                                      std::vector<const override_t*>& matched_dynamic_overrides,
                                      nlohmann::json& override_metadata,
                                      bool enable_typos_for_numerical_tokens,
@@ -2648,11 +2644,10 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
                     }
 
                     if (filter_tree_root == nullptr) {
-                        filter_tree_root = new_filter_tree_root;
+                        filter_tree_root.reset(new_filter_tree_root);
                     } else {
-                        filter_node_t* root = new filter_node_t(AND, filter_tree_root,
-                                                                new_filter_tree_root);
-                        filter_tree_root = root;
+                        auto root = new filter_node_t(AND, filter_tree_root.release(), new_filter_tree_root);
+                        filter_tree_root.reset(root);
                     }
                 } else {
                     delete new_filter_tree_root;
@@ -2972,7 +2967,7 @@ void process_results_hnsw_index(filter_result_iterator_t* filter_result_iterator
 
 Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                    const text_match_type_t match_type,
-                   filter_node_t*& filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
+                   std::unique_ptr<filter_node_t>& filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
                    const int max_facet_values,
                    const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                    const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
@@ -3017,7 +3012,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return Option<bool>(true);
     }
 
-    auto filter_result_iterator = new filter_result_iterator_t(get_collection_name(), this, filter_tree_root,
+    auto filter_result_iterator = new filter_result_iterator_t(get_collection_name(), this, filter_tree_root.get(),
                                                                enable_lazy_filter, max_filter_by_candidates,
                                                                search_begin_us, search_stop_us, validate_field_names);
     std::unique_ptr<filter_result_iterator_t> filter_iterator_guard(filter_result_iterator);
@@ -3099,11 +3094,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                             &curated_ids_sorted[0], curated_ids_sorted.size(),
                                                             &excluded_result_ids);
 
-    auto is_wildcard_query = !field_query_tokens.empty() && !field_query_tokens[0].q_include_tokens.empty() &&
-                             field_query_tokens[0].q_include_tokens[0].value == "*";
+    const auto is_wildcard_query = !field_query_tokens.empty() && !field_query_tokens[0].q_include_tokens.empty() &&
+                                        field_query_tokens[0].q_include_tokens[0].value == "*";
 
     // phrase queries are handled as a filtering query
-    bool is_wildcard_non_phrase_query = is_wildcard_query && field_query_tokens[0].q_phrases.empty();
+    const bool is_wildcard_non_phrase_query = is_wildcard_query && field_query_tokens[0].q_phrases.empty();
 
     // handle phrase searches
     if (!field_query_tokens[0].q_phrases.empty()) {
@@ -3287,7 +3282,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 filter_iterator_guard.reset(filter_result_iterator);
             }
 
-            auto search_wildcard_op = search_wildcard(filter_tree_root, sort_fields_std, topster,
+            auto search_wildcard_op = search_wildcard(filter_tree_root.get(), sort_fields_std, topster,
                                                       curated_topster, groups_processed, searched_queries, group_limit, group_by_fields,
                                                       group_missing_values,
                                                       excluded_result_ids, excluded_result_ids_size, excluded_group_ids,
@@ -3431,7 +3426,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
 
         // do synonym based searches
-       auto do_synonym_search_op = do_synonym_search(the_fields, match_type, filter_tree_root,
+       auto do_synonym_search_op = do_synonym_search(the_fields, match_type, filter_tree_root.get(),
                                                      sort_fields_std, curated_topster, token_order, 0, group_limit,
                                                      group_by_fields, group_missing_values, prioritize_exact_match, prioritize_token_position,
                                                      prioritize_num_matching_fields, exhaustive_search, concurrency, prefixes,

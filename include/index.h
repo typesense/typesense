@@ -125,15 +125,20 @@ struct drop_tokens_param_t {
     drop_tokens_param_t(drop_tokens_mode_t mode, size_t token_limit) : mode(mode), token_limit(token_limit) {}
 };
 
+enum facet_index_type_t {
+    exhaustive,
+    top_values,
+    automatic,
+};
+
 struct search_args {
     std::vector<query_tokens_t> field_query_tokens;
     std::vector<search_field_t> search_fields;
     const text_match_type_t match_type;
-    filter_node_t* filter_tree_root;
     std::vector<facet>& facets;
     std::vector<std::pair<uint32_t, uint32_t>>& included_ids;
     std::vector<uint32_t> excluded_ids;
-    std::vector<sort_by>& sort_fields_std;
+    std::vector<sort_by> sort_fields_std;
     facet_query_t facet_query;
     std::vector<uint32_t> num_typos;
     size_t max_facet_values;
@@ -178,13 +183,21 @@ struct search_args {
     size_t facet_sample_threshold;
     drop_tokens_param_t drop_tokens_mode;
 
+    std::unique_ptr<filter_node_t> filter_tree_root_guard;
     bool enable_lazy_filter;
     size_t max_filter_by_candidates;
+
+    std::vector<facet_index_type_t> facet_index_types;
+    bool enable_typos_for_numerical_tokens;
+    bool enable_synonyms;
+    bool synonym_prefix;
+    uint32_t synonym_num_typos;
+    bool enable_typos_for_alpha_numerical_tokens;
+    bool rerank_hybrid_matches;
     bool validate_field_names;
 
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
-                const text_match_type_t match_type,
-                filter_node_t* filter_tree_root, std::vector<facet>& facets,
+                const text_match_type_t match_type, std::vector<facet>& facets,
                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by>& sort_fields_std, facet_query_t facet_query, const std::vector<uint32_t>& num_typos,
                 size_t max_facet_values, size_t fetch_size, size_t per_page, size_t offset, token_ordering token_order,
@@ -198,10 +211,13 @@ struct search_args {
                 const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos,
                 const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t& vector_query,
                 size_t facet_sample_percent, size_t facet_sample_threshold, drop_tokens_param_t drop_tokens_mode,
-                bool enable_lazy_filter, const size_t max_filter_by_candidates, const bool& validate_field_names) :
-            field_query_tokens(field_query_tokens), 
-            search_fields(search_fields), match_type(match_type), filter_tree_root(filter_tree_root), facets(facets),
-            included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
+                std::unique_ptr<filter_node_t>&& filter_tree_root_guard, bool enable_lazy_filter, const size_t max_filter_by_candidates,
+                std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
+                bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
+                bool enable_typos_for_alpha_numerical_tokens, bool rerank_hybrid_matches, const bool& validate_field_names) :
+            field_query_tokens(field_query_tokens),
+            search_fields(search_fields), match_type(match_type), facets(facets),
+            included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(std::move(sort_fields_std)),
             facet_query(facet_query), num_typos(num_typos), max_facet_values(max_facet_values),
             fetch_size(fetch_size), per_page(per_page),
             offset(offset), token_order(token_order), prefixes(prefixes),
@@ -218,8 +234,13 @@ struct search_args {
             facet_query_num_typos(facet_query_num_typos), filter_curated_hits(filter_curated_hits),
             split_join_tokens(split_join_tokens), vector_query(vector_query),
             facet_sample_percent(facet_sample_percent), facet_sample_threshold(facet_sample_threshold),
-            drop_tokens_mode(drop_tokens_mode), enable_lazy_filter(enable_lazy_filter),
-            max_filter_by_candidates(max_filter_by_candidates), validate_field_names(validate_field_names) {
+            drop_tokens_mode(drop_tokens_mode), filter_tree_root_guard(std::move(filter_tree_root_guard)),
+            enable_lazy_filter(enable_lazy_filter), max_filter_by_candidates(max_filter_by_candidates),
+            facet_index_types(std::move(facet_index_types)),
+            enable_typos_for_numerical_tokens(enable_typos_for_numerical_tokens), enable_synonyms(enable_synonyms),
+            synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos),
+            enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens),
+            rerank_hybrid_matches(rerank_hybrid_matches), validate_field_names(validate_field_names) {
 
     }
 
@@ -227,12 +248,6 @@ struct search_args {
         delete topster;
         delete curated_topster;
     };
-};
-
-enum facet_index_type_t {
-    exhaustive,
-    top_values,
-    automatic,
 };
 
 struct offsets_facet_hashes_t {
@@ -467,7 +482,7 @@ private:
                    const std::vector<facet_index_type_t>& facet_index_types) const;
 
     bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
-                                  filter_node_t*& filter_tree_root, const bool& validate_field_names) const;
+                                  std::unique_ptr<filter_node_t>& filter_tree_root, const bool& validate_field_names) const;
 
     bool resolve_override(const std::vector<std::string>& rule_tokens, bool exact_rule_match,
                           const std::vector<std::string>& query_tokens,
@@ -692,14 +707,11 @@ public:
 
     // Public operations
 
-    Option<bool> run_search(search_args* search_params,
-                            const std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
-                            bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
-                            bool enable_typos_for_alpha_numerical_tokens, bool rerank_hybrid_matches);
+    Option<bool> run_search(search_args* search_params);
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
-                filter_node_t*& filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
+                std::unique_ptr<filter_node_t>& filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
                 const int max_facet_values,
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
@@ -1019,7 +1031,7 @@ public:
     void process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
                                   std::vector<std::string>& query_tokens,
                                   token_ordering token_order,
-                                  filter_node_t*& filter_tree_root,
+                                  std::unique_ptr<filter_node_t>& filter_tree_root,
                                   std::vector<const override_t*>& matched_dynamic_overrides,
                                   nlohmann::json& override_metadata,
                                   bool enable_typos_for_numerical_tokens,

@@ -40,6 +40,254 @@ struct highlight_field_t {
     }
 };
 
+struct collection_search_args_t {
+    static constexpr auto NUM_TYPOS = "num_typos";
+    static constexpr auto MIN_LEN_1TYPO = "min_len_1typo";
+    static constexpr auto MIN_LEN_2TYPO = "min_len_2typo";
+
+    static constexpr auto PREFIX = "prefix";
+    static constexpr auto DROP_TOKENS_THRESHOLD = "drop_tokens_threshold";
+    static constexpr auto TYPO_TOKENS_THRESHOLD = "typo_tokens_threshold";
+    static constexpr auto FILTER = "filter_by";
+    static constexpr auto QUERY = "q";
+    static constexpr auto QUERY_BY = "query_by";
+    static constexpr auto QUERY_BY_WEIGHTS = "query_by_weights";
+    static constexpr auto SORT_BY = "sort_by";
+
+    static constexpr auto FACET_BY = "facet_by";
+    static constexpr auto FACET_QUERY = "facet_query";
+    static constexpr auto FACET_QUERY_NUM_TYPOS = "facet_query_num_typos";
+    static constexpr auto MAX_FACET_VALUES = "max_facet_values";
+    static constexpr auto FACET_STRATEGY = "facet_strategy";
+
+    static constexpr auto FACET_RETURN_PARENT = "facet_return_parent";
+
+    static constexpr auto VECTOR_QUERY = "vector_query";
+
+    static constexpr auto REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
+    static constexpr auto REMOTE_EMBEDDING_NUM_TRIES = "remote_embedding_num_tries";
+
+    static constexpr auto GROUP_BY = "group_by";
+    static constexpr auto GROUP_LIMIT = "group_limit";
+    static constexpr auto GROUP_MISSING_VALUES = "group_missing_values";
+
+    static constexpr auto LIMIT_HITS = "limit_hits";
+    static constexpr auto PER_PAGE = "per_page";
+    static constexpr auto PAGE = "page";
+    static constexpr auto OFFSET = "offset";
+    static constexpr auto LIMIT = "limit";
+    static constexpr auto RANK_TOKENS_BY = "rank_tokens_by";
+    static constexpr auto INCLUDE_FIELDS = "include_fields";
+    static constexpr auto EXCLUDE_FIELDS = "exclude_fields";
+
+    static constexpr auto PINNED_HITS = "pinned_hits";
+    static constexpr auto HIDDEN_HITS = "hidden_hits";
+    static constexpr auto ENABLE_OVERRIDES = "enable_overrides";
+    static constexpr auto FILTER_CURATED_HITS = "filter_curated_hits";
+    static constexpr auto ENABLE_SYNONYMS = "enable_synonyms";
+
+    static constexpr auto MAX_CANDIDATES = "max_candidates";
+
+    static constexpr auto INFIX = "infix";
+    static constexpr auto MAX_EXTRA_PREFIX = "max_extra_prefix";
+    static constexpr auto MAX_EXTRA_SUFFIX = "max_extra_suffix";
+
+// strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
+    static constexpr auto SNIPPET_THRESHOLD = "snippet_threshold";
+
+// the number of tokens that should surround the highlighted text
+    static constexpr auto HIGHLIGHT_AFFIX_NUM_TOKENS = "highlight_affix_num_tokens";
+
+// list of fields which will be highlighted fully without snippeting
+    static constexpr auto HIGHLIGHT_FULL_FIELDS = "highlight_full_fields";
+    static constexpr auto HIGHLIGHT_FIELDS = "highlight_fields";
+
+    static constexpr auto HIGHLIGHT_START_TAG = "highlight_start_tag";
+    static constexpr auto HIGHLIGHT_END_TAG = "highlight_end_tag";
+
+    static constexpr auto PRIORITIZE_EXACT_MATCH = "prioritize_exact_match";
+    static constexpr auto PRIORITIZE_TOKEN_POSITION = "prioritize_token_position";
+    static constexpr auto PRE_SEGMENTED_QUERY = "pre_segmented_query";
+
+    static constexpr auto SEARCH_CUTOFF_MS = "search_cutoff_ms";
+    static constexpr auto EXHAUSTIVE_SEARCH = "exhaustive_search";
+    static constexpr auto SPLIT_JOIN_TOKENS = "split_join_tokens";
+
+    static constexpr auto TEXT_MATCH_TYPE = "text_match_type";
+
+    static constexpr auto ENABLE_HIGHLIGHT_V1 = "enable_highlight_v1";
+
+    static constexpr auto FACET_SAMPLE_PERCENT = "facet_sample_percent";
+    static constexpr auto FACET_SAMPLE_THRESHOLD = "facet_sample_threshold";
+
+    static constexpr auto CONVERSATION = "conversation";
+    static constexpr auto CONVERSATION_ID = "conversation_id";
+    static constexpr auto SYSTEM_PROMPT = "system_prompt";
+    static constexpr auto CONVERSATION_MODEL_ID = "conversation_model_id";
+
+    static constexpr auto DROP_TOKENS_MODE = "drop_tokens_mode";
+    static constexpr auto PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
+    static constexpr auto OVERRIDE_TAGS = "override_tags";
+
+    static constexpr auto VOICE_QUERY = "voice_query";
+
+    static constexpr auto ENABLE_TYPOS_FOR_NUMERICAL_TOKENS = "enable_typos_for_numerical_tokens";
+    static constexpr auto ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS = "enable_typos_for_alpha_numerical_tokens";
+    static constexpr auto ENABLE_LAZY_FILTER = "enable_lazy_filter";
+    static constexpr auto MAX_FILTER_BY_CANDIDATES = "max_filter_by_candidates";
+
+    static constexpr auto SYNONYM_PREFIX = "synonym_prefix";
+    static constexpr auto SYNONYM_NUM_TYPOS = "synonym_num_typos";
+
+//query time flag to enable analyitcs for that query
+    static constexpr auto ENABLE_ANALYTICS = "enable_analytics";
+
+//for hybrid search, compute text_match_score for only vector search results and vector_distance for only text_match results
+    static constexpr auto RERANK_HYBRID_MATCHES = "rerank_hybrid_matches";
+
+    static constexpr auto VALIDATE_FIELD_NAMES = "validate_field_names";
+
+    std::string raw_query;
+    std::vector<std::string> search_fields;
+    std::string filter_query;
+    std::vector<std::string> facet_fields;
+    std::vector<sort_by> sort_fields;
+    std::vector<uint32_t> num_typos;
+    size_t per_page;
+    size_t page;
+    token_ordering token_order;
+    std::vector<bool> prefixes;
+    size_t drop_tokens_threshold;
+    spp::sparse_hash_set<std::string> include_fields;
+    spp::sparse_hash_set<std::string> exclude_fields;
+    size_t max_facet_values;
+    std::string simple_facet_query;
+    size_t snippet_threshold;
+    size_t highlight_affix_num_tokens;
+    std::string highlight_full_fields;
+    size_t typo_tokens_threshold;
+    std::string pinned_hits_str;
+    std::string hidden_hits_str;
+    std::vector<std::string> group_by_fields;
+    size_t group_limit;
+    std::string highlight_start_tag;
+    std::string highlight_end_tag;
+    std::vector<uint32_t> query_by_weights;
+    size_t limit_hits;
+    bool prioritize_exact_match;
+    bool pre_segmented_query;
+    bool enable_overrides;
+    std::string highlight_fields;
+    bool exhaustive_search;
+    size_t search_cutoff_ms;
+    size_t min_len_1typo;
+    size_t min_len_2typo;
+    enable_t split_join_tokens;
+    size_t max_candidates;
+    std::vector<enable_t> infixes;
+    size_t max_extra_prefix;
+    size_t max_extra_suffix;
+    size_t facet_query_num_typos;
+    bool filter_curated_hits_option;
+    bool prioritize_token_position;
+    std::string vector_query;
+    bool enable_highlight_v1;
+    uint64_t start_ts;
+    text_match_type_t match_type;
+    size_t facet_sample_percent;
+    size_t facet_sample_threshold;
+    size_t offset;
+    std::string facet_strategy;
+    size_t remote_embedding_timeout_ms;
+    size_t remote_embedding_num_tries;
+    std::string stopwords_set;
+    std::vector<std::string> facet_return_parent;
+    std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec;
+    std::string drop_tokens_mode_str;
+    bool prioritize_num_matching_fields;
+    bool group_missing_values;
+    bool conversation;
+    std::string conversation_model_id;
+    std::string conversation_id;
+    std::string override_tags;
+    std::string voice_query;
+    bool enable_typos_for_numerical_tokens;
+    bool enable_synonyms;
+    bool synonym_prefix;
+    size_t synonym_num_typos;
+    bool enable_lazy_filter;
+    bool enable_typos_for_alpha_numerical_tokens;
+    size_t max_filter_by_candidates;
+    bool rerank_hybrid_matches;
+    bool enable_analytics;
+    bool validate_field_names;
+
+    std::vector<std::vector<KV*>> result_group_kvs{};
+
+    collection_search_args_t(std::string raw_query, std::vector<std::string> search_fields, std::string filter_query,
+                             std::vector<std::string> facet_fields, std::vector<sort_by> sort_fields,
+                             std::vector<uint32_t> num_typos, size_t per_page, size_t page, token_ordering token_order,
+                             std::vector<bool> prefixes, size_t drop_tokens_threshold,
+                             spp::sparse_hash_set<std::string> include_fields, spp::sparse_hash_set<std::string> exclude_fields,
+                             size_t max_facet_values, std::string simple_facet_query, size_t snippet_threshold,
+                             size_t highlight_affix_num_tokens, std::string highlight_full_fields,
+                             size_t typo_tokens_threshold, std::string pinned_hits_str, std::string hidden_hits_str,
+                             std::vector<std::string> group_by_fields, size_t group_limit,
+                             std::string highlight_start_tag, std::string highlight_end_tag,
+                             std::vector<uint32_t> query_by_weights, size_t limit_hits, bool prioritize_exact_match,
+                             bool pre_segmented_query, bool enable_overrides, std::string highlight_fields,
+                             bool exhaustive_search, size_t search_cutoff_ms, size_t min_len_1typo, size_t min_len_2typo,
+                             enable_t split_join_tokens, size_t max_candidates, std::vector<enable_t> infixes,
+                             size_t max_extra_prefix, size_t max_extra_suffix, size_t facet_query_num_typos,
+                             bool filter_curated_hits_option, bool prioritize_token_position, std::string vector_query,
+                             bool enable_highlight_v1, uint64_t start_ts, text_match_type_t match_type,
+                             size_t facet_sample_percent, size_t facet_sample_threshold, size_t offset,
+                             std::string facet_strategy, size_t remote_embedding_timeout_ms, size_t remote_embedding_num_tries,
+                             std::string stopwords_set, std::vector<std::string> facet_return_parent,
+                             std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec,
+                             std::string drop_tokens_mode_str, bool prioritize_num_matching_fields, bool group_missing_values,
+                             bool conversation, std::string conversation_model_id, std::string conversation_id,
+                             std::string override_tags, std::string voice_query, bool enable_typos_for_numerical_tokens,
+                             bool enable_synonyms, bool synonym_prefix, size_t synonym_num_typos, bool enable_lazy_filter,
+                             bool enable_typos_for_alpha_numerical_tokens, size_t max_filter_by_candidates,
+                             bool rerank_hybrid_matches, bool enable_analytics, bool validate_field_names) :
+            raw_query(std::move(raw_query)), search_fields(std::move(search_fields)), filter_query(std::move(filter_query)),
+            facet_fields(std::move(facet_fields)), sort_fields(std::move(sort_fields)),
+            num_typos(std::move(num_typos)), per_page(per_page), page(page), token_order(token_order),
+            prefixes(std::move(prefixes)), drop_tokens_threshold(drop_tokens_threshold),
+            include_fields(std::move(include_fields)), exclude_fields(std::move(exclude_fields)),
+            max_facet_values(max_facet_values), simple_facet_query(std::move(simple_facet_query)), snippet_threshold(snippet_threshold),
+            highlight_affix_num_tokens(highlight_affix_num_tokens), highlight_full_fields(std::move(highlight_full_fields)),
+            typo_tokens_threshold(typo_tokens_threshold), pinned_hits_str(std::move(pinned_hits_str)), hidden_hits_str(std::move(hidden_hits_str)),
+            group_by_fields(std::move(group_by_fields)), group_limit(group_limit),
+            highlight_start_tag(std::move(highlight_start_tag)), highlight_end_tag(std::move(highlight_end_tag)),
+            query_by_weights(std::move(query_by_weights)), limit_hits(limit_hits), prioritize_exact_match(prioritize_exact_match),
+            pre_segmented_query(pre_segmented_query), enable_overrides(enable_overrides), highlight_fields(std::move(highlight_fields)),
+            exhaustive_search(exhaustive_search), search_cutoff_ms(search_cutoff_ms), min_len_1typo(min_len_1typo), min_len_2typo(min_len_2typo),
+            split_join_tokens(split_join_tokens), max_candidates(max_candidates), infixes(std::move(infixes)),
+            max_extra_prefix(max_extra_prefix), max_extra_suffix(max_extra_suffix), facet_query_num_typos(facet_query_num_typos),
+            filter_curated_hits_option(filter_curated_hits_option), prioritize_token_position(prioritize_token_position), vector_query(std::move(vector_query)),
+            enable_highlight_v1(enable_highlight_v1), start_ts(start_ts), match_type(match_type),
+            facet_sample_percent(facet_sample_percent), facet_sample_threshold(facet_sample_threshold), offset(offset),
+            facet_strategy(std::move(facet_strategy)), remote_embedding_timeout_ms(remote_embedding_timeout_ms), remote_embedding_num_tries(remote_embedding_num_tries),
+            stopwords_set(std::move(stopwords_set)), facet_return_parent(std::move(facet_return_parent)),
+            ref_include_exclude_fields_vec(std::move(ref_include_exclude_fields_vec)),
+            drop_tokens_mode_str(std::move(drop_tokens_mode_str)), prioritize_num_matching_fields(prioritize_num_matching_fields), group_missing_values(group_missing_values),
+            conversation(conversation), conversation_model_id(std::move(conversation_model_id)), conversation_id(std::move(conversation_id)),
+            override_tags(std::move(override_tags)), voice_query(std::move(voice_query)), enable_typos_for_numerical_tokens(enable_typos_for_numerical_tokens),
+            enable_synonyms(enable_synonyms), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos), enable_lazy_filter(enable_lazy_filter),
+            enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens), max_filter_by_candidates(max_filter_by_candidates),
+            rerank_hybrid_matches(rerank_hybrid_matches), enable_analytics(enable_analytics), validate_field_names(validate_field_names) {}
+
+    collection_search_args_t() = default;
+
+    static Option<bool> init(std::map<std::string, std::string>& req_params,
+                             const uint32_t& coll_num_documents,
+                             const std::string& stopwords_set,
+                             const uint64_t& start_ts,
+                             collection_search_args_t& args);
+};
+
 class Collection {
 private:
 
@@ -274,7 +522,7 @@ private:
     void process_filter_overrides(std::vector<const override_t*>& filter_overrides,
                                   std::vector<std::string>& q_include_tokens,
                                   token_ordering token_order,
-                                  filter_node_t*& filter_tree_root,
+                                  std::unique_ptr<filter_node_t>& filter_tree_root,
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                   std::vector<uint32_t>& excluded_ids,
                                   nlohmann::json& override_metadata,
@@ -331,11 +579,41 @@ private:
     void remove_embedding_field(const std::string& field_name);
 
     Option<bool> parse_and_validate_vector_query(const std::string& vector_query_str,
-                                                     vector_query_t& vector_query,
-                                                     const bool is_wildcard_query,
-                                                     const size_t remote_embedding_timeout_ms, 
-                                                     const size_t remote_embedding_num_tries,
-                                                     size_t& per_page) const;
+                                                 vector_query_t& vector_query,
+                                                 const bool is_wildcard_query,
+                                                 const size_t remote_embedding_timeout_ms,
+                                                 const size_t remote_embedding_num_tries,
+                                                 size_t& per_page) const;
+
+    Option<bool> init_index_search_args_with_lock(collection_search_args_t& coll_args,
+                                                  std::unique_ptr<search_args>& index_args,
+                                                  std::string& query,
+                                                  std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
+                                                  tsl::htrie_set<char>& include_fields_full,
+                                                  tsl::htrie_set<char>& exclude_fields_full,
+                                                  std::vector<std::string>& q_tokens,
+                                                  std::string& conversation_standalone_query,
+                                                  vector_query_t& vector_query,
+                                                  std::vector<facet>& facets,
+                                                  size_t& per_page,
+                                                  std::string& transcribed_query,
+                                                  nlohmann::json& override_metadata) const;
+
+    Option<bool> init_index_search_args(collection_search_args_t& coll_args,
+                                        std::unique_ptr<search_args>& index_args,
+                                        std::string& query,
+                                        std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
+                                        tsl::htrie_set<char>& include_fields_full,
+                                        tsl::htrie_set<char>& exclude_fields_full,
+                                        std::vector<std::string>& q_tokens,
+                                        std::string& conversation_standalone_query,
+                                        vector_query_t& vector_query,
+                                        std::vector<facet>& facets,
+                                        size_t& per_page,
+                                        std::string& transcribed_query,
+                                        nlohmann::json& override_metadata) const;
+
+    Option<bool> run_search_with_lock(search_args* search_params) const;
 
 public:
 
@@ -521,6 +799,9 @@ public:
 
     void do_housekeeping();
 
+    Option<nlohmann::json> search(collection_search_args_t& coll_args) const;
+
+    // Only for tests.
     Option<nlohmann::json> search(std::string query, const std::vector<std::string> & search_fields,
                                   const std::string & filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
@@ -575,7 +856,7 @@ public:
                                   const std::string& drop_tokens_mode = "right_to_left",
                                   const bool prioritize_num_matching_fields = true,
                                   const bool group_missing_values = true,
-                                  const bool converstaion = false,
+                                  const bool conversation = false,
                                   const std::string& conversation_model_id = "",
                                   std::string conversation_id = "",
                                   const std::string& override_tags_str = "",
@@ -588,7 +869,11 @@ public:
                                   bool enable_typos_for_alpha_numerical_tokens = true,
                                   const size_t& max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES,
                                   bool rerank_hybrid_matches = false,
-                                  bool validate_field_names = true) const;
+                                  bool validate_field_names = true,
+                                  bool enable_analytics = true) const;
+
+    static Option<bool> do_union(const std::vector<uint32_t>& collection_ids,
+                                 std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis);
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result,
                                 const bool& should_timeout = true, const bool& validate_field_names = true) const;

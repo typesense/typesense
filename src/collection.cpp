@@ -1742,140 +1742,162 @@ Option<int64_t> Collection::get_geo_distance_with_lock(const std::string& geo_fi
     return index->get_geo_distance_with_lock(geo_field_name, seq_id, reference_lat_lng, round_distance);
 }
 
-Option<nlohmann::json> Collection::search(std::string raw_query,
-                                  const std::vector<std::string>& raw_search_fields,
-                                  const std::string & filter_query, const std::vector<std::string>& facet_fields,
-                                  const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
-                                  size_t per_page, const size_t page,
-                                  token_ordering token_order, const std::vector<bool>& prefixes,
-                                  const size_t drop_tokens_threshold,
-                                  const spp::sparse_hash_set<std::string> & include_fields,
-                                  const spp::sparse_hash_set<std::string> & exclude_fields,
-                                  const size_t max_facet_values,
-                                  const std::string & simple_facet_query,
-                                  const size_t snippet_threshold,
-                                  const size_t highlight_affix_num_tokens,
-                                  const std::string& highlight_full_fields,
-                                  size_t typo_tokens_threshold,
-                                  const std::string& pinned_hits_str,
-                                  const std::string& hidden_hits_str,
-                                  const std::vector<std::string>& raw_group_by_fields,
-                                  size_t group_limit,
-                                  const std::string& highlight_start_tag,
-                                  const std::string& highlight_end_tag,
-                                  std::vector<uint32_t> raw_query_by_weights,
-                                  size_t limit_hits,
-                                  bool prioritize_exact_match,
-                                  bool pre_segmented_query,
-                                  bool enable_overrides,
-                                  const std::string& highlight_fields,
-                                  const bool exhaustive_search,
-                                  const size_t search_stop_millis,
-                                  const size_t min_len_1typo,
-                                  const size_t min_len_2typo,
-                                  enable_t split_join_tokens,
-                                  const size_t max_candidates,
-                                  const std::vector<enable_t>& infixes,
-                                  const size_t max_extra_prefix,
-                                  const size_t max_extra_suffix,
-                                  const size_t facet_query_num_typos,
-                                  const bool filter_curated_hits_option,
-                                  const bool prioritize_token_position,
-                                  const std::string& vector_query_str,
-                                  const bool enable_highlight_v1,
-                                  const uint64_t search_time_start_us,
-                                  const text_match_type_t match_type,
-                                  const size_t facet_sample_percent,
-                                  const size_t facet_sample_threshold,
-                                  const size_t page_offset,
-                                  const std::string& facet_index_type,
-                                  const size_t remote_embedding_timeout_ms,
-                                  const size_t remote_embedding_num_tries,
-                                  const std::string& stopwords_set,
-                                  const std::vector<std::string>& facet_return_parent,
-                                  const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
-                                  const std::string& drop_tokens_mode,
-                                  const bool prioritize_num_matching_fields,
-                                  const bool group_missing_values,
-                                  const bool conversation,
-                                  const std::string& conversation_model_id,
-                                  std::string conversation_id,
-                                  const std::string& override_tags_str,
-                                  const std::string& voice_query,
-                                  bool enable_typos_for_numerical_tokens,
-                                  bool enable_synonyms,
-                                  bool synonym_prefix,
-                                  uint32_t synonyms_num_typos,
-                                  bool enable_lazy_filter,
-                                  bool enable_typos_for_alpha_numerical_tokens,
-                                  const size_t& max_filter_by_candidates,
-                                  bool rerank_hybrid_matches,
-                                  bool validate_field_names) const {
+Option<bool> Collection::init_index_search_args_with_lock(collection_search_args_t& coll_args,
+                                                          std::unique_ptr<search_args>& index_args,
+                                                          std::string& query,
+                                                          std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
+                                                          tsl::htrie_set<char>& include_fields_full,
+                                                          tsl::htrie_set<char>& exclude_fields_full,
+                                                          std::vector<std::string>& q_tokens,
+                                                          std::string& conversation_standalone_query,
+                                                          vector_query_t& vector_query,
+                                                          std::vector<facet>& facets,
+                                                          size_t& per_page,
+                                                          std::string& transcribed_query,
+                                                          nlohmann::json& override_metadata) const {
     std::shared_lock lock(mutex);
+    return init_index_search_args(coll_args, index_args, query, included_ids, include_fields_full, exclude_fields_full, q_tokens,
+                                  conversation_standalone_query, vector_query, facets, per_page, transcribed_query,
+                                  override_metadata);
+}
+
+Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_args,
+                                                std::unique_ptr<search_args>& index_args,
+                                                std::string& query,
+                                                std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
+                                                tsl::htrie_set<char>& include_fields_full,
+                                                tsl::htrie_set<char>& exclude_fields_full,
+                                                std::vector<std::string>& q_tokens,
+                                                std::string& conversation_standalone_query,
+                                                vector_query_t& vector_query,
+                                                std::vector<facet>& facets,
+                                                size_t& per_page,
+                                                std::string& transcribed_query,
+                                                nlohmann::json& override_metadata) const {
+    const std::string raw_query = coll_args.raw_query;
+    const std::vector<std::string>& raw_search_fields = coll_args.search_fields;
+    const std::string& filter_query = coll_args.filter_query;
+    const std::vector<std::string>& facet_fields = coll_args.facet_fields;
+    const std::vector<sort_by>& sort_fields = coll_args.sort_fields;
+    const std::vector<uint32_t>& num_typos = coll_args.num_typos;
+    const size_t& page = coll_args.page;
+    token_ordering token_order = coll_args.token_order;
+    const std::vector<bool>& prefixes = coll_args.prefixes;
+    const size_t& drop_tokens_threshold = coll_args.drop_tokens_threshold;
+    const spp::sparse_hash_set<std::string>& include_fields = coll_args.include_fields;
+    const spp::sparse_hash_set<std::string>& exclude_fields = coll_args.exclude_fields;
+    const size_t& max_facet_values = coll_args.max_facet_values;
+    const std::string& simple_facet_query = coll_args.simple_facet_query;
+    const std::string& highlight_full_fields = coll_args.highlight_full_fields;
+    const size_t& typo_tokens_threshold = coll_args.typo_tokens_threshold;
+    const std::string& pinned_hits_str = coll_args.pinned_hits_str;
+    const std::string& hidden_hits_str = coll_args.hidden_hits_str;
+    const std::vector<std::string>& raw_group_by_fields = coll_args.group_by_fields;
+    size_t group_limit = coll_args.group_limit;
+    const std::vector<uint32_t>& raw_query_by_weights = coll_args.query_by_weights;
+    const size_t& limit_hits = coll_args.limit_hits;
+    const bool& prioritize_exact_match = coll_args.prioritize_exact_match;
+    const bool& pre_segmented_query = coll_args.pre_segmented_query;
+    const bool& enable_overrides = coll_args.enable_overrides;
+    const std::string& highlight_fields = coll_args.highlight_fields;
+    const bool& exhaustive_search = coll_args.exhaustive_search;
+    const size_t& search_stop_millis = coll_args.search_cutoff_ms;
+    const size_t& min_len_1typo = coll_args.min_len_1typo;
+    const size_t& min_len_2typo = coll_args.min_len_2typo;
+    const enable_t& split_join_tokens = coll_args.split_join_tokens;
+    const size_t& max_candidates = coll_args.max_candidates;
+    const std::vector<enable_t>& infixes = coll_args.infixes;
+    const size_t& max_extra_prefix = coll_args.max_extra_prefix;
+    const size_t& max_extra_suffix = coll_args.max_extra_suffix;
+    const size_t& facet_query_num_typos = coll_args.facet_query_num_typos;
+    const bool& filter_curated_hits_option = coll_args.filter_curated_hits_option;
+    const bool& prioritize_token_position = coll_args.prioritize_token_position;
+    const std::string& vector_query_str = coll_args.vector_query;
+    const uint64_t& search_time_start_us = coll_args.start_ts;
+    const text_match_type_t& match_type = coll_args.match_type;
+    const size_t& facet_sample_percent = coll_args.facet_sample_percent;
+    const size_t& facet_sample_threshold = coll_args.facet_sample_threshold;
+    const size_t& page_offset = coll_args.offset;
+    const std::string& facet_index_type = coll_args.facet_strategy;
+    const size_t& remote_embedding_timeout_ms = coll_args.remote_embedding_timeout_ms;
+    const size_t& remote_embedding_num_tries = coll_args.remote_embedding_num_tries;
+    const std::string& stopwords_set = coll_args.stopwords_set;
+    const std::string& drop_tokens_mode = coll_args.drop_tokens_mode_str;
+    const bool& prioritize_num_matching_fields = coll_args.prioritize_num_matching_fields;
+    const bool& group_missing_values = coll_args.group_missing_values;
+    const bool& conversation = coll_args.conversation;
+    const std::string& conversation_model_id = coll_args.conversation_model_id;
+    const std::string& conversation_id = coll_args.conversation_id;
+    const std::string& override_tags_str = coll_args.override_tags;
+    const std::string& voice_query = coll_args.voice_query;
+    const bool& enable_typos_for_numerical_tokens = coll_args.enable_typos_for_numerical_tokens;
+    const bool& enable_synonyms = coll_args.enable_synonyms;
+    const bool& synonym_prefix = coll_args.synonym_prefix;
+    const uint32_t& synonyms_num_typos = coll_args.synonym_num_typos;
+    const bool& enable_lazy_filter = coll_args.enable_lazy_filter;
+    const bool& enable_typos_for_alpha_numerical_tokens = coll_args.enable_typos_for_alpha_numerical_tokens;
+    const size_t& max_filter_by_candidates = coll_args.max_filter_by_candidates;
+    const bool& rerank_hybrid_matches = coll_args.rerank_hybrid_matches;
+    const bool& validate_field_names = coll_args.validate_field_names;
 
     // setup thread local vars
     search_stop_us = search_stop_millis * 1000;
     search_begin_us = (search_time_start_us != 0) ? search_time_start_us :
                       std::chrono::duration_cast<std::chrono::microseconds>(
-                           std::chrono::system_clock::now().time_since_epoch()).count();
+                              std::chrono::system_clock::now().time_since_epoch()).count();
     search_cutoff = false;
 
     if(raw_query != "*" && raw_search_fields.empty()) {
-        return Option<nlohmann::json>(400, "No search fields specified for the query.");
+        return Option<bool>(400, "No search fields specified for the query.");
     }
 
     if(!raw_search_fields.empty() && !raw_query_by_weights.empty() &&
-        raw_search_fields.size() != raw_query_by_weights.size()) {
-        return Option<nlohmann::json>(400, "Number of weights in `query_by_weights` does not match "
-                                           "number of `query_by` fields.");
+       raw_search_fields.size() != raw_query_by_weights.size()) {
+        return Option<bool>(400, "Number of weights in `query_by_weights` does not match number of `query_by` fields.");
     }
 
     if(!raw_group_by_fields.empty() && (group_limit == 0 || group_limit > Index::GROUP_LIMIT_MAX)) {
-        return Option<nlohmann::json>(400, "Value of `group_limit` must be between 1 and " +
-                                      std::to_string(Index::GROUP_LIMIT_MAX) + ".");
+        return Option<bool>(400, "Value of `group_limit` must be between 1 and " + std::to_string(Index::GROUP_LIMIT_MAX) + ".");
     }
 
     if(!raw_search_fields.empty() && raw_search_fields.size() != num_typos.size()) {
         if(num_typos.size() != 1) {
-            return Option<nlohmann::json>(400, "Number of values in `num_typos` does not match "
-                                               "number of `query_by` fields.");
+            return Option<bool>(400, "Number of values in `num_typos` does not match number of `query_by` fields.");
         }
     }
 
     if(!raw_search_fields.empty() && raw_search_fields.size() != prefixes.size()) {
         if(prefixes.size() != 1) {
-            return Option<nlohmann::json>(400, "Number of prefix values in `prefix` does not match "
-                                               "number of `query_by` fields.");
+            return Option<bool>(400, "Number of prefix values in `prefix` does not match number of `query_by` fields.");
         }
     }
 
     if(!raw_search_fields.empty() && raw_search_fields.size() != infixes.size()) {
         if(infixes.size() != 1) {
-            return Option<nlohmann::json>(400, "Number of infix values in `infix` does not match "
-                                               "number of `query_by` fields.");
+            return Option<bool>(400, "Number of infix values in `infix` does not match number of `query_by` fields.");
         }
     }
 
     if(facet_sample_percent > 100) {
-        return Option<nlohmann::json>(400, "Value of `facet_sample_percent` must be less than 100.");
+        return Option<bool>(400, "Value of `facet_sample_percent` must be less than 100.");
     }
 
     if(synonyms_num_typos > 2) {
-        return Option<nlohmann::json>(400, "Value of `synonym_num_typos` must not be greater than 2.");
+        return Option<bool>(400, "Value of `synonym_num_typos` must not be greater than 2.");
     }
 
     if(raw_group_by_fields.empty()) {
         group_limit = 0;
     }
 
-    vector_query_t vector_query;
     if(!vector_query_str.empty()) {
         bool is_wildcard_query = (raw_query == "*" || raw_query.empty());
 
-        auto parse_vector_op = parse_and_validate_vector_query(vector_query_str, vector_query, is_wildcard_query, remote_embedding_timeout_ms, remote_embedding_num_tries, per_page);
-
+        auto parse_vector_op = parse_and_validate_vector_query(vector_query_str, vector_query, is_wildcard_query,
+                                                               remote_embedding_timeout_ms, remote_embedding_num_tries,
+                                                               per_page);
         if(!parse_vector_op.ok()) {
-            return Option<nlohmann::json>(parse_vector_op.code(), parse_vector_op.error());
+            return parse_vector_op;
         }
     }
 
@@ -1884,17 +1906,16 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::vector<uint32_t> query_by_weights;
 
     size_t num_embed_fields = 0;
-    std::string query = raw_query;
-    std::string transcribed_query;
-    std::string conversation_standalone_query = raw_query;
+    query = raw_query;
+    conversation_standalone_query = raw_query;
     if(!voice_query.empty()) {
         if(!vq_model) {
-            return Option<nlohmann::json>(400, "Voice query is not enabled. Please set `voice_query_model` for this collection.");
+            return Option<bool>(400, "Voice query is not enabled. Please set `voice_query_model` for this collection.");
         }
 
         auto transcribe_res = vq_model->transcribe(voice_query);
         if(!transcribe_res.ok()) {
-            return Option<nlohmann::json>(transcribe_res.code(), transcribe_res.error());
+            return Option<bool>(transcribe_res.code(), transcribe_res.error());
         }
         query = transcribe_res.get();
         transcribed_query = query;
@@ -1902,32 +1923,32 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     if(conversation) {
         if(conversation_model_id.empty()) {
-            return Option<nlohmann::json>(400, "Conversation is enabled but no conversation model ID is provided.");
+            return Option<bool>(400, "Conversation is enabled but no conversation model ID is provided.");
         }
 
         auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
 
         if(!conversation_model_op.ok()) {
-            return Option<nlohmann::json>(400, conversation_model_op.error());
+            return Option<bool>(400, conversation_model_op.error());
         }
     }
 
     if(!conversation_id.empty()) {
         auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
         if(!conversation) {
-            return Option<nlohmann::json>(400, "Conversation ID provided but conversation is not enabled for this collection.");
+            return Option<bool>(400, "Conversation ID provided but conversation is not enabled for this collection.");
         }
 
         auto conversation_history_op = ConversationManager::get_instance().get_conversation(conversation_id, conversation_model_op.get());
         if(!conversation_history_op.ok()) {
-            return Option<nlohmann::json>(400, conversation_history_op.error());
+            return Option<bool>(400, conversation_history_op.error());
         }
 
         auto conversation_history = conversation_history_op.get();
 
         auto standalone_question_op = ConversationModel::get_standalone_question(conversation_history, raw_query, conversation_model_op.get());
         if(!standalone_question_op.ok()) {
-            return Option<nlohmann::json>(400, standalone_question_op.error());
+            return Option<bool>(400, standalone_question_op.error());
         }
         query = standalone_question_op.get();
         conversation_standalone_query = query;
@@ -1940,10 +1961,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         if(field_name == "id") {
             // `id` field needs to be handled separately, we will not handle for now
             std::string error = "Cannot use `id` as a query by field.";
-            return Option<nlohmann::json>(400, error);
+            return Option<bool>(400, error);
         } else if (field_name[0] == '$' && field_name.find('(') != std::string::npos &&
-                    field_name.find(')') != std::string::npos) {
-            return Option<nlohmann::json>(400, "Query by reference is not yet supported.");
+                   field_name.find(')') != std::string::npos) {
+            return Option<bool>(400, "Query by reference is not yet supported.");
         }
 
         std::vector<std::string> expanded_search_fields;
@@ -1954,12 +1975,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 continue;
             }
 
-            return Option<nlohmann::json>(field_op.code(), field_op.error());
+            return field_op;
         }
 
         for(const auto& expanded_search_field: expanded_search_fields) {
             if (search_schema.count(expanded_search_field) == 0) {
-                return Option<nlohmann::json>(404, "Could not find `" + expanded_search_field + "` field in the schema.");
+                return Option<bool>(404, "Could not find `" + expanded_search_field + "` field in the schema.");
             }
             auto search_field = search_schema.at(expanded_search_field);
 
@@ -1967,14 +1988,14 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 num_embed_fields++;
 
                 if(num_embed_fields > 1 ||
-                    (!vector_query.field_name.empty() && search_field.name != vector_query.field_name)) {
+                   (!vector_query.field_name.empty() && search_field.name != vector_query.field_name)) {
                     std::string error = "Only one embedding field is allowed in the query.";
-                    return Option<nlohmann::json>(400, error);
+                    return Option<bool>(400, error);
                 }
 
                 if(!search_field.index) {
                     std::string error = "Field `" + search_field.name + "` is marked as a non-indexed field in the schema.";
-                    return Option<nlohmann::json>(400, error);
+                    return Option<bool>(400, error);
                 }
 
                 // if(EmbedderManager::model_dir.empty()) {
@@ -1989,20 +2010,20 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
                 if(embedding_fields.find(search_field.name) == embedding_fields.end()) {
                     std::string error = "Vector field `" + search_field.name + "` is not an auto-embedding field, do not use `query_by` with it, use `vector_query` instead.";
-                    return Option<nlohmann::json>(400, error);
+                    return Option<bool>(400, error);
                 }
 
                 EmbedderManager& embedder_manager = EmbedderManager::get_instance();
                 auto embedder_op = embedder_manager.get_text_embedder(search_field.embed[fields::model_config]);
                 if(!embedder_op.ok()) {
-                    return Option<nlohmann::json>(400, embedder_op.error());
+                    return Option<bool>(400, embedder_op.error());
                 }
 
                 auto remote_embedding_timeout_us = remote_embedding_timeout_ms * 1000;
                 if((std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > remote_embedding_timeout_us) {
+                        std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > remote_embedding_timeout_us) {
                     std::string error = "Request timed out.";
-                    return Option<nlohmann::json>(500, error);
+                    return Option<bool>(500, error);
                 }
 
                 auto embedder = embedder_op.get();
@@ -2011,12 +2032,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                     // return error if prefix search is used with openai embedder
                     if((prefixes.size() == 1 && prefixes[0] == true) || (prefixes.size() > 1 &&  prefixes[i] == true)) {
                         std::string error = "Prefix search is not supported for remote embedders. Please set `prefix=false` as an additional search parameter to disable prefix searching.";
-                        return Option<nlohmann::json>(400, error);
+                        return Option<bool>(400, error);
                     }
 
                     if(remote_embedding_num_tries == 0) {
                         std::string error = "`remote_embedding_num_tries` must be greater than 0.";
-                        return Option<nlohmann::json>(400, error);
+                        return Option<bool>(400, error);
                     }
                 }
 
@@ -2024,9 +2045,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
                 if(!embedding_op.success) {
                     if(embedding_op.error.contains("error")) {
-                        return Option<nlohmann::json>(400, embedding_op.error["error"].get<std::string>());
+                        return Option<bool>(400, embedding_op.error["error"].get<std::string>());
                     } else {
-                        return Option<nlohmann::json>(400, embedding_op.error.dump());
+                        return Option<bool>(400, embedding_op.error.dump());
                     }
                 }
                 std::vector<float> embedding = embedding_op.embedding;
@@ -2051,12 +2072,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
         std::string error = "Vector query could not find any embedded fields.";
-        return Option<nlohmann::json>(400, error);
+        return Option<bool>(400, error);
     }
 
     if(!query_by_weights.empty() && processed_search_fields.size() != query_by_weights.size()) {
         std::string error = "Error, query_by_weights.size != query_by.size.";
-        return Option<nlohmann::json>(400, error);
+        return Option<bool>(400, error);
     }
 
     for(const auto& processed_search_field: processed_search_fields) {
@@ -2064,12 +2085,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         field search_field = search_schema.at(field_name);
         if(!search_field.index) {
             std::string error = "Field `" + field_name + "` is marked as a non-indexed field in the schema.";
-            return Option<nlohmann::json>(400, error);
+            return Option<bool>(400, error);
         }
 
         if(search_field.type != field_types::STRING && search_field.type != field_types::STRING_ARRAY) {
             std::string error = "Field `" + field_name + "` should be a string or a string array.";
-            return Option<nlohmann::json>(400, error);
+            return Option<bool>(400, error);
         }
     }
 
@@ -2085,14 +2106,14 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 continue;
             }
 
-            return Option<nlohmann::json>(404, field_op.error());
+            return field_op;
         }
     }
 
     for(const std::string& field_name: group_by_fields) {
         if(field_name == "id") {
             std::string error = "Cannot use `id` as a group by field.";
-            return Option<nlohmann::json>(400, error);
+            return Option<bool>(400, error);
         }
 
         field search_field = search_schema.at(field_name);
@@ -2100,7 +2121,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         // must be a facet field
         if(!search_field.is_facet()) {
             std::string error = "Group by field `" + field_name + "` should be a facet field.";
-            return Option<nlohmann::json>(400, error);
+            return Option<bool>(400, error);
         }
     }
 
@@ -2109,14 +2130,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         group_limit = Index::GROUP_LIMIT_MAX + 1;
     }
 
-    tsl::htrie_set<char> include_fields_full;
-    tsl::htrie_set<char> exclude_fields_full;
-
     auto include_exclude_op = populate_include_exclude_fields(include_fields, exclude_fields,
                                                               include_fields_full, exclude_fields_full);
 
     if(!include_exclude_op.ok()) {
-        return Option<nlohmann::json>(include_exclude_op.code(), include_exclude_op.error());
+        return include_exclude_op;
     }
 
     // process weights for search fields
@@ -2130,10 +2148,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
     if(!parse_filter_op.ok()) {
-        return Option<nlohmann::json>(parse_filter_op.code(), parse_filter_op.error());
+        return parse_filter_op;
     }
 
-    std::vector<facet> facets;
     // validate facet fields
     for(const std::string & facet_field: facet_fields) {
         const auto& res = parse_facet(facet_field, facets);
@@ -2142,7 +2159,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 continue;
             }
 
-            return Option<nlohmann::json>(res.code(), res.error());
+            return res;
         }
     }
 
@@ -2156,7 +2173,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     } else if(facet_index_str_types.size() == 1) {
         auto match_op = magic_enum::enum_cast<facet_index_type_t>(facet_index_str_types[0]);
         if(!match_op.has_value()) {
-            return Option<nlohmann::json>(400, "Invalid facet index type: " + facet_index_str_types[0]);
+            return Option<bool>(400, "Invalid facet index type: " + facet_index_str_types[0]);
         }
         for(size_t i = 0; i < facets.size(); i++) {
             facet_index_types.push_back(match_op.value());
@@ -2167,13 +2184,13 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             if(match_op.has_value()) {
                 facet_index_types.push_back(match_op.value());
             } else {
-                return Option<nlohmann::json>(400, "Invalid facet index type: " + facet_index_str_type);
+                return Option<bool>(400, "Invalid facet index type: " + facet_index_str_type);
             }
         }
     }
 
     if(facets.size() != facet_index_types.size()) {
-        return Option<nlohmann::json>(400, "Size of facet_index_type does not match size of facets.");
+        return Option<bool>(400, "Size of facet_index_type does not match size of facets.");
     }
 
     // parse facet query
@@ -2184,12 +2201,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
         if(found_colon_index == std::string::npos) {
             std::string error = "Facet query must be in the `facet_field: value` format.";
-            return Option<nlohmann::json>(400, error);
+            return Option<bool>(400, error);
         }
 
         if(facet_fields.empty()) {
             std::string error = "The `facet_query` parameter is supplied without a `facet_by` parameter.";
-            return Option<nlohmann::json>(400, error);
+            return Option<bool>(400, error);
         }
 
         std::string&& facet_query_fname = simple_facet_query.substr(0, found_colon_index);
@@ -2214,12 +2231,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             if(!found) {
                 std::string error = "Facet query refers to a facet field `" + facet_query.field_name + "` " +
                                     "that is not part of `facet_by` parameter.";
-                return Option<nlohmann::json>(400, error);
+                return Option<bool>(400, error);
             }
 
             if(search_schema.count(facet_query.field_name) == 0 || !search_schema.at(facet_query.field_name).facet) {
                 std::string error = "Could not find a facet field named `" + facet_query.field_name + "` in the schema.";
-                return Option<nlohmann::json>(404, error);
+                return Option<bool>(404, error);
             }
         }
     }
@@ -2228,7 +2245,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     if(per_page > per_page_max) {
         std::string message = "Only upto " + std::to_string(per_page_max) + " hits can be fetched per page.";
-        return Option<nlohmann::json>(422, message);
+        return Option<bool>(422, message);
     }
 
     size_t offset = 0;
@@ -2254,27 +2271,23 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     Option<drop_tokens_param_t> drop_tokens_param_op = parse_drop_tokens_mode(drop_tokens_mode);
     if(!drop_tokens_param_op.ok()) {
-        return Option<nlohmann::json>(drop_tokens_param_op.code(), drop_tokens_param_op.error());
+        return Option<bool>(drop_tokens_param_op.code(), drop_tokens_param_op.error());
     }
 
     auto drop_tokens_param = drop_tokens_param_op.get();
 
-    size_t total = 0;
-
     std::vector<uint32_t> excluded_ids;
-    std::vector<std::pair<uint32_t, uint32_t>> included_ids; // ID -> position
     std::map<size_t, std::vector<std::string>> pinned_hits;
 
     Option<bool> pinned_hits_op = parse_pinned_hits(pinned_hits_str, pinned_hits);
 
     if(!pinned_hits_op.ok()) {
-        return Option<nlohmann::json>(400, pinned_hits_op.error());
+        return pinned_hits_op;
     }
 
     std::vector<std::string> hidden_hits;
     StringUtils::split(hidden_hits_str, hidden_hits, ",");
 
-    nlohmann::json override_metadata;
     std::vector<const override_t*> filter_overrides;
     std::string curated_sort_by;
     std::set<std::string> override_tag_set;
@@ -2332,39 +2345,32 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     if(curated_sort_by.empty()) {
         auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields,
-                                    sort_fields_std, is_wildcard_query, is_vector_query,
-                                    raw_query, is_group_by_query, remote_embedding_timeout_ms, remote_embedding_num_tries,
-                                    validate_field_names);
+                                                                       sort_fields_std, is_wildcard_query, is_vector_query,
+                                                                       raw_query, is_group_by_query,
+                                                                       remote_embedding_timeout_ms, remote_embedding_num_tries,
+                                                                       validate_field_names);
         if(!sort_validation_op.ok()) {
-            return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
+            return sort_validation_op;
         }
     } else {
         std::vector<sort_by> curated_sort_fields;
         bool parsed_sort_by = CollectionManager::parse_sort_by_str(curated_sort_by, curated_sort_fields);
         if(!parsed_sort_by) {
-            return Option<nlohmann::json>(400, "Parameter `sort_by` is malformed.");
+            return Option<bool>(400, "Parameter `sort_by` is malformed.");
         }
 
         auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields,
-                                    sort_fields_std, is_wildcard_query, is_vector_query, raw_query, is_group_by_query,
-                                    remote_embedding_timeout_ms, remote_embedding_num_tries, validate_field_names);
+                                                                       sort_fields_std, is_wildcard_query, is_vector_query,
+                                                                       raw_query, is_group_by_query,
+                                                                       remote_embedding_timeout_ms, remote_embedding_num_tries,
+                                                                       validate_field_names);
         if(!sort_validation_op.ok()) {
-            return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
-        }
-    }
-
-    // apply bucketing on text match score
-    int match_score_index = -1;
-    for(size_t i = 0; i < sort_fields_std.size(); i++) {
-        if(sort_fields_std[i].name == sort_field_const::text_match && sort_fields_std[i].text_match_buckets != 0) {
-            match_score_index = i;
-            break;
+            return sort_validation_op;
         }
     }
 
     //LOG(INFO) << "Num indices used for querying: " << indices.size();
     std::vector<query_tokens_t> field_query_tokens;
-    std::vector<std::string> q_tokens;  // used for auxillary highlighting
     std::vector<std::string> q_include_tokens;
     std::vector<std::string> q_unstemmed_tokens;
 
@@ -2376,7 +2382,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
                                false, stopwords_set);
 
-            process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
+            process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root_guard,
                                      included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
                                      enable_typos_for_alpha_numerical_tokens, validate_field_names);
 
@@ -2405,7 +2411,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         // process filter overrides first, before synonyms (order is important)
 
         // included_ids, excluded_ids
-        process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
+        process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root_guard,
                                  included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
                                  enable_typos_for_alpha_numerical_tokens, validate_field_names);
 
@@ -2419,7 +2425,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         for(size_t i = 0; i < q_unstemmed_tokens.size(); i++) {
             auto& q_include_token = q_unstemmed_tokens[i];
             field_query_tokens[0].q_unstemmed_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
-                                                                q_include_token.size(), 0);
+                                                                  q_include_token.size(), 0);
         }
 
         for(auto& phrase: field_query_tokens[0].q_phrases) {
@@ -2437,54 +2443,214 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     // search all indices
 
     size_t index_id = 0;
-    search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
-                                                 match_type,
-                                                 filter_tree_root, facets, included_ids, excluded_ids,
-                                                 sort_fields_std, facet_query, num_typos, max_facet_values,
-                                                 fetch_size, per_page, offset, token_order, prefixes,
-                                                 drop_tokens_threshold, typo_tokens_threshold,
-                                                 group_by_fields, group_limit, group_missing_values,
-                                                 default_sorting_field,
-                                                 prioritize_exact_match, prioritize_token_position,
-                                                 prioritize_num_matching_fields,
-                                                 exhaustive_search, 4,
-                                                 search_stop_millis,
-                                                 min_len_1typo, min_len_2typo, max_candidates, infixes,
-                                                 max_extra_prefix, max_extra_suffix, facet_query_num_typos,
-                                                 filter_curated_hits, split_join_tokens, vector_query,
-                                                 facet_sample_percent, facet_sample_threshold, drop_tokens_param,
-                                                 enable_lazy_filter, max_filter_by_candidates, validate_field_names);
+    index_args = std::make_unique<search_args>(field_query_tokens, weighted_search_fields,
+                                               match_type, facets, included_ids, excluded_ids,
+                                               sort_fields_std, facet_query, num_typos, max_facet_values,
+                                               fetch_size, per_page, offset, token_order, prefixes,
+                                               drop_tokens_threshold, typo_tokens_threshold,
+                                               group_by_fields, group_limit, group_missing_values,
+                                               default_sorting_field,
+                                               prioritize_exact_match, prioritize_token_position,
+                                               prioritize_num_matching_fields,
+                                               exhaustive_search, 4,
+                                               search_stop_millis,
+                                               min_len_1typo, min_len_2typo, max_candidates, infixes,
+                                               max_extra_prefix, max_extra_suffix, facet_query_num_typos,
+                                               filter_curated_hits, split_join_tokens, vector_query,
+                                               facet_sample_percent, facet_sample_threshold, drop_tokens_param,
+                                               std::move(filter_tree_root_guard), enable_lazy_filter, max_filter_by_candidates,
+                                               facet_index_types, enable_typos_for_numerical_tokens,
+                                               enable_synonyms, synonym_prefix, synonyms_num_typos,
+                                               enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches,
+                                               validate_field_names);
 
-    std::unique_ptr<search_args> search_params_guard(search_params);
+    return Option<bool>(true);
+}
 
-    auto search_op = index->run_search(search_params, facet_index_types,
-                                       enable_typos_for_numerical_tokens, enable_synonyms, synonym_prefix,
-                                       synonyms_num_typos, enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches);
+Option<nlohmann::json> Collection::search(std::string query, const std::vector<std::string> & search_fields,
+                                          const std::string & filter_query, const std::vector<std::string> & facet_fields,
+                                          const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
+                                          size_t per_page, size_t page,
+                                          token_ordering token_order, const std::vector<bool>& prefixes,
+                                          size_t drop_tokens_threshold,
+                                          const spp::sparse_hash_set<std::string> & include_fields,
+                                          const spp::sparse_hash_set<std::string> & exclude_fields,
+                                          size_t max_facet_values,
+                                          const std::string & simple_facet_query,
+                                          const size_t snippet_threshold,
+                                          const size_t highlight_affix_num_tokens,
+                                          const std::string & highlight_full_fields,
+                                          size_t typo_tokens_threshold,
+                                          const std::string& pinned_hits_str,
+                                          const std::string& hidden_hits,
+                                          const std::vector<std::string>& group_by_fields,
+                                          size_t group_limit,
+                                          const std::string& highlight_start_tag,
+                                          const std::string& highlight_end_tag,
+                                          std::vector<uint32_t> raw_query_by_weights,
+                                          size_t limit_hits,
+                                          bool prioritize_exact_match,
+                                          bool pre_segmented_query,
+                                          bool enable_overrides,
+                                          const std::string& highlight_fields,
+                                          const bool exhaustive_search,
+                                          size_t search_stop_millis,
+                                          size_t min_len_1typo,
+                                          size_t min_len_2typo,
+                                          enable_t split_join_tokens,
+                                          size_t max_candidates,
+                                          const std::vector<enable_t>& infixes,
+                                          const size_t max_extra_prefix,
+                                          const size_t max_extra_suffix,
+                                          const size_t facet_query_num_typos,
+                                          const bool filter_curated_hits_option,
+                                          const bool prioritize_token_position,
+                                          const std::string& vector_query_str,
+                                          const bool enable_highlight_v1,
+                                          const uint64_t search_time_start_us,
+                                          const text_match_type_t match_type,
+                                          const size_t facet_sample_percent,
+                                          const size_t facet_sample_threshold,
+                                          const size_t page_offset,
+                                          const std::string& facet_index_type,
+                                          const size_t remote_embedding_timeout_ms,
+                                          const size_t remote_embedding_num_tries,
+                                          const std::string& stopwords_set,
+                                          const std::vector<std::string>& facet_return_parent,
+                                          const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
+                                          const std::string& drop_tokens_mode,
+                                          const bool prioritize_num_matching_fields,
+                                          const bool group_missing_values,
+                                          const bool conversation,
+                                          const std::string& conversation_model_id,
+                                          std::string conversation_id,
+                                          const std::string& override_tags_str,
+                                          const std::string& voice_query,
+                                          bool enable_typos_for_numerical_tokens,
+                                          bool enable_synonyms,
+                                          bool synonym_prefix,
+                                          uint32_t synonym_num_typos,
+                                          bool enable_lazy_filter,
+                                          bool enable_typos_for_alpha_numerical_tokens,
+                                          const size_t& max_filter_by_candidates,
+                                          bool rerank_hybrid_matches,
+                                          bool validate_field_names,
+                                          bool enable_analytics) const {
+    std::shared_lock lock(mutex);
 
-    // filter_tree_root might've been updated during search. Example: Index::static_filter_query_eval.
-    filter_tree_root_guard.release();
-    filter_tree_root_guard.reset(filter_tree_root);
+    auto args = collection_search_args_t(query, search_fields, filter_query,
+                                         facet_fields, sort_fields,
+                                         num_typos, per_page, page, token_order,
+                                         prefixes, drop_tokens_threshold,
+                                         include_fields, exclude_fields,
+                                         max_facet_values, simple_facet_query, snippet_threshold,
+                                         highlight_affix_num_tokens, highlight_full_fields,
+                                         typo_tokens_threshold, pinned_hits_str, hidden_hits,
+                                         group_by_fields, group_limit,
+                                         highlight_start_tag, highlight_end_tag,
+                                         raw_query_by_weights, limit_hits, prioritize_exact_match,
+                                         pre_segmented_query, enable_overrides, highlight_fields,
+                                         exhaustive_search, search_stop_millis, min_len_1typo, min_len_2typo,
+                                         split_join_tokens, max_candidates, infixes,
+                                         max_extra_prefix, max_extra_suffix, facet_query_num_typos,
+                                         filter_curated_hits_option, prioritize_token_position, vector_query_str,
+                                         enable_highlight_v1, search_time_start_us, match_type,
+                                         facet_sample_percent, facet_sample_threshold, page_offset,
+                                         facet_index_type, remote_embedding_timeout_ms, remote_embedding_num_tries,
+                                         stopwords_set, facet_return_parent,
+                                         ref_include_exclude_fields_vec,
+                                         drop_tokens_mode, prioritize_num_matching_fields, group_missing_values,
+                                         conversation, conversation_model_id, conversation_id,
+                                         override_tags_str, voice_query, enable_typos_for_numerical_tokens,
+                                         enable_synonyms, synonym_prefix, synonym_num_typos, enable_lazy_filter,
+                                         enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
+                                         rerank_hybrid_matches, enable_analytics, validate_field_names);
+    return search(args);
+}
 
+Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) const {
+    std::shared_lock lock(mutex);
 
+    std::unique_ptr<search_args> search_params_guard;
+    std::string query;
+    std::vector<std::pair<uint32_t, uint32_t>> included_ids; // ID -> position
+    tsl::htrie_set<char> include_fields_full;
+    tsl::htrie_set<char> exclude_fields_full;
+    std::vector<std::string> q_tokens;  // used for auxillary highlighting
+    std::string conversation_standalone_query;
+    vector_query_t vector_query;
+    std::vector<facet> facets;
+    size_t per_page = coll_args.per_page;
+    std::string transcribed_query;
+    nlohmann::json override_metadata;
+
+    const auto init_index_search_args_op = init_index_search_args(coll_args, search_params_guard, query, included_ids,
+                                                                  include_fields_full, exclude_fields_full, q_tokens,
+                                                                  conversation_standalone_query, vector_query,
+                                                                  facets, per_page, transcribed_query, override_metadata);
+    if (!init_index_search_args_op.ok()) {
+        return Option<nlohmann::json>(init_index_search_args_op.code(), init_index_search_args_op.error());
+    }
+
+    const auto search_op = index->run_search(search_params_guard.get());
     if (!search_op.ok()) {
         return Option<nlohmann::json>(search_op.code(), search_op.error());
     }
 
+    const auto& search_params = search_params_guard.get();
+    const auto& group_limit = search_params->group_limit;
+    const auto& sort_fields_std = search_params->sort_fields_std;
+    const auto& facet_query = search_params->facet_query;
+    const auto& offset = search_params->offset;
+    const auto& fetch_size = search_params->fetch_size;
+    const auto& highlight_fields = coll_args.highlight_fields;
+    const auto& highlight_full_fields = coll_args.highlight_full_fields;
+    const auto& weighted_search_fields = search_params->search_fields;
+    const auto& raw_search_fields = coll_args.search_fields;
+    const auto& infixes = search_params->infixes;
+    const auto& exclude_fields = coll_args.exclude_fields;
+    const auto& raw_query = coll_args.raw_query;
+    const auto& enable_highlight_v1 = coll_args.enable_highlight_v1;
+    const auto& snippet_threshold = coll_args.snippet_threshold;
+    const auto& highlight_affix_num_tokens = coll_args.highlight_affix_num_tokens;
+    const auto& highlight_start_tag = coll_args.highlight_start_tag;
+    const auto& highlight_end_tag = coll_args.highlight_end_tag;
+    const auto& group_by_fields = search_params->group_by_fields;
+    const auto& ref_include_exclude_fields_vec = coll_args.ref_include_exclude_fields_vec;
+    const auto& conversation = coll_args.conversation;
+    const auto& match_type = coll_args.match_type;
+    const auto& field_query_tokens = search_params->field_query_tokens;
+    const auto& vector_query_str = coll_args.vector_query;
+    const auto& conversation_model_id = coll_args.conversation_model_id;
+    const auto& conversation_id = coll_args.conversation_id;
+    const auto& max_facet_values = coll_args.max_facet_values;
+    const auto& facet_return_parent = coll_args.facet_return_parent;
+    const auto& voice_query = coll_args.voice_query;
+
     auto& raw_result_kvs = search_params->raw_result_kvs;
     auto& override_result_kvs = search_params->override_result_kvs;
 
+    size_t total = 0;
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
         total = search_params->groups_processed.size() + override_result_kvs.size();
     } else {
         total = search_params->all_result_ids_len;
     }
-    
 
     if(search_cutoff && total == 0) {
         // this can happen if other requests stopped this request from being processed
         // we should return an error so that request can be retried by client
         return Option<nlohmann::json>(408, "Request Timeout");
+    }
+
+    // apply bucketing on text match score
+    int match_score_index = -1;
+    for(size_t i = 0; i < sort_fields_std.size(); i++) {
+        if(sort_fields_std[i].name == sort_field_const::text_match && sort_fields_std[i].text_match_buckets != 0) {
+            match_score_index = i;
+            break;
+        }
     }
 
     if(match_score_index >= 0 && sort_fields_std[match_score_index].text_match_buckets > 0) {
@@ -3158,6 +3324,162 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     return Option<nlohmann::json>(result);
 }
 
+Option<bool> Collection::run_search_with_lock(search_args* search_params) const {
+    std::shared_lock lock(mutex);
+    return index->run_search(search_params);
+}
+
+Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
+                                  std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis) {
+    if (searches.size() != collection_ids.size()) {
+        return Option<bool>(400, "Expected `collection_ids` and `searches` size to be equal.");
+    }
+
+    const auto& size = searches.size();
+    auto search_params_guards = std::vector<std::unique_ptr<search_args>>(size);
+    auto queries = std::vector<std::string>(size);
+    auto included_ids_list = std::vector<std::vector<std::pair<uint32_t, uint32_t>>>(size); // ID -> position
+    auto include_fields_full_list = std::vector<tsl::htrie_set<char>>(size);
+    auto exclude_fields_full_list = std::vector<tsl::htrie_set<char>>(size);
+    auto q_tokens_list = std::vector<std::vector<std::string>>(size);  // used for auxillary highlighting
+    auto conversation_standalone_queries = std::vector<std::string>(size);
+    auto vector_queries = std::vector<vector_query_t>(size);
+    auto facets_list = std::vector<std::vector<facet>>(size);
+    auto per_pages = std::vector<size_t>(size);
+    auto transcribed_queries = std::vector<std::string>(size);
+    auto override_metadata_list = std::vector<nlohmann::json>(size);
+    auto index_symbols_list = std::vector<std::array<uint8_t, 256>>(size);
+    size_t total = 0;
+    size_t out_of = 0;
+    size_t fetch_size = 0;
+    size_t limit_hits = UINT64_MAX;
+
+    spp::sparse_hash_map<uint32_t, uint32_t> coll_id_to_search_index;
+
+    for (size_t i = 0; i < searches.size(); i++) {
+        auto begin = std::chrono::high_resolution_clock::now();
+        auto& args = searches[i];
+        const auto& coll_id = collection_ids[i];
+
+        auto& cm = CollectionManager::get_instance();
+        auto coll = cm.get_collection_with_id(coll_id);
+        if (coll == nullptr) {
+            return Option<bool>(400, "Collection having `coll_id: " + std::to_string(coll_id) + "` not found.");
+        }
+
+        auto& search_params_guard = search_params_guards[i];
+        auto& query = queries[i];
+        auto& included_ids = included_ids_list[i];
+        auto& include_fields_full = include_fields_full_list[i];
+        auto& exclude_fields_full = exclude_fields_full_list[i];
+        auto& q_tokens = q_tokens_list[i];
+        auto& conversation_standalone_query = conversation_standalone_queries[i];
+        auto& vector_query = vector_queries[i];
+        auto& facets = facets_list[i];
+        auto& per_page = per_pages[i];
+        auto& transcribed_query = transcribed_queries[i];
+        auto& override_metadata = override_metadata_list[i];
+
+        const auto init_index_search_args_op = coll->init_index_search_args_with_lock(args, search_params_guard, query, included_ids,
+                                                                                      include_fields_full, exclude_fields_full,
+                                                                                      q_tokens, conversation_standalone_query,
+                                                                                      vector_query, facets, per_page,
+                                                                                      transcribed_query, override_metadata);
+        if (!init_index_search_args_op.ok()) {
+            return init_index_search_args_op;
+        }
+
+        const auto search_op = coll->run_search_with_lock(search_params_guard.get());
+
+        searchTimeMillis.emplace_back(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                            std::chrono::high_resolution_clock::now() - begin).count());
+
+        if (!search_op.ok()) {
+            return search_op;
+        }
+
+        total += search_params_guard->all_result_ids_len;
+        out_of += coll->get_num_documents();
+        fetch_size += search_params_guard->fetch_size;
+        limit_hits = std::min<size_t>(limit_hits, args.limit_hits);
+
+        auto it = coll_id_to_search_index.find(coll_id);
+        if (it != coll_id_to_search_index.end()) {
+            return Option<bool>(400, "Only one search per collection is allowed.");
+        }
+        coll_id_to_search_index[coll_id] = i;
+
+        auto& index_symbols = index_symbols_list[i];
+        for(char c: coll->get_symbols_to_index()) {
+            index_symbols[uint8_t(c)] = 1;
+        }
+    }
+
+    if (search_cutoff && total == 0) {
+        // this can happen if other requests stopped this request from being processed
+        // we should return an error so that request can be retried by client
+        return Option<bool>(408, "Request Timeout");
+    }
+
+    fetch_size = std::min<size_t>(fetch_size, limit_hits);
+    auto union_topster = std::make_unique<Union_Topster>(std::max<size_t>(fetch_size, Index::DEFAULT_TOPSTER_SIZE));
+
+    for (size_t i = 0; i < searches.size(); i++) {
+        auto& search_param = search_params_guards[i];
+        const auto& coll_id = collection_ids[i];
+
+        for (auto& kvs: search_param->raw_result_kvs) {
+            auto union_kv = new Union_KV(*kvs[0], coll_id);
+            union_topster->add(union_kv);
+        }
+    }
+    union_topster->sort();
+
+    const long start_result_index = 0;
+
+    // `end_result_index` could be -1, so use signed type
+    const long end_result_index = union_topster->size - 1;
+
+    nlohmann::json result = nlohmann::json::object();
+    result["found"] = total;
+    result["out_of"] = out_of;
+
+    std::string hits_key = "hits";
+    result[hits_key] = nlohmann::json::array();
+
+    for (long i = start_result_index; i <= end_result_index; i++) {
+        const auto& kv = union_topster->getKV(i);
+        const auto& coll_id = kv->collection_id;
+        auto& cm = CollectionManager::get_instance();
+        auto coll = cm.get_collection_with_id(coll_id);
+        if (coll == nullptr) {
+            return Option<bool>(400, "Collection having `coll_id: " + std::to_string(coll_id) + "` not found.");
+        }
+        const std::string& seq_id_key = coll->get_seq_id_key((uint32_t) kv->key);
+
+        nlohmann::json document;
+        const Option<bool> & document_op = coll->get_document_from_store(seq_id_key, document);
+
+        if (!document_op.ok()) {
+            LOG(ERROR) << "Document fetch error. " << document_op.error();
+            continue;
+        }
+
+        const auto& search_index = coll_id_to_search_index.at(coll_id);
+        nlohmann::json highlight_res = nlohmann::json::object();
+//
+//        if (!highlight_items.empty()) {
+//            copy_highlight_doc(highlight_items, enable_nested_fields, document, highlight_res);
+//            remove_flat_fields(highlight_res);
+//            remove_reference_helper_fields(highlight_res);
+//            highlight_res.erase("id");
+//        }
+
+        result[hits_key] += document;
+    }
+    return Option<bool>(true);
+}
+
 void Collection::expand_search_query(const string& raw_query, size_t offset, size_t total, const search_args* search_params,
                                     const std::vector<std::vector<KV*>>& result_group_kvs,
                                     const std::vector<std::string>& raw_search_fields, string& first_q) const {
@@ -3474,7 +3796,7 @@ void Collection::process_highlight_fields(const std::vector<search_field_t>& sea
 void Collection::process_filter_overrides(std::vector<const override_t*>& filter_overrides,
                                           std::vector<std::string>& q_include_tokens,
                                           token_ordering token_order,
-                                          filter_node_t*& filter_tree_root,
+                                          std::unique_ptr<filter_node_t>& filter_tree_root,
                                           std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                           std::vector<uint32_t>& excluded_ids,
                                           nlohmann::json& override_metadata,
@@ -6904,4 +7226,380 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
 
 std::shared_ptr<VQModel> Collection::get_vq_model() {
     return vq_model;
+}
+
+Option<bool> add_unsigned_int_param(const std::string& param_name, const std::string& str_val, size_t* int_val) {
+    if(!StringUtils::is_uint32_t(str_val)) {
+        return Option<bool>(400, "Parameter `" + std::string(param_name) + "` must be an unsigned integer.");
+    }
+
+    *int_val = std::stoul(str_val);
+    return Option<bool>(true);
+}
+
+Option<bool> add_unsigned_int_list_param(const std::string& param_name, const std::string& str_val,
+                                         std::vector<uint32_t>* int_vals) {
+    std::vector<std::string> str_vals;
+    StringUtils::split(str_val, str_vals, ",");
+    int_vals->clear();
+
+    for(auto& str : str_vals) {
+        if(StringUtils::is_uint32_t(str)) {
+            int_vals->push_back((uint32_t)std::stoul(str));
+        } else {
+            return Option<bool>(400, "Parameter `" + param_name + "` is malformed.");
+        }
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& req_params,
+                                            const uint32_t& coll_num_documents,
+                                            const std::string& stopwords_set,
+                                            const uint64_t& start_ts,
+                                            collection_search_args_t& args) {
+    // check presence of mandatory params here
+
+    if(req_params.count(QUERY) == 0 && req_params.count(VOICE_QUERY) == 0) {
+        return Option<bool>(400, std::string("Parameter `") + QUERY + "` is required.");
+    }
+
+    // end check for mandatory params
+
+    const std::string& raw_query = req_params[QUERY];
+    std::vector<uint32_t> num_typos = {2};
+    size_t min_len_1typo = 4;
+    size_t min_len_2typo = 7;
+    std::vector<bool> prefixes = {true};
+    size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD;
+    size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD;
+
+    std::vector<std::string> search_fields;
+    std::string filter_query;
+    std::vector<std::string> facet_fields;
+    std::vector<sort_by> sort_fields;
+    size_t per_page = 10;
+    size_t page = 0;
+    size_t offset = 0;
+    token_ordering token_order = NOT_SET;
+
+    std::vector<std::string> facet_return_parent;
+
+    std::string vector_query;
+
+    std::vector<std::string> include_fields_vec;
+    std::vector<std::string> exclude_fields_vec;
+    std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec;
+    spp::sparse_hash_set<std::string> include_fields;
+    spp::sparse_hash_set<std::string> exclude_fields;
+
+    size_t max_facet_values = 10;
+    std::string simple_facet_query;
+    size_t facet_query_num_typos = 2;
+    size_t snippet_threshold = 30;
+    size_t highlight_affix_num_tokens = 4;
+    std::string highlight_full_fields;
+    std::string pinned_hits_str;
+    std::string hidden_hits_str;
+    std::vector<std::string> group_by_fields;
+    size_t group_limit = 3;
+    bool group_missing_values = true;
+    std::string highlight_start_tag = "<mark>";
+    std::string highlight_end_tag = "</mark>";
+    std::vector<uint32_t> query_by_weights;
+    size_t limit_hits = 1000000;
+    bool prioritize_exact_match = true;
+    bool prioritize_token_position = false;
+    bool pre_segmented_query = false;
+    bool enable_overrides = true;
+    bool enable_synonyms = true;
+    bool synonym_prefix = false;
+    size_t synonym_num_typos = 0;
+
+    bool filter_curated_hits_option = false;
+    std::string highlight_fields;
+    bool exhaustive_search = false;
+    size_t search_cutoff_ms = 30 * 1000;
+    enable_t split_join_tokens = fallback;
+    size_t max_candidates = 0;
+    std::vector<enable_t> infixes;
+    size_t max_extra_prefix = INT16_MAX;
+    size_t max_extra_suffix = INT16_MAX;
+    bool enable_highlight_v1 = true;
+    text_match_type_t match_type = max_score;
+    bool enable_typos_for_numerical_tokens = true;
+    bool enable_typos_for_alpha_numerical_tokens = true;
+    bool enable_lazy_filter = Config::get_instance().get_enable_lazy_filter();
+    size_t max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES;
+
+    std::string facet_strategy = "automatic";
+
+    size_t remote_embedding_timeout_ms = 5000;
+    size_t remote_embedding_num_tries = 2;
+
+    size_t facet_sample_percent = 100;
+    size_t facet_sample_threshold = 0;
+
+    bool conversation = false;
+    std::string conversation_id;
+    std::string conversation_model_id;
+
+    std::string drop_tokens_mode_str = "right_to_left";
+    bool prioritize_num_matching_fields = true;
+    std::string override_tags;
+
+    std::string voice_query;
+    bool enable_analytics = true;
+    bool rerank_hybrid_matches = false;
+    bool validate_field_names = true;
+
+    std::unordered_map<std::string, size_t*> unsigned_int_values = {
+            {MIN_LEN_1TYPO, &min_len_1typo},
+            {MIN_LEN_2TYPO, &min_len_2typo},
+            {DROP_TOKENS_THRESHOLD, &drop_tokens_threshold},
+            {TYPO_TOKENS_THRESHOLD, &typo_tokens_threshold},
+            {MAX_FACET_VALUES, &max_facet_values},
+            {LIMIT_HITS, &limit_hits},
+            {SNIPPET_THRESHOLD, &snippet_threshold},
+            {HIGHLIGHT_AFFIX_NUM_TOKENS, &highlight_affix_num_tokens},
+            {PAGE, &page},
+            {OFFSET, &offset},
+            {PER_PAGE, &per_page},
+            {LIMIT, &per_page},
+            {GROUP_LIMIT, &group_limit},
+            {SEARCH_CUTOFF_MS, &search_cutoff_ms},
+            {MAX_EXTRA_PREFIX, &max_extra_prefix},
+            {MAX_EXTRA_SUFFIX, &max_extra_suffix},
+            {MAX_CANDIDATES, &max_candidates},
+            {FACET_QUERY_NUM_TYPOS, &facet_query_num_typos},
+            {FACET_SAMPLE_PERCENT, &facet_sample_percent},
+            {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
+            {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
+            {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
+            {SYNONYM_NUM_TYPOS, &synonym_num_typos},
+            {MAX_FILTER_BY_CANDIDATES, &max_filter_by_candidates}
+    };
+
+    std::unordered_map<std::string, std::string*> str_values = {
+            {FILTER, &filter_query},
+            {VECTOR_QUERY, &vector_query},
+            {FACET_QUERY, &simple_facet_query},
+            {HIGHLIGHT_FIELDS, &highlight_fields},
+            {HIGHLIGHT_FULL_FIELDS, &highlight_full_fields},
+            {HIGHLIGHT_START_TAG, &highlight_start_tag},
+            {HIGHLIGHT_END_TAG, &highlight_end_tag},
+            {PINNED_HITS, &pinned_hits_str},
+            {HIDDEN_HITS, &hidden_hits_str},
+            {CONVERSATION_ID, &conversation_id},
+            {DROP_TOKENS_MODE, &drop_tokens_mode_str},
+            {OVERRIDE_TAGS, &override_tags},
+            {CONVERSATION_MODEL_ID, &conversation_model_id},
+            {VOICE_QUERY, &voice_query},
+            {FACET_STRATEGY, &facet_strategy},
+    };
+
+    std::unordered_map<std::string, bool*> bool_values = {
+            {PRIORITIZE_EXACT_MATCH, &prioritize_exact_match},
+            {PRIORITIZE_TOKEN_POSITION, &prioritize_token_position},
+            {PRE_SEGMENTED_QUERY, &pre_segmented_query},
+            {EXHAUSTIVE_SEARCH, &exhaustive_search},
+            {ENABLE_OVERRIDES, &enable_overrides},
+            {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
+            {CONVERSATION, &conversation},
+            {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
+            {GROUP_MISSING_VALUES, &group_missing_values},
+            {ENABLE_TYPOS_FOR_NUMERICAL_TOKENS, &enable_typos_for_numerical_tokens},
+            {ENABLE_SYNONYMS, &enable_synonyms},
+            {SYNONYM_PREFIX, &synonym_prefix},
+            {ENABLE_LAZY_FILTER, &enable_lazy_filter},
+            {ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS, &enable_typos_for_alpha_numerical_tokens},
+            {FILTER_CURATED_HITS, &filter_curated_hits_option},
+            {ENABLE_ANALYTICS, &enable_analytics},
+            {RERANK_HYBRID_MATCHES, &rerank_hybrid_matches},
+            {VALIDATE_FIELD_NAMES, &validate_field_names}
+    };
+
+    std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
+            {QUERY_BY, &search_fields},
+            {FACET_BY, &facet_fields},
+            {GROUP_BY, &group_by_fields},
+            {INCLUDE_FIELDS, &include_fields_vec},
+            {EXCLUDE_FIELDS, &exclude_fields_vec},
+            {FACET_RETURN_PARENT, &facet_return_parent},
+    };
+
+    std::unordered_map<std::string, std::vector<uint32_t>*> int_list_values = {
+            {QUERY_BY_WEIGHTS, &query_by_weights},
+            {NUM_TYPOS, &num_typos},
+    };
+
+    for(const auto& kv: req_params) {
+        const std::string& key = kv.first;
+        const std::string& val = kv.second;
+
+        if(key == PREFIX) {
+            if(val == "true" || val == "false") {
+                prefixes = {(val == "true")};
+            } else {
+                prefixes.clear();
+                std::vector<std::string> prefix_str;
+                StringUtils::split(val, prefix_str, ",");
+                for(auto& prefix_s : prefix_str) {
+                    prefixes.push_back(prefix_s == "true");
+                }
+            }
+        }
+
+        else if(key == SPLIT_JOIN_TOKENS) {
+            if(val == "false") {
+                split_join_tokens = off;
+            } else if(val == "true") {
+                split_join_tokens = fallback;
+            } else {
+                auto enable_op = magic_enum::enum_cast<enable_t>(val);
+                if(enable_op.has_value()) {
+                    split_join_tokens = enable_op.value();
+                }
+            }
+        }
+
+        else if(key == TEXT_MATCH_TYPE) {
+            auto match_op = magic_enum::enum_cast<text_match_type_t>(val);
+            if(match_op.has_value()) {
+                match_type = match_op.value();
+            }
+        }
+
+        else {
+            auto find_int_it = unsigned_int_values.find(key);
+            if(find_int_it != unsigned_int_values.end()) {
+                const auto& op = add_unsigned_int_param(key, val, find_int_it->second);
+                if(!op.ok()) {
+                    return op;
+                }
+
+                continue;
+            }
+
+            auto find_str_it = str_values.find(key);
+            if(find_str_it != str_values.end()) {
+                *find_str_it->second = val;
+                continue;
+            }
+
+            auto find_bool_it = bool_values.find(key);
+            if(find_bool_it != bool_values.end()) {
+                *find_bool_it->second = (val == "true");
+                continue;
+            }
+
+            auto find_str_list_it = str_list_values.find(key);
+            if(find_str_list_it != str_list_values.end()) {
+
+                if(key == FACET_BY){
+                    StringUtils::split_facet(val, *find_str_list_it->second);
+                }
+                else if(key == INCLUDE_FIELDS || key == EXCLUDE_FIELDS){
+                    auto op = StringUtils::split_include_exclude_fields(val, *find_str_list_it->second);
+                    if (!op.ok()) {
+                        return op;
+                    }
+                }
+                else{
+                    StringUtils::split(val, *find_str_list_it->second, ",");
+                }
+                continue;
+            }
+
+            auto find_int_list_it = int_list_values.find(key);
+            if(find_int_list_it != int_list_values.end()) {
+                add_unsigned_int_list_param(key, val, find_int_list_it->second);
+                continue;
+            }
+        }
+    }
+
+    // special defaults
+    if(!req_params[FACET_QUERY].empty() && req_params.count(PER_PAGE) == 0) {
+        // for facet query we will set per_page to zero if it is not explicitly overridden
+        per_page = 0;
+    }
+
+    auto initialize_op = Join::initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec, exclude_fields_vec,
+                                                                         ref_include_exclude_fields_vec);
+    if (!initialize_op.ok()) {
+        return initialize_op;
+    }
+
+    include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
+    exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
+
+    bool parsed_sort_by = CollectionManager::parse_sort_by_str(req_params[SORT_BY], sort_fields);
+
+    if(!parsed_sort_by) {
+        return Option<bool>(400, std::string("Parameter `") + SORT_BY + "` is malformed.");
+    }
+
+    if(sort_fields.size() > 3) {
+        return Option<bool>(400, "Only upto 3 sort fields are allowed.");
+    }
+
+    if(req_params.count(INFIX) != 0) {
+        std::vector<std::string> infix_strs;
+        StringUtils::split(req_params[INFIX], infix_strs, ",");
+
+        for(auto& infix_str: infix_strs) {
+            auto infix_op = magic_enum::enum_cast<enable_t>(infix_str);
+            if(infix_op.has_value()) {
+                infixes.push_back(infix_op.value());
+            }
+        }
+    } else {
+        infixes.push_back(off);
+    }
+
+    if(req_params.count(RANK_TOKENS_BY) != 0) {
+        StringUtils::toupper(req_params[RANK_TOKENS_BY]);
+        if (req_params[RANK_TOKENS_BY] == "DEFAULT_SORTING_FIELD") {
+            token_order = MAX_SCORE;
+        } else if(req_params[RANK_TOKENS_BY] == "FREQUENCY") {
+            token_order = FREQUENCY;
+        }
+    }
+
+    if(!max_candidates) {
+        max_candidates = exhaustive_search ? Index::COMBINATION_MAX_LIMIT :
+                         (coll_num_documents < 500000 ? Index::NUM_CANDIDATES_DEFAULT_MAX :
+                          Index::NUM_CANDIDATES_DEFAULT_MIN);
+    }
+
+    args = collection_search_args_t(raw_query, search_fields, filter_query,
+                                    facet_fields, sort_fields,
+                                    num_typos, per_page, page, token_order,
+                                    prefixes, drop_tokens_threshold,
+                                    include_fields, exclude_fields,
+                                    max_facet_values, simple_facet_query, snippet_threshold,
+                                    highlight_affix_num_tokens, highlight_full_fields,
+                                    typo_tokens_threshold, pinned_hits_str, hidden_hits_str,
+                                    group_by_fields, group_limit,
+                                    highlight_start_tag, highlight_end_tag,
+                                    query_by_weights, limit_hits, prioritize_exact_match,
+                                    pre_segmented_query, enable_overrides, highlight_fields,
+                                    exhaustive_search, search_cutoff_ms, min_len_1typo, min_len_2typo,
+                                    split_join_tokens, max_candidates, infixes,
+                                    max_extra_prefix, max_extra_suffix, facet_query_num_typos,
+                                    filter_curated_hits_option, prioritize_token_position, vector_query,
+                                    enable_highlight_v1, start_ts, match_type,
+                                    facet_sample_percent, facet_sample_threshold, offset,
+                                    facet_strategy, remote_embedding_timeout_ms, remote_embedding_num_tries,
+                                    stopwords_set, facet_return_parent,
+                                    ref_include_exclude_fields_vec,
+                                    drop_tokens_mode_str, prioritize_num_matching_fields, group_missing_values,
+                                    conversation, conversation_model_id, conversation_id,
+                                    override_tags, voice_query, enable_typos_for_numerical_tokens,
+                                    enable_synonyms, synonym_prefix, synonym_num_typos, enable_lazy_filter,
+                                    enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
+                                    rerank_hybrid_matches, enable_analytics, validate_field_names);
+    return Option<bool>(true);
 }
