@@ -1809,7 +1809,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   bool enable_lazy_filter,
                                   bool enable_typos_for_alpha_numerical_tokens,
                                   const size_t& max_filter_by_candidates,
-                                  bool rerank_hybrid_matches) const {
+                                  bool rerank_hybrid_matches,
+                                  bool validate_field_names) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -1933,6 +1934,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         conversation_standalone_query = query;
     }
 
+    bool ignored_missing_fields = false;
+
     for(size_t i = 0; i < raw_search_fields.size(); i++) {
         const std::string& field_name = raw_search_fields[i];
         if(field_name == "id") {
@@ -1947,6 +1950,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         std::vector<std::string> expanded_search_fields;
         auto field_op = extract_field_name(field_name, search_schema, expanded_search_fields, true, enable_nested_fields);
         if(!field_op.ok()) {
+            if(field_op.code() == 404 && !validate_field_names) {
+                ignored_missing_fields = true;
+                continue;
+            }
+
             return Option<nlohmann::json>(field_op.code(), field_op.error());
         }
 
@@ -2118,13 +2126,15 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::vector<facet> facets;
     // validate facet fields
     for(const std::string & facet_field: facet_fields) {
-        
         const auto& res = parse_facet(facet_field, facets);
         if(!res.ok()){
+            if(res.code() == 404 && !validate_field_names) {
+                continue;
+            }
+
             return Option<nlohmann::json>(res.code(), res.error());
         }
     }
-
 
     std::vector<facet_index_type_t> facet_index_types;
     std::vector<std::string> facet_index_str_types;
@@ -2347,28 +2357,29 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::vector<std::string> q_unstemmed_tokens;
 
     if(weighted_search_fields.size() == 0) {
-        // has to be a wildcard query
-        field_query_tokens.emplace_back(query_tokens_t{});
-        parse_search_query(query, q_include_tokens, q_unstemmed_tokens,
-                           field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
-                           false, stopwords_set);
+        if(!ignored_missing_fields) {
+            // has to be a wildcard query
+            field_query_tokens.emplace_back(query_tokens_t{});
+            parse_search_query(query, q_include_tokens, q_unstemmed_tokens,
+                               field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
+                               false, stopwords_set);
 
-        process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
-                                 included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
-                                 enable_typos_for_alpha_numerical_tokens);
+            process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
+                                     included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
+                                     enable_typos_for_alpha_numerical_tokens);
 
-        for(size_t i = 0; i < q_include_tokens.size(); i++) {
-            auto& q_include_token = q_include_tokens[i];
-            field_query_tokens[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
-                                                                q_include_token.size(), 0);
+            for(size_t i = 0; i < q_include_tokens.size(); i++) {
+                auto& q_include_token = q_include_tokens[i];
+                field_query_tokens[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
+                                                                    q_include_token.size(), 0);
+            }
+
+            for(size_t i = 0; i < q_unstemmed_tokens.size(); i++) {
+                auto& q_include_token = q_unstemmed_tokens[i];
+                field_query_tokens[0].q_unstemmed_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
+                                                                      q_include_token.size(), 0);
+            }
         }
-
-        for(size_t i = 0; i < q_unstemmed_tokens.size(); i++) {
-            auto& q_include_token = q_unstemmed_tokens[i];
-            field_query_tokens[0].q_unstemmed_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
-                                                                q_include_token.size(), 0);
-        }
-
     } else {
         field_query_tokens.emplace_back(query_tokens_t{});
         auto most_weighted_field = search_schema.at(weighted_search_fields[0].name);

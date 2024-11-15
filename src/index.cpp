@@ -2899,6 +2899,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool rerank_hybrid_matches) const {
     std::shared_lock lock(mutex);
 
+    if(field_query_tokens.empty()) {
+        // this can happen if missing query_by fields are configured to be ignored
+        return Option<bool>(true);
+    }
+
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
                                                                enable_lazy_filter, max_filter_by_candidates,
                                                                search_begin_us, search_stop_us);
