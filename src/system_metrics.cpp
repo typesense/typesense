@@ -234,3 +234,43 @@ void SystemMetrics::linux_get_network_data(const std::string & stat_path,
         }
     }
 }
+
+void SystemMetrics::get_proc_meminfo(uint64_t& memory_total_bytes, uint64_t& memory_available_bytes,
+                                     uint64_t& swap_total_bytes,
+                                     uint64_t& swap_free_bytes) {
+    std::string token;
+    std::ifstream file("/proc/meminfo");
+
+    while(file >> token) {
+        if(token == "MemTotal:") {
+            uint64_t value_kb;
+            if(file >> value_kb) {
+                memory_total_bytes = value_kb * 1024;
+            }
+        }
+
+        else if(token == "MemAvailable:") {
+            uint64_t value_kb;
+            if(file >> value_kb) {
+                memory_available_bytes = value_kb * 1024;
+            }
+        }
+
+        else if(token == "SwapTotal:") {
+            uint64_t value_kb;
+            if(file >> value_kb) {
+                swap_total_bytes = value_kb * 1024;
+            }
+        }
+
+        else if(token == "SwapFree:") {
+            uint64_t value_kb;
+            if(file >> value_kb) {
+                swap_free_bytes = value_kb * 1024;
+            }
+
+            // since "SwapFree" appears last in the file
+            break;
+        }
+    }
+}

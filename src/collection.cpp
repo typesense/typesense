@@ -687,10 +687,6 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
     return Option(resp_summary);
 }
 
-bool Collection::is_exceeding_memory_threshold() const {
-    return SystemMetrics::used_memory_ratio() > max_memory_ratio;
-}
-
 void Collection::batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out,
                              size_t &num_indexed, const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size,
                              const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
