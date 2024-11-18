@@ -338,6 +338,4 @@ struct StringUtils {
                                                      std::vector<std::string>& tokens);
 
     static size_t get_occurence_count(const std::string& str, char symbol);
-
-    static std::string remove_words_from_string(const std::string& s, const std::string& word);
 };

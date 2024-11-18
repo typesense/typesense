@@ -3614,34 +3614,46 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         q_exclude_tokens = {};
         q_include_tokens = {query};
     } else {
-        std::string processed_query = query;
         std::vector<std::string> tokens;
         std::vector<std::string> tokens_non_stemmed;
         stopword_struct_t stopwordStruct;
-        if(!stopwords_set.empty()) {
-            const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwordStruct);
-            if (!stopword_op.ok()) {
-                LOG(ERROR) << stopword_op.error();
-                LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set;
-            }
-
-            StringUtils::tolowercase(processed_query);
-            for (const auto val: stopwordStruct.stopwords) {
-                processed_query = StringUtils::remove_words_from_string(processed_query, val);
-            }
-        }
 
         if(already_segmented) {
-            StringUtils::split(processed_query, tokens, " ");
+            StringUtils::split(query, tokens, " ");
         } else {
             std::vector<char> custom_symbols = symbols_to_index;
             custom_symbols.push_back('-');
             custom_symbols.push_back('"');
 
-            Tokenizer(processed_query, true, false, locale, custom_symbols, token_separators, stemmer).tokenize(tokens);
+            Tokenizer(query, true, false, locale, custom_symbols, token_separators, stemmer).tokenize(tokens);
             if(stemmer) {
-                Tokenizer(processed_query, true, false, locale, custom_symbols, token_separators, nullptr).tokenize(tokens_non_stemmed);
+                Tokenizer(query, true, false, locale, custom_symbols, token_separators, nullptr).tokenize(tokens_non_stemmed);
             }
+        }
+
+        if(!stopwords_set.empty()) {
+            auto stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set);
+            if (!stopword_op.ok()) {
+                LOG(ERROR) << stopword_op.error();
+                LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set;
+            }
+            stopwordStruct = stopword_op.get();
+            //process stopwords
+            for (auto token_it = 0; token_it < tokens.size();) {
+                if (stopwordStruct.stopwords.count(tokens[token_it]) != 0) {
+                    std::swap(tokens[token_it], tokens[tokens.size() - 1]);
+                    tokens.pop_back();
+                } else {
+                    token_it++;
+                }
+            }
+
+            auto merged_str = StringUtils::join(tokens, " ");
+            for (const auto &stopword_phrase: stopwordStruct.stopwords_phrases) {
+                StringUtils::replace_all(merged_str, stopword_phrase, " ");
+            }
+
+            StringUtils::split(merged_str, tokens, " ");
         }
 
         bool exclude_operator_prior = false;
