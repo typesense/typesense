@@ -120,10 +120,10 @@ struct KV {
 };
 
 struct Union_KV : public KV {
-    uint32_t collection_id{};
+    uint32_t search_index{};
 
-    Union_KV(KV& kv, uint32_t collection_id) : KV(kv.query_index, kv.key, kv.distinct_key, kv.match_score_index, kv.scores),
-                                               collection_id(collection_id) {
+    Union_KV(KV& kv, uint32_t search_index) : KV(kv.query_index, kv.key, kv.distinct_key, kv.match_score_index, kv.scores),
+                                               search_index(search_index) {
         reference_filter_results = std::move(kv.reference_filter_results);
     }
 
@@ -131,7 +131,7 @@ struct Union_KV : public KV {
 
     Union_KV& operator=(Union_KV&& kv) noexcept  {
         if (this != &kv) {
-            collection_id = kv.collection_id;
+            search_index = kv.search_index;
             KV::operator=(std::move(kv));
         }
 
@@ -140,7 +140,7 @@ struct Union_KV : public KV {
 
     Union_KV& operator=(Union_KV& kv) noexcept {
         if (this != &kv) {
-            collection_id = kv.collection_id;
+            search_index = kv.search_index;
             KV::operator=(kv);
         }
 

@@ -1357,8 +1357,8 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
             break;
         }
 
-        CollectionManager &collectionManager = CollectionManager::get_instance();
-        const std::string &orig_coll_name = req_params["collection"];
+        CollectionManager& collectionManager = CollectionManager::get_instance();
+        const std::string& orig_coll_name = req_params["collection"];
         auto collection = collectionManager.get_collection(orig_coll_name);
 
         if (collection == nullptr) {
@@ -1386,7 +1386,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
 
     std::vector<long> searchTimeMillis;
 
-    auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis);
+    auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, response);
 
     for (const auto& time: searchTimeMillis) {
         update_app_metrics(time);

@@ -296,7 +296,7 @@ private:
     // ensures that a Collection* is not destructed while in use by multiple threads
     mutable std::shared_mutex lifecycle_mutex;
 
-    const uint8_t CURATED_RECORD_IDENTIFIER = 100;
+    static const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
     struct highlight_t {
         size_t field_index;
@@ -404,23 +404,46 @@ private:
 
     std::string get_seq_id_key(uint32_t seq_id) const;
 
-    void highlight_result(const std::string& h_obj,
-                          const field &search_field,
-                          const size_t search_field_index,
-                          const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
-                          const KV* field_order_kv, const nlohmann::json &document,
-                          nlohmann::json& highlight_doc,
-                          StringUtils & string_utils,
-                          const size_t snippet_threshold,
-                          const size_t highlight_affix_num_tokens,
-                          bool highlight_fully,
-                          bool is_infix_search,
-                          const std::string& highlight_start_tag,
-                          const std::string& highlight_end_tag,
-                          const uint8_t* index_symbols,
-                          highlight_t &highlight,
-                          bool& found_highlight,
-                          bool& found_full_highlight) const;
+    static bool handle_highlight_text(std::string& text, const bool& normalise, const field& search_field,
+                                      const bool& is_arr_obj_ele,
+                                      const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
+                                      highlight_t& highlight, StringUtils& string_utils, const bool& use_word_tokenizer,
+                                      const size_t& highlight_affix_num_tokens,
+                                      const tsl::htrie_map<char, token_leaf>& qtoken_leaves, const int& last_valid_offset_index,
+                                      const size_t& prefix_token_num_chars, const bool& highlight_fully,
+                                      const size_t& snippet_threshold, const bool& is_infix_search,
+                                      const std::vector<std::string>& raw_query_tokens, const size_t& last_valid_offset,
+                                      const std::string& highlight_start_tag, const std::string& highlight_end_tag,
+                                      const uint8_t* index_symbols, const match_index_t& match_index);
+
+    static void highlight_result(const bool& enable_nested_fields, const std::vector<char>& symbols_to_index,const std::vector<char>& token_separators,
+                                 const std::string& raw_query, const field& search_field,
+                                 const size_t& search_field_index,
+                                 const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
+                                 const KV* field_order_kv, const nlohmann::json& document,
+                                 nlohmann::json& highlight_doc,
+                                 StringUtils& string_utils,
+                                 const size_t& snippet_threshold,
+                                 const size_t& highlight_affix_num_tokens,
+                                 const bool& highlight_fully,
+                                 const bool& is_infix_search,
+                                 const std::string& highlight_start_tag,
+                                 const std::string& highlight_end_tag,
+                                 const uint8_t* index_symbols,
+                                 highlight_t& highlight,
+                                 bool& found_highlight,
+                                 bool& found_full_highlight);
+
+    static void do_highlighting(const tsl::htrie_map<char, field>& search_schema, const bool& enable_nested_fields,
+                                const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
+                                const string& query, const std::vector<std::string>& raw_search_fields,
+                                const string& raw_query, const bool& enable_highlight_v1, const size_t& snippet_threshold,
+                                const size_t& highlight_affix_num_tokens, const string& highlight_start_tag,
+                                const string& highlight_end_tag, const std::vector<std::string>& highlight_field_names,
+                                const std::vector<std::string>& highlight_full_field_names,
+                                const std::vector<highlight_field_t>& highlight_items, const uint8_t* index_symbols,
+                                const KV* field_order_kv, const nlohmann::json& document, nlohmann::json& highlight_res,
+                                nlohmann::json& wrapper_doc);
 
     void remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 
@@ -530,18 +553,8 @@ private:
                                   bool enable_typos_for_alpha_numerical_tokens=true,
                                   const bool& validate_field_names = true) const;
 
-    void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type,
-                                  const size_t total_tokens) const;
-
-    bool handle_highlight_text(std::string& text, bool normalise, const field &search_field, const bool is_arr_obj_ele,
-                               const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
-                               highlight_t& highlight, StringUtils & string_utils, bool use_word_tokenizer,
-                               const size_t highlight_affix_num_tokens,
-                               const tsl::htrie_map<char, token_leaf>& qtoken_leaves, int last_valid_offset_index,
-                               const size_t prefix_token_num_chars, bool highlight_fully, const size_t snippet_threshold,
-                               bool is_infix_search, std::vector<std::string>& raw_query_tokens, size_t last_valid_offset,
-                               const std::string& highlight_start_tag, const std::string& highlight_end_tag,
-                               const uint8_t* index_symbols, const match_index_t& match_index) const;
+    static void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type,
+                                         const size_t total_tokens);
 
     static Option<bool> extract_field_name(const std::string& field_name,
                                            const tsl::htrie_map<char, field>& search_schema,
@@ -873,7 +886,8 @@ public:
                                   bool enable_analytics = true) const;
 
     static Option<bool> do_union(const std::vector<uint32_t>& collection_ids,
-                                 std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis);
+                                 std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,
+                                 nlohmann::json& response);
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result,
                                 const bool& should_timeout = true, const bool& validate_field_names = true) const;
@@ -949,6 +963,17 @@ public:
                    const uint8_t* index_symbols,
                    size_t snippet_start_offset) ;
 
+    void process_highlight_fields_with_lock(const std::vector<search_field_t>& search_fields,
+                                            const std::vector<std::string>& raw_search_fields,
+                                            const tsl::htrie_set<char>& include_fields,
+                                            const tsl::htrie_set<char>& exclude_fields,
+                                            const std::vector<std::string>& highlight_field_names,
+                                            const std::vector<std::string>& highlight_full_field_names,
+                                            const std::vector<enable_t>& infixes,
+                                            std::vector<std::string>& q_tokens,
+                                            const tsl::htrie_map<char, token_leaf>& qtoken_set,
+                                            std::vector<highlight_field_t>& highlight_items) const;
+
     void process_highlight_fields(const std::vector<search_field_t>& search_fields,
                                   const std::vector<std::string>& raw_search_fields,
                                   const tsl::htrie_set<char>& include_fields,
@@ -960,7 +985,7 @@ public:
                                   const tsl::htrie_map<char, token_leaf>& qtoken_set,
                                   std::vector<highlight_field_t>& highlight_items) const;
 
-    static void copy_highlight_doc(std::vector<highlight_field_t>& hightlight_items,
+    static void copy_highlight_doc(const std::vector<highlight_field_t>& hightlight_items,
                                    const bool nested_fields_enabled,
                                    const nlohmann::json& src,
                                    nlohmann::json& dst);
@@ -1004,9 +1029,10 @@ public:
 
     std::shared_mutex& get_lifecycle_mutex();
 
-    void expand_search_query(const std::string& raw_query, size_t offset, size_t total, const search_args* search_params,
-                             const std::vector<std::vector<KV*>>& result_group_kvs,
-                             const std::vector<std::string>& raw_search_fields, std::string& first_q) const;
+    static void expand_search_query(const tsl::htrie_map<char, field>& search_schema, const std::vector<char>& symbols_to_index,const std::vector<char>& token_separators,
+                                    const std::string& raw_query, size_t offset, size_t total, const search_args* search_params,
+                                    const std::vector<std::vector<KV*>>& result_group_kvs,
+                                    const std::vector<std::string>& raw_search_fields, std::string& first_q);
 
     Option<bool> get_object_array_related_id(const std::string& ref_field_name,
                                              const uint32_t& seq_id, const uint32_t& object_index,
@@ -1014,6 +1040,10 @@ public:
 
     Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
                                  std::vector<uint32_t>& result) const;
+
+    Option<int64_t> get_referenced_geo_distance_with_lock(const sort_by& sort_field, const uint32_t& seq_id,
+                                                          const std::map<basic_string<char>, reference_filter_result_t>& references,
+                                                          const S2LatLng& reference_lat_lng, const bool& round_distance) const;
 
     Option<int64_t> get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
                                                const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
