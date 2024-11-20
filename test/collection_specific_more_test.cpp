@@ -1561,6 +1561,52 @@ TEST_F(CollectionSpecificMoreTest, CopyDocHelper) {
     ASSERT_EQ(1, dst.count("baz.name"));
 }
 
+TEST_F(CollectionSpecificMoreTest, NestedFieldHighlightingIntegrated) {
+    // Create collection with nested object and flattened field
+    nlohmann::json schema = R"({
+        "name": "collection",
+        "fields": [
+            {"name": "obj", "type": "object"},
+            {"name": "obj.nested", "type": "object"},
+            {"name": "obj.nested.normal", "type": "string"},
+            {"name": "obj.nested.normal.flattened", "type": "string"}
+        ],
+        "enable_nested_fields": true
+    })"_json;
+
+    Collection *collection = collectionManager.create_collection(schema).get();
+    ASSERT_NE(nullptr, collection);
+
+    nlohmann::json doc;
+    doc["obj"]["nested"]["normal"] = "nested value";
+    doc["obj.nested.normal.flattened"] = "normal value";
+    ASSERT_TRUE(collection->add(doc.dump()).ok());
+
+    // Test searching by nested field
+    auto nested_res = collection->search("value", {"obj.nested.normal"}, "", {}, {}, {2}, 10, 1,
+                                       FREQUENCY, {true}, 10,
+                                       spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>()).get();
+    
+    ASSERT_EQ(1, nested_res["hits"].size());
+    ASSERT_TRUE(nested_res["hits"][0].contains("highlight"));
+    ASSERT_TRUE(nested_res["hits"][0]["highlight"].contains("obj"));
+    ASSERT_EQ("nested <mark>value</mark>", 
+              nested_res["hits"][0]["highlight"]["obj"]["nested"]["normal"]["snippet"].get<std::string>());
+
+    // Test searching by flattened field
+    auto flat_res = collection->search("value", {"obj.nested.normal.flattened"}, "", {}, {}, {2}, 10, 1,
+                                     FREQUENCY, {true}, 10,
+                                     spp::sparse_hash_set<std::string>(),
+                                     spp::sparse_hash_set<std::string>()).get();
+
+    ASSERT_EQ(1, flat_res["hits"].size());
+    ASSERT_TRUE(flat_res["hits"][0].contains("highlight"));
+    ASSERT_TRUE(flat_res["hits"][0]["highlight"].contains("obj.nested.normal.flattened"));
+    ASSERT_EQ("normal <mark>value</mark>",
+              flat_res["hits"][0]["highlight"]["obj.nested.normal.flattened"]["snippet"].get<std::string>());
+}
+
 TEST_F(CollectionSpecificMoreTest, HighlightFieldWithBothFlatAndNestedForm) {
     nlohmann::json schema = R"({
         "name": "coll1",
