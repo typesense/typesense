@@ -1605,6 +1605,22 @@ TEST_F(CollectionSpecificMoreTest, NestedFieldHighlightingIntegrated) {
     ASSERT_TRUE(flat_res["hits"][0]["highlight"].contains("obj.nested.normal.flattened"));
     ASSERT_EQ("normal <mark>value</mark>",
               flat_res["hits"][0]["highlight"]["obj.nested.normal.flattened"]["snippet"].get<std::string>());
+
+     // Test searching by both fields
+    auto both_res = collection->search("value", {"obj.nested.normal", "obj.nested.normal.flattened"}, "", {}, {}, {2}, 10, 1,
+                                     FREQUENCY, {true}, 10,
+                                     spp::sparse_hash_set<std::string>(),
+                                     spp::sparse_hash_set<std::string>()).get();
+
+    ASSERT_EQ(1, both_res["hits"].size());
+    ASSERT_TRUE(both_res["hits"][0].contains("highlight"));
+    ASSERT_TRUE(both_res["hits"][0]["highlight"].contains("obj"));
+    ASSERT_TRUE(both_res["hits"][0]["highlight"].contains("obj.nested.normal.flattened"));
+    ASSERT_EQ("nested <mark>value</mark>",
+              both_res["hits"][0]["highlight"]["obj"]["nested"]["normal"]["snippet"].get<std::string>());
+    ASSERT_EQ("normal <mark>value</mark>",
+              both_res["hits"][0]["highlight"]["obj.nested.normal.flattened"]["snippet"].get<std::string>());
+             flat_res["hits"][0]["highlight"]["obj.nested.normal.flattened"]["snippet"].get<std::string>());
 }
 
 TEST_F(CollectionSpecificMoreTest, HighlightFieldWithBothFlatAndNestedForm) {
