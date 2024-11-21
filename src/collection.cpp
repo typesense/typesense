@@ -3237,9 +3237,6 @@ void Collection::copy_highlight_doc(std::vector<highlight_field_t>& hightlight_i
            (src.contains(".flat") && src[".flat"].is_array() &&
             std::find(src[".flat"].begin(), src[".flat"].end(), hightlight_item.name) != src[".flat"].end())) {
             dst[root_field_name] = src[root_field_name];
-        }
-            // copy whole sub-object if its present in the `.flat` array
-            dst[root_field_name] = src[root_field_name];
         } else if(src.count(hightlight_item.name) != 0) {
             dst[hightlight_item.name] = src[hightlight_item.name];
         }

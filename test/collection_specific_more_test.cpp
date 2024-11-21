@@ -1620,7 +1620,6 @@ TEST_F(CollectionSpecificMoreTest, NestedFieldHighlightingIntegrated) {
               both_res["hits"][0]["highlight"]["obj"]["nested"]["normal"]["snippet"].get<std::string>());
     ASSERT_EQ("normal <mark>value</mark>",
               both_res["hits"][0]["highlight"]["obj.nested.normal.flattened"]["snippet"].get<std::string>());
-             flat_res["hits"][0]["highlight"]["obj.nested.normal.flattened"]["snippet"].get<std::string>());
 }
 
 TEST_F(CollectionSpecificMoreTest, HighlightFieldWithBothFlatAndNestedForm) {
