@@ -6841,6 +6841,11 @@ void Index::tokenize_string_field(const nlohmann::json& document, const field& s
     }
 }
 
+std::string Index::get_facet_str_val(const std::string& field_name, uint32_t facet_id) {
+    std::shared_lock lock(mutex);
+    return facet_index_v4->get_facet_str_val(field_name, facet_id);
+}
+
 art_leaf* Index::get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len) {
     std::shared_lock lock(mutex);
     const art_tree *t = search_index.at(field_name);
