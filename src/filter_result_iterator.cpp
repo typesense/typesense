@@ -687,7 +687,7 @@ void filter_result_iterator_t::next() {
 
     const filter a_filter = filter_node->filter_exp;
 
-    if (a_filter.is_ignored_filter || a_filter.field_name == "id") {
+    if (a_filter.field_name == "id") {
         all_seq_ids_iterator.next();
         if (!all_seq_ids_iterator.valid()) {
             validity = invalid;
@@ -793,14 +793,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
     const filter a_filter = filter_node->filter_exp;
 
     if (a_filter.is_ignored_filter) {
-        all_seq_ids_iterator = index->seq_ids->new_iterator();
-        if (all_seq_ids_iterator.valid()) {
-            seq_id = all_seq_ids_iterator.id();
-            approx_filter_ids_length = index->seq_ids->num_ids();
-            validity = valid;
-        } else {
-            validity = invalid;
-        }
+        is_filter_result_initialized = true;
+        validity = invalid;
         return;
     }
 
@@ -1679,7 +1673,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 
     const filter a_filter = filter_node->filter_exp;
 
-    if (a_filter.is_ignored_filter || a_filter.field_name == "id") {
+    if (a_filter.field_name == "id") {
         all_seq_ids_iterator.skip_to(id);
         if (!all_seq_ids_iterator.valid()) {
             validity = invalid;
@@ -2097,7 +2091,7 @@ void filter_result_iterator_t::reset(const bool& override_timeout) {
 
     const filter a_filter = filter_node->filter_exp;
 
-    if (a_filter.is_ignored_filter || a_filter.field_name == "id") {
+    if (a_filter.field_name == "id") {
         all_seq_ids_iterator = index->seq_ids->new_iterator();
         if (all_seq_ids_iterator.valid()) {
             seq_id = all_seq_ids_iterator.id();
@@ -2560,7 +2554,7 @@ void filter_result_iterator_t::compute_iterators() {
 
     const filter a_filter = filter_node->filter_exp;
 
-    if (a_filter.is_ignored_filter || a_filter.field_name == "id") {
+    if (a_filter.field_name == "id") {
         if (index->seq_ids->num_ids() == 0) {
             validity = invalid;
             return;

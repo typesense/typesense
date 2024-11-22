@@ -253,7 +253,7 @@ private:
     id_list_t::iterator_t all_seq_ids_iterator = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
 
     /// Stores the result of the filters that cannot be iterated.
-    filter_result_t filter_result;
+    filter_result_t filter_result{};
     bool is_filter_result_initialized = false;
 
     /// Initialized in case of filter on string field.

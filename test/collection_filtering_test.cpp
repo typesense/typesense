@@ -3262,7 +3262,7 @@ TEST_F(CollectionFilteringTest, IgnoreFieldValidation) {
     ASSERT_TRUE(search_op.ok());
 
     auto res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(18, res_obj["found"]);
+    ASSERT_EQ(0, res_obj["found"]);
 
     req_params = {
             {"collection", "coll_mul_fields"},
@@ -3275,39 +3275,8 @@ TEST_F(CollectionFilteringTest, IgnoreFieldValidation) {
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
-//    ids:      0, 1, 4, 6, 8,  10, 11, 13, 16, 17
-//    points:   62,63,58,78,75, 58, 86, 53, 79, 52
     res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(11, res_obj["found"]);
-    ASSERT_EQ(10, res_obj["hits"].size());
-    ASSERT_EQ("11", res_obj["hits"][0]["document"].at("id"));
-    ASSERT_EQ("16", res_obj["hits"][1]["document"].at("id"));
-    ASSERT_EQ("6", res_obj["hits"][2]["document"].at("id"));
-    ASSERT_EQ("8", res_obj["hits"][3]["document"].at("id"));
-    ASSERT_EQ("1", res_obj["hits"][4]["document"].at("id"));
-    ASSERT_EQ("0", res_obj["hits"][5]["document"].at("id"));
-    ASSERT_EQ("10", res_obj["hits"][6]["document"].at("id"));
-    ASSERT_EQ("4", res_obj["hits"][7]["document"].at("id"));
-    ASSERT_EQ("13", res_obj["hits"][8]["document"].at("id"));
-    ASSERT_EQ("17", res_obj["hits"][9]["document"].at("id"));
-
-    req_params = {
-            {"collection", "coll_mul_fields"},
-            {"q", "the"},
-            {"query_by", "title"},
-            {"filter_by", "age: 100"},
-            {"enable_lazy_filter", "true"},
-            {"validate_field_names", "false"},
-            {"page", "2"}
-    };
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-
-    res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(11, res_obj["found"]);
-    ASSERT_EQ(1, res_obj["hits"].size());
-    // id:2 document is not an exact match. That's why it's the last hit even when having high points value.
-    ASSERT_EQ("2", res_obj["hits"][0]["document"].at("id"));
+    ASSERT_EQ(0, res_obj["found"]);
 
     req_params = {
             {"collection", "coll_mul_fields"},
@@ -3319,7 +3288,7 @@ TEST_F(CollectionFilteringTest, IgnoreFieldValidation) {
     ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(0, res_obj["found"]);
 
     req_params = {
             {"collection", "coll_mul_fields"},
@@ -3331,5 +3300,7 @@ TEST_F(CollectionFilteringTest, IgnoreFieldValidation) {
     ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(18, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("8", res_obj["hits"][0]["document"].at("id"));
 }
