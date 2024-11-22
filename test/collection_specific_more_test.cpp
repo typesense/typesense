@@ -3314,6 +3314,84 @@ TEST_F(CollectionSpecificMoreTest, PopulateIncludeExcludeFields) {
     }
 }
 
+TEST_F(CollectionSpecificMoreTest, IgnoreMissingQueryByFields) {
+    nlohmann::json schema = R"({
+                "name": "test",
+                "enable_nested_fields": true,
+                "fields": [
+                    {
+                        "name": "parts",
+                        "type": "object"
+                    }
+                ]
+                })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "parts": {
+            "1": {"id": "foo", "price": 10},
+            "2": {"id": "bar", "price": 15},
+            "3": {"id": "zip", "price": 20}
+        }
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    bool validate_field_names = true;
+
+    auto res_op = coll->search("foo", {"parts.10"}, "", {},
+                            {}, {2}, 10, 1,FREQUENCY, {true},
+                            Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                            {"embedding"}, 10, "",
+                            30, 4, "", 40,
+                            {}, {}, {}, 0,"<mark>",
+                            "</mark>", {}, 1000,true,
+                            false, true, "", false,
+                            6000*1000, 4, 7, fallback, 4,
+                            {off}, INT16_MAX, INT16_MAX,2,
+                            2, false, "", true,
+                            0, max_score, 100, 0, 0,
+                            "exhaustive", 30000, 2, "",
+                            {},{}, "right_to_left", true,
+                            true, false, "", "", "",
+                            "", true, true, false, 0, true,
+                            true, DEFAULT_FILTER_BY_CANDIDATES, false, validate_field_names);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Could not find a field named `parts.10` in the schema.", res_op.error());
+
+    validate_field_names = false;
+
+    res_op = coll->search("foo", {"parts.10"}, "", {},
+                               {}, {2}, 10, 1,FREQUENCY, {true},
+                               Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                               {"embedding"}, 10, "",
+                               30, 4, "", 40,
+                               {}, {}, {}, 0,"<mark>",
+                               "</mark>", {}, 1000,true,
+                               false, true, "", false,
+                               6000*1000, 4, 7, fallback, 4,
+                               {off}, INT16_MAX, INT16_MAX,2,
+                               2, false, "", true,
+                               0, max_score, 100, 0, 0,
+                               "exhaustive", 30000, 2, "",
+                               {},{}, "right_to_left", true,
+                               true, false, "", "", "",
+                               "", true, true, false, 0, true,
+                               true, DEFAULT_FILTER_BY_CANDIDATES, false, validate_field_names);
+
+    ASSERT_TRUE(res_op.ok());
+
+    auto res = res_op.get();
+    ASSERT_EQ(0, res["hits"].size());
+    ASSERT_EQ(0, res["found"].get<size_t>());
+}
+
+
 TEST_F(CollectionSpecificMoreTest, StemmingPlurals) {
     nlohmann::json schema = R"({
          "name": "titles",

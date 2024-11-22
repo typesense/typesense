@@ -713,7 +713,7 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicTextWithSpecialCharacters) {
     nlohmann::json doc;
     doc["title"] = "«Сирый», «несчастный», «никчёмный» — принятое "
                    "особ, сейчас, впрочем, оттенок скромности. Посыл, "
-                   "среди которых отсутствие мобильного страшное.";
+                   "среди которых отсутствие мобильного страшн";
 
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
@@ -722,16 +722,16 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicTextWithSpecialCharacters) {
                                  10, "", 10, 4, "title").get();
 
     ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ("скромности. Посыл, среди которых <mark>отсутствие</mark> мобильного страшное.",
+    ASSERT_EQ("скромности. Посыл, среди которых <mark>отсутствие</mark> мобильного страшн",
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
     ASSERT_EQ("«Сирый», «несчастный», «никчёмный» — принятое особ, сейчас, впрочем, оттенок скромности. "
-              "Посыл, среди которых <mark>отсутствие</mark> мобильного страшное.",
+              "Посыл, среди которых <mark>отсутствие</mark> мобильного страшн",
               results["hits"][0]["highlights"][0]["value"].get<std::string>());
 
     results = coll1->search("принятое", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
 
     ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ("«Сирый», «несчастный», «никчёмный» — <mark>принятое</mark> особ, сейчас, впрочем, оттенок скромности. Посыл, среди которых отсутствие мобильного страшное.",
+    ASSERT_EQ("«Сирый», «несчастный», «никчёмный» — <mark>принятое</mark> особ, сейчас, впрочем, оттенок скромности. Посыл, среди которых отсутствие мобильного страшн",
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     results = coll1->search("*", {}, "", {"title"}, {}, {0}, 0, 1, FREQUENCY, {true}, 10,
@@ -739,7 +739,7 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicTextWithSpecialCharacters) {
                             10, "title: отсутствие").get();
 
     ASSERT_STREQ("«Сирый», «несчастный», «никчёмный» — принятое особ, сейчас, впрочем, оттенок скромности. "
-                 "Посыл, среди которых <mark>отсутствие</mark> мобильного страшное.",
+                 "Посыл, среди которых <mark>отсутствие</mark> мобильного страшн",
                  results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     results = coll1->search("*", {}, "", {"title"}, {}, {0}, 0, 1, FREQUENCY, {true}, 10,
@@ -747,7 +747,7 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicTextWithSpecialCharacters) {
                             10, "title: отсутст").get();
 
     ASSERT_STREQ("«Сирый», «несчастный», «никчёмный» — принятое особ, сейчас, впрочем, оттенок скромности. "
-                 "Посыл, среди которых <mark>отсутст</mark>вие мобильного страшное.",
+                 "Посыл, среди которых <mark>отсутст</mark>вие мобильного страшн",
                  results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");

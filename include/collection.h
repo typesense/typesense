@@ -477,8 +477,6 @@ public:
                      const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size = 200,
                      const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);
 
-    bool is_exceeding_memory_threshold() const;
-
     void parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens, std::vector<std::string>& q_include_tokens_non_stemmed,
                             std::vector<std::vector<std::string>>& q_exclude_tokens,
                             std::vector<std::vector<std::string>>& q_phrases,
@@ -587,7 +585,8 @@ public:
                                   bool enable_lazy_filter = false,
                                   bool enable_typos_for_alpha_numerical_tokens = true,
                                   const size_t& max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES,
-                                  bool rerank_hybrid_matches = false) const;
+                                  bool rerank_hybrid_matches = false,
+                                  bool validate_field_names = true) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result,
                                 const bool& should_timeout = true) const;

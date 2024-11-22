@@ -121,8 +121,6 @@ embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote
     if(is_remote()) {
         return remote_embedder_->Embed(text, remote_embedder_timeout_ms, remote_embedding_num_tries);
     } else {
-        // Cannot run same model in parallel, so lock the mutex
-        std::lock_guard<std::mutex> lock(mutex_);
         auto encoded_input = tokenizer_->Encode(text);
         // create input tensor object from data values
         Ort::AllocatorWithDefaultOptions allocator;
@@ -162,7 +160,10 @@ embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote
         //LOG(INFO) << "Running model";
         // create output tensor object
         std::vector<const char*> output_node_names = {output_tensor_name.c_str()};
+        // Cannot run same model in parallel, so lock the mutex
+        std::unique_lock<std::mutex> lock(mutex_);
         auto output_tensor = session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
+        lock.unlock();
         std::vector<std::vector<float>> output;
         float* data = output_tensor[0].GetTensorMutableData<float>();
         // print output tensor shape
@@ -193,7 +194,6 @@ std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::st
                                                        const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     std::vector<embedding_res_t> outputs;
     if(!is_remote()) {
-        std::lock_guard<std::mutex> lock(mutex_);
         for(int i = 0; i < inputs.size(); i += 8) {
             auto input_batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + 8, static_cast<int>(inputs.size())));
             auto encoded_inputs = batch_encode(input_batch);
@@ -266,7 +266,9 @@ std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::st
                 continue;
             }
 
+            std::unique_lock<std::mutex> lock(mutex_);
             auto output_tensor = session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
+            lock.unlock();
             float* data = output_tensor[0].GetTensorMutableData<float>();
             // print output tensor shape
             auto shape = output_tensor[0].GetTensorTypeAndShapeInfo().GetShape();

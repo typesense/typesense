@@ -177,4 +177,7 @@ public:
     static uint64_t get_memory_free_bytes() {
         return get_memory_total_bytes() - get_memory_used_bytes();
     }
+
+    static void get_proc_meminfo(uint64_t& memory_total_bytes, uint64_t& memory_available_bytes,
+                                 uint64_t& swap_total_bytes, uint64_t& swap_free_bytes);
 };

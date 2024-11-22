@@ -1285,6 +1285,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     //for hybrid search, compute text_match_score for only vector search results and vector_distance for only text_match results
     const char* RERANK_HYBRID_MATCHES = "rerank_hybrid_matches";
 
+    const char* VALIDATE_FIELD_NAMES = "validate_field_names";
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -1433,6 +1435,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     std::string voice_query;
     bool enable_analytics = true;
     bool rerank_hybrid_matches = false;
+    bool validate_field_names = true;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -1496,7 +1499,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS, &enable_typos_for_alpha_numerical_tokens},
         {FILTER_CURATED_HITS, &filter_curated_hits_option},
         {ENABLE_ANALYTICS, &enable_analytics},
-        {RERANK_HYBRID_MATCHES, &rerank_hybrid_matches}
+        {RERANK_HYBRID_MATCHES, &rerank_hybrid_matches},
+        {VALIDATE_FIELD_NAMES, &validate_field_names}
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1718,7 +1722,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           enable_lazy_filter,
                                                           enable_typos_for_alpha_numerical_tokens,
                                                           max_filter_by_candidates,
-                                                          rerank_hybrid_matches);
+                                                          rerank_hybrid_matches,
+                                                          validate_field_names);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();

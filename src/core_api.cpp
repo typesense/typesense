@@ -20,7 +20,7 @@
 #include "conversation_manager.h"
 #include "conversation_model_manager.h"
 #include "conversation_model.h"
-#include "archive_utils.h"
+#include "personalization_model_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -3137,24 +3137,122 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     return true;
 }
 
-// Helper function to copy data from one archive to another
-int copy_data(struct archive *ar, struct archive *aw) {
-    int r;
-    const void *buff;
-    size_t size;
-    la_int64_t offset;
-
-    for (;;) {
-        r = archive_read_data_block(ar, &buff, &size, &offset);
-        if (r == ARCHIVE_EOF)
-            return (ARCHIVE_OK);
-        if (r < ARCHIVE_OK)
-            return (r);
-        r = archive_write_data_block(aw, buff, size, offset);
-        if (r < ARCHIVE_OK) {
-            LOG(WARNING) << "Error writing data block: " << archive_error_string(aw);
-            return (r);
-        }
+bool post_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+    
+    if (!req->params.count("name") || !req->params.count("collection") || !req->params.count("type")) {
+        res->set_400("Missing required parameters 'name', 'collection' and 'type'.");
+        return false;
     }
+
+    req_json = {
+        {"name", req->params["name"]},
+        {"collection", req->params["collection"]},
+        {"type", req->params["type"]}
+    };
+
+    std::string model_id;
+    if (req->params.count("id")) {
+        req_json["id"] = req->params["id"];
+        model_id = req->params["id"];
+    }
+
+    const std::string model_data = req->body;
+    auto create_op = PersonalizationModelManager::add_model(req_json, model_id, true, model_data);
+    if(!create_op.ok()) {
+        res->set(create_op.code(), create_op.error());
+        return false;
+    }
+    
+    auto model = create_op.get();
+    res->set_200(nlohmann::json{{"ok", true}, {"model_id", model}}.dump());
+    
+    return true;
 }
 
+bool get_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+    
+    auto model_op = PersonalizationModelManager::get_model(model_id);
+    if (!model_op.ok()) {
+        res->set(model_op.code(), model_op.error());
+        return false;
+    }
+
+    auto model = model_op.get();
+
+    if (model.contains("model_path")) {
+        model.erase("model_path");
+    }
+    res->set_200(model.dump());
+    return true;
+}
+
+bool get_personalization_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto models_op = PersonalizationModelManager::get_all_models();
+    if (!models_op.ok()) {
+        res->set(models_op.code(), models_op.error());
+        return false;
+    }
+
+    auto models = models_op.get();
+    for (auto& model : models) {
+        if (model.contains("model_path")) {
+            model.erase("model_path");
+        }
+    }
+
+    res->set_200(models.dump());
+    return true;
+}
+
+bool del_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+    
+    auto delete_op = PersonalizationModelManager::delete_model(model_id);
+    if (!delete_op.ok()) {
+        res->set(delete_op.code(), delete_op.error());
+        return false;
+    }
+
+    auto deleted_model = delete_op.get();
+    if (deleted_model.contains("model_path")) {
+        deleted_model.erase("model_path");
+    }
+    res->set_200(deleted_model.dump());
+    return true;
+}
+
+bool put_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+    
+    if (req->params.count("name") && !req->params["name"].empty()) {
+        req_json["name"] = req->params["name"];
+    }
+    if (req->params.count("collection") && !req->params["collection"].empty()) {
+        req_json["collection"] = req->params["collection"];
+    }
+    if (req->params.count("type") && !req->params["type"].empty()) {
+        req_json["type"] = req->params["type"];
+    }
+
+    if (!req->params.count("id")) {
+        res->set_400("Missing required parameter 'id'.");
+        return false;
+    }
+    std::string model_id = req->params["id"];
+
+    const std::string model_data = req->body;
+    auto update_op = PersonalizationModelManager::update_model(model_id, req_json, model_data);
+    if(!update_op.ok()) {
+        res->set(update_op.code(), update_op.error());
+        return false;
+    }
+
+    nlohmann::json response = update_op.get();
+    if (response.contains("model_path")) {
+        response.erase("model_path");
+    }
+    res->set_200(response.dump());
+    return true;
+}

@@ -700,6 +700,8 @@ public:
                                       const std::vector<char>& symbols_to_index,
                                       const std::vector<char>& token_separators);
 
+    std::string get_facet_str_val(const std::string& field_name, uint32_t facet_id);
+
     // Public operations
 
     Option<bool> run_search(search_args* search_params, const std::string& collection_name,

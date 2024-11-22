@@ -2899,6 +2899,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool rerank_hybrid_matches) const {
     std::shared_lock lock(mutex);
 
+    if(field_query_tokens.empty()) {
+        // this can happen if missing query_by fields are configured to be ignored
+        return Option<bool>(true);
+    }
+
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
                                                                enable_lazy_filter, max_filter_by_candidates,
                                                                search_begin_us, search_stop_us);
@@ -6836,6 +6841,11 @@ void Index::tokenize_string_field(const nlohmann::json& document, const field& s
     }
 }
 
+std::string Index::get_facet_str_val(const std::string& field_name, uint32_t facet_id) {
+    std::shared_lock lock(mutex);
+    return facet_index_v4->get_facet_str_val(field_name, facet_id);
+}
+
 art_leaf* Index::get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len) {
     std::shared_lock lock(mutex);
     const art_tree *t = search_index.at(field_name);
@@ -7456,7 +7466,10 @@ void Index::process_embed_results(std::vector<std::pair<index_record*, std::stri
                 embedding_vals = existing_embedding;
             }
 
-            doc[the_field.name] = embedding_vals;
+            // `new_doc` is written to disk (contains complete document with old+new changes)
+            // `doc` represents the delta to be indexed, so we have to populate both.
+            value_to_embed.first->new_doc[the_field.name] = embedding_vals;
+            value_to_embed.first->doc[the_field.name] = embedding_vals;
             count++;
         }
     }

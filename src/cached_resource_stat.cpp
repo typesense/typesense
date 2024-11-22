@@ -1,5 +1,6 @@
 #include "cached_resource_stat.h"
 #include <fstream>
+#include <system_metrics.h>
 #include "logger.h"
 
 cached_resource_stat_t::resource_check_t
@@ -43,42 +44,7 @@ cached_resource_stat_t::get_resource_status(const std::string& data_dir_path, co
     disk_total_bytes = st.f_blocks * st.f_frsize;
     disk_used_bytes = (st.f_blocks - st.f_bavail) * st.f_frsize;
 
-    // get memory and swap usage
-    std::string token;
-    std::ifstream file("/proc/meminfo");
-
-    while(file >> token) {
-        if(token == "MemTotal:") {
-            uint64_t value_kb;
-            if(file >> value_kb) {
-                memory_total_bytes = value_kb * 1024;
-            }
-        }
-
-        else if(token == "MemAvailable:") {
-            uint64_t value_kb;
-            if(file >> value_kb) {
-                memory_available_bytes = value_kb * 1024;
-            }
-        }
-
-        else if(token == "SwapTotal:") {
-            uint64_t value_kb;
-            if(file >> value_kb) {
-                swap_total_bytes = value_kb * 1024;
-            }
-        }
-
-        else if(token == "SwapFree:") {
-            uint64_t value_kb;
-            if(file >> value_kb) {
-                swap_free_bytes = value_kb * 1024;
-            }
-
-            // since "SwapFree" appears last in the file
-            break;
-        }
-    }
+    SystemMetrics::get_proc_meminfo(memory_total_bytes, memory_available_bytes, swap_total_bytes, swap_free_bytes);
 
     if(memory_total_bytes == 0) {
         // if there is an error in fetching the stat, we will return `OK`
