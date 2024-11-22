@@ -249,7 +249,7 @@ private:
     /// Used in case of id and reference filter.
     uint32_t result_index = 0;
 
-    /// Initialized in case of `id: *` filter.
+    /// Initialized in case of `id: *` filter or when filter::is_ignored_filter
     id_list_t::iterator_t all_seq_ids_iterator = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
 
     /// Stores the result of the filters that cannot be iterated.
@@ -265,7 +265,7 @@ private:
     std::vector<std::vector<posting_list_t::iterator_t>> posting_list_iterators;
     std::vector<posting_list_t*> expanded_plists;
     /// Controls the number of similar words that Typesense considers during fuzzy search for filter_by values.
-    size_t max_filter_by_candidates;
+    size_t max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES;
 
     bool is_not_equals_iterator = false;
     uint32_t equals_iterator_id = 0;

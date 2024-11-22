@@ -2111,7 +2111,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> parse_filter_op = filter::parse_filter_query(filter_query, search_schema,
-                                                              store, doc_id_prefix, filter_tree_root);
+                                                              store, doc_id_prefix, filter_tree_root, validate_field_names);
     std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
     if(!parse_filter_op.ok()) {
