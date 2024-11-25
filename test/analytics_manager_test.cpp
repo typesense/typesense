@@ -1335,6 +1335,25 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_TRUE(products_coll->add(doc.dump()).ok());
 
     nlohmann::json analytics_rule = R"({
+        "name": "books_popularity1",
+        "type": "counter",
+        "params": {
+            "source": {
+                "collections": ["books"],
+                "events":  [{"type": "click", "weight": 1, "name": "CLK2"}, {"type": "conversion", "weight": 5, "name": "CNV2"} ]
+            },
+            "destination": {
+                "collection": "popular_books",
+                "counter_field": "popularity"
+            }
+        }
+    })"_json;
+
+    // Creating a rule without the collection is possible. A warning log is present to indicate the same.
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    analytics_rule = R"({
         "name": "books_popularity",
         "type": "counter",
         "params": {
@@ -1349,7 +1368,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         }
     })"_json;
 
-    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_FALSE(create_op.ok());
     ASSERT_EQ("counter_field `popularity_score` not found in destination collection.", create_op.error());
 
@@ -1610,7 +1629,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_TRUE(post_create_event(req, res));
 
     popular_clicks = analyticsManager.get_popular_clicks();
-    ASSERT_EQ(1, popular_clicks.size());
+    ASSERT_EQ(2, popular_clicks.size());
     ASSERT_EQ("popularity", popular_clicks["books"].counter_field);
     ASSERT_EQ(1, popular_clicks["books"].docid_counts.size());
     ASSERT_EQ(10, popular_clicks["books"].docid_counts["1"]);

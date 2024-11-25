@@ -170,7 +170,8 @@ void Config::load_config_env() {
     this->ssl_certificate = get_env("TYPESENSE_SSL_CERTIFICATE");
     this->ssl_certificate_key = get_env("TYPESENSE_SSL_CERTIFICATE_KEY");
 
-    this->enable_cors = ("TRUE" == get_env("TYPESENSE_ENABLE_CORS"));
+    const std::string enable_cors = get_env("TYPESENSE_ENABLE_CORS");
+    this->enable_cors = ("TRUE" == enable_cors || enable_cors.empty());
 
     std::string cors_domains_value = get_env("TYPESENSE_CORS_DOMAINS");
     set_cors_domains(cors_domains_value);
