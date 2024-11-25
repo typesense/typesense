@@ -1100,8 +1100,10 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             export_state->iter_upper_bound = new rocksdb::Slice(export_state->iter_upper_bound_key);
             export_state->it = collectionManager.get_store()->scan(seq_id_prefix, export_state->iter_upper_bound);
         } else {
-            const bool validate_field_names = !(req->params.count(VALIDATE_FIELD_NAMES) != 0 &&
-                                                req->params[VALIDATE_FIELD_NAMES] == "false");
+            bool validate_field_names = true;
+            if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+                validate_field_names = false;
+            }
 
             auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result, false,
                                                             validate_field_names);
@@ -1534,8 +1536,10 @@ bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::sha
     }
 
     const char* VALIDATE_FIELD_NAMES = "validate_field_names";
-    const bool validate_field_names = !(req->params.count(VALIDATE_FIELD_NAMES) != 0 &&
-                                            req->params[VALIDATE_FIELD_NAMES] == "false");
+    bool validate_field_names = true;
+    if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+        validate_field_names = false;
+    }
 
     search_stop_us = UINT64_MAX; // Filtering shouldn't timeout during update operation.
     auto update_op = collection->update_matching_filter(filter_query, req->body, req->params[DIRTY_VALUES_PARAM],
@@ -1747,8 +1751,10 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         // destruction of data is managed by req destructor
         req->data = deletion_state;
 
-        const bool validate_field_names = !(req->params.count(VALIDATE_FIELD_NAMES) != 0 &&
-                                            req->params[VALIDATE_FIELD_NAMES] == "false");
+        bool validate_field_names = true;
+        if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+            validate_field_names = false;
+        }
 
         filter_result_t filter_result;
         auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false, validate_field_names);
