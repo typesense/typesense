@@ -78,7 +78,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
             }
             auto collection = CollectionManager::get_instance().get_collection(coll.get<std::string>());
             if (collection == nullptr) {
-                return Option<bool>(404, "Collection `" + coll.get<std::string>() + "` is not found");
+                LOG(WARNING) << "Collection `" + coll.get<std::string>() + "` is not found for rule `" + suggestion_config_name + "`";
             }
 
             const std::string &src_collection = coll.get<std::string>();
@@ -128,6 +128,11 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
         destination_collection = params["destination"]["collection"].get<std::string>();
     }
 
+    auto coll = CollectionManager::get_instance().get_collection(destination_collection);
+    if (coll == nullptr) {
+        LOG(WARNING) << "Collection `" + destination_collection + "` is not found for rule `" + suggestion_config_name + "`";
+    }
+
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
         if(!upsert && popular_queries.count(destination_collection) != 0) {
             return Option<bool>(400, "There's already another configuration for this destination collection.");
@@ -148,7 +153,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
                                     "counter_field `" + counter_field + "` not found in destination collection.");
             }
         } else {
-            return Option<bool>(404, "Collection `" + destination_collection + "` not found.");
+            LOG(WARNING) << "Collection `" + destination_collection + "` is not found for rule `" + suggestion_config_name + "`";
         }
     }
 
