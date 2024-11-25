@@ -479,7 +479,6 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                                     const size_t remote_embedding_batch_size,
                                     const size_t remote_embedding_timeout_ms,
                                     const size_t remote_embedding_num_tries) {
-    //LOG(INFO) << "Memory ratio. Max = " << max_memory_ratio << ", Used = " << SystemMetrics::used_memory_ratio();
     std::vector<index_record> index_records;
 
     const size_t index_batch_size = 1000;

@@ -7466,7 +7466,10 @@ void Index::process_embed_results(std::vector<std::pair<index_record*, std::stri
                 embedding_vals = existing_embedding;
             }
 
-            doc[the_field.name] = embedding_vals;
+            // `new_doc` is written to disk (contains complete document with old+new changes)
+            // `doc` represents the delta to be indexed, so we have to populate both.
+            value_to_embed.first->new_doc[the_field.name] = embedding_vals;
+            value_to_embed.first->doc[the_field.name] = embedding_vals;
             count++;
         }
     }

@@ -747,9 +747,10 @@ size_t id_list_t::intersect_count(const uint32_t *res_ids, size_t res_ids_len,
                 it.next();
                 res_index += 1;
             } else if(it.id() < res_ids[res_index]) {
-                it.next();
+                it.skip_to(res_ids[res_index]);
             } else {
-                res_index += 1;
+                // returns index that is >= to value or last if no such element is found.
+                res_index = std::lower_bound(res_ids + res_index, res_ids + res_ids_len, it.id()) - res_ids;
             }
         }
     }
