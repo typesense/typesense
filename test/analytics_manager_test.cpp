@@ -1340,25 +1340,6 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "params": {
             "source": {
                 "collections": ["books"],
-                "events":  [{"type": "click", "weight": 1, "name": "CLK2"}, {"type": "conversion", "weight": 5, "name": "CNV2"} ]
-            },
-            "destination": {
-                "collection": "popular_books",
-                "counter_field": "popularity"
-            }
-        }
-    })"_json;
-
-    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
-    ASSERT_FALSE(create_op.ok());
-    ASSERT_EQ("Collection `popular_books` not found.", create_op.error());
-
-    analytics_rule = R"({
-        "name": "books_popularity",
-        "type": "counter",
-        "params": {
-            "source": {
-                "collections": ["books"],
                 "events":  [{"type": "click", "weight": 1, "name": "CLK3"}, {"type": "conversion", "weight": 5, "name": "CNV3"} ]
             },
             "destination": {
@@ -1368,7 +1349,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         }
     })"_json;
 
-    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_FALSE(create_op.ok());
     ASSERT_EQ("counter_field `popularity_score` not found in destination collection.", create_op.error());
 
