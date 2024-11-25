@@ -2912,6 +2912,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return Option<bool>(true);
     }
 
+    if(group_by_fields.empty() && group_limit == (GROUP_LIMIT_MAX + 1)) {
+        // this can happen if missing group_by fields are configured to be ignored
+        // we will return empty set of results in that case
+        return Option<bool>(true);
+    }
+
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
                                                                enable_lazy_filter, max_filter_by_candidates,
                                                                search_begin_us, search_stop_us, validate_field_names);

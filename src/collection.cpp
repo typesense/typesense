@@ -1829,9 +1829,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                            "number of `query_by` fields.");
     }
 
-    if(!raw_group_by_fields.empty() && (group_limit == 0 || group_limit > GROUP_LIMIT_MAX)) {
+    if(!raw_group_by_fields.empty() && (group_limit == 0 || group_limit > Index::GROUP_LIMIT_MAX)) {
         return Option<nlohmann::json>(400, "Value of `group_limit` must be between 1 and " +
-                                      std::to_string(GROUP_LIMIT_MAX) + ".");
+                                      std::to_string(Index::GROUP_LIMIT_MAX) + ".");
     }
 
     if(!raw_search_fields.empty() && raw_search_fields.size() != num_typos.size()) {
@@ -2075,10 +2075,16 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     // validate group by fields
     std::vector<std::string> group_by_fields;
+    bool skipped_invalid_group_field = false;
 
     for(const std::string& field_name: raw_group_by_fields) {
         auto field_op = extract_field_name(field_name, search_schema, group_by_fields, false, enable_nested_fields, false);
         if(!field_op.ok()) {
+            if(field_op.code() == 404 && !validate_field_names) {
+                skipped_invalid_group_field = true;
+                continue;
+            }
+
             return Option<nlohmann::json>(404, field_op.error());
         }
     }
@@ -2096,6 +2102,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             std::string error = "Group by field `" + field_name + "` should be a facet field.";
             return Option<nlohmann::json>(400, error);
         }
+    }
+
+    if(group_by_fields.empty() && skipped_invalid_group_field) {
+        // this ensures that Index::search() will return empty results, instead of an error
+        group_limit = Index::GROUP_LIMIT_MAX + 1;
     }
 
     tsl::htrie_set<char> include_fields_full;
