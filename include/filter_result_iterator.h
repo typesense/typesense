@@ -249,7 +249,7 @@ private:
     /// Used in case of id and reference filter.
     uint32_t result_index = 0;
 
-    /// Initialized in case of `id: *` filter or when filter::is_ignored_filter
+    /// Initialized in case of `id: *` filter.
     id_list_t::iterator_t all_seq_ids_iterator = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
 
     /// Stores the result of the filters that cannot be iterated.
