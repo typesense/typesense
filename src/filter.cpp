@@ -409,7 +409,7 @@ Option<bool> toFilter(const std::string& expression,
                       const tsl::htrie_map<char, field>& search_schema,
                       const Store* store,
                       const std::string& doc_id_prefix,
-                      const bool& validate_field_names = true) {
+                      const bool& validate_field_names) {
     // split into [field_name, value]
     size_t found_index = expression.find(':');
     if (found_index == std::string::npos) {
@@ -687,7 +687,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                          const tsl::htrie_map<char, field>& search_schema,
                          const Store* store,
                          const std::string& doc_id_prefix,
-                         const bool& validate_field_names = true) {
+                         const bool& validate_field_names) {
     std::stack<filter_node_t*> nodeStack;
     bool is_successful = true;
     std::string error_message;

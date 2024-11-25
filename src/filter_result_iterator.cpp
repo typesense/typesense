@@ -764,7 +764,7 @@ void apply_not_equals(uint32_t*&& all_ids,
     result_ids_len = to_include_ids_len;
 }
 
-void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
+void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bool& validate_field_names) {
     if (filter_node == nullptr) {
         return;
     }
@@ -832,7 +832,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
             auto const& field_name = coll->referenced_in.at(ref_collection_name);
             auto reference_filter_op = ref_collection->get_reference_filter_ids(a_filter.field_name,
                                                                                 filter_result,
-                                                                                field_name);
+                                                                                field_name, validate_field_names);
             if (!reference_filter_op.ok()) {
                 status = Option<bool>(400, "Failed to join on `" + a_filter.referenced_collection_name
                                            + "` collection: " + reference_filter_op.error());
@@ -843,7 +843,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
             // Get the doc ids of reference collection matching the filter then apply filter on the current collection's
             // reference helper field.
             filter_result_t result;
-            auto reference_filter_op = ref_collection->get_filter_ids(a_filter.field_name, result);
+            auto reference_filter_op = ref_collection->get_filter_ids(a_filter.field_name, result, true,
+                                                                      validate_field_names);
             if (!reference_filter_op.ok()) {
                 status = Option<bool>(400, "Failed to join on `" + a_filter.referenced_collection_name
                                            + "` collection: " + reference_filter_op.error());
@@ -939,6 +940,11 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
     }
 
     if (!index->field_is_indexed(a_filter.field_name)) {
+        if (!validate_field_names) {
+            validity = invalid;
+            return;
+        }
+
         status = Option<bool>(400, "Cannot filter on non-indexed field `" + a_filter.field_name + "`.");
         validity = invalid;
         return;
@@ -2258,7 +2264,8 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
 filter_result_iterator_t::filter_result_iterator_t(const std::string& collection_name, const Index *const index,
                                                    const filter_node_t *const filter_node,
                                                    const bool& enable_lazy_evaluation, const size_t& max_candidates,
-                                                   uint64_t search_begin, uint64_t search_stop)  :
+                                                   uint64_t search_begin, uint64_t search_stop,
+                                                   const bool& validate_field_names)  :
         collection_name(collection_name),
         index(index),
         filter_node(filter_node) {
@@ -2275,7 +2282,7 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
     // Generate the iterator tree and then initialize each node.
     if (filter_node->isOperator) {
         left_it = new filter_result_iterator_t(collection_name, index, filter_node->left, enable_lazy_evaluation,
-                                               max_candidates);
+                                               max_candidates, validate_field_names);
         // If left subtree of && operator is invalid, we don't have to evaluate its right subtree.
         if (filter_node->filter_operator == AND && left_it->validity == invalid) {
             validity = invalid;
@@ -2286,12 +2293,12 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
         }
 
         right_it = new filter_result_iterator_t(collection_name, index, filter_node->right, enable_lazy_evaluation,
-                                                max_candidates);
+                                                max_candidates, validate_field_names);
     }
 
     max_filter_by_candidates = max_candidates;
 
-    init(enable_lazy_evaluation);
+    init(enable_lazy_evaluation, validate_field_names);
 
     if (!validity) {
         this->approx_filter_ids_length = 0;

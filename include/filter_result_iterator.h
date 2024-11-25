@@ -300,7 +300,7 @@ private:
     std::unique_ptr<filter_result_iterator_timeout_info> timeout_info;
 
     /// Initializes the state of iterator node after it's creation.
-    void init(const bool& enable_lazy_evaluation = false);
+    void init(const bool& enable_lazy_evaluation, const bool& validate_field_names);
 
     /// Performs AND on the subtrees of operator.
     void and_filter_iterators();
@@ -359,7 +359,8 @@ public:
                                       Index const* const index, filter_node_t const* const filter_node,
                                       const bool& enable_lazy_evaluation = false,
                                       const size_t& max_candidates = DEFAULT_FILTER_BY_CANDIDATES,
-                                      uint64_t search_begin_us = 0, uint64_t search_stop_us = UINT64_MAX);
+                                      uint64_t search_begin_us = 0, uint64_t search_stop_us = UINT64_MAX,
+                                      const bool& validate_field_names = true);
 
     ~filter_result_iterator_t();
 
