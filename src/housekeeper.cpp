@@ -27,7 +27,7 @@ void HouseKeeper::run() {
 
         // update system memory usage
         if (now_ts_seconds - prev_memory_usage_s >= memory_usage_interval_s) {
-            active_memory_used = SystemMetrics::get_memory_active_bytes();
+            active_memory_used = SystemMetrics::get_instance().get_proc_memory_active_bytes();
             prev_memory_usage_s = now_ts_seconds;
             log_bad_queries();
         }

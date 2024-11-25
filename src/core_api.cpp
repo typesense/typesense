@@ -418,8 +418,7 @@ bool get_health_with_resource_usage(const std::shared_ptr<http_req>& req, const 
 
     if(req->params.count("cpu_threshold") != 0 && StringUtils::is_float(req->params["cpu_threshold"])) {
         float cpu_threshold = std::stof(req->params["cpu_threshold"]);
-        SystemMetrics sys_metrics;
-        std::vector<cpu_stat_t> cpu_stats = sys_metrics.get_cpu_stats();
+        std::vector<cpu_stat_t> cpu_stats = SystemMetrics::get_instance().get_cpu_stats();
         if(!cpu_stats.empty() && StringUtils::is_float(cpu_stats[0].active)) {
             alive = alive && (std::stof(cpu_stats[0].active) < cpu_threshold);
         }
@@ -480,8 +479,7 @@ bool get_metrics_json(const std::shared_ptr<http_req>& req, const std::shared_pt
     CollectionManager & collectionManager = CollectionManager::get_instance();
     const std::string & data_dir_path = collectionManager.get_store()->get_state_dir_path();
 
-    SystemMetrics sys_metrics;
-    sys_metrics.get(data_dir_path, result);
+    SystemMetrics::get_instance().get(data_dir_path, result);
 
     res->set_body(200, result.dump(2));
     return true;

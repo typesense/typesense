@@ -144,14 +144,18 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
     }
 
     const auto& model_name_without_namespace = get_model_name_without_namespace(model_name);
-    const auto& free_memory = SystemMetrics::get_memory_free_bytes();
+    const auto total_memory = SystemMetrics::get_instance().get_memory_total_bytes();
+    const auto memory_used = SystemMetrics::get_instance().get_memory_used_bytes();
     const auto& model_file_size = std::filesystem::file_size(abs_path);
-    
-    // return error if (model file size * 1.15) is greater than free memory
-    if(model_file_size * 1.15 > free_memory) {
+
+#ifndef TEST_BUILD
+    // return error if (model file size * 1.15) cannot fit into total memory
+    if(memory_used + (model_file_size * 1.15) >= total_memory) {
+        LOG(INFO) << "total_memory: " << total_memory << ", memory_used: " << memory_used;
         LOG(ERROR) << "Memory required to load the model exceeds free memory available.";
         return Option<bool>(400, "Memory required to load the model exceeds free memory available.");
     }
+#endif
 
     const std::shared_ptr<TextEmbedder>& embedder = std::make_shared<TextEmbedder>(model_name_without_namespace);
 
