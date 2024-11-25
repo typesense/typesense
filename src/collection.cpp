@@ -597,6 +597,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 Option<nlohmann::json> Collection::update_matching_filter(const std::string& filter_query,
                                                           const std::string & json_str,
                                                           std::string& req_dirty_values,
+                                                          const bool& validate_field_names,
                                                           const int batch_size) {
     auto _filter_query = filter_query;
     StringUtils::trim(_filter_query);
@@ -655,7 +656,7 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
         delete it;
     } else {
         filter_result_t filter_result;
-        auto filter_ids_op = get_filter_ids(_filter_query, filter_result, false);
+        auto filter_ids_op = get_filter_ids(_filter_query, filter_result, false, validate_field_names);
         if(!filter_ids_op.ok()) {
             return Option<nlohmann::json>(filter_ids_op.code(), filter_ids_op.error());
         }
@@ -1084,11 +1085,12 @@ Option<bool> Collection::validate_and_standardize_sort_fields_with_lock(const st
                                                                         const bool is_vector_query,
                                                                         const std::string& query, const bool is_group_by_query,
                                                                         const size_t remote_embedding_timeout_ms,
-                                                                        const size_t remote_embedding_num_tries) const {
+                                                                        const size_t remote_embedding_num_tries,
+                                                                        const bool& validate_field_names) const {
     std::shared_lock lock(mutex);
     return validate_and_standardize_sort_fields(sort_fields, sort_fields_std, is_wildcard_query, is_vector_query,
                                                 query, is_group_by_query, remote_embedding_timeout_ms, remote_embedding_num_tries,
-                                                true);
+                                                validate_field_names, true);
 }
 
 Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
@@ -1098,6 +1100,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                                                               const std::string& query, const bool is_group_by_query, 
                                                               const size_t remote_embedding_timeout_ms,
                                                               const size_t remote_embedding_num_tries,
+                                                              const bool& validate_field_names,
                                                               const bool is_reference_sort) const {
 
     uint32_t eval_sort_count = 0;
@@ -1179,7 +1182,8 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 }
 
                 Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
-                                                                          store, "", sort_field_std.eval.filter_trees[j]);
+                                                                          store, "", sort_field_std.eval.filter_trees[j],
+                                                                          validate_field_names);
                 if (!parse_filter_op.ok()) {
                     return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
                 }
@@ -2111,7 +2115,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> parse_filter_op = filter::parse_filter_query(filter_query, search_schema,
-                                                              store, doc_id_prefix, filter_tree_root);
+                                                              store, doc_id_prefix, filter_tree_root, validate_field_names);
     std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
     if(!parse_filter_op.ok()) {
@@ -2318,7 +2322,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     if(curated_sort_by.empty()) {
         auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields,
                                     sort_fields_std, is_wildcard_query, is_vector_query,
-                                    raw_query, is_group_by_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
+                                    raw_query, is_group_by_query, remote_embedding_timeout_ms, remote_embedding_num_tries,
+                                    validate_field_names);
         if(!sort_validation_op.ok()) {
             return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
         }
@@ -2329,8 +2334,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(400, "Parameter `sort_by` is malformed.");
         }
 
-        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields, 
-                                    sort_fields_std, is_wildcard_query, is_vector_query, raw_query, is_group_by_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
+        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields,
+                                    sort_fields_std, is_wildcard_query, is_vector_query, raw_query, is_group_by_query,
+                                    remote_embedding_timeout_ms, remote_embedding_num_tries, validate_field_names);
         if(!sort_validation_op.ok()) {
             return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
         }
@@ -2361,7 +2367,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
             process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
                                      included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
-                                     enable_typos_for_alpha_numerical_tokens);
+                                     enable_typos_for_alpha_numerical_tokens, validate_field_names);
 
             for(size_t i = 0; i < q_include_tokens.size(); i++) {
                 auto& q_include_token = q_include_tokens[i];
@@ -2390,7 +2396,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         // included_ids, excluded_ids
         process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
                                  included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
-                                 enable_typos_for_alpha_numerical_tokens);
+                                 enable_typos_for_alpha_numerical_tokens, validate_field_names);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
@@ -2436,7 +2442,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                                  filter_curated_hits, split_join_tokens, vector_query,
                                                  facet_sample_percent, facet_sample_threshold, drop_tokens_param,
-                                                 enable_lazy_filter, max_filter_by_candidates);
+                                                 enable_lazy_filter, max_filter_by_candidates, validate_field_names);
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
@@ -3468,7 +3474,8 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
                                           std::vector<uint32_t>& excluded_ids,
                                           nlohmann::json& override_metadata,
                                           bool enable_typos_for_numerical_tokens,
-                                          bool enable_typos_for_alpha_numerical_tokens) const {
+                                          bool enable_typos_for_alpha_numerical_tokens,
+                                          const bool& validate_field_names) const {
 
     std::vector<const override_t*> matched_dynamic_overrides;
     index->process_filter_overrides(filter_overrides, q_include_tokens, token_order,
@@ -3714,20 +3721,20 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
 }
 
 Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_result_t& filter_result,
-                                        const bool& should_timeout) const {
+                                        const bool& should_timeout, const bool& validate_field_names) const {
     std::shared_lock lock(mutex);
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
-                                                        store, doc_id_prefix, filter_tree_root);
+                                                        store, doc_id_prefix, filter_tree_root, validate_field_names);
     std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
     if(!filter_op.ok()) {
         return filter_op;
     }
 
-    return index->do_filtering_with_lock(filter_tree_root, filter_result, name, should_timeout);
+    return index->do_filtering_with_lock(filter_tree_root, filter_result, name, should_timeout, validate_field_names);
 }
 
 Option<bool> Collection::get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
@@ -3743,7 +3750,8 @@ Option<bool> Collection::get_object_array_related_id(const std::string& ref_fiel
 
 Option<bool> Collection::get_reference_filter_ids(const std::string & filter_query,
                                                   filter_result_t& filter_result,
-                                                  const std::string& reference_field_name) const {
+                                                  const std::string& reference_field_name,
+                                                  const bool& validate_field_names) const {
     std::shared_lock lock(mutex);
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
@@ -3756,7 +3764,8 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
         return parse_op;
     }
 
-    return index->do_reference_filtering_with_lock(filter_tree_root, filter_result, name, reference_field_name);
+    return index->do_reference_filtering_with_lock(filter_tree_root, filter_result, name, reference_field_name,
+                                                   validate_field_names);
 }
 
 bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count,
@@ -6677,10 +6686,12 @@ Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k
 
 Option<bool> Collection::reference_populate_sort_mapping(int *sort_order, std::vector<size_t> &geopoint_indices,
                                                          std::vector<sort_by> &sort_fields_std,
-                                                         std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32> *, 3> &field_values)
+                                                         std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32> *, 3> &field_values,
+                                                         const bool& validate_field_names)
                                                          const {
     std::shared_lock lock(mutex);
-    return index->populate_sort_mapping_with_lock(sort_order, geopoint_indices, sort_fields_std, field_values);
+    return index->populate_sort_mapping_with_lock(sort_order, geopoint_indices, sort_fields_std, field_values,
+                                                  validate_field_names);
 }
 
 int64_t Collection::reference_string_sort_score(const string &field_name,  const uint32_t& seq_id) const {

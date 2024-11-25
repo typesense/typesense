@@ -1030,6 +1030,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
     const char* INCLUDE_FIELDS = "include_fields";
     const char* EXCLUDE_FIELDS = "exclude_fields";
     const char* BATCH_SIZE = "batch_size";
+    const char* VALIDATE_FIELD_NAMES = "validate_field_names";
 
     export_state_t* export_state = nullptr;
 
@@ -1099,7 +1100,13 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             export_state->iter_upper_bound = new rocksdb::Slice(export_state->iter_upper_bound_key);
             export_state->it = collectionManager.get_store()->scan(seq_id_prefix, export_state->iter_upper_bound);
         } else {
-            auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result, false);
+            bool validate_field_names = true;
+            if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+                validate_field_names = false;
+            }
+
+            auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result, false,
+                                                            validate_field_names);
 
             if(!filter_ids_op.ok()) {
                 res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -1528,8 +1535,15 @@ bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::sha
         req->params[DIRTY_VALUES_PARAM] = "";  // set it empty as default will depend on whether schema is enabled
     }
 
+    const char* VALIDATE_FIELD_NAMES = "validate_field_names";
+    bool validate_field_names = true;
+    if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+        validate_field_names = false;
+    }
+
     search_stop_us = UINT64_MAX; // Filtering shouldn't timeout during update operation.
-    auto update_op = collection->update_matching_filter(filter_query, req->body, req->params[DIRTY_VALUES_PARAM]);
+    auto update_op = collection->update_matching_filter(filter_query, req->body, req->params[DIRTY_VALUES_PARAM],
+                                                        validate_field_names);
     if(update_op.ok()) {
         res->set_200(update_op.get().dump());
     } else {
@@ -1662,6 +1676,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
     const char *BATCH_SIZE = "batch_size";
     const char *FILTER_BY = "filter_by";
     const char *TOP_K_BY = "top_k_by";
+    const char* VALIDATE_FIELD_NAMES = "validate_field_names";
 
     if(req->params.count(TOP_K_BY) != 0) {
         std::vector<std::string> parts;
@@ -1736,8 +1751,13 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         // destruction of data is managed by req destructor
         req->data = deletion_state;
 
+        bool validate_field_names = true;
+        if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+            validate_field_names = false;
+        }
+
         filter_result_t filter_result;
-        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false);
+        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false, validate_field_names);
 
         if(!filter_ids_op.ok()) {
             res->set(filter_ids_op.code(), filter_ids_op.error());
