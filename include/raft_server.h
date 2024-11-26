@@ -70,12 +70,13 @@ private:
     ReplicationState* replication_state;
     const std::shared_ptr<http_req> req;
     const std::shared_ptr<http_res> res;
+    const std::string ext_snapshot_path;
 
 public:
 
     OnDemandSnapshotClosure(ReplicationState *replication_state, const std::shared_ptr<http_req>& req,
-                            const std::shared_ptr<http_res>& res) :
-        replication_state(replication_state), req(req), res(res) {}
+                            const std::shared_ptr<http_res>& res, const std::string& ext_snapshot_path) :
+        replication_state(replication_state), req(req), res(res), ext_snapshot_path(ext_snapshot_path) {}
 
     ~OnDemandSnapshotClosure() {}
 
