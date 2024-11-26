@@ -423,7 +423,11 @@ public:
         if (!ret) {
             return std::string();
         }
-        return std::string(ret);
+        std::string value(ret);
+        if (StringUtils::is_bool(value)) {
+            StringUtils::toupper(value);
+        }
+        return value;
     }
 
     void load_config_env();

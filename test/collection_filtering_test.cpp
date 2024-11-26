@@ -3215,3 +3215,92 @@ TEST_F(CollectionFilteringTest, FilterOnObjectFields) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"]["26"].count("rec"));
     ASSERT_FALSE(res_obj["hits"][0]["document"]["stocks"]["26"]["rec"]);
 }
+
+TEST_F(CollectionFilteringTest, IgnoreFieldValidation) {
+    Collection *coll_mul_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("starring", field_types::STRING, false),
+            field("cast", field_types::STRING_ARRAY, true),
+            field("points", field_types::INT32, false)
+    };
+
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
+    if(coll_mul_fields == nullptr) {
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_mul_fields->add(json_line);
+    }
+
+    infile.close();
+    nlohmann::json embedded_params;
+    std::string json_res;
+    long now_ts = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll_mul_fields"},
+            {"q", "*"},
+            {"filter_by", "age: 100"}
+    };
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Could not find a filter field named `age` in the schema.", search_op.error());
+
+    req_params = {
+            {"collection", "coll_mul_fields"},
+            {"q", "*"},
+            {"filter_by", "age: 100"},
+            {"validate_field_names", "false"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"]);
+
+    req_params = {
+            {"collection", "coll_mul_fields"},
+            {"q", "the"},
+            {"query_by", "title"},
+            {"filter_by", "age: 100"},
+            {"enable_lazy_filter", "true"},
+            {"validate_field_names", "false"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"]);
+
+    req_params = {
+            {"collection", "coll_mul_fields"},
+            {"q", "*"},
+            {"filter_by", "age: 100 && points: 75"},
+            {"validate_field_names", "false"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"]);
+
+    req_params = {
+            {"collection", "coll_mul_fields"},
+            {"q", "*"},
+            {"filter_by", "age: 100 || points: 75"},
+            {"validate_field_names", "false"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("8", res_obj["hits"][0]["document"].at("id"));
+}

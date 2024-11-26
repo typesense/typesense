@@ -213,10 +213,23 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
+    filter_results = filter_result_t(0, nullptr);
     // bad filter query
     auto op = coll1->get_filter_ids("bad filter", filter_results);
     ASSERT_FALSE(op.ok());
     ASSERT_STREQ("Could not parse the filter query.", op.error().c_str());
+
+    bool should_timeout = true;
+    bool validate_field_names = true;
+    op = coll1->get_filter_ids("foo: 99", filter_results, should_timeout, validate_field_names);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Could not find a filter field named `foo` in the schema.", op.error());
+
+    validate_field_names = false;
+    op = coll1->get_filter_ids("foo: 99", filter_results, should_timeout, validate_field_names);
+    ASSERT_TRUE(op.ok());
+    ASSERT_EQ(0, filter_results.count);
+    ASSERT_EQ(nullptr, filter_results.docs);
 
     collectionManager.drop_collection("coll1");
 }
@@ -1154,7 +1167,7 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
 
     req->params["include_fields"] = "name.last";
 
-    get_export_documents(req, res);
+    ASSERT_TRUE(get_export_documents(req, res));
 
     std::vector<std::string> res_strs;
     StringUtils::split(res->body, res_strs, "\n");
@@ -1170,7 +1183,7 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
     res->body.clear();
     req->params.erase("include_fields");
     req->params["exclude_fields"] = "name.last";
-    get_export_documents(req, res);
+    ASSERT_TRUE(get_export_documents(req, res));
 
     res_strs.clear();
     StringUtils::split(res->body, res_strs, "\n");
@@ -1189,7 +1202,7 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
     res->body.clear();
     req->params.erase("include_fields");
     req->params.erase("exclude_fields");
-    get_export_documents(req, res);
+    ASSERT_TRUE(get_export_documents(req, res));
 
     res_strs.clear();
     StringUtils::split(res->body, res_strs, "\n");
@@ -1201,6 +1214,32 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
     ASSERT_EQ(1, doc["name"].count("first"));
     ASSERT_EQ(1, doc["name"].count("last"));
     ASSERT_EQ(1, doc.count("description"));     // field not in schema is exported
+
+    // no match for filter_by
+
+    delete dynamic_cast<export_state_t*>(req->data);
+    req->data = nullptr;
+    res->body.clear();
+    req->params["filter_by"] = "foo: val";
+    ASSERT_FALSE(get_export_documents(req, res));
+
+    res_strs.clear();
+    StringUtils::split(res->body, res_strs, "\n");
+    auto error = nlohmann::json::parse(res_strs[0]);
+    ASSERT_EQ(1, error.size());
+    ASSERT_EQ(1, error.count("message"));
+    ASSERT_EQ("Could not find a filter field named `foo` in the schema.", error["message"]);
+
+    delete dynamic_cast<export_state_t*>(req->data);
+    req->data = nullptr;
+    res->body.clear();
+    req->params["filter_by"] = "foo: val";
+    req->params["validate_field_names"] = "false";
+    ASSERT_TRUE(get_export_documents(req, res));
+
+    res_strs.clear();
+    StringUtils::split(res->body, res_strs, "\n");
+    ASSERT_TRUE(res_strs.empty());
 
     collectionManager.drop_collection("coll1");
 }

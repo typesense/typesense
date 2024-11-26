@@ -1806,12 +1806,14 @@ bool Index::field_is_indexed(const std::string& field_name) const {
 Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root,
                                            filter_result_t& filter_result,
                                            const std::string& collection_name,
-                                           const bool& should_timeout) const {
+                                           const bool& should_timeout,
+                                           const bool& validate_field_names) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root, false,
                                                            DEFAULT_FILTER_BY_CANDIDATES,
-                                                           search_begin_us, should_timeout ? search_stop_us : UINT64_MAX);
+                                                           search_begin_us, should_timeout ? search_stop_us : UINT64_MAX,
+                                                           validate_field_names);
     auto filter_init_op = filter_result_iterator.init_status();
     if (!filter_init_op.ok()) {
         return filter_init_op;
@@ -1867,12 +1869,13 @@ void aggregate_nested_references(single_filter_result_t *const reference_result,
 Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
                                                      filter_result_t& filter_result,
                                                      const std::string& ref_collection_name,
-                                                     const std::string& field_name) const {
+                                                     const std::string& field_name,
+                                                     const bool& validate_field_names) const {
     std::shared_lock lock(mutex);
 
     auto ref_filter_result_iterator = filter_result_iterator_t(ref_collection_name, this, filter_tree_root, false,
                                                                DEFAULT_FILTER_BY_CANDIDATES,
-                                                               search_begin_us, search_stop_us);
+                                                               search_begin_us, search_stop_us, validate_field_names);
     auto filter_init_op = ref_filter_result_iterator.init_status();
     if (!filter_init_op.ok()) {
         return filter_init_op;
@@ -2395,7 +2398,8 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                   search_params->enable_lazy_filter,
                   enable_typos_for_alpha_numerical_tokens,
                   search_params->max_filter_by_candidates,
-                  rerank_hybrid_matches
+                  rerank_hybrid_matches,
+                  search_params->validate_field_names
     );
 
     return res;
@@ -2452,7 +2456,8 @@ void Index::concat_topster_ids(Topster*& topster, spp::sparse_hash_map<uint64_t,
 
 bool Index::static_filter_query_eval(const override_t* override,
                                      std::vector<std::string>& tokens,
-                                     filter_node_t*& filter_tree_root) const {
+                                     filter_node_t*& filter_tree_root,
+                                     const bool& validate_field_names) const {
     std::string query = StringUtils::join(tokens, " ");
     bool tag_matched = (!override->rule.tags.empty() && override->rule.filter_by.empty() &&
                          override->rule.query.empty());
@@ -2465,7 +2470,7 @@ bool Index::static_filter_query_eval(const override_t* override,
          StringUtils::contains_word(query, override->rule.normalized_query))) {
         filter_node_t* new_filter_tree_root = nullptr;
         Option<bool> filter_op = filter::parse_filter_query(override->filter_by, search_schema,
-                                                            store, "", new_filter_tree_root);
+                                                            store, "", new_filter_tree_root, validate_field_names);
         if (filter_op.ok()) {
             if (filter_tree_root == nullptr) {
                 filter_tree_root = new_filter_tree_root;
@@ -2584,14 +2589,16 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
                                      std::vector<const override_t*>& matched_dynamic_overrides,
                                      nlohmann::json& override_metadata,
                                      bool enable_typos_for_numerical_tokens,
-                                     bool enable_typos_for_alpha_numerical_tokens) const {
+                                     bool enable_typos_for_alpha_numerical_tokens,
+                                     const bool& validate_field_names) const {
     std::shared_lock lock(mutex);
 
     for (auto& override : filter_overrides) {
         if (!override->rule.dynamic_query) {
             // Simple static filtering: add to filter_by and rewrite query if needed.
             // Check the original query and then the synonym variants until a rule matches.
-            bool resolved_override = static_filter_query_eval(override, query_tokens, filter_tree_root);
+            bool resolved_override = static_filter_query_eval(override, query_tokens, filter_tree_root,
+                                                              validate_field_names);
 
             if (resolved_override) {
                 if(override_metadata.empty()) {
@@ -2631,7 +2638,8 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
 
                 filter_node_t* new_filter_tree_root = nullptr;
                 Option<bool> filter_op = filter::parse_filter_query(filter_by_clause, search_schema,
-                                                                    store, "", new_filter_tree_root);
+                                                                    store, "", new_filter_tree_root,
+                                                                    validate_field_names);
                 if (filter_op.ok()) {
                     // have to ensure that dropped hits take precedence over added hits
                     matched_dynamic_overrides.push_back(override);
@@ -2896,7 +2904,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    uint32_t synonym_num_typos,
                    bool enable_lazy_filter,
                    bool enable_typos_for_alpha_numerical_tokens, const size_t& max_filter_by_candidates,
-                   bool rerank_hybrid_matches) const {
+                   bool rerank_hybrid_matches, const bool& validate_field_names) const {
     std::shared_lock lock(mutex);
 
     if(field_query_tokens.empty()) {
@@ -2904,9 +2912,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return Option<bool>(true);
     }
 
+    if(group_by_fields.empty() && group_limit == (GROUP_LIMIT_MAX + 1)) {
+        // this can happen if missing group_by fields are configured to be ignored
+        // we will return empty set of results in that case
+        return Option<bool>(true);
+    }
+
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
                                                                enable_lazy_filter, max_filter_by_candidates,
-                                                               search_begin_us, search_stop_us);
+                                                               search_begin_us, search_stop_us, validate_field_names);
     std::unique_ptr<filter_result_iterator_t> filter_iterator_guard(filter_result_iterator);
 
     auto filter_init_op = filter_result_iterator->init_status();
@@ -2974,7 +2988,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     int sort_order[3];  // 1 or -1 based on DESC or ASC respectively
     std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values;
     std::vector<size_t> geopoint_indices;
-    auto populate_op = populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
+    auto populate_op = populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values,
+                                             validate_field_names);
     if (!populate_op.ok()) {
         return populate_op;
     }
@@ -5984,7 +5999,8 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
 Option<bool> Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
                                           std::vector<sort_by>& sort_fields_std,
-                                          std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const {
+                                          std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
+                                          const bool& validate_field_names) const {
     for (size_t i = 0; i < sort_fields_std.size(); i++) {
         if (!sort_fields_std[i].reference_collection_name.empty()) {
             auto& cm = CollectionManager::get_instance();
@@ -5997,7 +6013,8 @@ Option<bool> Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& 
             ref_sort_fields_std.front().reference_collection_name.clear();
             std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> ref_field_values;
             auto populate_op = ref_collection->reference_populate_sort_mapping(ref_sort_order, ref_geopoint_indices,
-                                                                               ref_sort_fields_std, ref_field_values);
+                                                                               ref_sort_fields_std, ref_field_values,
+                                                                               validate_field_names);
             if (!populate_op.ok()) {
                 return populate_op;
             }
@@ -6030,7 +6047,8 @@ Option<bool> Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& 
             for (uint32_t j = 0; j < count; j++) {
                 auto filter_result_iterator = filter_result_iterator_t("", this, eval_exp.filter_trees[j], false,
                                                                        DEFAULT_FILTER_BY_CANDIDATES,
-                                                                       search_begin_us, search_stop_us);
+                                                                       search_begin_us, search_stop_us,
+                                                                       validate_field_names);
                 auto filter_init_op = filter_result_iterator.init_status();
                 if (!filter_init_op.ok()) {
                     return filter_init_op;
@@ -6068,9 +6086,10 @@ Option<bool> Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& 
 
 Option<bool> Index::populate_sort_mapping_with_lock(int* sort_order, std::vector<size_t>& geopoint_indices,
                                                     std::vector<sort_by>& sort_fields_std,
-                                                    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const {
+                                                    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
+                                                    const bool& validate_field_names) const {
     std::shared_lock lock(mutex);
-    return populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
+    return populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values, validate_field_names);
 }
 
 int Index::get_bounded_typo_cost(const size_t max_cost, const std::string& token, const size_t token_len,
