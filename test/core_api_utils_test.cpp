@@ -1831,7 +1831,7 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
               "stem":false,
               "store": true,
               "type":"string",
-              "stem_dictionary": false
+              "stem_dictionary": ""
             }
           ],
           "name":"cp2",
@@ -2045,7 +2045,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"string",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": false
+                    "stem_dictionary": ""
                 },
                 {
                     "facet":true,
@@ -2061,7 +2061,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": false
+                    "stem_dictionary": ""
                 },{
                     "facet":true,
                     "index":true,
@@ -2076,7 +2076,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": false
+                    "stem_dictionary": ""
                 },{
                     "facet":true,
                     "index":true,
@@ -2091,7 +2091,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": false
+                    "stem_dictionary": ""
                 }
             ],
             "id":1,
@@ -2144,7 +2144,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"string",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": false
+                    "stem_dictionary": ""
                 },
                 {
                     "facet":true,
@@ -2160,7 +2160,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": false
+                    "stem_dictionary": ""
                 },{
                     "facet":true,
                     "index":true,
@@ -2175,7 +2175,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": false
+                    "stem_dictionary": ""
                 },{
                     "facet":true,
                     "index":true,
@@ -2190,7 +2190,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": false
+                    "stem_dictionary": ""
                 }
             ],
             "id":1,
@@ -2402,7 +2402,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "stem":false,
                     "store":false,
                     "type":"string",
-                    "stem_dictionary": false
+                    "stem_dictionary": ""
                 },
                 {
                     "facet":false,
@@ -2415,7 +2415,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "stem":false,
                     "store":true,
                     "type":"int32",
-                    "stem_dictionary": false
+                    "stem_dictionary": ""
                 }],
                 "name":"collection3",
                 "num_documents":0,

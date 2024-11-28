@@ -137,7 +137,7 @@ struct field {
     bool is_reference_helper = false;
 
     bool stem = false;
-    bool stem_dictionary = false;
+    std::string stem_dictionary = "";
     std::shared_ptr<Stemmer> stemmer;
   
     nlohmann::json hnsw_params;
@@ -148,7 +148,7 @@ struct field {
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
           int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine,
           std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false,
-          const bool store = true, const bool stem = false, const bool stem_dictionary = false, const nlohmann::json hnsw_params = nlohmann::json(),
+          const bool store = true, const bool stem = false, const std::string& stem_dictionary = "", const nlohmann::json hnsw_params = nlohmann::json(),
           const bool async_reference = false) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
@@ -159,7 +159,7 @@ struct field {
 
         auto const suffix = std::string(fields::REFERENCE_HELPER_FIELD_SUFFIX);
         is_reference_helper = name.size() > suffix.size() && name.substr(name.size() - suffix.size()) == suffix;
-        if (stem || stem_dictionary) {
+        if (stem || !stem_dictionary.empty()) {
             this->stem = true;
             stemmer = StemmerManager::get_instance().get_stemmer(locale, stem_dictionary);
         }

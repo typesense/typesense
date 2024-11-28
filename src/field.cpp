@@ -119,7 +119,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     }
 
     if(field_json.count(fields::stem_dictionary) == 0) {
-        field_json[fields::stem_dictionary] = false;
+        field_json[fields::stem_dictionary] = "";
     }
 
     if (field_json.count(fields::range_index) != 0) {

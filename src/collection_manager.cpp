@@ -88,7 +88,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         }
 
         if(field_obj.count(fields::stem_dictionary) == 0) {
-            field_obj[fields::stem_dictionary] = false;
+            field_obj[fields::stem_dictionary] = "";
         }
 
         if(field_obj.count(fields::range_index) == 0) {

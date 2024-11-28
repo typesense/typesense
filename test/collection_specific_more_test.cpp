@@ -3396,7 +3396,7 @@ TEST_F(CollectionSpecificMoreTest, StemmingPlurals) {
     nlohmann::json schema = R"({
          "name": "titles",
          "fields": [
-           {"name": "title", "type": "string", "stem_dictionary": true }
+           {"name": "title", "type": "string", "stem_dictionary": "set1" }
          ]
        })"_json;
 
@@ -3409,12 +3409,12 @@ TEST_F(CollectionSpecificMoreTest, StemmingPlurals) {
     std::vector<std::string> json_lines;
     json_lines.push_back(json_line);
 
-    ASSERT_TRUE(StemmerManager::get_instance().save_words(json_lines));
+    ASSERT_TRUE(StemmerManager::get_instance().save_words("set1", json_lines));
 
     schema = R"({
          "name": "titles_no_stem",
          "fields": [
-           {"name": "title", "type": "string", "stem_dictionary": false }
+           {"name": "title", "type": "string" }
          ]
        })"_json;
 

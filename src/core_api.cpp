@@ -2920,9 +2920,17 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
 
 bool post_import_plurals(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const char *BATCH_SIZE = "batch_size";
+    const char *PLURALS_SET = "plurals_set";
 
     if(req->params.count(BATCH_SIZE) == 0) {
         req->params[BATCH_SIZE] = "40";
+    }
+
+    if(req->params.count(PLURALS_SET) == 0) {
+        res->final = true;
+        res->set_400("Parameter `" + std::string(PLURALS_SET) + "` must be provided while importing plurals.");
+        stream_response(req, res);
+        return false;
     }
 
     if(!StringUtils::is_uint32_t(req->params[BATCH_SIZE])) {
@@ -2945,7 +2953,7 @@ bool post_import_plurals(const std::shared_ptr<http_req>& req, const std::shared
     std::stringstream response_stream;
 
     if(!single_partial_record_body) {
-        if(!StemmerManager::get_instance().save_words(json_lines)) {
+        if(!StemmerManager::get_instance().save_words(req->params.at(PLURALS_SET), json_lines)) {
             res->set_400("Bad/malformed dictionary import.");
             stream_response(req, res);
         }

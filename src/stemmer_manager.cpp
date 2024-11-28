@@ -1,11 +1,11 @@
 #include "stemmer_manager.h"
 
 
-Stemmer::Stemmer(const char * language, bool use_dictionary) {
-    if(!use_dictionary) {
+Stemmer::Stemmer(const char * language, const std::string& dictionary_name) {
+    if(dictionary_name.empty()) {
         this->stemmer = sb_stemmer_new(language, nullptr);
     } else {
-        this->use_dictionary = true;
+        this->dictionary_name = dictionary_name;
     }
 
     this->cache = LRU::Cache<std::string, std::string>(20);
@@ -24,11 +24,11 @@ std::string Stemmer::stem(const std::string & word) {
         return cache.lookup(word);
     }
 
-    if(!use_dictionary) {
+    if(dictionary_name.empty()) {
         auto stemmed = sb_stemmer_stem(stemmer, reinterpret_cast<const sb_symbol *>(word.c_str()), word.length());
         stemmed_word = std::string(reinterpret_cast<const char *>(stemmed));
     } else {
-        const auto& stem_dictionary = StemmerManager::get_instance().get_dictionary();
+        const auto& stem_dictionary = StemmerManager::get_instance().get_dictionary(dictionary_name);
         auto it = stem_dictionary.find(word);
         if(it == stem_dictionary.end()) {
             stemmed_word = word;
@@ -46,12 +46,12 @@ StemmerManager::~StemmerManager() {
     stem_dictionary.clear();
 }
 
-std::shared_ptr<Stemmer> StemmerManager::get_stemmer(const std::string& language, bool use_dictionary) {
+std::shared_ptr<Stemmer> StemmerManager::get_stemmer(const std::string& language, const std::string& dictionary_name) {
     std::unique_lock<std::mutex> lock(mutex);
     // use english as default language
     const std::string language_ = language.empty() ? "english" : language;
     if (stemmers.find(language_) == stemmers.end()) {
-        stemmers[language] = std::make_shared<Stemmer>(language_.c_str(), use_dictionary);
+        stemmers[language] = std::make_shared<Stemmer>(language_.c_str(), dictionary_name);
     }
     return stemmers[language];
 }
@@ -78,7 +78,7 @@ const bool StemmerManager::validate_language(const std::string& language) {
     return true;
 }
 
-bool StemmerManager::save_words(const std::vector<std::string> &json_lines) {
+bool StemmerManager::save_words(const std::string& dictionary_name, const std::vector<std::string> &json_lines) {
     if(json_lines.empty()) {
         return false;
     }
@@ -94,11 +94,15 @@ bool StemmerManager::save_words(const std::vector<std::string> &json_lines) {
         if(!json_line.contains("word") || !json_line.contains("root")) {
             return false;
         }
-        stem_dictionary.emplace(json_line["word"], json_line["root"]);
+        stem_dictionary[dictionary_name].emplace(json_line["word"], json_line["root"]);
     }
     return true;
 }
 
-spp::sparse_hash_map<std::string, std::string> StemmerManager::get_dictionary() {
-    return stem_dictionary;
+spp::sparse_hash_map<std::string, std::string> StemmerManager::get_dictionary(const std::string& dictionary_name) {
+    if(stem_dictionary.count(dictionary_name) != 0) {
+        return stem_dictionary.at(dictionary_name);
+    }
+
+    return spp::sparse_hash_map<std::string, std::string>();
 }
