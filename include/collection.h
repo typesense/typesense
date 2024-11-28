@@ -245,7 +245,8 @@ private:
                                                                 bool is_wildcard_query,const bool is_vector_query,
                                                                 const std::string& query, bool is_group_by_query = false,
                                                                 const size_t remote_embedding_timeout_ms = 30000,
-                                                                const size_t remote_embedding_num_tries = 2) const;
+                                                                const size_t remote_embedding_num_tries = 2,
+                                                                const bool& validate_field_names = true) const;
 
     Option<bool> validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                       std::vector<sort_by>& sort_fields_std,
@@ -254,6 +255,7 @@ private:
                                                       const std::string& query, bool is_group_by_query = false,
                                                       const size_t remote_embedding_timeout_ms = 30000,
                                                       const size_t remote_embedding_num_tries = 2,
+                                                      const bool& validate_field_names = true,
                                                       const bool is_reference_sort = false) const;
     
     Option<bool> persist_collection_meta();
@@ -277,7 +279,8 @@ private:
                                   std::vector<uint32_t>& excluded_ids,
                                   nlohmann::json& override_metadata,
                                   bool enable_typos_for_numerical_tokens=true,
-                                  bool enable_typos_for_alpha_numerical_tokens=true) const;
+                                  bool enable_typos_for_alpha_numerical_tokens=true,
+                                  const bool& validate_field_names = true) const;
 
     void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type,
                                   const size_t total_tokens) const;
@@ -337,8 +340,6 @@ private:
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
-
-    const size_t GROUP_LIMIT_MAX = 99;
 
     // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
     static constexpr const char* COLLECTION_META_PREFIX = "$CM";
@@ -477,8 +478,6 @@ public:
                      const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size = 200,
                      const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);
 
-    bool is_exceeding_memory_threshold() const;
-
     void parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens, std::vector<std::string>& q_include_tokens_non_stemmed,
                             std::vector<std::vector<std::string>>& q_exclude_tokens,
                             std::vector<std::vector<std::string>>& q_phrases,
@@ -512,6 +511,7 @@ public:
     Option<nlohmann::json> update_matching_filter(const std::string& filter_query,
                                                   const std::string & json_str,
                                                   std::string& req_dirty_values,
+                                                  const bool& validate_field_names = true,
                                                   const int batch_size = 1000);
 
     Option<bool> populate_include_exclude_fields_lk(const spp::sparse_hash_set<std::string>& include_fields,
@@ -587,14 +587,16 @@ public:
                                   bool enable_lazy_filter = false,
                                   bool enable_typos_for_alpha_numerical_tokens = true,
                                   const size_t& max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES,
-                                  bool rerank_hybrid_matches = false) const;
+                                  bool rerank_hybrid_matches = false,
+                                  bool validate_field_names = true) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result,
-                                const bool& should_timeout = true) const;
+                                const bool& should_timeout = true, const bool& validate_field_names = true) const;
 
     Option<bool> get_reference_filter_ids(const std::string& filter_query,
                                           filter_result_t& filter_result,
-                                          const std::string& reference_field_name) const;
+                                          const std::string& reference_field_name,
+                                          const bool& validate_field_names = true) const;
 
     Option<nlohmann::json> get(const std::string & id) const;
 
@@ -688,7 +690,8 @@ public:
 
     Option<bool> reference_populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
                                                  std::vector<sort_by>& sort_fields_std,
-                                                 std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const;
+                                                 std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
+                                                 const bool& validate_field_names = true) const;
 
     int64_t reference_string_sort_score(const std::string& field_name, const uint32_t& seq_id) const;
 

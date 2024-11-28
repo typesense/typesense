@@ -642,8 +642,6 @@ TEST_F(CollectionGroupingTest, ControlMissingValues) {
         coll2 = collectionManager.create_collection("coll2", 1, fields).get();
     }
 
-    LOG(INFO) << "----------------------";
-
     nlohmann::json doc;
     doc["id"] = "0";
     doc["brand"] = "Omega";
@@ -703,6 +701,115 @@ TEST_F(CollectionGroupingTest, ControlMissingValues) {
 
     ASSERT_EQ(0, res["grouped_hits"][1]["group_key"].size());
     ASSERT_EQ(2, res["grouped_hits"][1]["hits"].size());
+}
+
+TEST_F(CollectionGroupingTest, SkipFieldValidation) {
+    std::vector<field> fields = {
+        field("brand", field_types::STRING, true, true),
+        field("category", field_types::STRING, true, true),
+    };
+
+    Collection* coll2 = collectionManager.get_collection("coll2").get();
+    if(coll2 == nullptr) {
+        coll2 = collectionManager.create_collection("coll2", 1, fields).get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["brand"] = "Omega";
+    doc["category"] = "Shoes";
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["brand"] = "Alpha";
+    doc["category"] = "Electronics";
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["brand"] = "Omega";
+    doc["category"] = "Shoes";
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    bool validate_field_names = false;
+
+    auto res_op = coll2->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                             {true}, 10,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                             "", 10,
+                             {}, {}, {"brandx"}, 2,
+                             "<mark>", "</mark>",
+                             {}, 1000,true,
+                             false, true, "", false,
+                             6000*1000, 4, 7, fallback, 4,
+                             {off}, INT16_MAX, INT16_MAX,2,
+                             2, false, "", true,
+                             0, max_score, 100, 0, 0,
+                             "exhaustive", 30000, 2, "",
+                             {},{}, "right_to_left", true,
+                             true, false, "", "", "",
+                             "", true, true, false, 0, true,
+                             true, 10, false, validate_field_names
+                             );
+
+    ASSERT_TRUE(res_op.ok());
+    auto res = res_op.get();
+    ASSERT_EQ(0, res["found_docs"].get<size_t>());
+    ASSERT_EQ(0, res["found"].get<size_t>());
+    ASSERT_EQ(0, res["grouped_hits"].size());
+
+    // only one of the two group by fields are found
+    res_op = coll2->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                           {true}, 10,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10,
+                           {}, {}, {"brandx", "category"}, 2,
+                           "<mark>", "</mark>",
+                           {}, 1000,true,
+                           false, true, "", false,
+                           6000*1000, 4, 7, fallback, 4,
+                           {off}, INT16_MAX, INT16_MAX,2,
+                           2, false, "", true,
+                           0, max_score, 100, 0, 0,
+                           "exhaustive", 30000, 2, "",
+                           {},{}, "right_to_left", true,
+                           true, false, "", "", "",
+                           "", true, true, false, 0, true,
+                           true, 10, false, validate_field_names
+    );
+
+    ASSERT_TRUE(res_op.ok());
+    res = res_op.get();
+
+    ASSERT_EQ(3, res["found_docs"].get<size_t>());
+    ASSERT_EQ(2, res["found"].get<size_t>());
+    ASSERT_EQ(2, res["grouped_hits"].size());
+
+    // with validate_field_names
+    validate_field_names = true;
+
+    res_op = coll2->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                           {true}, 10,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10,
+                           {}, {}, {"brandx", "category"}, 2,
+                           "<mark>", "</mark>",
+                           {}, 1000,true,
+                           false, true, "", false,
+                           6000*1000, 4, 7, fallback, 4,
+                           {off}, INT16_MAX, INT16_MAX,2,
+                           2, false, "", true,
+                           0, max_score, 100, 0, 0,
+                           "exhaustive", 30000, 2, "",
+                           {},{}, "right_to_left", true,
+                           true, false, "", "", "",
+                           "", true, true, false, 0, true,
+                           true, 10, false, validate_field_names);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Could not find a field named `brandx` in the schema.", res_op.error());
 }
 
 TEST_F(CollectionGroupingTest, SortingOnGroupCount) {
