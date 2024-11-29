@@ -2918,17 +2918,17 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
     return true;
 }
 
-bool post_import_plurals(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool post_import_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const char *BATCH_SIZE = "batch_size";
-    const char *PLURALS_SET = "plurals_set";
+    const char *DICTIONARY_SET = "dictionary_set";
 
     if(req->params.count(BATCH_SIZE) == 0) {
         req->params[BATCH_SIZE] = "40";
     }
 
-    if(req->params.count(PLURALS_SET) == 0) {
+    if(req->params.count(DICTIONARY_SET) == 0) {
         res->final = true;
-        res->set_400("Parameter `" + std::string(PLURALS_SET) + "` must be provided while importing plurals.");
+        res->set_400("Parameter `" + std::string(DICTIONARY_SET) + "` must be provided while importing dictionary words.");
         stream_response(req, res);
         return false;
     }
@@ -2953,7 +2953,7 @@ bool post_import_plurals(const std::shared_ptr<http_req>& req, const std::shared
     std::stringstream response_stream;
 
     if(!single_partial_record_body) {
-        if(!StemmerManager::get_instance().save_words(req->params.at(PLURALS_SET), json_lines)) {
+        if(!StemmerManager::get_instance().save_words(req->params.at(DICTIONARY_SET), json_lines)) {
             res->set_400("Bad/malformed dictionary import.");
             stream_response(req, res);
         }

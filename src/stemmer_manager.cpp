@@ -28,12 +28,11 @@ std::string Stemmer::stem(const std::string & word) {
         auto stemmed = sb_stemmer_stem(stemmer, reinterpret_cast<const sb_symbol *>(word.c_str()), word.length());
         stemmed_word = std::string(reinterpret_cast<const char *>(stemmed));
     } else {
-        const auto& stem_dictionary = StemmerManager::get_instance().get_dictionary(dictionary_name);
-        auto it = stem_dictionary.find(word);
-        if(it == stem_dictionary.end()) {
+        const auto& normalized_word = StemmerManager::get_instance().get_normalized_word(dictionary_name, word);
+        if(normalized_word.empty()) {
             stemmed_word = word;
         } else {
-            stemmed_word = it->second;
+            stemmed_word = normalized_word;
         }
     }
 
@@ -43,7 +42,7 @@ std::string Stemmer::stem(const std::string & word) {
 
 StemmerManager::~StemmerManager() {
     delete_all_stemmers();
-    stem_dictionary.clear();
+    stem_dictionaries.clear();
 }
 
 std::shared_ptr<Stemmer> StemmerManager::get_stemmer(const std::string& language, const std::string& dictionary_name) {
@@ -83,6 +82,8 @@ bool StemmerManager::save_words(const std::string& dictionary_name, const std::v
         return false;
     }
 
+    std::lock_guard<std::mutex> lock(mutex);
+
     nlohmann::json json_line;
     for(const auto& line_str : json_lines) {
         try {
@@ -94,15 +95,22 @@ bool StemmerManager::save_words(const std::string& dictionary_name, const std::v
         if(!json_line.contains("word") || !json_line.contains("root")) {
             return false;
         }
-        stem_dictionary[dictionary_name].emplace(json_line["word"], json_line["root"]);
+        stem_dictionaries[dictionary_name].emplace(json_line["word"], json_line["root"]);
     }
     return true;
 }
 
-spp::sparse_hash_map<std::string, std::string> StemmerManager::get_dictionary(const std::string& dictionary_name) {
-    if(stem_dictionary.count(dictionary_name) != 0) {
-        return stem_dictionary.at(dictionary_name);
+std::string StemmerManager::get_normalized_word(const std::string &dictionary_name, const std::string &word) {
+    std::lock_guard<std::mutex> lock(mutex);
+
+    std::string normalized_word;
+    if(stem_dictionaries.count(dictionary_name) != 0) {
+        const auto& dictionary = stem_dictionaries.at(dictionary_name);
+        auto found = dictionary.find(word);
+        if(found != dictionary.end()) {
+            normalized_word = found->second;
+        }
     }
 
-    return spp::sparse_hash_map<std::string, std::string>();
+    return normalized_word;
 }

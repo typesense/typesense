@@ -172,7 +172,7 @@ bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared
 bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 //plurals, nouns
-bool post_import_plurals(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool post_import_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Misc helpers
 

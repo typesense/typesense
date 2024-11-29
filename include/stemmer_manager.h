@@ -29,7 +29,7 @@ class StemmerManager {
         std::unordered_map<std::string, std::shared_ptr<Stemmer>> stemmers;
         StemmerManager() {}
         std::mutex mutex;
-        spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::string, std::string>> stem_dictionary;
+        spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::string, std::string>> stem_dictionaries;
     public:
         static StemmerManager& get_instance() {
             static StemmerManager instance;
@@ -45,5 +45,5 @@ class StemmerManager {
         void delete_all_stemmers();
         const bool validate_language(const std::string& language);
         bool save_words(const std::string& dictionary_name, const std::vector<std::string> &json_lines);
-        spp::sparse_hash_map<std::string, std::string> get_dictionary(const std::string& dictionary_name);
+        std::string get_normalized_word(const std::string& dictionary_name, const std::string& word);
 };
