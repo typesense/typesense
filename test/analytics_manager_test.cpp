@@ -2335,7 +2335,6 @@ TEST_F(AnalyticsManagerTest, EventsOnlySearchTest) {
 }
 
 TEST_F(AnalyticsManagerTest, GetEvents) {
-    Config::get_instance().set_analytics_flush_interval(0);
     nlohmann::json titles_schema = R"({
             "name": "titles",
             "fields": [
