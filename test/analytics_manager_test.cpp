@@ -2333,3 +2333,120 @@ TEST_F(AnalyticsManagerTest, EventsOnlySearchTest) {
     ASSERT_EQ(1, localCounts.count("foobar"));
     ASSERT_EQ(1, localCounts["foobar"]);
 }
+
+TEST_F(AnalyticsManagerTest, GetEvents) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection *titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    auto analytics_rule = R"({
+        "name": "get_last_n_events",
+        "type": "log",
+        "params": {
+            "source": {
+                "collections": ["titles"],
+                "events":  [{"type": "click", "name": "get_events"}]
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    // Add multiple events
+    nlohmann::json event1 = R"({
+        "type": "click",
+        "name": "get_events", 
+        "data": {
+            "q": "technology",
+            "doc_id": "21",
+            "user_id": "13"
+        }
+    })"_json;
+
+    nlohmann::json event2 = R"({
+        "type": "click",
+        "name": "get_events",
+        "data": {
+            "q": "science",
+            "doc_id": "22", 
+            "user_id": "13"
+        }
+    })"_json;
+
+    nlohmann::json event3 = R"({
+        "type": "click",
+        "name": "get_events",
+        "data": {
+            "q": "history",
+            "doc_id": "23",
+            "user_id": "14"
+        }
+    })"_json;
+
+    ASSERT_TRUE(analyticsManager.add_event("127.0.0.1", "click", "get_events", event1["data"]).ok());
+    ASSERT_TRUE(analyticsManager.add_event("127.0.0.1", "click", "get_events", event2["data"]).ok());
+    ASSERT_TRUE(analyticsManager.add_event("127.0.0.1", "click", "get_events", event3["data"]).ok());
+
+    //get events
+    nlohmann::json payload = nlohmann::json::array();
+    nlohmann::json event_data;
+    auto collection_events_map = analyticsManager.get_log_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto& collection = events_collection_it.first;
+        for(const auto& event: events_collection_it.second) {
+            event.to_json(event_data, collection);
+            payload.push_back(event_data);
+        }
+    }
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    // Test getting last N events
+    auto events_op = analyticsManager.get_events(2);
+    ASSERT_TRUE(events_op.ok());
+    auto events = events_op.get()["events"];
+    ASSERT_EQ(2, events.size());
+
+    ASSERT_EQ("history", events[0]["query"]);
+    ASSERT_EQ("23", events[0]["doc_id"]);
+    ASSERT_EQ("14", events[0]["user_id"]);
+    ASSERT_EQ("get_events", events[0]["name"]);
+
+    ASSERT_EQ("science", events[1]["query"]);
+    ASSERT_EQ("22", events[1]["doc_id"]);
+    ASSERT_EQ("13", events[1]["user_id"]);
+    ASSERT_EQ("get_events", events[1]["name"]);
+
+    // Test getting all events
+    events_op = analyticsManager.get_events(10);
+    ASSERT_TRUE(events_op.ok());
+    events = events_op.get()["events"];
+    ASSERT_EQ(3, events.size());
+
+    ASSERT_EQ("history", events[0]["query"]);
+    ASSERT_EQ("23", events[0]["doc_id"]); 
+    ASSERT_EQ("14", events[0]["user_id"]);
+    ASSERT_EQ("get_events", events[0]["name"]);
+
+    ASSERT_EQ("science", events[1]["query"]);
+    ASSERT_EQ("22", events[1]["doc_id"]);
+    ASSERT_EQ("13", events[1]["user_id"]); 
+    ASSERT_EQ("get_events", events[1]["name"]);
+
+    ASSERT_EQ("technology", events[2]["query"]);
+    ASSERT_EQ("21", events[2]["doc_id"]);
+    ASSERT_EQ("13", events[2]["user_id"]);
+    ASSERT_EQ("get_events", events[2]["name"]);
+
+    // Test getting more than 1000 events
+    events_op = analyticsManager.get_events(1001);
+    ASSERT_FALSE(events_op.ok());
+    ASSERT_EQ("N cannot be greater than 1000", events_op.error());
+}

@@ -2918,6 +2918,30 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
     return true;
 }
 
+bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const char* N = "n";
+
+    uint32_t n = 10;
+    if(req->params.count(N) != 0 && !StringUtils::is_uint32_t(req->params[N])) {
+        res->set_400("Parameter `n` must be a positive integer.");
+        return false;
+    }
+
+    if (req->params.count(N)) {
+        n = std::stoi(req->params[N]);
+    }
+
+    auto get_events_op = AnalyticsManager::get_instance().get_events(n);
+
+    if(!get_events_op.ok()) {
+        res->set(get_events_op.code(), get_events_op.error());
+        return false;
+    }
+    nlohmann::json response = get_events_op.get();
+    res->set_200(response.dump());
+    return true;
+}
+
 bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     HttpProxy& proxy = HttpProxy::get_instance();
 
