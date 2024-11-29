@@ -226,6 +226,8 @@ public:
 
     void get_last_N_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values);
 
+    Option<nlohmann::json> get_events(const std::string& userid, const std::string& event_name, uint32_t N);
+
 #ifdef TEST_BUILD
     std::unordered_map<std::string, std::vector<event_t>> get_log_events() {
         return query_collection_events;

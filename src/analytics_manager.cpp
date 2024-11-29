@@ -837,6 +837,26 @@ void AnalyticsManager::get_last_N_events(const std::string& userid, const std::s
     analytics_store->get_last_N_values(userid_prefix, N, values);
 }
 
+Option<nlohmann::json> AnalyticsManager::get_events(const std::string& userid, const std::string& event_name, uint32_t N) {
+    std::vector<std::string> values;
+    auto it = event_collection_map.find(event_name);
+    if(it == event_collection_map.end()) {
+        return Option<nlohmann::json>(404, "Analytics event `" + event_name + "` not found");
+    }
+
+    if (!it->second.log_to_store) {
+        return Option<nlohmann::json>(400, "Analytics event `" + event_name + "` is not logged to store");
+    }
+
+    get_last_N_events(userid, event_name, N, values);
+    nlohmann::json response;
+    response["events"] = nlohmann::json::array();
+    for(const auto& event: values) {
+        response["events"].push_back(nlohmann::json::parse(event));
+    }
+    return Option<nlohmann::json>(response);
+}
+
 void event_t::to_json(nlohmann::json& obj, const std::string& coll) const {
     obj["query"] = query;
     obj["type"] = event_type;
