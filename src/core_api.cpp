@@ -418,8 +418,7 @@ bool get_health_with_resource_usage(const std::shared_ptr<http_req>& req, const 
 
     if(req->params.count("cpu_threshold") != 0 && StringUtils::is_float(req->params["cpu_threshold"])) {
         float cpu_threshold = std::stof(req->params["cpu_threshold"]);
-        SystemMetrics sys_metrics;
-        std::vector<cpu_stat_t> cpu_stats = sys_metrics.get_cpu_stats();
+        std::vector<cpu_stat_t> cpu_stats = SystemMetrics::get_instance().get_cpu_stats();
         if(!cpu_stats.empty() && StringUtils::is_float(cpu_stats[0].active)) {
             alive = alive && (std::stof(cpu_stats[0].active) < cpu_threshold);
         }
@@ -480,8 +479,7 @@ bool get_metrics_json(const std::shared_ptr<http_req>& req, const std::shared_pt
     CollectionManager & collectionManager = CollectionManager::get_instance();
     const std::string & data_dir_path = collectionManager.get_store()->get_state_dir_path();
 
-    SystemMetrics sys_metrics;
-    sys_metrics.get(data_dir_path, result);
+    SystemMetrics::get_instance().get(data_dir_path, result);
 
     res->set_body(200, result.dump(2));
     return true;
@@ -1032,6 +1030,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
     const char* INCLUDE_FIELDS = "include_fields";
     const char* EXCLUDE_FIELDS = "exclude_fields";
     const char* BATCH_SIZE = "batch_size";
+    const char* VALIDATE_FIELD_NAMES = "validate_field_names";
 
     export_state_t* export_state = nullptr;
 
@@ -1101,7 +1100,13 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             export_state->iter_upper_bound = new rocksdb::Slice(export_state->iter_upper_bound_key);
             export_state->it = collectionManager.get_store()->scan(seq_id_prefix, export_state->iter_upper_bound);
         } else {
-            auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result, false);
+            bool validate_field_names = true;
+            if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+                validate_field_names = false;
+            }
+
+            auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result, false,
+                                                            validate_field_names);
 
             if(!filter_ids_op.ok()) {
                 res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -1530,8 +1535,15 @@ bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::sha
         req->params[DIRTY_VALUES_PARAM] = "";  // set it empty as default will depend on whether schema is enabled
     }
 
+    const char* VALIDATE_FIELD_NAMES = "validate_field_names";
+    bool validate_field_names = true;
+    if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+        validate_field_names = false;
+    }
+
     search_stop_us = UINT64_MAX; // Filtering shouldn't timeout during update operation.
-    auto update_op = collection->update_matching_filter(filter_query, req->body, req->params[DIRTY_VALUES_PARAM]);
+    auto update_op = collection->update_matching_filter(filter_query, req->body, req->params[DIRTY_VALUES_PARAM],
+                                                        validate_field_names);
     if(update_op.ok()) {
         res->set_200(update_op.get().dump());
     } else {
@@ -1664,6 +1676,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
     const char *BATCH_SIZE = "batch_size";
     const char *FILTER_BY = "filter_by";
     const char *TOP_K_BY = "top_k_by";
+    const char* VALIDATE_FIELD_NAMES = "validate_field_names";
 
     if(req->params.count(TOP_K_BY) != 0) {
         std::vector<std::string> parts;
@@ -1738,8 +1751,13 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         // destruction of data is managed by req destructor
         req->data = deletion_state;
 
+        bool validate_field_names = true;
+        if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+            validate_field_names = false;
+        }
+
         filter_result_t filter_result;
-        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false);
+        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false, validate_field_names);
 
         if(!filter_ids_op.ok()) {
             res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -2897,6 +2915,30 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
     }
 
     res->set_200(R"({"ok": true})");
+    return true;
+}
+
+bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const char* N = "n";
+
+    uint32_t n = 10;
+    if(req->params.count(N) != 0 && !StringUtils::is_uint32_t(req->params[N])) {
+        res->set_400("Parameter `n` must be a positive integer.");
+        return false;
+    }
+
+    if (req->params.count(N)) {
+        n = std::stoi(req->params[N]);
+    }
+
+    auto get_events_op = AnalyticsManager::get_instance().get_events(n);
+
+    if(!get_events_op.ok()) {
+        res->set(get_events_op.code(), get_events_op.error());
+        return false;
+    }
+    nlohmann::json response = get_events_op.get();
+    res->set_200(response.dump());
     return true;
 }
 

@@ -1,4 +1,7 @@
 #include <string>
+#include <mutex>
+#include <shared_mutex>
+#include <atomic>
 #include <fstream>
 #include <sstream>
 #include <thread>
@@ -31,12 +34,21 @@ struct cpu_stat_t {
     std::string idle;
 };
 
+struct mallctl_stats_t {
+    size_t memory_mapped_bytes = 1;
+    size_t memory_retained_bytes = 1;
+    size_t memory_active_bytes = 1;
+    size_t memory_metadata_bytes = 1;
+};
+
 class SystemMetrics {
 private:
 
-    const static uint64_t NON_PROC_MEM_UPDATE_INTERVAL_SECONDS = 60;
-    static uint64_t non_proc_mem_last_access;
-    static uint64_t non_proc_mem_bytes;
+    const uint64_t MALLCTL_STATS_UPDATE_INTERVAL_SECONDS = 5;
+    std::atomic<uint64_t> mallctl_stats_last_access = 0;
+    mallctl_stats_t mallctl_stats;
+
+    mutable std::shared_mutex mutex;
 
     size_t _get_idle_time(const cpu_data_t &e) {
         // we will consider iowait as cpu being idle
@@ -133,30 +145,28 @@ private:
         }
     }
 
-    static uint64_t get_memory_total_bytes();
+    mallctl_stats_t get_cached_mallctl_stats();
 
-    static uint64_t get_memory_used_bytes();
+    SystemMetrics() {}
 
-    static uint64_t linux_get_mem_available_bytes();
-
-    static uint64_t get_memory_non_proc_bytes();
+    ~SystemMetrics() {}
 
 public:
 
-    SystemMetrics() {
-        non_proc_mem_last_access = std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
-        uint64_t memory_used_bytes = get_memory_used_bytes();
-        non_proc_mem_bytes = memory_used_bytes - get_memory_active_bytes();
+    static SystemMetrics &get_instance() {
+        static SystemMetrics instance;
+        return instance;
     }
 
-    static uint64_t get_memory_active_bytes();
+    SystemMetrics(SystemMetrics const &) = delete;
 
-    static void linux_get_network_data(const std::string & stat_path, uint64_t& received_bytes, uint64_t& sent_bytes);
+    void operator=(SystemMetrics const &) = delete;
+
+    uint64_t get_proc_memory_active_bytes();
+
+    void linux_get_network_data(const std::string & stat_path, uint64_t& received_bytes, uint64_t& sent_bytes);
 
     void get(const std::string & data_dir_path, nlohmann::json& result);
-
-    static float used_memory_ratio();
 
     std::vector<cpu_stat_t> get_cpu_stats() {
         // snapshot 1
@@ -174,7 +184,12 @@ public:
         return compute_cpu_stats(cpu_data_prev, cpu_data_now);
     }
 
-    static uint64_t get_memory_free_bytes() {
-        return get_memory_total_bytes() - get_memory_used_bytes();
-    }
+    void get_proc_meminfo(uint64_t& memory_total_bytes, uint64_t& memory_available_bytes,
+                          uint64_t& swap_total_bytes, uint64_t& swap_free_bytes);
+
+    uint64_t get_memory_total_bytes();
+
+    uint64_t get_memory_used_bytes();
+
+    uint64_t get_cached_jemalloc_unused_memory();
 };
