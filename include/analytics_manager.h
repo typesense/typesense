@@ -84,6 +84,7 @@ class AnalyticsManager {
 private:
     mutable std::mutex mutex;
     std::condition_variable cv;
+    const size_t QUERY_COMPACTION_INTERVAL_S = 30;
 
     std::atomic<bool> quit = false;
     struct suggestion_config_t {
@@ -168,13 +169,9 @@ public:
     static constexpr const char* VISIT_EVENT = "visit";
     static constexpr const char* CUSTOM_EVENT = "custom";
     static constexpr const char* SEARCH_EVENT = "search";
-    size_t QUERY_COMPACTION_INTERVAL_S = 30;
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
-#ifdef TEST_BUILD
-        instance.QUERY_COMPACTION_INTERVAL_S = 0;
-#endif
         return instance;
     }
 
