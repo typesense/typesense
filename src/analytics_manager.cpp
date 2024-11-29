@@ -837,6 +837,22 @@ void AnalyticsManager::get_last_N_events(const std::string& userid, const std::s
     analytics_store->get_last_N_values(userid_prefix, N, values);
 }
 
+Option<nlohmann::json> AnalyticsManager::get_events(uint32_t N) {
+    std::vector<std::string> values;
+    if (N > 1000) {
+        return Option<nlohmann::json>(400, "N cannot be greater than 1000");
+    }
+
+    std::string userid_prefix;
+    analytics_store->get_last_N_values(userid_prefix, N, values);
+    nlohmann::json response;
+    response["events"] = nlohmann::json::array();
+    for(const auto& event: values) {
+        response["events"].push_back(nlohmann::json::parse(event));
+    }
+    return Option<nlohmann::json>(response);
+}
+
 void event_t::to_json(nlohmann::json& obj, const std::string& coll) const {
     obj["query"] = query;
     obj["type"] = event_type;

@@ -785,6 +785,31 @@ TEST_F(CollectionGroupingTest, SkipFieldValidation) {
     ASSERT_EQ(3, res["found_docs"].get<size_t>());
     ASSERT_EQ(2, res["found"].get<size_t>());
     ASSERT_EQ(2, res["grouped_hits"].size());
+
+    // with validate_field_names
+    validate_field_names = true;
+
+    res_op = coll2->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                           {true}, 10,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10,
+                           {}, {}, {"brandx", "category"}, 2,
+                           "<mark>", "</mark>",
+                           {}, 1000,true,
+                           false, true, "", false,
+                           6000*1000, 4, 7, fallback, 4,
+                           {off}, INT16_MAX, INT16_MAX,2,
+                           2, false, "", true,
+                           0, max_score, 100, 0, 0,
+                           "exhaustive", 30000, 2, "",
+                           {},{}, "right_to_left", true,
+                           true, false, "", "", "",
+                           "", true, true, false, 0, true,
+                           true, 10, false, validate_field_names);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Could not find a field named `brandx` in the schema.", res_op.error());
 }
 
 TEST_F(CollectionGroupingTest, SortingOnGroupCount) {

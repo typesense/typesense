@@ -150,7 +150,7 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
 
 #ifndef TEST_BUILD
     // return error if (model file size * 1.15) cannot fit into total memory
-    if(memory_used + (model_file_size * 1.15) >= total_memory) {
+    if(memory_used + (model_file_size * 1.15) >= total_memory && std::getenv("TYPESENSE_SKIP_MEM_CHECK") == nullptr) {
         LOG(INFO) << "total_memory: " << total_memory << ", memory_used: " << memory_used;
         LOG(ERROR) << "Memory required to load the model exceeds free memory available.";
         return Option<bool>(400, "Memory required to load the model exceeds free memory available.");

@@ -121,7 +121,9 @@ embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote
     if(is_remote()) {
         return remote_embedder_->Embed(text, remote_embedder_timeout_ms, remote_embedding_num_tries);
     } else {
+        std::unique_lock<std::mutex> lock(mutex_);
         auto encoded_input = tokenizer_->Encode(text);
+        lock.unlock();
         // create input tensor object from data values
         Ort::AllocatorWithDefaultOptions allocator;
         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
@@ -161,7 +163,7 @@ embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote
         // create output tensor object
         std::vector<const char*> output_node_names = {output_tensor_name.c_str()};
         // Cannot run same model in parallel, so lock the mutex
-        std::unique_lock<std::mutex> lock(mutex_);
+        lock.lock();
         auto output_tensor = session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
         lock.unlock();
         std::vector<std::vector<float>> output;
