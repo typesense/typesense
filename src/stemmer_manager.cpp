@@ -104,9 +104,12 @@ std::string StemmerManager::get_normalized_word(const std::string &dictionary_na
     std::lock_guard<std::mutex> lock(mutex);
 
     std::string normalized_word;
-    if(stem_dictionaries.count(dictionary_name) != 0) {
-        const auto& dictionary = stem_dictionaries.at(dictionary_name);
+
+    auto stem_dictionaries_it = stem_dictionaries.find(dictionary_name);
+    if(stem_dictionaries_it != stem_dictionaries.end()) {
+        const auto& dictionary = stem_dictionaries_it->second;
         auto found = dictionary.find(word);
+
         if(found != dictionary.end()) {
             normalized_word = found->second;
         }
