@@ -86,9 +86,6 @@ private:
     std::condition_variable cv;
 
     std::atomic<bool> quit = false;
-
-    const size_t QUERY_COMPACTION_INTERVAL_S = 30;
-
     struct suggestion_config_t {
         std::string name;
         std::string destination_collection;
@@ -171,9 +168,13 @@ public:
     static constexpr const char* VISIT_EVENT = "visit";
     static constexpr const char* CUSTOM_EVENT = "custom";
     static constexpr const char* SEARCH_EVENT = "search";
+    size_t QUERY_COMPACTION_INTERVAL_S = 30;
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
+#ifdef TEST_BUILD
+        instance.QUERY_COMPACTION_INTERVAL_S = 0;
+#endif
         return instance;
     }
 
@@ -226,7 +227,7 @@ public:
 
     void get_last_N_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values);
 
-    Option<nlohmann::json> get_events(const std::string& userid, const std::string& event_name, uint32_t N);
+    Option<nlohmann::json> get_events(uint32_t N);
 
 #ifdef TEST_BUILD
     std::unordered_map<std::string, std::vector<event_t>> get_log_events() {

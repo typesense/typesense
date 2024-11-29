@@ -2920,8 +2920,6 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
 
 bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const char* N = "n";
-    const char* EVENT_NAME = "name";
-    const char* USER_ID = "user_id";
 
     uint32_t n = 10;
     if(req->params.count(N) != 0 && !StringUtils::is_uint32_t(req->params[N])) {
@@ -2929,22 +2927,11 @@ bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::share
         return false;
     }
 
-    if(req->params.count(USER_ID) == 0) {
-        res->set_400("Parameter `user_id` is required.");
-        return false;
-    }
-
     if (req->params.count(N)) {
         n = std::stoi(req->params[N]);
     }
 
-    if(req->params.count(EVENT_NAME) == 0) {
-        res->set_400("Parameter `name` is required.");
-        return false;
-    }
-    std::string event_name = req->params[EVENT_NAME];
-
-    auto get_events_op = AnalyticsManager::get_instance().get_events(req->params[USER_ID], event_name, n);
+    auto get_events_op = AnalyticsManager::get_instance().get_events(n);
 
     if(!get_events_op.ok()) {
         res->set(get_events_op.code(), get_events_op.error());
