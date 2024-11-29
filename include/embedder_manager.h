@@ -69,7 +69,7 @@ public:
     static const std::string get_model_url(const text_embedding_model& model);
     static const std::string get_model_data_url(const text_embedding_model& model);
     static const std::string get_vocab_url(const text_embedding_model& model);
-    static Option<nlohmann::json> get_public_model_config(const std::string& model_name);
+    static Option<nlohmann::json> get_public_model_config(const std::string& model_name, bool save_config);
     static const std::string get_model_name_without_namespace(const std::string& model_name);
     static const std::string get_model_namespace(const std::string& model_name);
     static const std::string get_model_subdir(const std::string& model_name, const bool is_public);
