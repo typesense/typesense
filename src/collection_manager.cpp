@@ -519,6 +519,7 @@ void CollectionManager::dispose() {
     preset_configs.clear();
     referenced_in_backlog.clear();
     store->close();
+    collection_id_names.clear();
 }
 
 bool CollectionManager::auth_key_matches(const string& req_auth_key, const string& action,

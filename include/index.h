@@ -247,6 +247,18 @@ struct search_args {
     ~search_args() {
         delete topster;
         delete curated_topster;
+
+        for (auto& sort_by_clause: sort_fields_std) {
+            for (auto& eval_ids: sort_by_clause.eval.eval_ids_vec) {
+                delete [] eval_ids;
+            }
+
+            for (uint32_t i = 0; i < sort_by_clause.eval_expressions.size(); i++) {
+                delete sort_by_clause.eval.filter_trees[i];
+            }
+
+            delete [] sort_by_clause.eval.filter_trees;
+        }
     };
 };
 

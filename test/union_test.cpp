@@ -26,6 +26,8 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
+
+        EmbedderManager::set_model_dir("/tmp/typesense_test/models");
     }
 
     void setupProductsCollection() {
@@ -54,8 +56,6 @@ protected:
                 "rating": "4"
             })"_json
         };
-
-        EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
         auto collection_create_op = collectionManager.create_collection(schema_json);
         ASSERT_TRUE(collection_create_op.ok());
@@ -245,6 +245,7 @@ protected:
 
     virtual void TearDown() {
         collectionManager.dispose();
+        EmbedderManager::get_instance().delete_all_text_embedders();
         delete store;
     }
 };
