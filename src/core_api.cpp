@@ -2920,15 +2920,15 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
 
 bool post_import_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const char *BATCH_SIZE = "batch_size";
-    const char *DICTIONARY_SET = "dictionary_set";
+    const char *ID = "id";
 
     if(req->params.count(BATCH_SIZE) == 0) {
         req->params[BATCH_SIZE] = "40";
     }
 
-    if(req->params.count(DICTIONARY_SET) == 0) {
+    if(req->params.count(ID) == 0) {
         res->final = true;
-        res->set_400("Parameter `" + std::string(DICTIONARY_SET) + "` must be provided while importing dictionary words.");
+        res->set_400("Parameter `" + std::string(ID) + "` must be provided while importing dictionary words.");
         stream_response(req, res);
         return false;
     }
@@ -2953,7 +2953,7 @@ bool post_import_dictionary(const std::shared_ptr<http_req>& req, const std::sha
     std::stringstream response_stream;
 
     if(!single_partial_record_body) {
-        if(!StemmerManager::get_instance().save_words(req->params.at(DICTIONARY_SET), json_lines)) {
+        if(!StemmerManager::get_instance().save_words(req->params.at(ID), json_lines)) {
             res->set_400("Bad/malformed dictionary import.");
             stream_response(req, res);
         }
@@ -2980,6 +2980,40 @@ bool post_import_dictionary(const std::shared_ptr<http_req>& req, const std::sha
 
     res->final.store(req->last_chunk_aggregate);
     stream_response(req, res);
+
+    return true;
+}
+
+bool get_dictionaries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json dictionaries;
+    StemmerManager::get_instance().get_dictionaries(dictionaries);
+
+    res->set_200(dictionaries.dump());
+    return true;
+}
+
+bool get_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& id = req->params["id"];
+    nlohmann::json dictionary;
+
+    if(!StemmerManager::get_instance().get_dictionary(id, dictionary)) {
+        res->set_404();
+        return false;
+    }
+
+    res->set_200(dictionary.dump());
+    return true;
+}
+
+bool del_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& id = req->params["id"];
+    nlohmann::json dictionary;
+
+    StemmerManager::get_instance().del_dictionary(id);
+
+    nlohmann::json res_json;
+    res_json["id"] = id;
+    res->set_200(res_json.dump());
 
     return true;
 }

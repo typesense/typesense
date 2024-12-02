@@ -46,4 +46,8 @@ class StemmerManager {
         const bool validate_language(const std::string& language);
         bool save_words(const std::string& dictionary_name, const std::vector<std::string> &json_lines);
         std::string get_normalized_word(const std::string& dictionary_name, const std::string& word);
+        void get_dictionaries(nlohmann::json& dictionaries);
+        bool get_dictionary(const std::string& id, nlohmann::json& dictionary);
+        void del_dictionary(const std::string& id);
+        void delete_all_dictionaries();
 };

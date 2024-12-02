@@ -3392,7 +3392,7 @@ TEST_F(CollectionSpecificMoreTest, IgnoreMissingQueryByFields) {
 }
 
 
-TEST_F(CollectionSpecificMoreTest, StemmingPlurals) {
+TEST_F(CollectionSpecificMoreTest, StemmingDictionary) {
     nlohmann::json schema = R"({
          "name": "titles",
          "fields": [
@@ -3434,4 +3434,63 @@ TEST_F(CollectionSpecificMoreTest, StemmingPlurals) {
 
     results = coll_no_stem->search("person", {"title"}, "", {}, sort_fields, {0}).get();
     ASSERT_EQ(0, results["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
+    StemmerManager::get_instance().delete_all_dictionaries();
+
+    std::string json_line = "{\"word\": \"people\", \"root\":\"person\"}";
+    std::vector<std::string> json_lines;
+    json_lines.push_back(json_line);
+
+    //add dictionary set
+    ASSERT_TRUE(StemmerManager::get_instance().save_words("set1", json_lines));
+
+    //get dictionary set
+    nlohmann::json dictionary;
+    ASSERT_TRUE(StemmerManager::get_instance().get_dictionary("set1", dictionary));
+    ASSERT_EQ("set1", dictionary["id"]);
+    ASSERT_EQ(1, dictionary["words"].size());
+    ASSERT_EQ("people", dictionary["words"][0]["word"]);
+    ASSERT_EQ("person", dictionary["words"][0]["root"]);
+
+    //add another dictionary set and get
+    json_lines.clear();
+    json_line = "{\"word\": \"qualities\", \"root\":\"quality\"}";
+    json_lines.push_back(json_line);
+    ASSERT_TRUE(StemmerManager::get_instance().save_words("set2", json_lines));
+
+    ASSERT_TRUE(StemmerManager::get_instance().get_dictionary("set2", dictionary));
+    ASSERT_EQ("set2", dictionary["id"]);
+    ASSERT_EQ(1, dictionary["words"].size());
+    ASSERT_EQ("qualities", dictionary["words"][0]["word"]);
+    ASSERT_EQ("quality", dictionary["words"][0]["root"]);
+
+    //add another line to same set and get
+    json_lines.clear();
+    json_line = "{\"word\": \"mangoes\", \"root\":\"mango\"}";
+    json_lines.push_back(json_line);
+    ASSERT_TRUE(StemmerManager::get_instance().save_words("set2", json_lines));
+
+    ASSERT_TRUE(StemmerManager::get_instance().get_dictionary("set2", dictionary));
+    ASSERT_EQ("set2", dictionary["id"]);
+    ASSERT_EQ(2, dictionary["words"].size());
+    ASSERT_EQ("qualities", dictionary["words"][0]["word"]);
+    ASSERT_EQ("quality", dictionary["words"][0]["root"]);
+    ASSERT_EQ("mangoes", dictionary["words"][1]["word"]);
+    ASSERT_EQ("mango", dictionary["words"][1]["root"]);
+
+    //get all dictionary sets
+    nlohmann::json dictionary_sets;
+    StemmerManager::get_instance().get_dictionaries(dictionary_sets);
+    ASSERT_EQ(2, dictionary_sets["dictionaries"].size());
+    ASSERT_EQ("set1", dictionary_sets["dictionaries"][0].get<std::string>());
+    ASSERT_EQ("set2", dictionary_sets["dictionaries"][1].get<std::string>());
+
+    //del dictionary set and get
+    dictionary_sets.clear();
+    StemmerManager::get_instance().del_dictionary("set2");
+    StemmerManager::get_instance().get_dictionaries(dictionary_sets);
+    ASSERT_EQ(1, dictionary_sets["dictionaries"].size());
+    ASSERT_EQ("set1", dictionary_sets["dictionaries"][0].get<std::string>());
 }

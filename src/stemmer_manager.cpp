@@ -117,3 +117,50 @@ std::string StemmerManager::get_normalized_word(const std::string &dictionary_na
 
     return normalized_word;
 }
+
+void StemmerManager::get_dictionaries(nlohmann::json &dictionaries) {
+    std::lock_guard<std::mutex> lock(mutex);
+
+    if(!stem_dictionaries.empty()) {
+        dictionaries["dictionaries"] = nlohmann::json::array();
+        for (const auto &kv: stem_dictionaries) {
+                dictionaries["dictionaries"].push_back(kv.first);
+        }
+    }
+}
+
+bool StemmerManager::get_dictionary(const std::string &id, nlohmann::json &dictionary) {
+    std::lock_guard<std::mutex> lock(mutex);
+
+    auto found = stem_dictionaries.find(id);
+    if(found != stem_dictionaries.end()) {
+
+        dictionary["id"] = id;
+        dictionary["words"] = nlohmann::json::array();
+
+        for (const auto &kv: found->second) {
+            nlohmann::json line;
+            line["word"] = kv.first;
+            line["root"] = kv.second;
+            dictionary["words"].push_back(line);
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+void StemmerManager::del_dictionary(const std::string &id) {
+    std::lock_guard<std::mutex> lock(mutex);
+
+    auto found = stem_dictionaries.find(id);
+    if(found != stem_dictionaries.end()) {
+        stem_dictionaries.erase(found);
+    }
+}
+
+void StemmerManager::delete_all_dictionaries() {
+    std::lock_guard<std::mutex> lock(mutex);
+    stem_dictionaries.clear();
+}

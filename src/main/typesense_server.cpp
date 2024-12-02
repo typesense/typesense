@@ -86,6 +86,8 @@ void master_server_routes() {
 
     // for plurals, nouns
     server->post("/stemming/dictionary/import", post_import_dictionary, true, true);
+    server->get("/stemming/dictionaries", get_dictionaries);
+    server->get("/stemming/dictionary/:id", get_dictionary);
 
     // meta
     server->get("/metrics.json", get_metrics_json);
