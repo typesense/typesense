@@ -82,6 +82,7 @@ void master_server_routes() {
     server->del("/analytics/rules/:name", del_analytics_rules);
     server->post("/analytics/events", post_create_event);
     server->post("/analytics/aggregate_events", post_write_analytics_to_db);
+    server->get("/analytics/events", get_analytics_events);
 
     // meta
     server->get("/metrics.json", get_metrics_json);

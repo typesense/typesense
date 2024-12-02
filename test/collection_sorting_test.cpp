@@ -2170,21 +2170,33 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("The eval expression in sort_by is empty.", search_op.error());
 
+    // when no eval query has invalid field name.
     req_params = {
             {"collection", "coll1"},
-            {"q", "a"},
+            {"q", "*"},
             {"query_by", "brand"},
-            {"sort_by", "_eval(brand:puma):desc, _text_match:desc"},
-            {"infix", "always"}
+            {"sort_by", "_eval(foo:puma):desc, _text_match:desc"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Error parsing eval expression in sort_by clause.", search_op.error());
+
+    // when no eval query has invalid field name but validate_field_names is false.
+    req_params = {
+            {"collection", "coll1"},
+            {"q", "*"},
+            {"query_by", "brand"},
+            {"sort_by", "_eval(foo:puma):desc, _text_match:desc"},
+            {"validate_field_names", "false"}
     };
 
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     results = nlohmann::json::parse(json_res);
 
-    ASSERT_EQ(4, results["hits"].size()); // 3 Adidas 1 Puma documents
-    // Because of `_eval`, Puma document will be on top even when having a lower text match score than Adidas documents.
-    expected_ids = {"5", "4", "2", "1"};
+    ASSERT_EQ(6, results["hits"].size());
+    expected_ids = {"5", "4", "3", "2", "1", "0"};
     for(size_t i = 0; i < expected_ids.size(); i++) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
@@ -2208,110 +2220,6 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     res_op = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Only one sorting eval expression is allowed.", res_op.error());
-
-    collectionManager.drop_collection("coll1");
-}
-
-TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
-    std::string coll_schema = R"(
-        {
-            "name": "coll1",
-            "fields": [
-              {"name": "title", "type": "string" },
-              {"name": "brand", "type": "string" },
-              {"name": "points", "type": "int32" }
-            ]
-        }
-    )";
-
-    nlohmann::json schema = nlohmann::json::parse(coll_schema);
-    Collection* coll1 = collectionManager.create_collection(schema).get();
-
-    for(size_t i = 0; i < 5; i++) {
-        nlohmann::json doc;
-        doc["title"] = "Title " + std::to_string(i);
-        doc["points"] = i;
-
-        doc["brand"] =  (i == 0 || i == 3) ? "Nike" : "Adidas";
-        ASSERT_TRUE(coll1->add(doc.dump()).ok());
-    }
-
-    std::vector<sort_by> sort_fields = {
-        sort_by({"brand:nike"}, {1}, "DESC"),
-        sort_by("points", "DESC"),
-    };
-
-    auto results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
-
-    ASSERT_EQ(5, results["hits"].size());
-    std::vector<std::string> expected_ids = {"3", "0", "4", "2", "1"};
-    for(size_t i = 0; i < expected_ids.size(); i++) {
-        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
-    }
-
-    // compound query
-    sort_fields = {
-        sort_by({"brand:nike && points:0"}, {1}, "DESC"),
-        sort_by("points", "DESC"),
-    };
-
-    results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
-    ASSERT_EQ(5, results["hits"].size());
-
-    std::map<std::string, std::string> req_params = {
-            {"collection", "coll1"},
-            {"q", "title"},
-            {"query_by", "title"},
-            {"sort_by", "_eval(brand:[nike, adidas] && points:0):desc, points:DESC"}
-    };
-    nlohmann::json embedded_params;
-    std::string json_res;
-    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-
-    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-    results = nlohmann::json::parse(json_res);
-    ASSERT_EQ(5, results["hits"].size());
-
-    expected_ids = {"0", "4", "3", "2", "1"};
-    for(size_t i = 0; i < expected_ids.size(); i++) {
-        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
-    }
-
-    // when no results are found for eval query
-    sort_fields = {
-        sort_by({"brand:foobar"}, {1}, "DESC"),
-        sort_by("points", "DESC"),
-    };
-
-    results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
-
-    ASSERT_EQ(5, results["hits"].size());
-    expected_ids = {"4", "3", "2", "1", "0"};
-    for(size_t i = 0; i < expected_ids.size(); i++) {
-        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
-    }
-
-    // bad syntax for eval query
-    sort_fields = {
-        sort_by({"brandnike || points:0"}, {1}, "DESC"),
-        sort_by("points", "DESC"),
-    };
-
-    auto res_op = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Error parsing eval expression in sort_by clause.", res_op.error());
-
-    // more bad syntax!
-    sort_fields = {
-        sort_by(")", "DESC"),
-        sort_by("points", "DESC"),
-    };
-
-    res_op = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Could not find a field named `)` in the schema for sorting.", res_op.error());
 
     collectionManager.drop_collection("coll1");
 
@@ -2424,6 +2332,138 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
     ASSERT_EQ("product_c", res_obj["hits"][3]["document"]["product_id"]);
     ASSERT_EQ(1, res_obj["hits"][3]["document"].count("stocks"));
     ASSERT_EQ(0, res_obj["hits"][3]["document"]["stocks"].size());
+}
+
+TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
+    std::string coll_schema = R"(
+        {
+            "name": "coll1",
+            "fields": [
+              {"name": "title", "type": "string" },
+              {"name": "brand", "type": "string", "infix": true },
+              {"name": "points", "type": "int32" }
+            ]
+        }
+    )";
+
+    nlohmann::json schema = nlohmann::json::parse(coll_schema);
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    for(size_t i = 0; i < 5; i++) {
+        nlohmann::json doc;
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = i;
+
+        doc["brand"] =  (i == 0 || i == 3) ? "Nike" : "Adidas";
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = {
+        sort_by({"brand:nike"}, {1}, "DESC"),
+        sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    std::vector<std::string> expected_ids = {"3", "0", "4", "2", "1"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    // compound query
+    sort_fields = {
+        sort_by({"brand:nike && points:0"}, {1}, "DESC"),
+        sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(5, results["hits"].size());
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "title"},
+            {"query_by", "title"},
+            {"sort_by", "_eval(brand:[nike, adidas] && points:0):desc, points:DESC"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, results["hits"].size());
+
+    expected_ids = {"0", "4", "3", "2", "1"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    // when no results are found for eval query
+    sort_fields = {
+        sort_by({"brand:foobar"}, {1}, "DESC"),
+        sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    expected_ids = {"4", "3", "2", "1", "0"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    nlohmann::json doc = R"(
+        {
+            "title": "title5",
+            "brand": "puma",
+            "points": 5
+        }
+    )"_json;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    req_params = {
+            {"collection", "coll1"},
+            {"q", "a"},
+            {"query_by", "brand"},
+            {"sort_by", "_eval(brand:puma):desc, _text_match:desc"},
+            {"infix", "always"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(4, results["hits"].size()); // 3 Adidas 1 Puma documents
+    // Because of `_eval`, Puma document will be on top even when having a lower text match score than Adidas documents.
+    expected_ids = {"5", "4", "2", "1"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    // bad syntax for eval query
+    sort_fields = {
+        sort_by({"brandnike || points:0"}, {1}, "DESC"),
+        sort_by("points", "DESC"),
+    };
+
+    auto res_op = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error parsing eval expression in sort_by clause.", res_op.error());
+
+    // more bad syntax!
+    sort_fields = {
+        sort_by(")", "DESC"),
+        sort_by("points", "DESC"),
+    };
+
+    res_op = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Could not find a field named `)` in the schema for sorting.", res_op.error());
+
+    collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionSortingTest, DisallowIdAsDefaultSortingField) {

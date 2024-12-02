@@ -2601,8 +2601,14 @@ TEST_F(CollectionTest, UpdateDocuments) {
     nlohmann::json document;
     document["user_name"] = "slim_cat";
     std::string dirty_values;
+    bool validate_field_names = false;
 
-    auto update_op = update_docs_collection->update_matching_filter("user_name:=fat_cat", document.dump(), dirty_values);
+    auto update_op = update_docs_collection->update_matching_filter("foo:=fat_cat", document.dump(), dirty_values,
+                                                                    validate_field_names);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(0, update_op.get()["num_updated"]);
+
+    update_op = update_docs_collection->update_matching_filter("user_name:=fat_cat", document.dump(), dirty_values);
     ASSERT_TRUE(update_op.ok());
     ASSERT_EQ(2, update_op.get()["num_updated"]);
 
@@ -2612,6 +2618,8 @@ TEST_F(CollectionTest, UpdateDocuments) {
         ASSERT_EQ("slim_cat", res["hits"][i]["document"]["user_name"].get<std::string>());
     }
 
+    validate_field_names = true;
+
     // Test batching
     res = update_docs_collection->search("dog data", {"content"}, "", {}, sort_fields, {0}, 10).get();
     ASSERT_EQ(3, res["hits"].size());
@@ -2620,7 +2628,8 @@ TEST_F(CollectionTest, UpdateDocuments) {
     }
 
     document["user_name"] = "lazy_dog";
-    update_op = update_docs_collection->update_matching_filter("user_name:=fast_dog", document.dump(), dirty_values, 2);
+    update_op = update_docs_collection->update_matching_filter("user_name:=fast_dog", document.dump(), dirty_values,
+                                                               validate_field_names, 2);
     ASSERT_TRUE(update_op.ok());
     ASSERT_EQ(3, update_op.get()["num_updated"]);
 
@@ -2640,7 +2649,8 @@ TEST_F(CollectionTest, UpdateDocuments) {
     document.clear();
     document["content"]["title"] = "fancy cat title";
 
-    update_op = update_docs_collection->update_matching_filter("user_name:=slim_cat", document.dump(), dirty_values, 2);
+    update_op = update_docs_collection->update_matching_filter("user_name:=slim_cat", document.dump(), dirty_values,
+                                                               validate_field_names, 2);
     ASSERT_TRUE(update_op.ok());
     ASSERT_EQ(2, update_op.get()["num_updated"]);
 
@@ -2660,7 +2670,8 @@ TEST_F(CollectionTest, UpdateDocuments) {
     document.clear();
     document["likes"] = 0;
 
-    update_op = update_docs_collection->update_matching_filter("*", document.dump(), dirty_values, 2);
+    update_op = update_docs_collection->update_matching_filter("*", document.dump(), dirty_values, validate_field_names,
+                                                               2);
     ASSERT_TRUE(update_op.ok());
     ASSERT_EQ(5, update_op.get()["num_updated"]);
 

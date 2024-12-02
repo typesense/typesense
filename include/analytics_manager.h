@@ -84,11 +84,9 @@ class AnalyticsManager {
 private:
     mutable std::mutex mutex;
     std::condition_variable cv;
-
-    std::atomic<bool> quit = false;
-
     const size_t QUERY_COMPACTION_INTERVAL_S = 30;
 
+    std::atomic<bool> quit = false;
     struct suggestion_config_t {
         std::string name;
         std::string destination_collection;
@@ -225,6 +223,8 @@ public:
     bool write_to_db(const nlohmann::json& payload);
 
     void get_last_N_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values);
+
+    Option<nlohmann::json> get_events(uint32_t N);
 
 #ifdef TEST_BUILD
     std::unordered_map<std::string, std::vector<event_t>> get_log_events() {

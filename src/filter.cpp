@@ -278,7 +278,7 @@ Option<bool> filter::parse_geopoint_filter_value(string& raw_value, const string
                     return validate_op;
                 }
 
-                filter_exp.values.push_back(points_str + ", " + distance + ", " + unit);
+                filter_exp.values.push_back(points_str + ", " += distance + ", " += unit);
             } else if (key_value[0] == EXACT_GEO_FILTER_RADIUS_KEY) {
                 std::string distance, unit;
                 auto validate_op = validate_geofilter_distance(key_value[1], format_err_msg, distance, unit);
@@ -404,11 +404,12 @@ Option<bool> toMultiValueNumericFilter(std::string& raw_value, filter& filter_ex
     return Option<bool>(true);
 }
 
-Option<bool> toFilter(const std::string expression,
+Option<bool> toFilter(const std::string& expression,
                       filter& filter_exp,
                       const tsl::htrie_map<char, field>& search_schema,
                       const Store* store,
-                      const std::string& doc_id_prefix) {
+                      const std::string& doc_id_prefix,
+                      const bool& validate_field_names) {
     // split into [field_name, value]
     size_t found_index = expression.find(':');
     if (found_index == std::string::npos) {
@@ -488,6 +489,11 @@ Option<bool> toFilter(const std::string expression,
     auto field_it = search_schema.find(field_name);
 
     if (field_it == search_schema.end()) {
+        if (!validate_field_names) {
+            filter_exp = {field_name};
+            filter_exp.is_ignored_filter = true;
+            return Option<bool>(true);
+        }
         return Option<bool>(404, "Could not find a filter field named `" + field_name + "` in the schema.");
     }
 
@@ -582,7 +588,7 @@ Option<bool> toFilter(const std::string expression,
             filter_exp = {field_name, {bool_value}, {bool_comparator}};
         }
     } else if (_field.is_geopoint()) {
-        filter_exp = {field_name, {}, {}};
+        filter_exp = {field_name};
         NUM_COMPARATOR num_comparator;
 
         if ((raw_value[0] == '(' && std::count(raw_value.begin(), raw_value.end(), '[') > 0) ||
@@ -680,7 +686,8 @@ Option<bool> toFilter(const std::string expression,
 Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                          const tsl::htrie_map<char, field>& search_schema,
                          const Store* store,
-                         const std::string& doc_id_prefix) {
+                         const std::string& doc_id_prefix,
+                         const bool& validate_field_names) {
     std::stack<filter_node_t*> nodeStack;
     bool is_successful = true;
     std::string error_message;
@@ -731,7 +738,8 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                 filter_exp = {expression.substr(parenthesis_index + 1, expression.size() - parenthesis_index - 2)};
                 filter_exp.referenced_collection_name = collection_name;
             } else {
-                Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix);
+                Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix,
+                                                    validate_field_names);
                 if (!toFilter_op.ok()) {
                     is_successful = false;
                     error_message = toFilter_op.error();
@@ -768,7 +776,8 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
                                         const tsl::htrie_map<char, field>& search_schema,
                                         const Store* store,
                                         const std::string& doc_id_prefix,
-                                        filter_node_t*& root) {
+                                        filter_node_t*& root,
+                                        const bool& validate_field_names) {
     auto _filter_query = filter_query;
     StringUtils::trim(_filter_query);
     if (_filter_query.empty()) {
@@ -797,7 +806,8 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
                                               root,
                                               search_schema,
                                               store,
-                                              doc_id_prefix);
+                                              doc_id_prefix,
+                                              validate_field_names);
     if (!toParseTree_op.ok()) {
         return toParseTree_op;
     }

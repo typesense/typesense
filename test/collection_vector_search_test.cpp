@@ -497,6 +497,59 @@ TEST_F(CollectionVectorTest, VectorChangedUpsert) {
     ASSERT_FLOAT_EQ(0.006849408149719238, results["hits"][0]["vector_distance"].get<float>());
 }
 
+TEST_F(CollectionVectorTest, VectorUpsertOnEmptyValues) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "skills", "type": "string[]"},
+            {
+                "name": "vec",
+                "type": "float[]", "optional": true,
+                "embed": {
+                    "from": ["skills"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                }
+            }
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc = R"(
+        {
+            "id": "0",
+            "skills": []
+        }
+    )"_json;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // update with actual value
+
+    doc = R"(
+        {
+            "id": "0",
+            "skills": ["Skill 1"]
+        }
+    )"_json;
+
+    ASSERT_TRUE(coll1->add(doc.dump(), UPSERT).ok());
+
+    auto res_op = coll1->search("skill", {"vec"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2);
+
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+}
+
 TEST_F(CollectionVectorTest, VectorManyUpserts) {
     nlohmann::json schema = R"({
             "name": "coll1",
@@ -5187,9 +5240,88 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
     ASSERT_FLOAT_EQ(0.2496563196182251, res["hits"][3]["vector_distance"].get<float>());
 
     ASSERT_EQ(1736172819517014137, res["hits"][0]["text_match"].get<std::size_t>());
-    ASSERT_EQ(2211897868288, res["hits"][1]["text_match"].get<std::size_t>());
-    ASSERT_EQ(1108091338752, res["hits"][2]["text_match"].get<std::size_t>());
+    ASSERT_EQ(1157451471441100921, res["hits"][1]["text_match"].get<std::size_t>());
+    ASSERT_EQ(578730123365187705, res["hits"][2]["text_match"].get<std::size_t>());
     ASSERT_EQ(0, res["hits"][3]["text_match"].get<std::size_t>()); //document with id:3 won't have any text_match
+}
+
+TEST_F(CollectionVectorTest, HybridSearchAuxScoreWithTwoFieldsTest) {
+    nlohmann::json schema = R"({
+                "name": "test",
+                "fields": [
+                    {
+                        "name": "title",
+                        "type": "string"
+                    },
+                    {
+                        "name": "description",
+                        "type": "string"
+                    },
+                    {
+                        "name": "embedding",
+                        "type": "float[]",
+                        "embed": {
+                            "from": [
+                                "title", "description"
+                            ],
+                            "model_config": {
+                                "model_name": "ts/e5-small"
+                            }
+                        }
+                    }
+                ]
+                })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "title": "Dos pistas de padel cubiertas en el Barrio de Casetas. Zaragoza. Convenio DPZ.",
+        "description": "Consejería de Urbanismo, Infraestructuras, Energía y Vivienda del Ayuntamiento de Zaragoza",
+        "id": "0"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "title": "Dos pistas de padal cubiertas",
+        "description": "Consejería de Urbanismo",
+        "id": "1"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    bool use_aux_score = true;
+    size_t drop_tokens_threshold = 0;
+
+    auto res = coll->search("Pistas de padal", {"title", "description", "embedding"}, "", {},
+                            {}, {0}, 10, 1,FREQUENCY, {true},
+                            drop_tokens_threshold, spp::sparse_hash_set<std::string>(),
+                            {"embedding"}, 10, "",
+                            30, 4, "", 40,
+                            {}, {}, {}, 0,"<mark>",
+                            "</mark>", {}, 1000,true,
+                            false, true, "", false,
+                            6000*1000, 4, 7, fallback, 4,
+                            {off}, INT16_MAX, INT16_MAX,2,
+                            2, false, "", true,
+                            0, max_score, 100, 0, 0,
+                            "exhaustive", 30000, 2, "",
+                            {},{}, "right_to_left", true,
+                            true, false, "", "", "",
+                            "", true, true, false, 0, true,
+                            true, DEFAULT_FILTER_BY_CANDIDATES, use_aux_score).get();
+
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ(3, res["hits"][0]["text_match_info"]["tokens_matched"].get<std::size_t>());
+    ASSERT_EQ(2, res["hits"][0]["text_match_info"]["fields_matched"].get<std::size_t>());
+
+    ASSERT_EQ(2, res["hits"][1]["text_match_info"]["tokens_matched"].get<std::size_t>());
+    ASSERT_EQ(2, res["hits"][1]["text_match_info"]["fields_matched"].get<std::size_t>());
 }
 
 TEST_F(CollectionVectorTest, EmbedFieldMustBeFloatArray) {

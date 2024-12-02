@@ -161,6 +161,10 @@ public:
         this->analytics_minute_rate_limit = analytics_minute_rate_limit;
     }
 
+    void set_analytics_flush_interval(uint32_t analytics_flush_interval) {
+        this->analytics_flush_interval = analytics_flush_interval;
+    }
+
     void set_api_key(const std::string & api_key) {
         this->api_key = api_key;
     }
@@ -423,7 +427,11 @@ public:
         if (!ret) {
             return std::string();
         }
-        return std::string(ret);
+        std::string value(ret);
+        if (StringUtils::is_bool(value)) {
+            StringUtils::toupper(value);
+        }
+        return value;
     }
 
     void load_config_env();
