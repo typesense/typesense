@@ -12,7 +12,7 @@
 class TextEmbedder {
     public:
         // Constructor for local or public models
-        TextEmbedder(const std::string& model_path);
+        TextEmbedder(const std::string& model_path, const bool is_public_model);
         // Constructor for remote models
         TextEmbedder(const nlohmann::json& model_config, size_t num_dims, const bool has_custom_dims = false);
         ~TextEmbedder();

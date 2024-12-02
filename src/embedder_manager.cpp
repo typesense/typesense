@@ -95,37 +95,36 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
     if(!public_model_op.ok()) {
         return public_model_op;
     }
-
-    std::string abs_path = EmbedderManager::get_absolute_model_path(
-    EmbedderManager::get_model_name_without_namespace(model_name));
+    bool is_public_model = public_model_op.get();
+    std::string abs_path = EmbedderManager::get_absolute_model_path(EmbedderManager::get_model_name_without_namespace(model_name), is_public_model);
 
     if(!std::filesystem::exists(abs_path)) {
         LOG(ERROR) << "Model file not found: " << abs_path;
         return Option<bool>(400, "Model file not found");
     }
 
-    bool is_public_model = public_model_op.get();
+
 
     if(!is_public_model) {
-        if(!std::filesystem::exists(EmbedderManager::get_absolute_config_path(model_name))) {
-            LOG(ERROR) << "Config file not found: " << EmbedderManager::get_absolute_config_path(model_name);
+        if(!std::filesystem::exists(EmbedderManager::get_absolute_config_path(model_name, false))) {
+            LOG(ERROR) << "Config file not found: " << EmbedderManager::get_absolute_config_path(model_name, false);
             return Option<bool>(400, "Config file not found");
         }
-        std::ifstream config_file(EmbedderManager::get_absolute_config_path(model_name));
+        std::ifstream config_file(EmbedderManager::get_absolute_config_path(model_name, false));
         nlohmann::json config;
         config_file >> config;
         if(config["model_type"].is_null() || config["vocab_file_name"].is_null()) {
-            LOG(ERROR) << "Invalid config file: " << EmbedderManager::get_absolute_config_path(model_name);
+            LOG(ERROR) << "Invalid config file: " << EmbedderManager::get_absolute_config_path(model_name, false);
             return Option<bool>(400, "Invalid config file");
         }
 
         if(!config["model_type"].is_string() || !config["vocab_file_name"].is_string()) {
-            LOG(ERROR) << "Invalid config file: " << EmbedderManager::get_absolute_config_path(model_name);
+            LOG(ERROR) << "Invalid config file: " << EmbedderManager::get_absolute_config_path(model_name, false);
             return Option<bool>(400, "Invalid config file");
         }
 
-        if(!std::filesystem::exists(EmbedderManager::get_model_subdir(model_name) + "/" + config["vocab_file_name"].get<std::string>())) {
-            LOG(ERROR) << "Vocab file not found: " << EmbedderManager::get_model_subdir(model_name) + "/" + config["vocab_file_name"].get<std::string>();
+        if(!std::filesystem::exists(EmbedderManager::get_model_subdir(model_name, false) + "/" + config["vocab_file_name"].get<std::string>())) {
+            LOG(ERROR) << "Vocab file not found: " << EmbedderManager::get_model_subdir(model_name, false) + "/" + config["vocab_file_name"].get<std::string>();
             return Option<bool>(400, "Vocab file not found");
         }
 
@@ -157,7 +156,7 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
     }
 #endif
 
-    const std::shared_ptr<TextEmbedder>& embedder = std::make_shared<TextEmbedder>(model_name_without_namespace);
+    const std::shared_ptr<TextEmbedder>& embedder = std::make_shared<TextEmbedder>(model_name_without_namespace, is_public_model);
 
     auto validate_op = embedder->validate();
     if(!validate_op.ok()) {
@@ -169,7 +168,7 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
 
     // if model is clip, generate image embedder
     if(embedder->get_tokenizer_type() == TokenizerType::clip) {
-        auto image_embedder = std::make_shared<CLIPImageEmbedder>(embedder->get_session(), embedder->get_env(), get_model_subdir(model_name_without_namespace));
+        auto image_embedder = std::make_shared<CLIPImageEmbedder>(embedder->get_session(), embedder->get_env(), get_model_subdir(model_name_without_namespace, is_public_model));
         image_embedders.emplace(model_name, image_embedder);
     }
     return Option<bool>(true);
@@ -290,15 +289,15 @@ const std::string& EmbedderManager::get_model_dir() {
 EmbedderManager::~EmbedderManager() {
 }
 
-const std::string EmbedderManager::get_absolute_model_path(const std::string& model_name) {
-    return get_model_subdir(model_name) + "/model.onnx";
+const std::string EmbedderManager::get_absolute_model_path(const std::string& model_name, const bool is_public) {
+    return get_model_subdir(model_name, is_public) + "/model.onnx";
 }
-const std::string EmbedderManager::get_absolute_vocab_path(const std::string& model_name, const std::string& vocab_file_name) {
-    return get_model_subdir(model_name) + "/" + vocab_file_name;
+const std::string EmbedderManager::get_absolute_vocab_path(const std::string& model_name, const std::string& vocab_file_name, const bool is_public) {
+    return get_model_subdir(model_name, is_public) + "/" + vocab_file_name;
 }
 
-const std::string EmbedderManager::get_absolute_config_path(const std::string& model_name) {
-    return get_model_subdir(model_name) + "/config.json";
+const std::string EmbedderManager::get_absolute_config_path(const std::string& model_name, const bool is_public) {
+    return get_model_subdir(model_name, is_public) + "/config.json";
 }
 
 const bool EmbedderManager::check_md5(const std::string& file_path, const std::string& target_md5) {
@@ -337,8 +336,13 @@ const bool EmbedderManager::check_md5(const std::string& file_path, const std::s
 Option<bool> EmbedderManager::download_public_model(const text_embedding_model& model) {
     HttpClient& httpClient = HttpClient::get_instance();
     auto actual_model_name = get_model_name_without_namespace(model.model_name);
-    if(!check_md5(get_absolute_model_path(actual_model_name), model.model_md5)) {
-        long res = httpClient.download_file(get_model_url(model), get_absolute_model_path(actual_model_name));
+    // create subdir <model_name> if it doesn't exist
+    auto model_subdir = get_model_subdir(actual_model_name, true);
+    if(!std::filesystem::exists(model_subdir)) {
+        std::filesystem::create_directories(model_subdir);
+    }
+    if(!check_md5(get_absolute_model_path(actual_model_name, true), model.model_md5)) {
+        long res = httpClient.download_file(get_model_url(model), get_absolute_model_path(actual_model_name, true));
         if(res != 200) {
             LOG(INFO) << "Failed to download public model: " << model.model_name;
             return Option<bool>(400, "Failed to download model file");
@@ -346,8 +350,8 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
     }
 
     if(!model.data_file_md5.empty()) {
-        if(!check_md5(get_absolute_model_path(actual_model_name) + "_data", model.data_file_md5)) {
-            long res = httpClient.download_file(get_model_data_url(model), get_absolute_model_path(actual_model_name) + "_data");
+        if(!check_md5(get_absolute_model_path(actual_model_name, true) + "_data", model.data_file_md5)) {
+            long res = httpClient.download_file(get_model_data_url(model), get_absolute_model_path(actual_model_name, true) + "_data");
             if(res != 200) {
                 LOG(INFO) << "Failed to download public model data file: " << model.model_name;
                 return Option<bool>(400, "Failed to download model data file");
@@ -355,8 +359,8 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
         }
     }
     
-    if(!model.vocab_md5.empty() && !check_md5(get_absolute_vocab_path(actual_model_name, model.vocab_file_name), model.vocab_md5)) {
-        long res = httpClient.download_file(get_vocab_url(model), get_absolute_vocab_path(actual_model_name, model.vocab_file_name));
+    if(!model.vocab_md5.empty() && !check_md5(get_absolute_vocab_path(actual_model_name, model.vocab_file_name, true), model.vocab_md5)) {
+        long res = httpClient.download_file(get_vocab_url(model), get_absolute_vocab_path(actual_model_name, model.vocab_file_name, true));
         if(res != 200) {
             LOG(INFO) << "Failed to download default vocab for model: " << model.model_name;
             return Option<bool>(400, "Failed to download vocab file");
@@ -364,7 +368,7 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
     }
 
     if(!model.tokenizer_md5.empty()) {
-        auto tokenizer_file_path = get_model_subdir(actual_model_name) + "/" + model.tokenizer_file_name;
+        auto tokenizer_file_path = get_model_subdir(actual_model_name, true) + "/" + model.tokenizer_file_name;
         if(!check_md5(tokenizer_file_path, model.tokenizer_md5)) {
             long res = httpClient.download_file(MODELS_REPO_URL + actual_model_name + "/" + model.tokenizer_file_name, tokenizer_file_path);
             if(res != 200) {
@@ -375,7 +379,7 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
     }
 
     if(!model.image_processor_md5.empty()) {
-        auto image_processor_file_path = get_model_subdir(actual_model_name) + "/" + model.image_processor_file_name;
+        auto image_processor_file_path = get_model_subdir(actual_model_name, true) + "/" + model.image_processor_file_name;
         if(!check_md5(image_processor_file_path, model.image_processor_md5)) {
             long res = httpClient.download_file(MODELS_REPO_URL + actual_model_name + "/" + model.image_processor_file_name, image_processor_file_path);
             if(res != 200) {
@@ -409,6 +413,7 @@ Option<bool> EmbedderManager::init_public_model(const std::string& model_name) {
     }
 
     auto config = model_config_op.get();
+    save_public_model_config(model_name, config);
     config["model_name"] = actual_model_name;
 
     auto model = text_embedding_model(config);
@@ -428,20 +433,16 @@ bool EmbedderManager::is_public_model(const std::string& model_name) {
     return public_models.find(model_name) != public_models.end();
 }
 
-const std::string EmbedderManager::get_model_subdir(const std::string& model_name) {
+const std::string EmbedderManager::get_model_subdir(const std::string& model_name, const bool is_public) {
+    std::string subdir;
     if(model_dir.back() != '/') {
-        // create subdir <model_name> if it doesn't exist
-        if(!std::filesystem::exists(model_dir + "/" + model_name)) {
-            std::filesystem::create_directories(model_dir + "/" + model_name);
-        }
-        return model_dir + "/" + model_name;
+        subdir = model_dir + "/" + (is_public ? "ts_" : "") + model_name;
     } else {
         // create subdir <model_name> if it doesn't exist
-        if(!std::filesystem::exists(model_dir + model_name)) {
-            std::filesystem::create_directories(model_dir + model_name);
-        }
-        return model_dir + model_name;
+        subdir = model_dir + (is_public ? "ts_" : "") + model_name;
+        
     }
+    return subdir;
 }
 
 Option<std::string> EmbedderManager::get_namespace(const std::string& model_name) {
@@ -512,20 +513,13 @@ Option<nlohmann::json> EmbedderManager::get_public_model_config(const std::strin
     std::map<std::string, std::string> response_headers;
     std::string response_body;
     long res = httpClient.get_response(MODELS_REPO_URL + actual_model_name + "/" + MODEL_CONFIG_FILE, response_body, response_headers, headers);
-
     if(res == 200 || res == 302) {
-        // cache the config file
-        auto config_file_path = get_absolute_config_path(actual_model_name);
-        std::ofstream config_file(config_file_path);
-        config_file << response_body;
-        config_file.close();
-
         return Option<nlohmann::json>(nlohmann::json::parse(response_body));
     }
 
     // check cache if network fails
-    if(std::filesystem::exists(get_absolute_config_path(model_name))) {
-        std::ifstream config_file(get_absolute_config_path(model_name));
+    if(std::filesystem::exists(get_absolute_config_path(model_name, true))) {
+        std::ifstream config_file(get_absolute_config_path(model_name, true));
         nlohmann::json config;
         config_file >> config;
         config_file.close();
@@ -562,4 +556,87 @@ const std::string EmbedderManager::get_model_namespace(const std::string& model_
 bool EmbedderManager::is_remote_model(const std::string& model_name) {
     auto model_namespace = get_namespace(model_name);
     return model_namespace.ok() && (model_namespace.get() == "openai" || model_namespace.get() == "google" || model_namespace.get() == "gcp");
+}
+
+
+bool EmbedderManager::is_model_public(const std::string& model_name) {
+    auto public_model_config_op = get_public_model_config(model_name);
+    if(!public_model_config_op.ok()) {
+        return false;
+    }
+
+    auto model_config_path = get_absolute_config_path(model_name, false);
+
+    if(!std::filesystem::exists(model_config_path)) {
+         return false;
+    }
+
+    auto public_model_config = public_model_config_op.get();
+
+    std::ifstream model_config_file(model_config_path);
+    nlohmann::json model_config;
+
+    model_config_file >> model_config;
+
+    if(public_model_config != model_config) {
+        return false;
+    }
+
+    text_embedding_model model(model_config);
+
+    if(!check_md5(get_absolute_model_path(get_model_name_without_namespace(model_name), false), model.model_md5)) {
+        return false;
+    }
+
+    if(!model.vocab_md5.empty() && !check_md5(get_absolute_vocab_path(get_model_name_without_namespace(model_name), model.vocab_file_name, false), model.vocab_md5)) {
+        return false;
+    }
+
+
+    return true;
+}
+
+
+void EmbedderManager::migrate_public_models() {
+    // get all subdirectories in model_dir
+    std::vector<std::string> subdirs;
+    for (const auto& entry : std::filesystem::directory_iterator(model_dir)) {
+        if (entry.is_directory()) {
+            subdirs.push_back(entry.path().string());
+        }
+    }
+
+    for(const auto& subdir : subdirs) {
+        // check if subdir is a public model
+        auto subdir_name = subdir.substr(subdir.find_last_of("/") + 1);
+        if((subdir_name.length() < 3 || subdir_name.substr(0, 3) != "ts_") && is_model_public(subdir_name)) {
+            // rename subdir to ts_<subdir_name>
+            // std::filesystem::copy(subdir, model_dir + "/ts_" + subdir_name, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);
+            // std::filesystem::remove_all(subdir);
+            LOG(INFO) << "Migrating public model from " << subdir_name << " to ts_" << subdir_name;
+            butil::FilePath src(subdir);
+            butil::FilePath dest(model_dir + "/ts_" + subdir_name);
+            if(butil::PathExists(dest)) {
+                butil::DeleteFile(dest, true);
+            }
+            bool res = butil::Move(src, dest);
+            if(!res) {
+                LOG(ERROR) << "Failed to migrate public model from " << subdir_name << " to ts_" << subdir_name;
+            }
+            LOG(INFO) << "Migrated public model from " << subdir_name << " to ts_" << subdir_name;
+        }
+    }
+}
+
+void EmbedderManager::save_public_model_config(const std::string& model_name, const nlohmann::json& model_config) {
+    auto actual_model_name = get_model_name_without_namespace(model_name);
+    const std::string& subdir = get_model_subdir(actual_model_name, true);
+    if(!std::filesystem::exists(subdir)) {
+        std::filesystem::create_directories(subdir);
+    }
+    auto config_file_path = get_absolute_config_path(actual_model_name, true);
+    std::ofstream config_file(config_file_path);
+    config_file << model_config.dump(2);
+    config_file.close();
+
 }
