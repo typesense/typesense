@@ -3287,7 +3287,7 @@ bool test_personalization_model(const std::shared_ptr<http_req>& req, const std:
 
         nlohmann::json response;
         response["message"] = "Model test successful";
-        response["single_output_size"] = output_vec.size();
+        response["single_output_size"] = output_vec.embedding.size();
         response["batch_output_size"] = batch_output.size();
         res->set_200(response.dump());
         return true;

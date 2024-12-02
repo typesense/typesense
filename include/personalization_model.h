@@ -7,6 +7,7 @@
 #include <memory>
 #include <mutex>
 #include <core/session/onnxruntime_cxx_api.h>
+#include "text_embedder_remote.h" // Added for embedding_res_t
 
 class PersonalizationModel {
 public:
@@ -15,7 +16,7 @@ public:
         {"search", {"tyrec-2"}}
     };
     
-    PersonalizationModel(const std::string& model_path);
+    PersonalizationModel(const std::string& model_id);
     ~PersonalizationModel();
 
     static std::string get_model_subdir(const std::string& model_id);
@@ -26,8 +27,8 @@ public:
 
     size_t get_input_dims() const { return input_dims_; }
     size_t get_output_dims() const { return output_dims_; }
-    std::vector<float> embed_vector(const std::vector<float>& input_vector);
-    std::vector<std::vector<float>> batch_embed_vectors(const std::vector<std::vector<float>>& input_vectors);
+    embedding_res_t embed_vector(const std::vector<float>& input_vector);
+    std::vector<embedding_res_t> batch_embed_vectors(const std::vector<std::vector<float>>& input_vectors);
     Option<bool> validate_model_io();
 
 private:

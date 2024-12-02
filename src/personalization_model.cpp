@@ -1,4 +1,5 @@
 #include "personalization_model.h"
+#include "text_embedder_remote.h"
 #include "collection_manager.h"
 #include "archive_utils.h"
 #include <iostream>
@@ -225,96 +226,125 @@ void PersonalizationModel::initialize_session() {
     output_dims_ = output_shape[output_shape.size() - 1];
 }
 
-std::vector<float> PersonalizationModel::embed_vector(const std::vector<float>& input_vector) {
+embedding_res_t PersonalizationModel::embed_vector(const std::vector<float>& input_vector) {
     if (input_vector.size() != input_dims_) {
-        throw std::runtime_error("Input vector dimension mismatch. Expected: " + 
-                               std::to_string(input_dims_) + ", Got: " + 
-                               std::to_string(input_vector.size()));
+        nlohmann::json error = {
+            {"message", "Input vector dimension mismatch"},
+            {"expected", input_dims_},
+            {"got", input_vector.size()}
+        };
+        return embedding_res_t(400, error);
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::unique_lock<std::mutex> lock(mutex_);
 
-    Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
-        OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+    try {
+        Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
+            OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
 
-    std::vector<int64_t> input_shape = {1, static_cast<int64_t>(input_dims_)};
-    
-    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-        memory_info, const_cast<float*>(input_vector.data()), input_vector.size(),
-        input_shape.data(), input_shape.size());
+        std::vector<int64_t> input_shape = {1, static_cast<int64_t>(input_dims_)};
+        
+        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+            memory_info, const_cast<float*>(input_vector.data()), input_vector.size(),
+            input_shape.data(), input_shape.size());
 
-    Ort::AllocatorWithDefaultOptions allocator;
-    auto input_name = session_->GetInputNameAllocated(0, allocator);
-    auto output_name = session_->GetOutputNameAllocated(0, allocator);
-    const char* input_names[] = {input_name.get()};
-    const char* output_names[] = {output_name.get()};
+        Ort::AllocatorWithDefaultOptions allocator;
+        auto input_name = session_->GetInputNameAllocated(0, allocator);
+        auto output_name = session_->GetOutputNameAllocated(0, allocator);
+        const char* input_names[] = {input_name.get()};
+        const char* output_names[] = {output_name.get()};
 
-    auto output_tensors = session_->Run(
-        Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
+        auto output_tensors = session_->Run(
+            Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
 
-    // Get results
-    float* output_data = output_tensors[0].GetTensorMutableData<float>();
-    return std::vector<float>(output_data, output_data + output_dims_);
+        // Get results
+        float* output_data = output_tensors[0].GetTensorMutableData<float>();
+        std::vector<float> embedding(output_data, output_data + output_dims_);
+        return embedding_res_t(embedding);
+
+    } catch (const Ort::Exception& e) {
+        nlohmann::json error = {
+            {"message", "ONNX runtime error"},
+            {"error", e.what()}
+        };
+        return embedding_res_t(500, error);
+    }
 }
 
-std::vector<std::vector<float>> PersonalizationModel::batch_embed_vectors(
+std::vector<embedding_res_t> PersonalizationModel::batch_embed_vectors(
     const std::vector<std::vector<float>>& input_vectors) {
     
     if (input_vectors.empty()) {
         return {};
     }
 
+    std::vector<embedding_res_t> results;
+    results.reserve(input_vectors.size());
+
     for (const auto& vec : input_vectors) {
         if (vec.size() != input_dims_) {
-            throw std::runtime_error("Input vector dimension mismatch. Expected: " + 
-                                   std::to_string(input_dims_) + ", Got: " + 
-                                   std::to_string(vec.size()));
+            nlohmann::json error = {
+                {"message", "Input vector dimension mismatch"},
+                {"expected", input_dims_},
+                {"got", vec.size()}
+            };
+            results.push_back(embedding_res_t(400, error));
+            return results;
         }
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::unique_lock<std::mutex> lock(mutex_);
 
-    // Flatten input vectors
-    std::vector<float> flat_input;
-    flat_input.reserve(input_vectors.size() * input_dims_);
-    for (const auto& vec : input_vectors) {
-        flat_input.insert(flat_input.end(), vec.begin(), vec.end());
+    try {
+        // Flatten input vectors
+        std::vector<float> flat_input;
+        flat_input.reserve(input_vectors.size() * input_dims_);
+        for (const auto& vec : input_vectors) {
+            flat_input.insert(flat_input.end(), vec.begin(), vec.end());
+        }
+
+        Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
+            OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+
+        std::vector<int64_t> input_shape = {
+            static_cast<int64_t>(input_vectors.size()),
+            static_cast<int64_t>(input_dims_)
+        };
+
+        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+            memory_info, flat_input.data(), flat_input.size(),
+            input_shape.data(), input_shape.size());
+
+        Ort::AllocatorWithDefaultOptions allocator;
+        auto input_name = session_->GetInputNameAllocated(0, allocator);
+        auto output_name = session_->GetOutputNameAllocated(0, allocator);
+        const char* input_names[] = {input_name.get()};
+        const char* output_names[] = {output_name.get()};
+
+        auto output_tensors = session_->Run(
+            Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
+
+        // Get results and reshape
+        float* output_data = output_tensors[0].GetTensorMutableData<float>();
+
+        for (size_t i = 0; i < input_vectors.size(); i++) {
+            std::vector<float> embedding(
+                output_data + (i * output_dims_),
+                output_data + ((i + 1) * output_dims_)
+            );
+            results.push_back(embedding_res_t(embedding));
+        }
+
+        return results;
+
+    } catch (const Ort::Exception& e) {
+        nlohmann::json error = {
+            {"message", "ONNX runtime error"},
+            {"error", e.what()}
+        };
+        results.push_back(embedding_res_t(500, error));
+        return results;
     }
-
-    Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
-        OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
-
-    std::vector<int64_t> input_shape = {
-        static_cast<int64_t>(input_vectors.size()),
-        static_cast<int64_t>(input_dims_)
-    };
-
-    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-        memory_info, flat_input.data(), flat_input.size(),
-        input_shape.data(), input_shape.size());
-
-    Ort::AllocatorWithDefaultOptions allocator;
-    auto input_name = session_->GetInputNameAllocated(0, allocator);
-    auto output_name = session_->GetOutputNameAllocated(0, allocator);
-    const char* input_names[] = {input_name.get()};
-    const char* output_names[] = {output_name.get()};
-
-    auto output_tensors = session_->Run(
-        Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
-
-    // Get results and reshape
-    float* output_data = output_tensors[0].GetTensorMutableData<float>();
-    std::vector<std::vector<float>> results;
-    results.reserve(input_vectors.size());
-
-    for (size_t i = 0; i < input_vectors.size(); i++) {
-        results.push_back(std::vector<float>(
-            output_data + (i * output_dims_),
-            output_data + ((i + 1) * output_dims_)
-        ));
-    }
-
-    return results;
 }
 
 Option<bool> PersonalizationModel::validate_model_io() {
