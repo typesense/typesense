@@ -616,6 +616,9 @@ void EmbedderManager::migrate_public_models() {
             LOG(INFO) << "Migrating public model from " << subdir_name << " to ts_" << subdir_name;
             butil::FilePath src(subdir);
             butil::FilePath dest(model_dir + "/ts_" + subdir_name);
+            if(butil::PathExists(dest)) {
+                butil::DeleteFile(dest, true);
+            }
             bool res = butil::Move(src, dest);
             if(!res) {
                 LOG(ERROR) << "Failed to migrate public model from " << subdir_name << " to ts_" << subdir_name;
