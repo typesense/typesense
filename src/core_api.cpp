@@ -935,42 +935,34 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         response["conversation"] = nlohmann::json::object();
         response["conversation"]["query"] = common_query;
         response["conversation"]["answer"] = answer_op.get();
-
-        auto formatted_question_op = ConversationModel::format_question(common_query, conversation_model);
-        if(!formatted_question_op.ok()) {
-            res->set_400(formatted_question_op.error());
+        std::string conversation_id = conversation_history ? orig_req_params["conversation_id"] : "";
+        auto conversation_history_op = ConversationManager::get_instance().get_full_conversation(common_query, answer_op.get(), conversation_model, conversation_id);
+        if(!conversation_history_op.ok()) {
+            res->set_400(conversation_history_op.error());
             return false;
         }
 
-        auto formatted_answer_op = ConversationModel::format_answer(answer_op.get(), conversation_model);
-        if(!formatted_answer_op.ok()) {
-            res->set_400(formatted_answer_op.error());
-            return false;
-        }
+        auto conversation_history = conversation_history_op.get();
 
         std::vector<std::string> exclude_fields;
         StringUtils::split(req->params["exclude_fields"], exclude_fields, ",");
         bool exclude_conversation_history = std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
+        
+        auto new_conversation_op = ConversationManager::get_last_n_messages(conversation_history["conversation"], 2);
+        if(!new_conversation_op.ok()) {
+            res->set_400(new_conversation_op.error());
+            return false;
+        }
+        auto new_conversation = new_conversation_op.get();
 
-        nlohmann::json new_conversation_history = nlohmann::json::array();
-        new_conversation_history.push_back(formatted_question_op.get());
-        new_conversation_history.push_back(formatted_answer_op.get());
-        std::string conversation_id = conversation_history ? orig_req_params["conversation_id"] : "";
-
-        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation_history, conversation_model, conversation_id);
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation, conversation_model, conversation_id);
         if(!add_conversation_op.ok()) {
             res->set_400(add_conversation_op.error());
             return false;
         }
 
         if(!exclude_conversation_history) {
-            auto get_conversation_op = ConversationManager::get_instance().get_conversation(add_conversation_op.get());
-            if(!get_conversation_op.ok()) {
-                res->set_400(get_conversation_op.error());
-                return false;
-            }
-            response["conversation"]["conversation_history"] = get_conversation_op.get();
-            response["conversation"]["conversation_history"].erase("id");
+            response["conversation"]["conversation_history"] = conversation_history;
         }
         response["conversation"]["conversation_id"] = add_conversation_op.get();
 

@@ -2889,7 +2889,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             }
         }
 
-        bool has_conversation_history = !conversation_id.empty();
+        
         auto qa_op = ConversationModel::get_answer(docs_array.dump(0), conversation_standalone_query, conversation_model);
         if(!qa_op.ok()) {
             return Option<nlohmann::json>(qa_op.code(), qa_op.error());
@@ -2899,33 +2899,27 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             result["conversation"]["conversation_id"] = conversation_id;
         }
 
-        auto formatted_question_op = ConversationModel::format_question(raw_query, conversation_model);
-        if(!formatted_question_op.ok()) {
-            return Option<nlohmann::json>(formatted_question_op.code(), formatted_question_op.error());
+        auto conversation_history_op = ConversationManager::get_instance().get_full_conversation(raw_query, qa_op.get(), conversation_model, conversation_id);
+        if(!conversation_history_op.ok()) {
+            return Option<nlohmann::json>(conversation_history_op.code(), conversation_history_op.error());
         }
+        auto conversation_history = conversation_history_op.get();
 
-        auto formatted_answer_op = ConversationModel::format_answer(qa_op.get(), conversation_model);
-        if(!formatted_answer_op.ok()) {
-            return Option<nlohmann::json>(formatted_answer_op.code(), formatted_answer_op.error());
+        auto new_conversation_op = ConversationManager::get_last_n_messages(conversation_history["conversation"], 2);
+        if(!new_conversation_op.ok()) {
+            return Option<nlohmann::json>(new_conversation_op.code(), new_conversation_op.error());
         }
-
-        nlohmann::json conversation_history = nlohmann::json::array();
-        conversation_history.push_back(formatted_question_op.get());
-        conversation_history.push_back(formatted_answer_op.get());
-
-        auto add_conversation_op = ConversationManager::get_instance().add_conversation(conversation_history, conversation_model, conversation_id);
+        auto new_conversation = new_conversation_op.get();
+        
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation, conversation_model, conversation_id);
         if(!add_conversation_op.ok()) {
             return Option<nlohmann::json>(add_conversation_op.code(), add_conversation_op.error());
         }
 
 
         if(exclude_fields.count("conversation_history") == 0) {
-            auto get_conversation_op = ConversationManager::get_instance().get_conversation(add_conversation_op.get());
-            if(!get_conversation_op.ok()) {
-                return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
-            }
-            result["conversation"]["conversation_history"] = get_conversation_op.get();
-            result["conversation"]["conversation_history"].erase("id");
+            result["conversation"]["conversation_history"] = conversation_history;
+            
         }
         result["conversation"]["conversation_id"] = add_conversation_op.get();
     }
