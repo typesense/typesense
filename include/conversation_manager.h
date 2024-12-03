@@ -24,6 +24,7 @@ class ConversationManager {
         }
         Option<std::string> add_conversation(const nlohmann::json& conversation, const nlohmann::json& model, const std::string& id = "");
         Option<nlohmann::json> get_conversation(const std::string& conversation_id);
+        Option<nlohmann::json> get_full_conversation(const std::string& question, const std::string& answer, const nlohmann::json& model, const std::string& conversation_id);
         static Option<nlohmann::json> truncate_conversation(nlohmann::json conversation, size_t limit);
         Option<nlohmann::json> delete_conversation(const std::string& conversation_id);
         Option<bool> check_conversation_exists(const std::string& conversation_id);

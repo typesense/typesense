@@ -241,3 +241,44 @@ TEST_F(ConversationTest, TestInvalidConversationCollection) {
     ASSERT_EQ(res.error(), "Schema is missing `conversation_id` field");
 }
 
+TEST_F(ConversationTest, TestGettingFullConversation) {
+    nlohmann::json dummy_model = nlohmann::json::object();
+    dummy_model["model_name"] = "openai/gpt-4-turbo";
+    dummy_model["history_collection"] = "conversation_store";
+    dummy_model["id"] = "1";
+
+    std::string question = "What is the capital of France?";
+    std::string answer = "The capital of France is Paris.";
+
+    auto conversation_history_op = ConversationManager::get_instance().get_full_conversation(question, answer, dummy_model, "");
+    ASSERT_TRUE(conversation_history_op.ok());
+
+    auto conversation_history = conversation_history_op.get();
+    ASSERT_TRUE(conversation_history["conversation"].is_array());
+    ASSERT_EQ(conversation_history["conversation"].size(), 2);
+    ASSERT_EQ(conversation_history["conversation"][0]["user"], question);
+    ASSERT_EQ(conversation_history["conversation"][1]["assistant"], answer);
+    ASSERT_TRUE(conversation_history["last_updated"].is_number());
+
+    auto dummy_history = nlohmann::json::array();
+    dummy_history.push_back(conversation_history["conversation"][0]);
+    dummy_history.push_back(conversation_history["conversation"][1]);
+
+    auto add_conversation_op = ConversationManager::get_instance().add_conversation(dummy_history, model);
+    ASSERT_TRUE(add_conversation_op.ok());
+    std::string conversation_id = add_conversation_op.get();
+
+    question = "What is the capital of Germany?";
+    answer = "The capital of Germany is Berlin.";
+
+    conversation_history_op = ConversationManager::get_instance().get_full_conversation(question, answer, dummy_model, conversation_id);
+    ASSERT_TRUE(conversation_history_op.ok());
+
+    conversation_history = conversation_history_op.get();
+    ASSERT_TRUE(conversation_history["conversation"].is_array());
+    ASSERT_EQ(conversation_history["conversation"].size(), 4);
+    ASSERT_EQ(conversation_history["conversation"][0]["user"], "What is the capital of France?");
+    ASSERT_EQ(conversation_history["conversation"][1]["assistant"], "The capital of France is Paris.");
+    ASSERT_EQ(conversation_history["conversation"][2]["user"], "What is the capital of Germany?");
+    ASSERT_EQ(conversation_history["conversation"][3]["assistant"], "The capital of Germany is Berlin.");
+}

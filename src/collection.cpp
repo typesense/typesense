@@ -2889,7 +2889,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             }
         }
 
-        bool has_conversation_history = !conversation_id.empty();
+        
         auto qa_op = ConversationModel::get_answer(docs_array.dump(0), conversation_standalone_query, conversation_model);
         if(!qa_op.ok()) {
             return Option<nlohmann::json>(qa_op.code(), qa_op.error());
@@ -2899,45 +2899,26 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             result["conversation"]["conversation_id"] = conversation_id;
         }
 
-        auto formatted_question_op = ConversationModel::format_question(raw_query, conversation_model);
-        if(!formatted_question_op.ok()) {
-            return Option<nlohmann::json>(formatted_question_op.code(), formatted_question_op.error());
+        auto conversation_history_op = ConversationManager::get_instance().get_full_conversation(raw_query, qa_op.get(), conversation_model, conversation_id);
+        if(!conversation_history_op.ok()) {
+            return Option<nlohmann::json>(conversation_history_op.code(), conversation_history_op.error());
         }
+        auto conversation_history = conversation_history_op.get();
 
-        auto formatted_answer_op = ConversationModel::format_answer(qa_op.get(), conversation_model);
-        if(!formatted_answer_op.ok()) {
-            return Option<nlohmann::json>(formatted_answer_op.code(), formatted_answer_op.error());
+        auto new_conversation = nlohmann::json::array();
+        // get last 2 messages as they are the most recent
+        for(int i = conversation_history["conversation"].size() - 2; i >= 0 && i < conversation_history["conversation"].size(); i++) {
+            new_conversation.push_back(conversation_history["conversation"][i]);
         }
-
-        nlohmann::json conversation_history = nlohmann::json::array();
-        conversation_history.push_back(formatted_question_op.get());
-        conversation_history.push_back(formatted_answer_op.get());
-
-        auto full_conversation_history = nlohmann::json::object();
-        if(!has_conversation_history) {
-            full_conversation_history["conversation"] = conversation_history;
-        } else {
-            auto get_conversation_op = ConversationManager::get_instance().get_conversation(conversation_id);
-            if(!get_conversation_op.ok()) {
-                return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
-            }
-            full_conversation_history = get_conversation_op.get();
-            full_conversation_history["conversation"].push_back(conversation_history[0]);
-            full_conversation_history["conversation"].push_back(conversation_history[1]);
-
-            full_conversation_history.erase("id");
-        }
-
-        full_conversation_history["last_updated"] = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         
-        auto add_conversation_op = ConversationManager::get_instance().add_conversation(conversation_history, conversation_model, conversation_id);
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation, conversation_model, conversation_id);
         if(!add_conversation_op.ok()) {
             return Option<nlohmann::json>(add_conversation_op.code(), add_conversation_op.error());
         }
 
 
         if(exclude_fields.count("conversation_history") == 0) {
-            result["conversation"]["conversation_history"] = full_conversation_history;
+            result["conversation"]["conversation_history"] = conversation_history;
             
         }
         result["conversation"]["conversation_id"] = add_conversation_op.get();

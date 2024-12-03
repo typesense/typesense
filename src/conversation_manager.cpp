@@ -3,6 +3,7 @@
 #include <chrono>
 #include "http_client.h"
 #include "core_api.h"
+#include "conversation_model.h"
 
 Option<std::string> ConversationManager::add_conversation(const nlohmann::json& conversation, const nlohmann::json& model, const std::string& id) {
     std::unique_lock lock(conversations_mutex);
@@ -421,4 +422,38 @@ Option<bool> ConversationManager::validate_conversation_store_collection(const s
     }
 
     return Option<bool>(true);
+}
+
+Option<nlohmann::json> ConversationManager::get_full_conversation(const std::string& question, const std::string& answer, const nlohmann::json& conversation_model, const std::string& conversation_id) {
+    auto formatted_question_op = ConversationModel::format_question(question, conversation_model);
+    if(!formatted_question_op.ok()) {
+        return Option<nlohmann::json>(formatted_question_op.code(), formatted_question_op.error());
+    }
+
+    auto formatted_answer_op = ConversationModel::format_answer(answer, conversation_model);
+    if(!formatted_answer_op.ok()) {
+        return Option<nlohmann::json>(formatted_answer_op.code(), formatted_answer_op.error());
+    }
+    nlohmann::json conversation_history = nlohmann::json::array();
+    conversation_history.push_back(formatted_question_op.get());
+    conversation_history.push_back(formatted_answer_op.get());
+
+    auto full_conversation_history = nlohmann::json::object();
+    if(conversation_id.empty()) {
+        full_conversation_history["conversation"] = conversation_history;
+    } else {
+        auto get_conversation_op = get_conversation(conversation_id);
+        if(!get_conversation_op.ok()) {
+            return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
+        }
+        full_conversation_history = get_conversation_op.get();
+        full_conversation_history["conversation"].push_back(conversation_history[0]);
+        full_conversation_history["conversation"].push_back(conversation_history[1]);
+
+        full_conversation_history.erase("id");
+    }
+
+    full_conversation_history["last_updated"] = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+    return Option<nlohmann::json>(full_conversation_history);
 }
