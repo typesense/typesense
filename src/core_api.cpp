@@ -2953,8 +2953,9 @@ bool post_import_stemming_dictionary(const std::shared_ptr<http_req>& req, const
     std::stringstream response_stream;
 
     if(!single_partial_record_body) {
-        if(!StemmerManager::get_instance().save_words(req->params.at(ID), json_lines)) {
-            res->set_400("Bad/malformed dictionary import.");
+        auto op = StemmerManager::get_instance().upsert_stemming_dictionary(req->params.at(ID), json_lines);
+        if(!op.ok()) {
+            res->set(op.code(), op.error());
             stream_response(req, res);
         }
 
@@ -3009,7 +3010,11 @@ bool del_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::sh
     const std::string& id = req->params["id"];
     nlohmann::json dictionary;
 
-    StemmerManager::get_instance().del_stemming_dictionary(id);
+    auto delete_op = StemmerManager::get_instance().del_stemming_dictionary(id);
+
+    if(!delete_op.ok()) {
+        res->set(delete_op.code(), delete_op.error());
+    }
 
     nlohmann::json res_json;
     res_json["id"] = id;

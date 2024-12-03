@@ -25,6 +25,7 @@
 #include "stopwords_manager.h"
 #include "conversation_manager.h"
 #include "vq_model_manager.h"
+#include "stemmer_manager.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -475,6 +476,9 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     StopwordsManager& stopwordsManager = StopwordsManager::get_instance();
     stopwordsManager.init(&store);
+
+    StemmerManager& stemmerManager = StemmerManager::get_instance();
+    stemmerManager.init(&store);
 
     RateLimitManager *rateLimitManager = RateLimitManager::getInstance();
     auto rate_limit_manager_init = rateLimitManager->init(&meta_store);

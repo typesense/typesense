@@ -40,7 +40,16 @@ std::string Stemmer::stem(const std::string & word) {
     return stemmed_word;
 }
 
+void StemmerManager::init(Store* _store) {
+    store = _store;
+}
+
 StemmerManager::~StemmerManager() {
+    delete_all_stemmers();
+    stem_dictionaries.clear();
+}
+
+void StemmerManager::dispose() {
     delete_all_stemmers();
     stem_dictionaries.clear();
 }
@@ -77,26 +86,53 @@ const bool StemmerManager::validate_language(const std::string& language) {
     return true;
 }
 
-bool StemmerManager::save_words(const std::string& dictionary_name, const std::vector<std::string> &json_lines) {
+Option<bool> StemmerManager::upsert_stemming_dictionary(const std::string& dictionary_name, const std::vector<std::string> &json_lines,
+                                                bool write_to_store) {
     if(json_lines.empty()) {
-        return false;
+        return Option<bool>(400, "Invalid dictionary format.");
     }
 
     std::lock_guard<std::mutex> lock(mutex);
 
     nlohmann::json json_line;
+    nlohmann::json dictionary_json;
+    dictionary_json["id"] = dictionary_name;
+    dictionary_json["words"] = nlohmann::json::array();
+
     for(const auto& line_str : json_lines) {
         try {
             json_line = nlohmann::json::parse(line_str);
         } catch(...) {
-            return false;
+            return Option<bool>(400, "Invalid dictionary format.");
         }
 
         if(!json_line.contains("word") || !json_line.contains("root")) {
-            return false;
+            return Option<bool>(400, "dictionary lines should contain `word` and `root` values.");
         }
         stem_dictionaries[dictionary_name].emplace(json_line["word"], json_line["root"]);
+        dictionary_json["words"].push_back(json_line);
     }
+
+    if(write_to_store) {
+        bool inserted = store->insert(get_stemming_dictionary_key(dictionary_name), dictionary_json.dump());
+        if (!inserted) {
+            return Option<bool>(500, "Unable to insert into store.");
+        }
+    }
+
+    return Option<bool>(true);
+}
+
+bool StemmerManager::load_stemming_dictioary(const nlohmann::json &dictionary_json) {
+    const auto& dictionary_name = dictionary_json["id"];
+    std::vector<std::string> json_lines;
+
+    for(const auto& line : dictionary_json["words"]) {
+        json_lines.push_back(line.dump());
+    }
+
+    upsert_stemming_dictionary(dictionary_name, json_lines, false);
+
     return true;
 }
 
@@ -151,16 +187,30 @@ bool StemmerManager::get_stemming_dictionary(const std::string &id, nlohmann::js
     return false;
 }
 
-void StemmerManager::del_stemming_dictionary(const std::string &id) {
+Option<bool> StemmerManager::del_stemming_dictionary(const std::string &id) {
     std::lock_guard<std::mutex> lock(mutex);
 
     auto found = stem_dictionaries.find(id);
     if(found != stem_dictionaries.end()) {
         stem_dictionaries.erase(found);
+
+        bool removed = store->remove(get_stemming_dictionary_key(id));
+        if(!removed) {
+            return Option<bool>(500, "Unable to delete from store.");
+        }
     }
+
+    return Option<bool>(true);
 }
 
 void StemmerManager::delete_all_stemming_dictionaries() {
     std::lock_guard<std::mutex> lock(mutex);
+    for(const auto& kv : stem_dictionaries) {
+        store->remove(get_stemming_dictionary_key(kv.first));
+    }
     stem_dictionaries.clear();
+}
+
+std::string StemmerManager::get_stemming_dictionary_key(const std::string &dictionary_name) {
+    return std::string(STEMMING_DICTIONARY_PREFIX) + "_" + dictionary_name;
 }

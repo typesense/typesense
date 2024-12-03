@@ -430,7 +430,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
     iter = store->scan(preset_prefix_key, &preset_upper_bound);
     while(iter->Valid() && iter->key().starts_with(preset_prefix_key)) {
-        std::vector<std::string> parts;
         std::string preset_name = iter->key().ToString().substr(preset_prefix_key.size());
         nlohmann::json preset_obj = nlohmann::json::parse(iter->value().ToString(), nullptr, false);
 
@@ -451,7 +450,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
     iter = store->scan(stopword_prefix_key, &stopword_upper_bound);
     while(iter->Valid() && iter->key().starts_with(stopword_prefix_key)) {
-        std::vector<std::string> parts;
         std::string stopword_name = iter->key().ToString().substr(stopword_prefix_key.size());
         nlohmann::json stopword_obj = nlohmann::json::parse(iter->value().ToString(), nullptr, false);
 
@@ -459,6 +457,26 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
             StopwordsManager::get_instance().upsert_stopword(stopword_name, stopword_obj);
         } else {
             LOG(INFO) << "Invalid object for stopword " << stopword_name;
+        }
+
+        iter->Next();
+    }
+    delete iter;
+
+    // load stemming dictionaries
+    std::string stemming_dictionary_prefix_key = std::string(StemmerManager::STEMMING_DICTIONARY_PREFIX) + "_";
+    std::string stemming_dictionary_upper_bound_key = std::string(StemmerManager::STEMMING_DICTIONARY_PREFIX) + "`";
+    rocksdb::Slice stemming_dictionary_upper_bound(stemming_dictionary_upper_bound_key);
+
+    iter = store->scan(stemming_dictionary_prefix_key, &stemming_dictionary_upper_bound);
+    while(iter->Valid() && iter->key().starts_with(stemming_dictionary_prefix_key)) {
+        std::string stemming_dictionary_name = iter->key().ToString().substr(stemming_dictionary_prefix_key.size());
+        nlohmann::json stemming_dictionary_obj = nlohmann::json::parse(iter->value().ToString(), nullptr, false);
+
+        if(!stemming_dictionary_obj.is_discarded() && stemming_dictionary_obj.is_object()) {
+            StemmerManager::get_instance().load_stemming_dictioary(stemming_dictionary_obj);
+        } else {
+            LOG(INFO) << "Invalid object for stemming dictionary " << stemming_dictionary_name;
         }
 
         iter->Next();
