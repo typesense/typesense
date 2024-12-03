@@ -176,11 +176,11 @@ bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::share
 //plurals, nouns
 bool post_import_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_dictionaries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool get_stemming_dictionaries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool get_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool del_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool del_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Misc helpers
 

@@ -2918,7 +2918,7 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
     return true;
 }
 
-bool post_import_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool post_import_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const char *BATCH_SIZE = "batch_size";
     const char *ID = "id";
 
@@ -2984,7 +2984,7 @@ bool post_import_dictionary(const std::shared_ptr<http_req>& req, const std::sha
     return true;
 }
 
-bool get_dictionaries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool get_stemming_dictionaries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json dictionaries;
     StemmerManager::get_instance().get_stemming_dictionaries(dictionaries);
 
@@ -2992,7 +2992,7 @@ bool get_dictionaries(const std::shared_ptr<http_req>& req, const std::shared_pt
     return true;
 }
 
-bool get_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool get_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string& id = req->params["id"];
     nlohmann::json dictionary;
 
@@ -3005,7 +3005,7 @@ bool get_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     return true;
 }
 
-bool del_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool del_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string& id = req->params["id"];
     nlohmann::json dictionary;
 
