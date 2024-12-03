@@ -389,30 +389,6 @@ Option<bool> ConversationManager::check_conversation_exists(const std::string& c
     return Option<bool>(true);
 }
 
-
-Option<Collection*> ConversationManager::get_history_collection(const std::string& conversation_id) {
-
-    auto history_collections = ConversationModelManager::get_history_collections();
-    for(auto& collection : history_collections) {
-        auto collection_ptr = CollectionManager::get_instance().get_collection(collection).get();
-        if(!collection_ptr) {
-            continue;
-        }
-
-        auto search_res = collection_ptr->search("*", {}, "conversation_id:" + conversation_id, {}, {}, {}, 1);
-        if(!search_res.ok()) {
-            continue;
-        }
-
-        auto search_res_json = search_res.get();
-        if(search_res_json["found"].get<uint32_t>() > 0) {
-            return Option<Collection*>(collection_ptr);
-        }
-    }
-
-    return Option<Collection*>(404, "Conversation not found");
-}
-
 Option<bool> ConversationManager::validate_conversation_store_collection(const std::string& collection) {
     auto collection_ptr = CollectionManager::get_instance().get_collection(collection).get();
     if(!collection_ptr) {

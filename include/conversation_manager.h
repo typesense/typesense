@@ -41,8 +41,6 @@ class ConversationManager {
 
         Option<bool> validate_conversation_store_schema(Collection* collection);
         Option<bool> validate_conversation_store_collection(const std::string& collection);
-        // get history collection by conversation id
-        Option<Collection*> get_history_collection(const std::string& conversation_id); 
         // get history collection by conversation model
         Option<Collection*> get_history_collection(const nlohmann::json& model);
     private:
