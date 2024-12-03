@@ -2986,7 +2986,7 @@ bool post_import_dictionary(const std::shared_ptr<http_req>& req, const std::sha
 
 bool get_dictionaries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json dictionaries;
-    StemmerManager::get_instance().get_dictionaries(dictionaries);
+    StemmerManager::get_instance().get_stemming_dictionaries(dictionaries);
 
     res->set_200(dictionaries.dump());
     return true;
@@ -2996,7 +2996,7 @@ bool get_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     const std::string& id = req->params["id"];
     nlohmann::json dictionary;
 
-    if(!StemmerManager::get_instance().get_dictionary(id, dictionary)) {
+    if(!StemmerManager::get_instance().get_stemming_dictionary(id, dictionary)) {
         res->set_404();
         return false;
     }
@@ -3009,7 +3009,7 @@ bool del_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     const std::string& id = req->params["id"];
     nlohmann::json dictionary;
 
-    StemmerManager::get_instance().del_dictionary(id);
+    StemmerManager::get_instance().del_stemming_dictionary(id);
 
     nlohmann::json res_json;
     res_json["id"] = id;

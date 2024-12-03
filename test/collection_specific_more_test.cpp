@@ -3437,7 +3437,7 @@ TEST_F(CollectionSpecificMoreTest, StemmingDictionary) {
 }
 
 TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
-    StemmerManager::get_instance().delete_all_dictionaries();
+    StemmerManager::get_instance().delete_all_stemming_dictionaries();
 
     std::string json_line = "{\"word\": \"people\", \"root\":\"person\"}";
     std::vector<std::string> json_lines;
@@ -3448,7 +3448,7 @@ TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
 
     //get dictionary set
     nlohmann::json dictionary;
-    ASSERT_TRUE(StemmerManager::get_instance().get_dictionary("set1", dictionary));
+    ASSERT_TRUE(StemmerManager::get_instance().get_stemming_dictionary("set1", dictionary));
     ASSERT_EQ("set1", dictionary["id"]);
     ASSERT_EQ(1, dictionary["words"].size());
     ASSERT_EQ("people", dictionary["words"][0]["word"]);
@@ -3460,7 +3460,7 @@ TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
     json_lines.push_back(json_line);
     ASSERT_TRUE(StemmerManager::get_instance().save_words("set2", json_lines));
 
-    ASSERT_TRUE(StemmerManager::get_instance().get_dictionary("set2", dictionary));
+    ASSERT_TRUE(StemmerManager::get_instance().get_stemming_dictionary("set2", dictionary));
     ASSERT_EQ("set2", dictionary["id"]);
     ASSERT_EQ(1, dictionary["words"].size());
     ASSERT_EQ("qualities", dictionary["words"][0]["word"]);
@@ -3472,7 +3472,7 @@ TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
     json_lines.push_back(json_line);
     ASSERT_TRUE(StemmerManager::get_instance().save_words("set2", json_lines));
 
-    ASSERT_TRUE(StemmerManager::get_instance().get_dictionary("set2", dictionary));
+    ASSERT_TRUE(StemmerManager::get_instance().get_stemming_dictionary("set2", dictionary));
     ASSERT_EQ("set2", dictionary["id"]);
     ASSERT_EQ(2, dictionary["words"].size());
     ASSERT_EQ("qualities", dictionary["words"][0]["word"]);
@@ -3482,15 +3482,15 @@ TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
 
     //get all dictionary sets
     nlohmann::json dictionary_sets;
-    StemmerManager::get_instance().get_dictionaries(dictionary_sets);
+    StemmerManager::get_instance().get_stemming_dictionaries(dictionary_sets);
     ASSERT_EQ(2, dictionary_sets["dictionaries"].size());
     ASSERT_EQ("set1", dictionary_sets["dictionaries"][0].get<std::string>());
     ASSERT_EQ("set2", dictionary_sets["dictionaries"][1].get<std::string>());
 
     //del dictionary set and get
     dictionary_sets.clear();
-    StemmerManager::get_instance().del_dictionary("set2");
-    StemmerManager::get_instance().get_dictionaries(dictionary_sets);
+    StemmerManager::get_instance().del_stemming_dictionary("set2");
+    StemmerManager::get_instance().get_stemming_dictionaries(dictionary_sets);
     ASSERT_EQ(1, dictionary_sets["dictionaries"].size());
     ASSERT_EQ("set1", dictionary_sets["dictionaries"][0].get<std::string>());
 }
