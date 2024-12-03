@@ -11,21 +11,23 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
         return Option<std::string>(400, "Conversation is not an array");
     }
 
+    if(!model.contains("history_collection")) {
+        return Option<std::string>(400, "Model does not contain history_collection");
+    }
+    auto collection_op = get_history_collection(model);
+    if(!collection_op.ok()) {
+        return Option<std::string>(collection_op.code(), collection_op.error());
+    }
+    auto collection = collection_op.get();
+
     if(!id.empty()) {
-        auto conversation_exists = check_conversation_exists(id);
+        auto conversation_exists = check_conversation_exists(id, collection);
         if(!conversation_exists.ok()) {
             return Option<std::string>(conversation_exists.code(), conversation_exists.error());
         }
     }
 
     std::string conversation_id = id.empty() ? sole::uuid4().str() : id;
-    std::string history_collection = model["history_collection"].get<std::string>();
-
-    auto collection = CollectionManager::get_instance().get_collection(history_collection).get();
-    if(!collection) {
-        return Option<std::string>(404, "Conversation store collection not found");
-    }
-
     std::string body;
     
     for(const auto& message : conversation) {
@@ -57,7 +59,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
         auto resp = std::make_shared<http_res>(nullptr);
 
         req->params["action"] = "emplace";
-        req->params["collection"] = history_collection;
+        req->params["collection"] = collection->get_name();
         req->body = body;
 
         auto api_res = post_import_documents(req, resp);
@@ -72,7 +74,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
     std::string leader_url = raft_server->get_leader_url();
 
     if(!leader_url.empty()) {
-        std::string base_url = leader_url + "collections/" + history_collection;
+        std::string base_url = leader_url + "collections/" + collection->get_name();
         std::string res;
         std::string url = base_url + "/documents/import?action=emplace";
         std::map<std::string, std::string> res_headers;
@@ -91,9 +93,12 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
     }
 }
 
-Option<nlohmann::json> ConversationManager::get_conversation(const std::string& conversation_id) {
+Option<nlohmann::json> ConversationManager::get_conversation(const std::string& conversation_id, const nlohmann::json& model) {
+    if(!model.contains("history_collection")) {
+        return Option<nlohmann::json>(400, "Model does not contain history_collection"); 
+    }
 
-    auto collection_op = get_history_collection(conversation_id);
+    auto collection_op = get_history_collection(model);
     if(!collection_op.ok()) {
         return Option<nlohmann::json>(collection_op.code(), collection_op.error());
     }
@@ -168,25 +173,29 @@ Option<nlohmann::json> ConversationManager::truncate_conversation(nlohmann::json
     return Option<nlohmann::json>(conversation);
 }
 
-Option<nlohmann::json> ConversationManager::delete_conversation_unsafe(const std::string& conversation_id) {
-    auto conversation_exists = check_conversation_exists(conversation_id);
+Option<nlohmann::json> ConversationManager::delete_conversation_unsafe(const std::string& conversation_id, const std::string& model_id) {
+    auto model_op = ConversationModelManager::get_model(model_id);
+    if(!model_op.ok()) {
+        return Option<nlohmann::json>(model_op.code(), model_op.error());
+    }
+    auto model = model_op.get();
+    auto collection_op = get_history_collection(model);
+    if(!collection_op.ok()) {
+        return Option<nlohmann::json>(collection_op.code(), collection_op.error());
+    }
+    auto history_collection = collection_op.get();
+
+    auto conversation_exists = check_conversation_exists(conversation_id, history_collection);
     if(!conversation_exists.ok()) {
         return Option<nlohmann::json>(conversation_exists.code(), conversation_exists.error());
     }
-
-    auto history_collection_op = get_history_collection(conversation_id);
-    if(!history_collection_op.ok()) {
-        return Option<nlohmann::json>(history_collection_op.code(), history_collection_op.error());
-    }
-
-    auto history_collection = history_collection_op.get()->get_name();
 
     if(!raft_server) {
         auto req = std::make_shared<http_req>();
         auto resp = std::make_shared<http_res>(nullptr);
 
         req->params["filter_by"] = "conversation_id:" + conversation_id;
-        req->params["collection"] = history_collection;
+        req->params["collection"] = history_collection->get_name();
 
         auto api_res = del_remove_documents(req, resp);
         if(!api_res) {
@@ -204,7 +213,7 @@ Option<nlohmann::json> ConversationManager::delete_conversation_unsafe(const std
         return Option<nlohmann::json>(500, "Leader URL is empty");
     }
 
-    std::string base_url = leader_url + "collections/" + history_collection;
+    std::string base_url = leader_url + "collections/" + history_collection->get_name();
     std::string res;
     std::string url = base_url + "/documents?filter_by=conversation_id:" + conversation_id;
     std::map<std::string, std::string> res_headers;
@@ -222,9 +231,9 @@ Option<nlohmann::json> ConversationManager::delete_conversation_unsafe(const std
     }
 }
 
-Option<nlohmann::json> ConversationManager::delete_conversation(const std::string& conversation_id) {
+Option<nlohmann::json> ConversationManager::delete_conversation(const std::string& conversation_id, const std::string& model_id) {
     std::unique_lock lock(conversations_mutex);
-    return delete_conversation_unsafe(conversation_id); 
+    return delete_conversation_unsafe(conversation_id, model_id);
 } 
 
 Option<bool> ConversationManager::init(ReplicationState* raft_server) {
@@ -260,8 +269,6 @@ void ConversationManager::clear_expired_conversations() {
 
         auto history_collection = model["history_collection"].get<std::string>();
         auto ttl = model["ttl"].get<uint64_t>();
-
-        auto collection = CollectionManager::get_instance().get_collection(history_collection).get();
         std::string filter_by_str = "timestamp:<" + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() - ttl + TTL_OFFSET) + "&&model_id:=" + model["id"].get<std::string>();
         if(raft_server) {
             
@@ -363,14 +370,7 @@ Option<bool> ConversationManager::validate_conversation_store_schema(Collection*
 }
 
 
-Option<bool> ConversationManager::check_conversation_exists(const std::string& conversation_id) {
-    auto collection_op = get_history_collection(conversation_id);
-    if(!collection_op.ok()) {
-        return Option<bool>(collection_op.code(), collection_op.error());
-    }
-
-    auto collection = collection_op.get();
-
+Option<bool> ConversationManager::check_conversation_exists(const std::string& conversation_id, Collection* collection) {
     nlohmann::json res;
     size_t total = 0;
     auto search_res = collection->search("*", {}, "conversation_id:" + conversation_id, {}, {}, {}, 250);
@@ -384,30 +384,6 @@ Option<bool> ConversationManager::check_conversation_exists(const std::string& c
     }
 
     return Option<bool>(true);
-}
-
-
-Option<Collection*> ConversationManager::get_history_collection(const std::string& conversation_id) {
-
-    auto history_collections = ConversationModelManager::get_history_collections();
-    for(auto& collection : history_collections) {
-        auto collection_ptr = CollectionManager::get_instance().get_collection(collection).get();
-        if(!collection_ptr) {
-            continue;
-        }
-
-        auto search_res = collection_ptr->search("*", {}, "conversation_id:" + conversation_id, {}, {}, {}, 1);
-        if(!search_res.ok()) {
-            continue;
-        }
-
-        auto search_res_json = search_res.get();
-        if(search_res_json["found"].get<uint32_t>() > 0) {
-            return Option<Collection*>(collection_ptr);
-        }
-    }
-
-    return Option<Collection*>(404, "Conversation not found");
 }
 
 Option<bool> ConversationManager::validate_conversation_store_collection(const std::string& collection) {
@@ -442,7 +418,7 @@ Option<nlohmann::json> ConversationManager::get_full_conversation(const std::str
     if(conversation_id.empty()) {
         full_conversation_history["conversation"] = conversation_history;
     } else {
-        auto get_conversation_op = get_conversation(conversation_id);
+        auto get_conversation_op = get_conversation(conversation_id, conversation_model);
         if(!get_conversation_op.ok()) {
             return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
         }
@@ -472,4 +448,15 @@ Option<nlohmann::json> ConversationManager::get_last_n_messages(const nlohmann::
     }
 
     return Option<nlohmann::json>(res);
+}
+
+Option<Collection*> ConversationManager::get_history_collection(const nlohmann::json& model) {
+    if(model.count("history_collection") == 0) {
+        return Option<Collection*>(400, "Model is missing `history_collection` field");
+    }
+
+    auto history_collection = model["history_collection"].get<std::string>();
+    auto collection_op = CollectionManager::get_instance().get_collection(history_collection);
+
+    return Option<Collection*>(collection_op.get());
 }

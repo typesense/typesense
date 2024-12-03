@@ -723,17 +723,17 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
 
         const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
-        auto conversation_model = ConversationModelManager::get_model(conversation_model_id);
+        auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
 
-        if(!conversation_model.ok()) {
+        if(!conversation_model_op.ok()) {
             res->set_400("`conversation_model_id` is invalid.");
             return false;
         }
-
+        auto conversation_model = conversation_model_op.get();
         if(conversation_history) {
             std::string conversation_id = orig_req_params["conversation_id"];
 
-            auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id);
+            auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id, conversation_model);
 
             if(!conversation_history.ok()) {
                 res->set_400("`conversation_id` is invalid.");
@@ -746,8 +746,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         if(conversation_history) {
             const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
             auto conversation_id = orig_req_params["conversation_id"];
-            auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
-            auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id).get();
+            auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id, conversation_model).get();
             auto generate_standalone_q = ConversationModel::get_standalone_question(conversation_history, common_query, conversation_model);
 
             if(!generate_standalone_q.ok()) {

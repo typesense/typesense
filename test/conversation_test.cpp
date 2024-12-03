@@ -75,7 +75,7 @@ TEST_F(ConversationTest, CreateConversationInvalidType) {
 }
 
 TEST_F(ConversationTest, GetInvalidConversation) {
-    auto get_res = ConversationManager::get_instance().get_conversation("qwerty");
+    auto get_res = ConversationManager::get_instance().get_conversation("qwerty", model);
     ASSERT_FALSE(get_res.ok());
     ASSERT_EQ(get_res.code(), 404);
     ASSERT_EQ(get_res.error(), "Conversation not found");
@@ -95,7 +95,7 @@ TEST_F(ConversationTest, AppendConversation) {
     ASSERT_TRUE(append_res.ok());
     ASSERT_EQ(append_res.get(), conversation_id);
     
-    auto get_res = ConversationManager::get_instance().get_conversation(conversation_id);
+    auto get_res = ConversationManager::get_instance().get_conversation(conversation_id, model);
 
     ASSERT_TRUE(get_res.ok());
     ASSERT_TRUE(get_res.get()["conversation"].is_array());
@@ -133,7 +133,7 @@ TEST_F(ConversationTest, DeleteConversation) {
     std::string conversation_id = create_res.get();
     LOG(INFO) << conversation_id;
 
-    auto delete_res = ConversationManager::get_instance().delete_conversation(conversation_id);
+    auto delete_res = ConversationManager::get_instance().delete_conversation(conversation_id, model["id"]);
     LOG(INFO) << delete_res.error();
     ASSERT_TRUE(delete_res.ok());
 
@@ -141,14 +141,14 @@ TEST_F(ConversationTest, DeleteConversation) {
 
     ASSERT_EQ(delete_res_json["id"], conversation_id);
 
-    auto get_res = ConversationManager::get_instance().get_conversation(conversation_id);
+    auto get_res = ConversationManager::get_instance().get_conversation(conversation_id, model);
     ASSERT_FALSE(get_res.ok());
     ASSERT_EQ(get_res.code(), 404);
     ASSERT_EQ(get_res.error(), "Conversation not found");
 }
 
 TEST_F(ConversationTest, DeleteInvalidConversation) {
-    auto delete_res = ConversationManager::get_instance().delete_conversation("qwerty");
+    auto delete_res = ConversationManager::get_instance().delete_conversation("qwerty", model["id"]);
     ASSERT_FALSE(delete_res.ok());
     ASSERT_EQ(delete_res.code(), 404);
     ASSERT_EQ(delete_res.error(), "Conversation not found");
@@ -203,7 +203,7 @@ TEST_F(ConversationTest, TestConversationExpire) {
     
     ConversationManager::get_instance().clear_expired_conversations();
 
-    auto get_res = ConversationManager::get_instance().get_conversation(conversation_id);
+    auto get_res = ConversationManager::get_instance().get_conversation(conversation_id, model);
     ASSERT_TRUE(get_res.ok());
     ASSERT_TRUE(get_res.get()["conversation"].is_array());
     ASSERT_EQ(get_res.get()["id"], conversation_id);
@@ -214,7 +214,7 @@ TEST_F(ConversationTest, TestConversationExpire) {
     ConversationManager::get_instance().clear_expired_conversations();
     LOG(INFO) << "Cleared expired conversations";
 
-    get_res = ConversationManager::get_instance().get_conversation(conversation_id);
+    get_res = ConversationManager::get_instance().get_conversation(conversation_id, model);
     ASSERT_FALSE(get_res.ok());
     ASSERT_EQ(get_res.code(), 404);
     ASSERT_EQ(get_res.error(), "Conversation not found");
