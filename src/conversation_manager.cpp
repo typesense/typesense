@@ -11,15 +11,16 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
         return Option<std::string>(400, "Conversation is not an array");
     }
 
+    if(!model.contains("history_collection")) {
+        return Option<std::string>(400, "Model does not contain history_collection");
+    }
+    auto collection_op = get_history_collection(model);
+    if(!collection_op.ok()) {
+        return Option<std::string>(collection_op.code(), collection_op.error());
+    }
+    auto collection = collection_op.get();
+
     if(!id.empty()) {
-        if(!model.contains("history_collection")) {
-            return Option<std::string>(400, "Model does not contain history_collection");
-        }
-        auto collection_op = get_history_collection(model);
-        if(!collection_op.ok()) {
-            return Option<std::string>(collection_op.code(), collection_op.error());
-        }
-        auto collection = collection_op.get();
         auto conversation_exists = check_conversation_exists(id, collection);
         if(!conversation_exists.ok()) {
             return Option<std::string>(conversation_exists.code(), conversation_exists.error());
@@ -27,13 +28,6 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
     }
 
     std::string conversation_id = id.empty() ? sole::uuid4().str() : id;
-    std::string history_collection = model["history_collection"].get<std::string>();
-
-    auto collection = CollectionManager::get_instance().get_collection(history_collection).get();
-    if(!collection) {
-        return Option<std::string>(404, "Conversation store collection not found");
-    }
-
     std::string body;
     
     for(const auto& message : conversation) {
@@ -65,7 +59,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
         auto resp = std::make_shared<http_res>(nullptr);
 
         req->params["action"] = "emplace";
-        req->params["collection"] = history_collection;
+        req->params["collection"] = collection->get_name();
         req->body = body;
 
         auto api_res = post_import_documents(req, resp);
@@ -80,7 +74,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
     std::string leader_url = raft_server->get_leader_url();
 
     if(!leader_url.empty()) {
-        std::string base_url = leader_url + "collections/" + history_collection;
+        std::string base_url = leader_url + "collections/" + collection->get_name();
         std::string res;
         std::string url = base_url + "/documents/import?action=emplace";
         std::map<std::string, std::string> res_headers;
@@ -270,8 +264,6 @@ void ConversationManager::clear_expired_conversations() {
 
         auto history_collection = model["history_collection"].get<std::string>();
         auto ttl = model["ttl"].get<uint64_t>();
-
-        auto collection = CollectionManager::get_instance().get_collection(history_collection).get();
         std::string filter_by_str = "timestamp:<" + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() - ttl + TTL_OFFSET) + "&&model_id:=" + model["id"].get<std::string>();
         if(raft_server) {
             
