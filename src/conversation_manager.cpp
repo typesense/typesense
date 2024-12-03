@@ -14,18 +14,13 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
     if(!id.empty()) {
         Collection* collection;
         if(!model.contains("history_collection")) {
-            auto collection_op = get_history_collection(model);
-            if(!collection_op.ok()) {
-                return Option<std::string>(collection_op.code(), collection_op.error());
-            }
-            collection = collection_op.get();
-        } else {
-            auto collection_op = get_history_collection(id);
-            if(!collection_op.ok()) {
-                return Option<std::string>(collection_op.code(), collection_op.error());
-            }
-            collection = collection_op.get();
+            return Option<std::string>(400, "Model does not contain history_collection");
         }
+        auto collection_op = get_history_collection(model);
+        if(!collection_op.ok()) {
+            return Option<std::string>(collection_op.code(), collection_op.error());
+        }
+        collection = collection_op.get();
         auto conversation_exists = check_conversation_exists(id, collection);
         if(!conversation_exists.ok()) {
             return Option<std::string>(conversation_exists.code(), conversation_exists.error());
@@ -106,20 +101,15 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
 }
 
 Option<nlohmann::json> ConversationManager::get_conversation(const std::string& conversation_id, const nlohmann::json& model) {
-    Collection* collection;
     if(!model.contains("history_collection")) {
-        auto collection_op = get_history_collection(model);
-        if(!collection_op.ok()) {
-            return Option<nlohmann::json>(collection_op.code(), collection_op.error());
-        }
-        collection = collection_op.get();
-    } else {
-        auto collection_op = get_history_collection(conversation_id);
-        if(!collection_op.ok()) {
-            return Option<nlohmann::json>(collection_op.code(), collection_op.error());
-        }
-        collection = collection_op.get();
+        return Option<nlohmann::json>(400, "Model does not contain history_collection"); 
     }
+
+    auto collection_op = get_history_collection(model);
+    if(!collection_op.ok()) {
+        return Option<nlohmann::json>(collection_op.code(), collection_op.error());
+    }
+    auto collection = collection_op.get();
 
     nlohmann::json res;
     size_t total = 0;

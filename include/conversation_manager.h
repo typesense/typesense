@@ -28,7 +28,7 @@ class ConversationManager {
         static Option<nlohmann::json> get_last_n_messages(const nlohmann::json& conversation, size_t n);
         static Option<nlohmann::json> truncate_conversation(nlohmann::json conversation, size_t limit);
         Option<nlohmann::json> delete_conversation(const std::string& conversation_id);
-        Option<bool> check_conversation_exists(const std::string& conversation_id, Collection* collection = nullptr);
+        Option<bool> check_conversation_exists(const std::string& conversation_id, Collection* collection);
         Option<std::unordered_set<std::string>> get_conversation_ids();
         static constexpr size_t MAX_TOKENS = 3000;
         Option<bool> init(ReplicationState* raft_server);
