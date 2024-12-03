@@ -12,7 +12,6 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
     }
 
     if(!id.empty()) {
-        Collection* collection;
         if(!model.contains("history_collection")) {
             return Option<std::string>(400, "Model does not contain history_collection");
         }
@@ -20,7 +19,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
         if(!collection_op.ok()) {
             return Option<std::string>(collection_op.code(), collection_op.error());
         }
-        collection = collection_op.get();
+        auto collection = collection_op.get();
         auto conversation_exists = check_conversation_exists(id, collection);
         if(!conversation_exists.ok()) {
             return Option<std::string>(conversation_exists.code(), conversation_exists.error());
