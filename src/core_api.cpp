@@ -947,13 +947,14 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         std::vector<std::string> exclude_fields;
         StringUtils::split(req->params["exclude_fields"], exclude_fields, ",");
         bool exclude_conversation_history = std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
-
-        auto new_conversation = nlohmann::json::array();
-        // get last 2 messages as they are the most recent
-        for(int i = conversation_history["conversation"].size() - 2; i >= 0 && i < conversation_history["conversation"].size(); i++) {
-            new_conversation.push_back(conversation_history["conversation"][i]);
-        }
         
+        auto new_conversation_op = ConversationManager::get_last_n_messages(conversation_history["conversation"], 2);
+        if(!new_conversation_op.ok()) {
+            res->set_400(new_conversation_op.error());
+            return false;
+        }
+        auto new_conversation = new_conversation_op.get();
+
         auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation, conversation_model, conversation_id);
         if(!add_conversation_op.ok()) {
             res->set_400(add_conversation_op.error());

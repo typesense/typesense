@@ -457,3 +457,19 @@ Option<nlohmann::json> ConversationManager::get_full_conversation(const std::str
 
     return Option<nlohmann::json>(full_conversation_history);
 }
+
+Option<nlohmann::json> ConversationManager::get_last_n_messages(const nlohmann::json& conversation, size_t n) {
+    if(!conversation.is_array()) {
+        return Option<nlohmann::json>(400, "Conversation history is not an array");
+    }
+    if(conversation.size() < n) {
+        return Option<nlohmann::json>(400, "Conversation history is less than " + std::to_string(n));
+    }
+
+    nlohmann::json res = nlohmann::json::array();
+    for(size_t i = conversation.size() - n; i < conversation.size(); i++) {
+        res.push_back(conversation[i]);
+    }
+
+    return Option<nlohmann::json>(res);
+}
