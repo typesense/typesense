@@ -23,12 +23,12 @@ class ConversationManager {
             return instance;
         }
         Option<std::string> add_conversation(const nlohmann::json& conversation, const nlohmann::json& model, const std::string& id = "");
-        Option<nlohmann::json> get_conversation(const std::string& conversation_id);
+        Option<nlohmann::json> get_conversation(const std::string& conversation_id, const nlohmann::json& model);
         Option<nlohmann::json> get_full_conversation(const std::string& question, const std::string& answer, const nlohmann::json& model, const std::string& conversation_id);
         static Option<nlohmann::json> get_last_n_messages(const nlohmann::json& conversation, size_t n);
         static Option<nlohmann::json> truncate_conversation(nlohmann::json conversation, size_t limit);
         Option<nlohmann::json> delete_conversation(const std::string& conversation_id);
-        Option<bool> check_conversation_exists(const std::string& conversation_id);
+        Option<bool> check_conversation_exists(const std::string& conversation_id, Collection* collection = nullptr);
         Option<std::unordered_set<std::string>> get_conversation_ids();
         static constexpr size_t MAX_TOKENS = 3000;
         Option<bool> init(ReplicationState* raft_server);
@@ -41,7 +41,10 @@ class ConversationManager {
 
         Option<bool> validate_conversation_store_schema(Collection* collection);
         Option<bool> validate_conversation_store_collection(const std::string& collection);
-        Option<Collection*> get_history_collection(const std::string& conversation_id);
+        // get history collection by conversation id
+        Option<Collection*> get_history_collection(const std::string& conversation_id); 
+        // get history collection by conversation model
+        Option<Collection*> get_history_collection(const nlohmann::json& model);
     private:
         ConversationManager() {}
         std::mutex conversations_mutex;

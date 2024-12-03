@@ -3284,7 +3284,7 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
 
     
     // test getting conversation history
-    auto history_op = ConversationManager::get_instance().get_conversation(conversation_id);
+    auto history_op = ConversationManager::get_instance().get_conversation(conversation_id, conversation_model_config);
 
     ASSERT_TRUE(history_op.ok());
 

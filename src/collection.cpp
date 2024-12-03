@@ -1912,18 +1912,17 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     }
 
     if(!conversation_id.empty()) {
+        auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
         if(!conversation) {
             return Option<nlohmann::json>(400, "Conversation ID provided but conversation is not enabled for this collection.");
         }
 
-        auto conversation_history_op = ConversationManager::get_instance().get_conversation(conversation_id);
+        auto conversation_history_op = ConversationManager::get_instance().get_conversation(conversation_id, conversation_model_op.get());
         if(!conversation_history_op.ok()) {
             return Option<nlohmann::json>(400, conversation_history_op.error());
         }
 
         auto conversation_history = conversation_history_op.get();
-
-        auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
 
         auto standalone_question_op = ConversationModel::get_standalone_question(conversation_history, raw_query, conversation_model_op.get());
         if(!standalone_question_op.ok()) {
