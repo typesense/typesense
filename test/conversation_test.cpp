@@ -133,7 +133,7 @@ TEST_F(ConversationTest, DeleteConversation) {
     std::string conversation_id = create_res.get();
     LOG(INFO) << conversation_id;
 
-    auto delete_res = ConversationManager::get_instance().delete_conversation(conversation_id);
+    auto delete_res = ConversationManager::get_instance().delete_conversation(conversation_id, model["id"]);
     LOG(INFO) << delete_res.error();
     ASSERT_TRUE(delete_res.ok());
 
@@ -148,7 +148,7 @@ TEST_F(ConversationTest, DeleteConversation) {
 }
 
 TEST_F(ConversationTest, DeleteInvalidConversation) {
-    auto delete_res = ConversationManager::get_instance().delete_conversation("qwerty");
+    auto delete_res = ConversationManager::get_instance().delete_conversation("qwerty", model["id"]);
     ASSERT_FALSE(delete_res.ok());
     ASSERT_EQ(delete_res.code(), 404);
     ASSERT_EQ(delete_res.error(), "Conversation not found");

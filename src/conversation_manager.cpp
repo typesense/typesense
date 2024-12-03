@@ -173,8 +173,13 @@ Option<nlohmann::json> ConversationManager::truncate_conversation(nlohmann::json
     return Option<nlohmann::json>(conversation);
 }
 
-Option<nlohmann::json> ConversationManager::delete_conversation_unsafe(const std::string& conversation_id) {
-    auto collection_op = get_history_collection(conversation_id);
+Option<nlohmann::json> ConversationManager::delete_conversation_unsafe(const std::string& conversation_id, const std::string& model_id) {
+    auto model_op = ConversationModelManager::get_model(model_id);
+    if(!model_op.ok()) {
+        return Option<nlohmann::json>(model_op.code(), model_op.error());
+    }
+    auto model = model_op.get();
+    auto collection_op = get_history_collection(model);
     if(!collection_op.ok()) {
         return Option<nlohmann::json>(collection_op.code(), collection_op.error());
     }
@@ -226,9 +231,9 @@ Option<nlohmann::json> ConversationManager::delete_conversation_unsafe(const std
     }
 }
 
-Option<nlohmann::json> ConversationManager::delete_conversation(const std::string& conversation_id) {
+Option<nlohmann::json> ConversationManager::delete_conversation(const std::string& conversation_id, const std::string& model_id) {
     std::unique_lock lock(conversations_mutex);
-    return delete_conversation_unsafe(conversation_id); 
+    return delete_conversation_unsafe(conversation_id, model_id);
 } 
 
 Option<bool> ConversationManager::init(ReplicationState* raft_server) {
