@@ -12,7 +12,21 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
     }
 
     if(!id.empty()) {
-        auto conversation_exists = check_conversation_exists(id);
+        Collection* collection;
+        if(!model.contains("history_collection")) {
+            auto collection_op = get_history_collection(model);
+            if(!collection_op.ok()) {
+                return Option<std::string>(collection_op.code(), collection_op.error());
+            }
+            collection = collection_op.get();
+        } else {
+            auto collection_op = get_history_collection(id);
+            if(!collection_op.ok()) {
+                return Option<std::string>(collection_op.code(), collection_op.error());
+            }
+            collection = collection_op.get();
+        }
+        auto conversation_exists = check_conversation_exists(id, collection);
         if(!conversation_exists.ok()) {
             return Option<std::string>(conversation_exists.code(), conversation_exists.error());
         }
@@ -91,13 +105,21 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
     }
 }
 
-Option<nlohmann::json> ConversationManager::get_conversation(const std::string& conversation_id) {
-
-    auto collection_op = get_history_collection(conversation_id);
-    if(!collection_op.ok()) {
-        return Option<nlohmann::json>(collection_op.code(), collection_op.error());
+Option<nlohmann::json> ConversationManager::get_conversation(const std::string& conversation_id, const nlohmann::json& model) {
+    Collection* collection;
+    if(!model.contains("history_collection")) {
+        auto collection_op = get_history_collection(model);
+        if(!collection_op.ok()) {
+            return Option<nlohmann::json>(collection_op.code(), collection_op.error());
+        }
+        collection = collection_op.get();
+    } else {
+        auto collection_op = get_history_collection(conversation_id);
+        if(!collection_op.ok()) {
+            return Option<nlohmann::json>(collection_op.code(), collection_op.error());
+        }
+        collection = collection_op.get();
     }
-    auto collection = collection_op.get();
 
     nlohmann::json res;
     size_t total = 0;
@@ -169,24 +191,23 @@ Option<nlohmann::json> ConversationManager::truncate_conversation(nlohmann::json
 }
 
 Option<nlohmann::json> ConversationManager::delete_conversation_unsafe(const std::string& conversation_id) {
-    auto conversation_exists = check_conversation_exists(conversation_id);
+    auto collection_op = get_history_collection(conversation_id);
+    if(!collection_op.ok()) {
+        return Option<nlohmann::json>(collection_op.code(), collection_op.error());
+    }
+    auto history_collection = collection_op.get();
+
+    auto conversation_exists = check_conversation_exists(conversation_id, history_collection);
     if(!conversation_exists.ok()) {
         return Option<nlohmann::json>(conversation_exists.code(), conversation_exists.error());
     }
-
-    auto history_collection_op = get_history_collection(conversation_id);
-    if(!history_collection_op.ok()) {
-        return Option<nlohmann::json>(history_collection_op.code(), history_collection_op.error());
-    }
-
-    auto history_collection = history_collection_op.get()->get_name();
 
     if(!raft_server) {
         auto req = std::make_shared<http_req>();
         auto resp = std::make_shared<http_res>(nullptr);
 
         req->params["filter_by"] = "conversation_id:" + conversation_id;
-        req->params["collection"] = history_collection;
+        req->params["collection"] = history_collection->get_name();
 
         auto api_res = del_remove_documents(req, resp);
         if(!api_res) {
@@ -204,7 +225,7 @@ Option<nlohmann::json> ConversationManager::delete_conversation_unsafe(const std
         return Option<nlohmann::json>(500, "Leader URL is empty");
     }
 
-    std::string base_url = leader_url + "collections/" + history_collection;
+    std::string base_url = leader_url + "collections/" + history_collection->get_name();
     std::string res;
     std::string url = base_url + "/documents?filter_by=conversation_id:" + conversation_id;
     std::map<std::string, std::string> res_headers;
@@ -363,14 +384,7 @@ Option<bool> ConversationManager::validate_conversation_store_schema(Collection*
 }
 
 
-Option<bool> ConversationManager::check_conversation_exists(const std::string& conversation_id) {
-    auto collection_op = get_history_collection(conversation_id);
-    if(!collection_op.ok()) {
-        return Option<bool>(collection_op.code(), collection_op.error());
-    }
-
-    auto collection = collection_op.get();
-
+Option<bool> ConversationManager::check_conversation_exists(const std::string& conversation_id, Collection* collection) {
     nlohmann::json res;
     size_t total = 0;
     auto search_res = collection->search("*", {}, "conversation_id:" + conversation_id, {}, {}, {}, 250);
@@ -442,7 +456,7 @@ Option<nlohmann::json> ConversationManager::get_full_conversation(const std::str
     if(conversation_id.empty()) {
         full_conversation_history["conversation"] = conversation_history;
     } else {
-        auto get_conversation_op = get_conversation(conversation_id);
+        auto get_conversation_op = get_conversation(conversation_id, conversation_model);
         if(!get_conversation_op.ok()) {
             return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
         }
@@ -472,4 +486,15 @@ Option<nlohmann::json> ConversationManager::get_last_n_messages(const nlohmann::
     }
 
     return Option<nlohmann::json>(res);
+}
+
+Option<Collection*> ConversationManager::get_history_collection(const nlohmann::json& model) {
+    if(model.count("history_collection") == 0) {
+        return Option<Collection*>(400, "Model is missing `history_collection` field");
+    }
+
+    auto history_collection = model["history_collection"].get<std::string>();
+    auto collection_op = CollectionManager::get_instance().get_collection(history_collection);
+
+    return Option<Collection*>(collection_op.get());
 }
