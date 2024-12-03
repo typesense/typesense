@@ -957,6 +957,24 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         new_conversation_history.push_back(formatted_answer_op.get());
         std::string conversation_id = conversation_history ? orig_req_params["conversation_id"] : "";
 
+        auto full_conversation_history = nlohmann::json::object();
+        if(conversation_id.empty()) {
+            full_conversation_history["conversation"] = new_conversation_history;
+        } else {
+            auto get_conversation_op = ConversationManager::get_instance().get_conversation(conversation_id);
+            if(!get_conversation_op.ok()) {
+                res->set_400(get_conversation_op.error());
+                return false;
+            }
+            full_conversation_history = get_conversation_op.get();
+            full_conversation_history["conversation"].push_back(new_conversation_history[0]);
+            full_conversation_history["conversation"].push_back(new_conversation_history[1]);
+
+            full_conversation_history.erase("id");
+        }
+
+        full_conversation_history["last_updated"] = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
         auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation_history, conversation_model, conversation_id);
         if(!add_conversation_op.ok()) {
             res->set_400(add_conversation_op.error());
@@ -964,13 +982,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
 
         if(!exclude_conversation_history) {
-            auto get_conversation_op = ConversationManager::get_instance().get_conversation(add_conversation_op.get());
-            if(!get_conversation_op.ok()) {
-                res->set_400(get_conversation_op.error());
-                return false;
-            }
-            response["conversation"]["conversation_history"] = get_conversation_op.get();
-            response["conversation"]["conversation_history"].erase("id");
+            response["conversation"]["conversation_history"] = full_conversation_history;
         }
         response["conversation"]["conversation_id"] = add_conversation_op.get();
 

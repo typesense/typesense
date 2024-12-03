@@ -2913,6 +2913,23 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         conversation_history.push_back(formatted_question_op.get());
         conversation_history.push_back(formatted_answer_op.get());
 
+        auto full_conversation_history = nlohmann::json::object();
+        if(!has_conversation_history) {
+            full_conversation_history["conversation"] = conversation_history;
+        } else {
+            auto get_conversation_op = ConversationManager::get_instance().get_conversation(conversation_id);
+            if(!get_conversation_op.ok()) {
+                return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
+            }
+            full_conversation_history = get_conversation_op.get();
+            full_conversation_history["conversation"].push_back(conversation_history[0]);
+            full_conversation_history["conversation"].push_back(conversation_history[1]);
+
+            full_conversation_history.erase("id");
+        }
+
+        full_conversation_history["last_updated"] = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        
         auto add_conversation_op = ConversationManager::get_instance().add_conversation(conversation_history, conversation_model, conversation_id);
         if(!add_conversation_op.ok()) {
             return Option<nlohmann::json>(add_conversation_op.code(), add_conversation_op.error());
@@ -2920,12 +2937,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
 
         if(exclude_fields.count("conversation_history") == 0) {
-            auto get_conversation_op = ConversationManager::get_instance().get_conversation(add_conversation_op.get());
-            if(!get_conversation_op.ok()) {
-                return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
-            }
-            result["conversation"]["conversation_history"] = get_conversation_op.get();
-            result["conversation"]["conversation_history"].erase("id");
+            result["conversation"]["conversation_history"] = full_conversation_history;
+            
         }
         result["conversation"]["conversation_id"] = add_conversation_op.get();
     }
