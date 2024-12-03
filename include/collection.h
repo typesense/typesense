@@ -40,6 +40,28 @@ struct highlight_field_t {
     }
 };
 
+struct union_global_params_t {
+    size_t page = 0;
+    size_t per_page = 10;
+    size_t offset = 0;
+    size_t limit_hits = 1000000;
+    size_t fetch_size = 0;
+
+private:
+    const std::map<std::string, size_t*> param_pairs = {
+            {"page", &page},
+            {"per_page", &per_page},
+            {"offset", &offset},
+            {"limit", &per_page},
+            {"limit_hits", &limit_hits}
+    };
+
+public:
+    Option<bool> init_op = Option<bool>(true);
+
+    explicit union_global_params_t(const std::map<std::string, std::string>& req_params);
+};
+
 struct collection_search_args_t {
     static constexpr auto NUM_TYPOS = "num_typos";
     static constexpr auto MIN_LEN_1TYPO = "min_len_1typo";
@@ -887,7 +909,7 @@ public:
 
     static Option<bool> do_union(const std::vector<uint32_t>& collection_ids,
                                  std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,
-                                 nlohmann::json& response);
+                                 const union_global_params_t& union_params, nlohmann::json& result);
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result,
                                 const bool& should_timeout = true, const bool& validate_field_names = true) const;

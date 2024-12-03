@@ -1317,17 +1317,57 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     return Option<bool>(true);
 }
 
+void remove_global_params(nlohmann::json& search_params) {
+    const std::vector<std::string> params = {
+            "page",
+            "per_page",
+            "offset",
+            "limit",
+            "limit_hits"
+    };
+
+    for (const auto& param: params) {
+        search_params.erase(param);
+    }
+}
+
+void remove_global_params(std::map<std::string, std::string>& req_params) {
+    const std::vector<std::string> params = {
+            "page",
+            "per_page",
+            "offset",
+            "limit",
+            "limit_hits"
+    };
+
+    for (const auto& param: params) {
+        req_params.erase(param);
+    }
+}
+
 Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req_params,
                                          std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
                                          nlohmann::json& response, uint64_t start_ts) {
+    union_global_params_t union_params(req_params);
+    if (!union_params.init_op.ok()) {
+        const auto& op = union_params.init_op;
+        response["error"] = "Error while initializing global parameters of union: " + op.error();
+        response["code"] = op.code();
+        return Option<bool>(true);
+    }
+    remove_global_params(req_params);
+
     auto const orig_req_params = req_params;
     std::vector<collection_search_args_t> coll_searches;
     std::vector<uint32_t> collection_ids;
     auto result_op = Option<bool>(true);
 
     for(size_t i = 0; i < searches.size(); i++) {
-        auto &search_params = searches[i];
+        auto& search_params = searches[i];
         req_params = orig_req_params;
+
+        // Only global pagination params are considered during union.
+        remove_global_params(search_params);
 
         auto validate_op = multi_search_validate_and_add_params(req_params, search_params, false);
         if (!validate_op.ok()) {
@@ -1387,7 +1427,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
 
     std::vector<long> searchTimeMillis;
 
-    auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, response);
+    auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, union_params, response);
 
     for (const auto& time: searchTimeMillis) {
         update_app_metrics(time);

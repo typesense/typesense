@@ -371,6 +371,13 @@ struct Topster {
     }
 };
 
+struct pair_hash {
+    template <class T1, class T2>
+    std::size_t operator() (const std::pair<T1, T2> &pair) const {
+        return std::hash<T1>()(pair.first) ^ std::hash<T2>()(pair.second);
+    }
+};
+
 struct Union_Topster {
     const uint32_t MAX_SIZE;
     uint32_t size;
@@ -378,7 +385,8 @@ struct Union_Topster {
     Union_KV *data;
     Union_KV** kvs;
 
-    std::unordered_map<uint64_t, Union_KV*> kv_map;
+    // pair<search_index, key> -> KV
+    std::unordered_map<std::pair<uint32_t, uint64_t>, Union_KV*, pair_hash> kv_map;
 
     explicit Union_Topster(size_t capacity): MAX_SIZE(capacity), size(0) {
             // we allocate data first to get a memory block whose indices are then assigned to `kvs`
@@ -429,7 +437,7 @@ struct Union_Topster {
 
         //LOG(INFO) << "Searching for key: " << kv->key;
 
-        const auto& found_it = kv_map.find(kv->key);
+        const auto& found_it = kv_map.find(std::make_pair(kv->search_index, kv->key));
         bool is_duplicate_key = (found_it != kv_map.end());
 
         /*
@@ -453,7 +461,8 @@ struct Union_Topster {
 
             // replace existing kv and sift down
             heap_op_index = existing_kv->array_index;
-            kv_map.erase(kvs[heap_op_index]->key);
+            auto& kv_delete = kvs[heap_op_index];
+            kv_map.erase(std::make_pair(kv_delete->search_index, kv_delete->key));
         } else {  // not duplicate
 
             if(size < MAX_SIZE) {
@@ -466,12 +475,13 @@ struct Union_Topster {
                 // we have to replace min heap element since array is full
                 SIFT_DOWN = true;
                 heap_op_index = 0;
-                kv_map.erase(kvs[heap_op_index]->key);
+                auto& kv_delete = kvs[heap_op_index];
+                kv_map.erase(std::make_pair(kv_delete->search_index, kv_delete->key));
             }
         }
 
         // kv will be copied into the pointer at heap_op_index
-        kv_map.emplace(kv->key, kvs[heap_op_index]);
+        kv_map.emplace(std::make_pair(kv->search_index, kv->key), kvs[heap_op_index]);
 
         // we have to replace the existing element in the heap and sift down
         kv->array_index = heap_op_index;
@@ -512,13 +522,13 @@ struct Union_Topster {
     }
 
     static bool is_greater(const struct Union_KV* i, const struct Union_KV* j) {
-        return std::tie(i->scores[0], i->scores[1], i->scores[2], i->key) >
-               std::tie(j->scores[0], j->scores[1], j->scores[2], j->key);
+        return std::tie(i->scores[0], i->scores[1], i->scores[2], i->search_index, i->key) >
+               std::tie(j->scores[0], j->scores[1], j->scores[2], i->search_index, j->key);
     }
 
     static bool is_smaller(const struct Union_KV* i, const struct Union_KV* j) {
-        return std::tie(i->scores[0], i->scores[1], i->scores[2], i->key) <
-               std::tie(j->scores[0], j->scores[1], j->scores[2], j->key);
+        return std::tie(i->scores[0], i->scores[1], i->scores[2], i->search_index, i->key) <
+               std::tie(j->scores[0], j->scores[1], j->scores[2], i->search_index, j->key);
     }
 //
 //    static bool is_greater_kv_group(const std::vector<union_KV*>& i, const std::vector<union_KV*>& j) {

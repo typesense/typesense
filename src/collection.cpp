@@ -3356,7 +3356,7 @@ Option<bool> Collection::run_search_with_lock(search_args* search_params) const 
 
 Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                   std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,
-                                  nlohmann::json& result) {
+                                  const union_global_params_t& union_params, nlohmann::json& result) {
     if (searches.size() != collection_ids.size()) {
         return Option<bool>(400, "Expected `collection_ids` and `searches` size to be equal.");
     }
@@ -3380,8 +3380,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     auto highlight_items_list = std::vector<std::vector<highlight_field_t>>(size);
     size_t total = 0;
     size_t out_of = 0;
-    size_t fetch_size = 0;
-    size_t limit_hits = UINT64_MAX;
+    auto request_json_list = std::vector<nlohmann::json>(size);
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto begin = std::chrono::high_resolution_clock::now();
@@ -3428,8 +3427,6 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         const auto& search_params = search_params_guard;
         total += search_params->all_result_ids_len;
         out_of += coll->get_num_documents();
-        fetch_size += search_params->fetch_size;
-        limit_hits = std::min<size_t>(limit_hits, coll_args.limit_hits);
 
         auto& index_symbols = index_symbols_list[search_index];
         for(char c: coll->get_symbols_to_index()) {
@@ -3452,6 +3449,12 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                      highlight_field_names, highlight_full_field_names, infixes, q_tokens,
                                      search_params->qtoken_set, highlight_items_list[search_index]);
         }
+
+        nlohmann::json params;
+        params["collection_name"] = coll->get_name();
+        params["per_page"] = union_params.per_page;
+        params["q"] = coll_args.raw_query;
+        request_json_list[search_index] = params;
     }
 
     if (search_cutoff && total == 0) {
@@ -3460,8 +3463,8 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         return Option<bool>(408, "Request Timeout");
     }
 
-    fetch_size = std::min<size_t>(fetch_size, limit_hits);
-    auto union_topster = std::make_unique<Union_Topster>(std::max<size_t>(fetch_size, Index::DEFAULT_TOPSTER_SIZE));
+    auto union_topster = std::make_unique<Union_Topster>(std::max<size_t>(union_params.fetch_size,
+                                                                          Index::DEFAULT_TOPSTER_SIZE));
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto& search_param = search_params_guards[search_index];
@@ -3473,10 +3476,10 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     }
     union_topster->sort();
 
-    const long start_result_index = 0;
+    const long start_result_index = union_params.offset;
 
     // `end_result_index` could be -1, so use signed type
-    const long end_result_index = union_topster->size - 1;
+    const long end_result_index = std::min<size_t>(union_params.fetch_size, union_topster->size) - 1;
 
     result = nlohmann::json::object();
     result["found"] = total;
@@ -3615,20 +3618,18 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
         result[hits_key] += wrapper_doc;
 
-        nlohmann::json params;
-        params["collection_name"] = coll->get_name();
-//        params["per_page"] =;
-        params["q"] = raw_query;
-
         const auto& offset = search_params->offset;
         // handle analytics query expansion
         std::string first_q = raw_query;
         std::vector<std::vector<KV*>> result_group_kvs = {{kv}};
         expand_search_query(search_schema, symbols_to_index, token_separators,
                             raw_query, offset, total, search_params, result_group_kvs, raw_search_fields, first_q);
-        params["first_q"] = first_q;
+        auto& object = request_json_list[search_index];
+        object["first_q"] = first_q;
+    }
 
-        result["union_requests"] += params;
+    for (auto& request: request_json_list) {
+        result["union_requests"] += std::move(request);
     }
 
     result["search_cutoff"] = search_cutoff;
@@ -7784,4 +7785,27 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
                                     rerank_hybrid_matches, enable_analytics, validate_field_names);
     return Option<bool>(true);
+}
+
+union_global_params_t::union_global_params_t(const std::map<std::string, std::string> &req_params) {
+    for (const auto& pair: param_pairs) {
+        const auto& param = pair.first;
+        const auto& value = pair.second;
+
+        auto it = req_params.find(param);
+        if (it != req_params.end()) {
+            init_op = add_unsigned_int_param(param, it->second, value);
+            if (!init_op.ok()) {
+                return;
+            }
+        }
+    }
+
+    if (page != 0 || offset == 0) {
+        // if both are set or none set, use page value (default is 1)
+        size_t actual_page = (page == 0) ? 1 : page;
+        offset = (per_page * (actual_page - 1));
+    }
+
+    fetch_size = std::min<size_t>(offset + per_page, limit_hits);
 }

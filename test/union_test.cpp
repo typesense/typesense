@@ -239,6 +239,57 @@ protected:
         }
     }
 
+    void setupNumericArrayCollection() {
+        Collection *coll_array_fields;
+
+        std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+        std::vector<field> fields = {
+                field("name", field_types::STRING, false),
+                field("age", field_types::INT32, false),
+                field("years", field_types::INT32_ARRAY, false),
+                field("tags", field_types::STRING_ARRAY, true),
+                field("rating", field_types::FLOAT, true)
+        };
+
+        coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
+        if(coll_array_fields == nullptr) {
+            coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
+        }
+
+        std::string json_line;
+
+        while (std::getline(infile, json_line)) {
+            coll_array_fields->add(json_line);
+        }
+
+        infile.close();
+    }
+
+    void setupBoolCollection() {
+        Collection *coll_bool;
+
+        std::ifstream infile(std::string(ROOT_DIR)+"test/bool_documents.jsonl");
+        std::vector<field> fields = {
+                field("popular", field_types::BOOL, false),
+                field("title", field_types::STRING, false),
+                field("rating", field_types::FLOAT, false),
+                field("bool_array", field_types::BOOL_ARRAY, false),
+        };
+
+        coll_bool = collectionManager.get_collection("coll_bool").get();
+        if(coll_bool == nullptr) {
+            coll_bool = collectionManager.create_collection("coll_bool", 1, fields, "rating").get();
+        }
+
+        std::string json_line;
+
+        while (std::getline(infile, json_line)) {
+            coll_bool->add(json_line);
+        }
+
+        infile.close();
+    }
+
     virtual void SetUp() {
         setupCollection();
     }
@@ -282,6 +333,30 @@ TEST_F(UnionTest, ErrorHandling) {
     ASSERT_EQ(400, json_res["code"]);
     ASSERT_EQ(1, json_res.count("error"));
     ASSERT_EQ("No search fields specified for the query.", json_res["error"]);
+    json_res.clear();
+    req_params.clear();
+
+    req_params = {
+            {"page", "1"},
+            {"per_page", "foo"}
+    };
+    searches = R"([
+                    {
+                        "collection": "Products",
+                        "q": "*"
+                    },
+                    {
+                        "collection": "Orders",
+                        "q": "*"
+                    }
+                ])"_json;
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res.count("code"));
+    ASSERT_EQ(400, json_res["code"]);
+    ASSERT_EQ(1, json_res.count("error"));
+    ASSERT_EQ("Error while initializing global parameters of union: Parameter `per_page` must be an unsigned"
+              " integer.", json_res["error"]);
     json_res.clear();
     req_params.clear();
 }
@@ -441,5 +516,100 @@ TEST_F(UnionTest, DifferentCollections) {
 }
 
 TEST_F(UnionTest, Pagination) {
+    setupNumericArrayCollection();
+    setupBoolCollection();
 
+    req_params = {
+            {"page", "1"},
+            {"per_page", "2"}
+    };
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "coll_bool",
+                        "q": "the",
+                        "query_by": "title"
+                    },
+                    {
+                        "collection": "coll_array_fields",
+                        "q": "Jeremy",
+                        "query_by": "name"
+                    }
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(10, json_res["found"]); // 5 documents from `coll_array_fields` and 5 documents from `coll_bool`.
+    ASSERT_EQ(15, json_res["out_of"]);
+    ASSERT_EQ(2, json_res["hits"].size());
+    ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]);
+    ASSERT_EQ("The Godfather", json_res["hits"][0]["document"]["title"]);
+    ASSERT_EQ(578730123365187705, json_res["hits"][0]["text_match"]);
+
+    ASSERT_EQ("3", json_res["hits"][1]["document"]["id"]);
+    ASSERT_EQ("The Schindler's List", json_res["hits"][1]["document"]["title"]);
+    ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
+
+    req_params = {
+            {"page", "3"},
+            {"per_page", "2"}
+    };
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "coll_bool",
+                        "q": "the",
+                        "query_by": "title"
+                    },
+                    {
+                        "collection": "coll_array_fields",
+                        "q": "Jeremy",
+                        "query_by": "name"
+                    }
+                ])"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(10, json_res["found"]); // 5 documents from `coll_array_fields` and 5 documents from `coll_bool`.
+    ASSERT_EQ(15, json_res["out_of"]);
+    ASSERT_EQ(2, json_res["hits"].size());
+    ASSERT_EQ("2", json_res["hits"][0]["document"]["id"]);
+    ASSERT_EQ("Daniel the Wizard", json_res["hits"][0]["document"]["title"]);
+    ASSERT_EQ(578730123365187705, json_res["hits"][0]["text_match"]);
+
+    ASSERT_EQ("3", json_res["hits"][1]["document"]["id"]);
+    ASSERT_EQ("Jeremy Howard", json_res["hits"][1]["document"]["name"]);
+    ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
+
+    req_params = {
+            {"page", "4"},
+            {"per_page", "2"}
+    };
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "coll_bool",
+                        "q": "the",
+                        "query_by": "title"
+                    },
+                    {
+                        "collection": "coll_array_fields",
+                        "q": "Jeremy",
+                        "query_by": "name"
+                    }
+                ])"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(10, json_res["found"]); // 5 documents from `coll_array_fields` and 5 documents from `coll_bool`.
+    ASSERT_EQ(15, json_res["out_of"]);
+    ASSERT_EQ(2, json_res["hits"].size());
+    ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]);
+    ASSERT_EQ("Jeremy Howard", json_res["hits"][0]["document"]["name"]);
+    ASSERT_EQ(578730123365187705, json_res["hits"][0]["text_match"]);
+
+    ASSERT_EQ("4", json_res["hits"][1]["document"]["id"]);
+    ASSERT_EQ("Jeremy Howard", json_res["hits"][1]["document"]["name"]);
+    ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
 }
+

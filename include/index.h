@@ -388,13 +388,6 @@ struct Hasher32 {
     size_t operator()(uint32_t k) const { return (k ^ 2166136261U)  * 16777619UL; }
 };
 
-struct pair_hash {
-    template <class T1, class T2>
-    std::size_t operator() (const std::pair<T1, T2> &pair) const {
-        return std::hash<T1>()(pair.first) ^ std::hash<T2>()(pair.second);
-    }
-};
-
 class Index {
 private:
     mutable std::shared_mutex mutex;
