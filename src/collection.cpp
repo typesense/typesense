@@ -3639,21 +3639,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             }
             stopwordStruct = stopword_op.get();
             //process stopwords
-            for (auto token_it = 0; token_it < tokens.size();) {
-                if (stopwordStruct.stopwords.count(tokens[token_it]) != 0) {
-                    std::swap(tokens[token_it], tokens[tokens.size() - 1]);
-                    tokens.pop_back();
-                } else {
-                    token_it++;
-                }
-            }
-
-            auto merged_str = StringUtils::join(tokens, " ");
-            for (const auto &stopword_phrase: stopwordStruct.stopwords_phrases) {
-                StringUtils::replace_all(merged_str, stopword_phrase, " ");
-            }
-
-            StringUtils::split(merged_str, tokens, " ");
+            StopwordsManager::get_instance().process_stopwords(stopwords_set, tokens);
         }
 
         bool exclude_operator_prior = false;

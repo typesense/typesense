@@ -113,8 +113,56 @@ void StopwordsManager::dispose() {
     stopword_configs.clear();
 }
 
-bool StopwordsManager::stopword_exists(const std::string &stopword) {
+bool StopwordsManager::stopword_set_exists(const std::string &stopword) {
     std::shared_lock lock(mutex);
 
     return stopword_configs.find(stopword) != stopword_configs.end();
+}
+
+bool StopwordsManager::is_stopword(const std::string &stopword_set, const std::string &token) {
+    if(stopword_set_exists(stopword_set)) {
+        const auto& stopwords = stopword_configs.at(stopword_set).stopwords;
+        const auto& stopword_phrases = stopword_configs.at(stopword_set).stopwords_phrases;
+
+        if(stopwords.find(token) != stopwords.end() || stopword_phrases.find(token) != stopword_phrases.end()) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void StopwordsManager::process_stopwords(const std::string& stopword_set, std::vector<std::string>& tokens) {
+    std::string merged_str;
+    std::vector<int> stopword_indices;
+
+    for (int i = tokens.size(); i >= 1; --i) {
+        // Loop through all subsequences of length i
+        for (int j = 0; j <= tokens.size() - i; ++j) {
+            merged_str.clear();
+            // Create a string from the subsequence of length i starting at index j
+            for (int k = j; k < j + i; ++k) {
+                if (k != j) {
+                    merged_str += " ";  // Add space between words
+                }
+                merged_str += tokens[k];
+            }
+
+            if(is_stopword(stopword_set, merged_str)) {
+                // store the indices of tokens which are stopword or stopword phrases
+                for (int k = j; k < j + i; ++k) {
+                    stopword_indices.push_back(k);
+                }
+            }
+        }
+    }
+
+    // remove stopword/stopword phrases
+    for(const auto& ind : stopword_indices) {
+        tokens[ind].clear();
+    }
+
+    tokens.erase(std::remove_if(tokens.begin(), tokens.end(), [&](const auto& str) {
+        return str.empty();
+    }));
 }

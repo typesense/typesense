@@ -333,7 +333,7 @@ TEST_F(StopwordsManagerTest, StopwordsBasics) {
 
     //add stopword with double quote
     stopword_value = R"(
-            {"stopwords": ["\"Capt. America\"", "Thor"], "locale": "en"}
+            {"stopwords": ["\"A deadman\"", "America"], "locale": "en"}
         )"_json;
 
     req->params["collection"] = "coll1";
@@ -348,27 +348,30 @@ TEST_F(StopwordsManagerTest, StopwordsBasics) {
 
     //first search with articles stopword set
     req->params["collection"] = "coll1";
-    req->params["q"] = "Iron Man vs Capt. America";
+    req->params["q"] = "A Deadman Dark Knight";
     req->params["query_by"] = "title";
     req->params["stopwords"] = "articles";
 
     search_op = collectionManager.do_search(req->params, embedded_params, json_results, now_ts);
     ASSERT_TRUE(search_op.ok());
     results = nlohmann::json::parse(json_results);
-    ASSERT_EQ(1, results["hits"].size());
-    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(2, results["hits"].size());
+    //we get records matching token `deadman`
+    ASSERT_STREQ("4", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("3", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     //now with new added avengers stopword set
     req->params["collection"] = "coll1";
-    req->params["q"] = "Iron Man vs Capt. America";
+    req->params["q"] = "A Deadman Dark Knight";
     req->params["query_by"] = "title";
     req->params["stopwords"] = "avengers";
 
     search_op = collectionManager.do_search(req->params, embedded_params, json_results, now_ts);
-    LOG(INFO) << search_op.error();
     ASSERT_TRUE(search_op.ok());
     results = nlohmann::json::parse(json_results);
-    ASSERT_EQ(0, results["hits"].size());
+    //now as 'a deadman' phrase will be removed, we wil get records matching tokens `dark knight`
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

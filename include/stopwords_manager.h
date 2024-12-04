@@ -68,5 +68,9 @@ public:
 
     void dispose();
 
-    bool stopword_exists(const std::string&);
+    bool stopword_set_exists(const std::string &stopword);
+
+    bool is_stopword(const std::string& stopword_set, const std::string& token);
+
+    void process_stopwords(const std::string& stopword_set, std::vector<std::string>& tokens);
 };
