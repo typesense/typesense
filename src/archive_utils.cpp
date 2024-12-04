@@ -77,6 +77,9 @@ bool ArchiveUtils::extract_tar_gz_from_file(const std::string& archive_path, con
 }
 
 bool ArchiveUtils::extract_tar_gz_from_memory(const std::string& archive_content, const std::string& destination_path) {
+    if (archive_content.empty()) {
+        return false;
+    }
     std::string temp_file_path = create_temp_tar_gz(archive_content);
     bool result = extract_tar_gz_from_file(temp_file_path, destination_path);
     cleanup(temp_file_path);
@@ -152,4 +155,37 @@ void ArchiveUtils::cleanup(const std::string& file_path) {
     if (rmdir(tmp_dir.c_str()) != 0) {
         throw std::runtime_error("Failed to delete temporary directory: " + tmp_dir);
     }
+}
+
+bool ArchiveUtils::verify_tar_gz_archive(const std::string& archive_content) {
+    struct archive* a = archive_read_new();
+    if (!a) {
+        return false;
+    }
+
+    bool is_valid = true;
+
+    archive_read_support_format_all(a);
+    archive_read_support_filter_all(a);
+
+    if (archive_read_open_memory(a, archive_content.data(), archive_content.size()) != ARCHIVE_OK) {
+        is_valid = false;
+    }
+
+    struct archive_entry* entry;
+    while (is_valid) {
+        int r = archive_read_next_header(a, &entry);
+        if (r == ARCHIVE_EOF) {
+            break;
+        }
+        if (r < ARCHIVE_WARN) {
+            is_valid = false;
+            break;
+        }
+    }
+
+    archive_read_close(a);
+    archive_read_free(a);
+
+    return is_valid;
 }

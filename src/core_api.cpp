@@ -20,7 +20,7 @@
 #include "conversation_manager.h"
 #include "conversation_model_manager.h"
 #include "conversation_model.h"
-#include "archive_utils.h"
+#include "personalization_model_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -418,8 +418,7 @@ bool get_health_with_resource_usage(const std::shared_ptr<http_req>& req, const 
 
     if(req->params.count("cpu_threshold") != 0 && StringUtils::is_float(req->params["cpu_threshold"])) {
         float cpu_threshold = std::stof(req->params["cpu_threshold"]);
-        SystemMetrics sys_metrics;
-        std::vector<cpu_stat_t> cpu_stats = sys_metrics.get_cpu_stats();
+        std::vector<cpu_stat_t> cpu_stats = SystemMetrics::get_instance().get_cpu_stats();
         if(!cpu_stats.empty() && StringUtils::is_float(cpu_stats[0].active)) {
             alive = alive && (std::stof(cpu_stats[0].active) < cpu_threshold);
         }
@@ -480,8 +479,7 @@ bool get_metrics_json(const std::shared_ptr<http_req>& req, const std::shared_pt
     CollectionManager & collectionManager = CollectionManager::get_instance();
     const std::string & data_dir_path = collectionManager.get_store()->get_state_dir_path();
 
-    SystemMetrics sys_metrics;
-    sys_metrics.get(data_dir_path, result);
+    SystemMetrics::get_instance().get(data_dir_path, result);
 
     res->set_body(200, result.dump(2));
     return true;
@@ -725,17 +723,17 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
 
         const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
-        auto conversation_model = ConversationModelManager::get_model(conversation_model_id);
+        auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
 
-        if(!conversation_model.ok()) {
+        if(!conversation_model_op.ok()) {
             res->set_400("`conversation_model_id` is invalid.");
             return false;
         }
-
+        auto conversation_model = conversation_model_op.get();
         if(conversation_history) {
             std::string conversation_id = orig_req_params["conversation_id"];
 
-            auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id);
+            auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id, conversation_model);
 
             if(!conversation_history.ok()) {
                 res->set_400("`conversation_id` is invalid.");
@@ -748,8 +746,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         if(conversation_history) {
             const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
             auto conversation_id = orig_req_params["conversation_id"];
-            auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
-            auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id).get();
+            auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id, conversation_model).get();
             auto generate_standalone_q = ConversationModel::get_standalone_question(conversation_history, common_query, conversation_model);
 
             if(!generate_standalone_q.ok()) {
@@ -937,42 +934,34 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         response["conversation"] = nlohmann::json::object();
         response["conversation"]["query"] = common_query;
         response["conversation"]["answer"] = answer_op.get();
-
-        auto formatted_question_op = ConversationModel::format_question(common_query, conversation_model);
-        if(!formatted_question_op.ok()) {
-            res->set_400(formatted_question_op.error());
+        std::string conversation_id = conversation_history ? orig_req_params["conversation_id"] : "";
+        auto conversation_history_op = ConversationManager::get_instance().get_full_conversation(common_query, answer_op.get(), conversation_model, conversation_id);
+        if(!conversation_history_op.ok()) {
+            res->set_400(conversation_history_op.error());
             return false;
         }
 
-        auto formatted_answer_op = ConversationModel::format_answer(answer_op.get(), conversation_model);
-        if(!formatted_answer_op.ok()) {
-            res->set_400(formatted_answer_op.error());
-            return false;
-        }
+        auto conversation_history = conversation_history_op.get();
 
         std::vector<std::string> exclude_fields;
         StringUtils::split(req->params["exclude_fields"], exclude_fields, ",");
         bool exclude_conversation_history = std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
+        
+        auto new_conversation_op = ConversationManager::get_last_n_messages(conversation_history["conversation"], 2);
+        if(!new_conversation_op.ok()) {
+            res->set_400(new_conversation_op.error());
+            return false;
+        }
+        auto new_conversation = new_conversation_op.get();
 
-        nlohmann::json new_conversation_history = nlohmann::json::array();
-        new_conversation_history.push_back(formatted_question_op.get());
-        new_conversation_history.push_back(formatted_answer_op.get());
-        std::string conversation_id = conversation_history ? orig_req_params["conversation_id"] : "";
-
-        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation_history, conversation_model, conversation_id);
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation, conversation_model, conversation_id);
         if(!add_conversation_op.ok()) {
             res->set_400(add_conversation_op.error());
             return false;
         }
 
         if(!exclude_conversation_history) {
-            auto get_conversation_op = ConversationManager::get_instance().get_conversation(add_conversation_op.get());
-            if(!get_conversation_op.ok()) {
-                res->set_400(get_conversation_op.error());
-                return false;
-            }
-            response["conversation"]["conversation_history"] = get_conversation_op.get();
-            response["conversation"]["conversation_history"].erase("id");
+            response["conversation"]["conversation_history"] = conversation_history;
         }
         response["conversation"]["conversation_id"] = add_conversation_op.get();
 
@@ -1032,6 +1021,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
     const char* INCLUDE_FIELDS = "include_fields";
     const char* EXCLUDE_FIELDS = "exclude_fields";
     const char* BATCH_SIZE = "batch_size";
+    const char* VALIDATE_FIELD_NAMES = "validate_field_names";
 
     export_state_t* export_state = nullptr;
 
@@ -1101,7 +1091,13 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             export_state->iter_upper_bound = new rocksdb::Slice(export_state->iter_upper_bound_key);
             export_state->it = collectionManager.get_store()->scan(seq_id_prefix, export_state->iter_upper_bound);
         } else {
-            auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result, false);
+            bool validate_field_names = true;
+            if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+                validate_field_names = false;
+            }
+
+            auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result, false,
+                                                            validate_field_names);
 
             if(!filter_ids_op.ok()) {
                 res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -1530,8 +1526,15 @@ bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::sha
         req->params[DIRTY_VALUES_PARAM] = "";  // set it empty as default will depend on whether schema is enabled
     }
 
+    const char* VALIDATE_FIELD_NAMES = "validate_field_names";
+    bool validate_field_names = true;
+    if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+        validate_field_names = false;
+    }
+
     search_stop_us = UINT64_MAX; // Filtering shouldn't timeout during update operation.
-    auto update_op = collection->update_matching_filter(filter_query, req->body, req->params[DIRTY_VALUES_PARAM]);
+    auto update_op = collection->update_matching_filter(filter_query, req->body, req->params[DIRTY_VALUES_PARAM],
+                                                        validate_field_names);
     if(update_op.ok()) {
         res->set_200(update_op.get().dump());
     } else {
@@ -1664,6 +1667,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
     const char *BATCH_SIZE = "batch_size";
     const char *FILTER_BY = "filter_by";
     const char *TOP_K_BY = "top_k_by";
+    const char* VALIDATE_FIELD_NAMES = "validate_field_names";
 
     if(req->params.count(TOP_K_BY) != 0) {
         std::vector<std::string> parts;
@@ -1738,8 +1742,13 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         // destruction of data is managed by req destructor
         req->data = deletion_state;
 
+        bool validate_field_names = true;
+        if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+            validate_field_names = false;
+        }
+
         filter_result_t filter_result;
-        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false);
+        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false, validate_field_names);
 
         if(!filter_ids_op.ok()) {
             res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -2899,6 +2908,30 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
     return true;
 }
 
+bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const char* N = "n";
+
+    uint32_t n = 10;
+    if(req->params.count(N) != 0 && !StringUtils::is_uint32_t(req->params[N])) {
+        res->set_400("Parameter `n` must be a positive integer.");
+        return false;
+    }
+
+    if (req->params.count(N)) {
+        n = std::stoi(req->params[N]);
+    }
+
+    auto get_events_op = AnalyticsManager::get_instance().get_events(n);
+
+    if(!get_events_op.ok()) {
+        res->set(get_events_op.code(), get_events_op.error());
+        return false;
+    }
+    nlohmann::json response = get_events_op.get();
+    res->set_200(response.dump());
+    return true;
+}
+
 bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     HttpProxy& proxy = HttpProxy::get_instance();
 
@@ -3078,24 +3111,122 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     return true;
 }
 
-// Helper function to copy data from one archive to another
-int copy_data(struct archive *ar, struct archive *aw) {
-    int r;
-    const void *buff;
-    size_t size;
-    la_int64_t offset;
-
-    for (;;) {
-        r = archive_read_data_block(ar, &buff, &size, &offset);
-        if (r == ARCHIVE_EOF)
-            return (ARCHIVE_OK);
-        if (r < ARCHIVE_OK)
-            return (r);
-        r = archive_write_data_block(aw, buff, size, offset);
-        if (r < ARCHIVE_OK) {
-            LOG(WARNING) << "Error writing data block: " << archive_error_string(aw);
-            return (r);
-        }
+bool post_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+    
+    if (!req->params.count("name") || !req->params.count("collection") || !req->params.count("type")) {
+        res->set_400("Missing required parameters 'name', 'collection' and 'type'.");
+        return false;
     }
+
+    req_json = {
+        {"name", req->params["name"]},
+        {"collection", req->params["collection"]},
+        {"type", req->params["type"]}
+    };
+
+    std::string model_id;
+    if (req->params.count("id")) {
+        req_json["id"] = req->params["id"];
+        model_id = req->params["id"];
+    }
+
+    const std::string model_data = req->body;
+    auto create_op = PersonalizationModelManager::add_model(req_json, model_id, true, model_data);
+    if(!create_op.ok()) {
+        res->set(create_op.code(), create_op.error());
+        return false;
+    }
+    
+    auto model = create_op.get();
+    res->set_200(nlohmann::json{{"ok", true}, {"model_id", model}}.dump());
+    
+    return true;
 }
 
+bool get_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+    
+    auto model_op = PersonalizationModelManager::get_model(model_id);
+    if (!model_op.ok()) {
+        res->set(model_op.code(), model_op.error());
+        return false;
+    }
+
+    auto model = model_op.get();
+
+    if (model.contains("model_path")) {
+        model.erase("model_path");
+    }
+    res->set_200(model.dump());
+    return true;
+}
+
+bool get_personalization_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto models_op = PersonalizationModelManager::get_all_models();
+    if (!models_op.ok()) {
+        res->set(models_op.code(), models_op.error());
+        return false;
+    }
+
+    auto models = models_op.get();
+    for (auto& model : models) {
+        if (model.contains("model_path")) {
+            model.erase("model_path");
+        }
+    }
+
+    res->set_200(models.dump());
+    return true;
+}
+
+bool del_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+    
+    auto delete_op = PersonalizationModelManager::delete_model(model_id);
+    if (!delete_op.ok()) {
+        res->set(delete_op.code(), delete_op.error());
+        return false;
+    }
+
+    auto deleted_model = delete_op.get();
+    if (deleted_model.contains("model_path")) {
+        deleted_model.erase("model_path");
+    }
+    res->set_200(deleted_model.dump());
+    return true;
+}
+
+bool put_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+    
+    if (req->params.count("name") && !req->params["name"].empty()) {
+        req_json["name"] = req->params["name"];
+    }
+    if (req->params.count("collection") && !req->params["collection"].empty()) {
+        req_json["collection"] = req->params["collection"];
+    }
+    if (req->params.count("type") && !req->params["type"].empty()) {
+        req_json["type"] = req->params["type"];
+    }
+
+    if (!req->params.count("id")) {
+        res->set_400("Missing required parameter 'id'.");
+        return false;
+    }
+    std::string model_id = req->params["id"];
+
+    const std::string model_data = req->body;
+    auto update_op = PersonalizationModelManager::update_model(model_id, req_json, model_data);
+    if(!update_op.ok()) {
+        res->set(update_op.code(), update_op.error());
+        return false;
+    }
+
+    nlohmann::json response = update_op.get();
+    if (response.contains("model_path")) {
+        response.erase("model_path");
+    }
+    res->set_200(response.dump());
+    return true;
+}

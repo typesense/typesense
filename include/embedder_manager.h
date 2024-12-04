@@ -63,16 +63,17 @@ public:
     inline static const std::string MODEL_CONFIG_FILE = "config.json";
     inline static std::string model_dir = "";
 
-    static const std::string get_absolute_model_path(const std::string& model_name);
-    static const std::string get_absolute_vocab_path(const std::string& model_name, const std::string& vocab_file_name);
-    static const std::string get_absolute_config_path(const std::string& model_name);
+    static const std::string get_absolute_model_path(const std::string& model_name, const bool is_public);
+    static const std::string get_absolute_vocab_path(const std::string& model_name, const std::string& vocab_file_name, const bool is_public);
+    static const std::string get_absolute_config_path(const std::string& model_name, const bool is_public);
     static const std::string get_model_url(const text_embedding_model& model);
     static const std::string get_model_data_url(const text_embedding_model& model);
     static const std::string get_vocab_url(const text_embedding_model& model);
     static Option<nlohmann::json> get_public_model_config(const std::string& model_name);
+    static void save_public_model_config(const std::string& model_name, const nlohmann::json& model_config);
     static const std::string get_model_name_without_namespace(const std::string& model_name);
     static const std::string get_model_namespace(const std::string& model_name);
-    static const std::string get_model_subdir(const std::string& model_name);
+    static const std::string get_model_subdir(const std::string& model_name, const bool is_public);
     static const bool check_md5(const std::string& file_path, const std::string& target_md5);
     Option<bool> download_public_model(const text_embedding_model& model);
 
@@ -90,6 +91,8 @@ public:
         return text_embedders;
     }
 
+    void migrate_public_models();
+
 private:
     EmbedderManager() = default;
 
@@ -99,5 +102,7 @@ private:
     std::mutex text_embedders_mutex, image_embedders_mutex;
 
     static Option<std::string> get_namespace(const std::string& model_name);
+
+    bool is_model_public(const std::string& model_name);
 };
 

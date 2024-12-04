@@ -25,9 +25,6 @@
 #endif
 #endif
 
-uint64_t SystemMetrics::non_proc_mem_last_access = 0;
-uint64_t SystemMetrics::non_proc_mem_bytes = 0;
-
 void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result) {
     // DISK METRICS
     struct statvfs st{};
@@ -95,41 +92,25 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
 #endif
 }
 
-float SystemMetrics::used_memory_ratio() {
-    // non process memory bytes is updated only periodically since it's expensive
-    uint64_t memory_consumed_bytes = get_memory_active_bytes() + get_memory_non_proc_bytes();
-    uint64_t memory_total_bytes = get_memory_total_bytes();
+uint64_t SystemMetrics::get_memory_total_bytes() {
+    uint64_t memory_total_bytes = 0;
 
-    return ((float)memory_consumed_bytes / memory_total_bytes);
-}
-
-uint64_t SystemMetrics::linux_get_mem_available_bytes() {
-    std::string token;
-    std::ifstream file("/proc/meminfo");
-    while(file >> token) {
-        if(token == "MemAvailable:") {
-            uint64_t mem_kB;
-            if(file >> mem_kB) {
-                return mem_kB * 1024;
-            } else {
-                return 0;
-            }
-        }
-    }
-
-    return 0; // nothing found
-}
-
-uint64_t SystemMetrics::get_memory_active_bytes() {
-    size_t sz, memory_active_bytes = 1;
-    sz = sizeof(size_t);
-    uint64_t epoch = 1;
-
-#ifndef ASAN_BUILD
-    impl_mallctl("epoch", &epoch, &sz, &epoch, sz);
-    impl_mallctl("stats.active", &memory_active_bytes, &sz, nullptr, 0);
+#ifdef __APPLE__
+    uint64_t pages = sysconf(_SC_PHYS_PAGES);
+    uint64_t page_size = sysconf(_SC_PAGE_SIZE);
+    memory_total_bytes = (pages * page_size);
+#elif __linux__
+    struct sysinfo sys_info;
+    sysinfo(&sys_info);
+    memory_total_bytes = sys_info.totalram;
 #endif
-    return memory_active_bytes;
+
+    return memory_total_bytes;
+}
+
+uint64_t SystemMetrics::get_proc_memory_active_bytes() {
+    auto stats = get_cached_mallctl_stats();
+    return stats.memory_active_bytes;
 }
 
 uint64_t SystemMetrics::get_memory_used_bytes() {
@@ -148,43 +129,56 @@ uint64_t SystemMetrics::get_memory_used_bytes() {
         memory_used_bytes = ((int64_t)(vm_stats.active_count + vm_stats.wire_count) * (int64_t)mach_page_size);
     }
 #elif __linux__
-    memory_used_bytes = get_memory_total_bytes() - linux_get_mem_available_bytes();
+    // (Used_System_Memory + Used_Swap_Memory) - Unused_memory  < Total System_Memory
+    /* (Used_System_Memory + Used_Swap_Memory)  is the total memory usage as per system metrics. However, some part
+     * of this memory is actually memory that jemalloc has reserved but not using. So for actual memory usage we have
+     * to subtract that unused memory. This will then give the accurate memory usage.
+     */
+
+    uint64_t memory_total_bytes = 0;
+    uint64_t memory_available_bytes = 0;
+
+    uint64_t swap_total_bytes = 0;
+    uint64_t swap_free_bytes = 0;
+
+    SystemMetrics::get_instance().get_proc_meminfo(memory_total_bytes, memory_available_bytes, swap_total_bytes, swap_free_bytes);
+
+    // Calculate sum of RAM + SWAP used as all_memory_used
+    memory_used_bytes = (memory_total_bytes - memory_available_bytes) + (swap_total_bytes - swap_free_bytes);
+
+    // add back memory that jemalloc has reserved, is unused and has not been returned to OS
+    memory_used_bytes -= SystemMetrics::get_instance().get_cached_jemalloc_unused_memory();
+
 #endif
 
     return memory_used_bytes;
 }
 
-uint64_t SystemMetrics::get_memory_total_bytes() {
-    uint64_t memory_total_bytes = 0;
+mallctl_stats_t SystemMetrics::get_cached_mallctl_stats() {
+    std::unique_lock lock(mutex);
 
-#ifdef __APPLE__
-    uint64_t pages = sysconf(_SC_PHYS_PAGES);
-    uint64_t page_size = sysconf(_SC_PAGE_SIZE);
-    memory_total_bytes = (pages * page_size);
-#elif __linux__
-    struct sysinfo sys_info;
-    sysinfo(&sys_info);
-    memory_total_bytes = sys_info.totalram;
-#endif
-
-    return memory_total_bytes;
-}
-
-uint64_t SystemMetrics::get_memory_non_proc_bytes() {
     uint64_t now = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
 
-    uint64_t seconds_since_last = (now - non_proc_mem_last_access);
+    uint64_t seconds_since_last = (now - mallctl_stats_last_access);
 
-    if(seconds_since_last > NON_PROC_MEM_UPDATE_INTERVAL_SECONDS) {
-        uint64_t memory_used_bytes = get_memory_used_bytes();
-        non_proc_mem_bytes = memory_used_bytes - get_memory_active_bytes();
+    if(seconds_since_last > MALLCTL_STATS_UPDATE_INTERVAL_SECONDS) {
+        size_t sz = sizeof(size_t);
+        uint64_t epoch = 1;
+
+#ifndef ASAN_BUILD
+        impl_mallctl("epoch", &epoch, &sz, &epoch, sz);
+        impl_mallctl("stats.mapped", &mallctl_stats.memory_mapped_bytes, &sz, nullptr, 0);
+        impl_mallctl("stats.retained", &mallctl_stats.memory_retained_bytes, &sz, nullptr, 0);
+        impl_mallctl("stats.active", &mallctl_stats.memory_active_bytes, &sz, nullptr, 0);
+        impl_mallctl("stats.metadata", &mallctl_stats.memory_metadata_bytes, &sz, nullptr, 0);
+#endif
     }
 
-    non_proc_mem_last_access = std::chrono::duration_cast<std::chrono::seconds>(
+    mallctl_stats_last_access = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
 
-    return non_proc_mem_bytes;
+    return mallctl_stats;
 }
 
 void SystemMetrics::linux_get_network_data(const std::string & stat_path,
@@ -233,4 +227,55 @@ void SystemMetrics::linux_get_network_data(const std::string & stat_path,
             break;
         }
     }
+}
+
+void SystemMetrics::get_proc_meminfo(uint64_t& memory_total_bytes, uint64_t& memory_available_bytes,
+                                     uint64_t& swap_total_bytes,
+                                     uint64_t& swap_free_bytes) {
+    std::string token;
+    std::ifstream file("/proc/meminfo");
+
+    while(file >> token) {
+        if(token == "MemTotal:") {
+            uint64_t value_kb;
+            if(file >> value_kb) {
+                memory_total_bytes = value_kb * 1024;
+            }
+        }
+
+        else if(token == "MemAvailable:") {
+            uint64_t value_kb;
+            if(file >> value_kb) {
+                memory_available_bytes = value_kb * 1024;
+            }
+        }
+
+        else if(token == "SwapTotal:") {
+            uint64_t value_kb;
+            if(file >> value_kb) {
+                swap_total_bytes = value_kb * 1024;
+            }
+        }
+
+        else if(token == "SwapFree:") {
+            uint64_t value_kb;
+            if(file >> value_kb) {
+                swap_free_bytes = value_kb * 1024;
+            }
+
+            // since "SwapFree" appears last in the file
+            break;
+        }
+    }
+}
+
+uint64_t SystemMetrics::get_cached_jemalloc_unused_memory() {
+    // Unused Memory = (stats.mapped + stats.retained) - (stats.active + stats.metadata)
+#ifndef ASAN_BUILD
+    const auto stats = get_cached_mallctl_stats();
+    return (stats.memory_mapped_bytes + stats.memory_retained_bytes) -
+           (stats.memory_active_bytes + stats.memory_metadata_bytes);
+#else
+    return 1;
+#endif
 }

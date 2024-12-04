@@ -29,18 +29,20 @@ struct filter_node_t;
 struct field;
 
 struct filter {
-    std::string field_name;
-    std::vector<std::string> values;
-    std::vector<NUM_COMPARATOR> comparators;
+    std::string field_name{};
+    std::vector<std::string> values{};
+    std::vector<NUM_COMPARATOR> comparators{};
     // Would be set when `field: != ...` is encountered with id/string field or `field: != [ ... ]` is encountered in the
     // case of int and float fields. During filtering, all the results of matching the field against the values are
     // aggregated and then this flag is checked if negation on the aggregated result is required.
     bool apply_not_equals = false;
 
     // Would store `Foo` in case of a filter expression like `$Foo(bar := baz)`
-    std::string referenced_collection_name;
+    std::string referenced_collection_name{};
 
-    std::vector<nlohmann::json> params;
+    std::vector<nlohmann::json> params{};
+
+    bool is_ignored_filter = false;
 
     /// For searching places within a given radius of a given latlong (mi for miles and km for kilometers)
     static constexpr const char* GEO_FILTER_RADIUS_KEY = "radius";
@@ -70,7 +72,8 @@ struct filter {
                                            const tsl::htrie_map<char, field>& search_schema,
                                            const Store* store,
                                            const std::string& doc_id_prefix,
-                                           filter_node_t*& root);
+                                           filter_node_t*& root,
+                                           const bool& validate_field_names = true);
 };
 
 struct filter_node_t {

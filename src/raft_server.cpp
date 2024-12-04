@@ -11,6 +11,7 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "thread_local_vars.h"
 #include "core_api.h"
+#include "personalization_model_manager.h"
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -512,6 +513,8 @@ void* ReplicationState::save_snapshot(void* arg) {
 
     sa->done->Run();
 
+    sa->replication_state->ext_snapshot_succeeded = true;
+
     // if an external snapshot is requested, copy latest snapshot directory into that
     if(!sa->ext_snapshot_path.empty()) {
         // temp directory will be moved to final snapshot directory, so let's wait for that to happen
@@ -645,6 +648,13 @@ int ReplicationState::init_db() {
             nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
             batched_indexer->load_state(batch_indexer_state);
         }
+    }
+
+    auto personalization_models_init = PersonalizationModelManager::init(store);
+    if(!personalization_models_init.ok()) {
+        LOG(INFO) << "Failed to initialize personalization model manager: " << personalization_models_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << personalization_models_init.get() << " personalization model(s).";
     }
 
     return 0;
@@ -898,7 +908,7 @@ void ReplicationState::do_snapshot(const std::string& snapshot_path, const std::
               << (!snapshot_path.empty() ? " with external snapshot path..." : "...");
 
     thread_pool->enqueue([&snapshot_path, req, res, this]() {
-        OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res);
+        OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res, snapshot_path);
         ext_snapshot_path = snapshot_path;
         std::shared_lock lock(this->node_mutex);
         node->snapshot(snapshot_closure);
@@ -1165,30 +1175,27 @@ void OnDemandSnapshotClosure::Run() {
 
     replication_state->wait(); // until on demand snapshotting completes
 
-    auto ext_snapshot_path = replication_state->get_ext_snapshot_path();
-
-    replication_state->set_ext_snapshot_path("");
-
     req->last_chunk_aggregate = true;
     res->final = true;
 
     nlohmann::json response;
     uint32_t status_code;
 
-    if(status().ok() && (ext_snapshot_path.empty() || replication_state->get_ext_snapshot_succeeded())) {
-        LOG(INFO) << "On demand snapshot succeeded!";
-        status_code = 201;
-        response["success"] = true;
-    } else {
-        LOG(ERROR) << "On demand snapshot failed, error: ";
-        if(replication_state->get_ext_snapshot_succeeded()) {
-            LOG(ERROR) << status().error_str() << ", code: " << status().error_code();
-        } else {
-            LOG(ERROR) << "Copy failed.";
-        }
+    if(!status().ok()) {
+        // in case of internal raft error
+        LOG(ERROR) << "On demand snapshot failed, error: " << status().error_str() << ", code: " << status().error_code();
         status_code = 500;
         response["success"] = false;
         response["error"] = status().error_str();
+    } else if(!replication_state->get_ext_snapshot_succeeded()) {
+        LOG(ERROR) << "On demand snapshot failed, error: copy failed.";
+        status_code = 500;
+        response["success"] = false;
+        response["error"] = "Copy failed.";
+    } else {
+        LOG(INFO) << "On demand snapshot succeeded!";
+        status_code = 201;
+        response["success"] = true;
     }
 
     res->status_code = status_code;

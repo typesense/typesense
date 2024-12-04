@@ -86,6 +86,7 @@ private:
     
     struct facet_doc_ids_list_t {
         std::map<std::string, facet_id_seq_ids_t> fvalue_seq_ids;
+        spp::sparse_hash_map<uint32_t, std::string> fid_fvalues;
         std::multiset<facet_count_t> counts;
 
         posting_list_t* seq_id_hashes = nullptr;
@@ -145,6 +146,8 @@ public:
     bool contains(const std::string& field_name);
 
     size_t get_facet_count(const std::string& field_name);
+
+    std::string get_facet_str_val(const std::string& field_name, uint32_t facet_id);
 
     size_t intersect(facet& a_facet, const field& facet_field,
                      bool has_facet_query,

@@ -7,7 +7,7 @@
 #include <filesystem>
 #include <dlfcn.h>
 
-TextEmbedder::TextEmbedder(const std::string& model_name) {
+TextEmbedder::TextEmbedder(const std::string& model_name, const bool is_public_model) {
     // create environment for local model
     Ort::SessionOptions session_options;
     auto providers = Ort::GetAvailableProviders();
@@ -28,16 +28,16 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
             session_options.AppendExecutionProvider_CUDA(cuda_options);
         }
     }
-    std::string abs_path = EmbedderManager::get_absolute_model_path(model_name);
+    std::string abs_path = EmbedderManager::get_absolute_model_path(model_name, is_public_model);
     session_options.EnableOrtCustomOps();
     LOG(INFO) << "Loading model from disk: " << abs_path;
     env_ = std::make_shared<Ort::Env>();
     session_ = std::make_shared<Ort::Session>(*env_, abs_path.c_str(), session_options);
-    std::ifstream config_file(EmbedderManager::get_absolute_config_path(model_name));
+    std::ifstream config_file(EmbedderManager::get_absolute_config_path(model_name, is_public_model));
     nlohmann::json config;
     config_file >> config;
     TokenizerType tokenizer_type = EmbedderManager::get_tokenizer_type(config);
-    auto vocab_path = EmbedderManager::get_absolute_vocab_path(model_name, config["vocab_file_name"].get<std::string>());
+    auto vocab_path = EmbedderManager::get_absolute_vocab_path(model_name, config["vocab_file_name"].get<std::string>(), is_public_model);
     if(tokenizer_type == TokenizerType::bert) {
         tokenizer_ = std::make_unique<BertTokenizerWrapper>(vocab_path);
     } else if(tokenizer_type == TokenizerType::distilbert) {
@@ -121,9 +121,9 @@ embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote
     if(is_remote()) {
         return remote_embedder_->Embed(text, remote_embedder_timeout_ms, remote_embedding_num_tries);
     } else {
-        // Cannot run same model in parallel, so lock the mutex
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::unique_lock<std::mutex> lock(mutex_);
         auto encoded_input = tokenizer_->Encode(text);
+        lock.unlock();
         // create input tensor object from data values
         Ort::AllocatorWithDefaultOptions allocator;
         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
@@ -162,7 +162,10 @@ embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote
         //LOG(INFO) << "Running model";
         // create output tensor object
         std::vector<const char*> output_node_names = {output_tensor_name.c_str()};
+        // Cannot run same model in parallel, so lock the mutex
+        lock.lock();
         auto output_tensor = session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
+        lock.unlock();
         std::vector<std::vector<float>> output;
         float* data = output_tensor[0].GetTensorMutableData<float>();
         // print output tensor shape
@@ -193,7 +196,6 @@ std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::st
                                                        const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     std::vector<embedding_res_t> outputs;
     if(!is_remote()) {
-        std::lock_guard<std::mutex> lock(mutex_);
         for(int i = 0; i < inputs.size(); i += 8) {
             auto input_batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + 8, static_cast<int>(inputs.size())));
             auto encoded_inputs = batch_encode(input_batch);
@@ -266,7 +268,9 @@ std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::st
                 continue;
             }
 
+            std::unique_lock<std::mutex> lock(mutex_);
             auto output_tensor = session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
+            lock.unlock();
             float* data = output_tensor[0].GetTensorMutableData<float>();
             // print output tensor shape
             auto shape = output_tensor[0].GetTensorTypeAndShapeInfo().GetShape();
