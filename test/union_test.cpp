@@ -537,6 +537,7 @@ TEST_F(UnionTest, SameCollection) {
     auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(2, json_res["found"].get<size_t>());
+    ASSERT_EQ(2, json_res["out_of"]);
     ASSERT_EQ(2, json_res["hits"].size());
     ASSERT_EQ(6, json_res["hits"][0]["document"].size());
     ASSERT_EQ(1, json_res["hits"][0]["document"].count("product_name"));
@@ -568,6 +569,7 @@ TEST_F(UnionTest, SameCollection) {
     search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(2, json_res["found"].get<size_t>());
+    ASSERT_EQ(2, json_res["out_of"]);
     ASSERT_EQ(2, json_res["hits"].size());
     ASSERT_EQ(5, json_res["hits"][0]["document"].size());
     ASSERT_EQ(1, json_res["hits"][0]["document"].count("product_name"));
@@ -600,6 +602,7 @@ TEST_F(UnionTest, SameCollection) {
     search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(2, json_res["found"].get<size_t>());
+    ASSERT_EQ(2, json_res["out_of"]);
     ASSERT_EQ(2, json_res["hits"].size());
     ASSERT_EQ(1, json_res["hits"][0]["document"].size());
     ASSERT_EQ(1, json_res["hits"][0]["document"].count("product_name"));

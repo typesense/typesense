@@ -3420,6 +3420,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     size_t out_of = 0;
     auto request_json_list = std::vector<nlohmann::json>(size);
     bool first_request_default_sorting_field_used = false;
+    spp::sparse_hash_set<uint32_t> unique_collection_ids;
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto begin = std::chrono::high_resolution_clock::now();
@@ -3467,7 +3468,10 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
         const auto& search_params = search_params_guard;
         total += search_params->all_result_ids_len;
-        out_of += coll->get_num_documents();
+        if (unique_collection_ids.count(coll_id) == 0) {
+            out_of += coll->get_num_documents();
+            unique_collection_ids.insert(coll_id);
+        }
 
         auto& index_symbols = index_symbols_list[search_index];
         for(char c: coll->get_symbols_to_index()) {
