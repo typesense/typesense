@@ -1157,6 +1157,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 ref_sort_field_std.nested_join_collection_names.insert(ref_sort_field_std.nested_join_collection_names.begin(),
                                                                        nested_join_coll_names.begin(),
                                                                        nested_join_coll_names.end());
+                ref_sort_field_std.type = sort_by::join_expression;
 
                 sort_fields_std.emplace_back(ref_sort_field_std);
             }
@@ -1175,6 +1176,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             sort_field_std.eval.filter_trees = new filter_node_t*[count]{nullptr};
             sort_field_std.eval_expressions = _sort_field.eval_expressions;
             sort_field_std.eval.scores = _sort_field.eval.scores;
+            sort_field_std.type = sort_by::eval_expression;
 
             for (uint32_t j = 0; j < count; j++) {
                 auto const& filter_exp = _sort_field.eval_expressions[j];
@@ -1198,6 +1200,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
             uint32_t seed = time(nullptr);
             sort_field_std.random_sort.initialize(seed);
+            sort_field_std.type = sort_by::random_order;
             continue;
         }
 
@@ -1227,6 +1230,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                 sort_field_std.name = actual_field_name;
                 sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
+                sort_field_std.type = sort_by::text_match;
 
             } else if(actual_field_name == sort_field_const::vector_query) {
                 const std::string& vector_query_str = sort_field_std.name.substr(paran_start + 1,
@@ -1366,6 +1370,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 }
 
                 sort_field_std.name = actual_field_name;
+                sort_field_std.type = sort_by::vector_search;
             } else if(actual_field_name == sort_field_const::random_order) {
                 const std::string &random_sort_str = sort_field_std.name.substr(paran_start + 1,
                                                                                 sort_field_std.name.size() -
@@ -1381,6 +1386,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 }
                 sort_field_std.random_sort.initialize(seed);
                 sort_field_std.name = actual_field_name;
+                sort_field_std.type = sort_by::random_order;
             } else {
                 if(field_it == search_schema.end()) {
                     std::string error = "Could not find a field named `" + actual_field_name + "` in the schema for sorting.";
@@ -1553,6 +1559,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     double lng = std::stod(geo_parts[1]);
                     int64_t lat_lng = GeoPoint::pack_lat_lng(lat, lng);
                     sort_field_std.geopoint = lat_lng;
+                    sort_field_std.type = sort_by::geopoint_field;
                 }
 
                 sort_field_std.name = actual_field_name;
@@ -1563,10 +1570,23 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             sort_field_std.name != sort_field_const::seq_id && sort_field_std.name != sort_field_const::group_found && sort_field_std.name != sort_field_const::vector_distance &&
             sort_field_std.name != sort_field_const::vector_query && sort_field_std.name != sort_field_const::random_order) {
             const auto field_it = search_schema.find(sort_field_std.name);
+
             if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
                 std::string error = "Could not find a field named `" + sort_field_std.name +
                                     "` in the schema for sorting.";
                 return Option<bool>(404, error);
+            }
+
+            if (field_it->is_string()) {
+                sort_field_std.type = sort_by::string_field;
+            } else if (field_it->is_int32()) {
+                sort_field_std.type = sort_by::int32_field;
+            } else if (field_it->is_int64()) {
+                sort_field_std.type = sort_by::int64_field;
+            } else if (field_it->is_float()) {
+                sort_field_std.type = sort_by::float_field;
+            } else if (field_it->is_bool()) {
+                sort_field_std.type = sort_by::bool_field;
             }
         }
 
@@ -1607,10 +1627,12 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
     if(sort_fields_std.empty()) {
         if(!is_wildcard_query) {
             sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
+            sort_fields_std.back().type = sort_by::text_match;
         }
 
         if(is_vector_query) {
             sort_fields_std.emplace_back(sort_field_const::vector_distance, sort_field_const::asc);
+            sort_fields_std.back().type = sort_by::vector_search;
         }
 
         if(!default_sorting_field.empty()) {
@@ -1621,8 +1643,21 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             }
 
             sort_fields_std.emplace_back(default_sorting_field, sort_field_const::desc);
+
+            if (def_it->is_string()) {
+                sort_fields_std.back().type = sort_by::string_field;
+            } else if (def_it->is_int32()) {
+                sort_fields_std.back().type = sort_by::int32_field;
+            } else if (def_it->is_int64()) {
+                sort_fields_std.back().type = sort_by::int64_field;
+            } else if (def_it->is_float()) {
+                sort_fields_std.back().type = sort_by::float_field;
+            } else if (def_it->is_bool()) {
+                sort_fields_std.back().type = sort_by::bool_field;
+            }
         } else {
             sort_fields_std.emplace_back(sort_field_const::seq_id, sort_field_const::desc);
+            sort_fields_std.back().type = sort_by::insertion_order;
         }
     }
 
@@ -1642,11 +1677,13 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
     if(!found_match_score && !is_wildcard_query && sort_fields_std.size() < 3) {
         sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
+        sort_fields_std.back().type = sort_by::text_match;
     }
 
     // only add vector_distance if it is a semantic search, do not add it for hybrid search
     if(!found_vector_distance && is_vector_query && is_wildcard_query && sort_fields_std.size() < 3) {
         sort_fields_std.emplace_back(sort_field_const::vector_distance, sort_field_const::asc);
+        sort_fields_std.back().type = sort_by::vector_search;
     }
 
     if(sort_fields_std.size() > 3) {
@@ -2474,6 +2511,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     return Option<bool>(true);
 }
 
+// todo: recheck search_args initialization.
 Option<nlohmann::json> Collection::search(std::string query, const std::vector<std::string> & search_fields,
                                           const std::string & filter_query, const std::vector<std::string> & facet_fields,
                                           const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
@@ -3381,6 +3419,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     size_t total = 0;
     size_t out_of = 0;
     auto request_json_list = std::vector<nlohmann::json>(size);
+    bool first_request_default_sorting_field_used = false;
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto begin = std::chrono::high_resolution_clock::now();
@@ -3405,6 +3444,8 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         auto& per_page = per_pages[search_index];
         auto& transcribed_query = transcribed_queries[search_index];
         auto& override_metadata = override_metadata_list[search_index];
+        const auto default_sorting_field_used = coll_args.sort_fields.empty() &&
+                                                !coll->default_sorting_field.empty();
 
         const auto init_index_search_args_op = coll->init_index_search_args_with_lock(coll_args, search_params_guard, query, included_ids,
                                                                                       include_fields_full, exclude_fields_full,
@@ -3455,6 +3496,56 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         params["per_page"] = union_params.per_page;
         params["q"] = coll_args.raw_query;
         request_json_list[search_index] = params;
+
+        // All the searches should sort_by on the same type of field and in the same order.
+        if (search_index > 0) {
+            const auto& first_search_sort_fields = search_params_guards[0]->sort_fields_std;
+            const auto& this_search_sort_fields = search_params->sort_fields_std;
+            if (this_search_sort_fields.size() != first_search_sort_fields.size()) {
+                return Option<bool>(400, "Expected size of `sort_by` parameter of all searches to be equal.");
+            }
+
+            for (size_t i = 0; i < first_search_sort_fields.size(); i++) {
+                if (this_search_sort_fields[i].type != first_search_sort_fields[i].type) {
+                    std::string append_hint;
+                    if (default_sorting_field_used && first_request_default_sorting_field_used) {
+                        // Both the current and first search request have declared a default sorting field.
+                        append_hint = " Both `" + coll->get_name() + "` and `" +
+                                        request_json_list[0]["collection_name"].get<std::string>() + "` collections have"
+                                        " declared a default sorting field of different type. Since union expects the"
+                                        " searches to sort_by on the same type of fields, default sorting fields of the"
+                                        " collections should be removed.";
+                    } else if (default_sorting_field_used) {
+                        append_hint = " `" + coll->get_name() + "` collection has declared a default sorting field of "
+                                        "different type. Since union expects the searches to sort_by on the same type "
+                                        "of fields, default sorting field of the collection should be removed.";
+                    } else if (first_request_default_sorting_field_used) {
+                        append_hint = " `" + request_json_list[0]["collection_name"].get<std::string>() + "` collection "
+                                        "has declared a default sorting field of different type. Since union expects "
+                                        "the searches to sort_by on the same type of fields, default sorting field of "
+                                        "the collection should be removed.";
+                    }
+
+                    return Option<bool>(400, "Expected type of `" + this_search_sort_fields[i].name + "` sort_by ("
+                                                + std::string(magic_enum::enum_name(this_search_sort_fields[i].type)) +
+                                                ") at search index `" += std::to_string(search_index) + "` to be "
+                                                "the same as the type of `" + first_search_sort_fields[i].name +
+                                                "` sort_by (" += std::string(magic_enum::enum_name(first_search_sort_fields[i].type)) +
+                                                ") at search index `" += std::to_string(0) + "`." += append_hint);
+                }
+
+                if (this_search_sort_fields[i].order != first_search_sort_fields[i].order) {
+                    return Option<bool>(400, "Expected order of `" + this_search_sort_fields[i].name + "` sort_by ("
+                                             += this_search_sort_fields[i].order + ") at search index `" +=
+                                             std::to_string(search_index) + "` to be the same as the order of `" +
+                                             first_search_sort_fields[i].name + "` sort_by ("
+                                             += first_search_sort_fields[i].order + ") at search index `" +=
+                                             std::to_string(0) + ".");
+                }
+            }
+        } else {
+            first_request_default_sorting_field_used = default_sorting_field_used;
+        }
     }
 
     if (search_cutoff && total == 0) {

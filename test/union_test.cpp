@@ -7,7 +7,7 @@
 
 class UnionTest : public ::testing::Test {
 protected:
-    Store *store;
+    Store *store = nullptr;
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
 
@@ -239,7 +239,7 @@ protected:
         }
     }
 
-    void setupNumericArrayCollection() {
+    void setupNumericArrayCollectionWithDefaultSortingField() {
         Collection *coll_array_fields;
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
@@ -265,7 +265,7 @@ protected:
         infile.close();
     }
 
-    void setupBoolCollection() {
+    void setupBoolCollectionWithDefaultSortingField() {
         Collection *coll_bool;
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/bool_documents.jsonl");
@@ -279,6 +279,57 @@ protected:
         coll_bool = collectionManager.get_collection("coll_bool").get();
         if(coll_bool == nullptr) {
             coll_bool = collectionManager.create_collection("coll_bool", 1, fields, "rating").get();
+        }
+
+        std::string json_line;
+
+        while (std::getline(infile, json_line)) {
+            coll_bool->add(json_line);
+        }
+
+        infile.close();
+    }
+
+    void setupNumericArrayCollection() {
+        Collection *coll_array_fields;
+
+        std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+        std::vector<field> fields = {
+                field("name", field_types::STRING, false),
+                field("age", field_types::INT32, false),
+                field("years", field_types::INT32_ARRAY, false),
+                field("tags", field_types::STRING_ARRAY, true),
+                field("rating", field_types::FLOAT, true)
+        };
+
+        coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
+        if(coll_array_fields == nullptr) {
+            coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields).get();
+        }
+
+        std::string json_line;
+
+        while (std::getline(infile, json_line)) {
+            coll_array_fields->add(json_line);
+        }
+
+        infile.close();
+    }
+
+    void setupBoolCollection() {
+        Collection *coll_bool;
+
+        std::ifstream infile(std::string(ROOT_DIR)+"test/bool_documents.jsonl");
+        std::vector<field> fields = {
+                field("popular", field_types::BOOL, false),
+                field("title", field_types::STRING, false),
+                field("rating", field_types::FLOAT, false),
+                field("bool_array", field_types::BOOL_ARRAY, false),
+        };
+
+        coll_bool = collectionManager.get_collection("coll_bool").get();
+        if(coll_bool == nullptr) {
+            coll_bool = collectionManager.create_collection("coll_bool", 1, fields).get();
         }
 
         std::string json_line;
@@ -359,6 +410,111 @@ TEST_F(UnionTest, ErrorHandling) {
               " integer.", json_res["error"]);
     json_res.clear();
     req_params.clear();
+
+    setupBoolCollectionWithDefaultSortingField();
+    setupNumericArrayCollectionWithDefaultSortingField();
+
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "coll_bool",
+                        "q": "the",
+                        "query_by": "title"
+                    },
+                    {
+                        "collection": "coll_array_fields",
+                        "q": "Jeremy",
+                        "query_by": "name"
+                    }
+                ])"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res.count("code"));
+    ASSERT_EQ(400, json_res["code"]);
+    ASSERT_EQ(1, json_res.count("error"));
+    ASSERT_EQ("Expected type of `age` sort_by (int32_field) at search index `1` to be the same as the type of `rating` "
+              "sort_by (float_field) at search index `0`. Both `coll_array_fields` and `coll_bool` collections have "
+              "declared a default sorting field of different type. Since union expects the searches to sort_by on the "
+              "same type of fields, default sorting fields of the collections should be removed.", json_res["error"]);
+    json_res.clear();
+    req_params.clear();
+
+    collectionManager.drop_collection("coll_array_fields");
+    setupNumericArrayCollection();
+
+    searches = R"([
+                    {
+                        "collection": "coll_bool",
+                        "q": "the",
+                        "query_by": "title"
+                    },
+                    {
+                        "collection": "coll_array_fields",
+                        "q": "Jeremy",
+                        "query_by": "name"
+                    }
+                ])"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res.count("code"));
+    ASSERT_EQ(400, json_res["code"]);
+    ASSERT_EQ(1, json_res.count("error"));
+    ASSERT_EQ("Expected type of `_seq_id` sort_by (insertion_order) at search index `1` to be the same as the type of "
+              "`rating` sort_by (float_field) at search index `0`. `coll_bool` collection has declared a default sorting"
+              " field of different type. Since union expects the searches to sort_by on the same type of fields, default"
+              " sorting field of the collection should be removed.", json_res["error"]);
+    json_res.clear();
+    req_params.clear();
+
+    searches = R"([
+                    {
+                        "collection": "coll_bool",
+                        "q": "the",
+                        "query_by": "title",
+                        "sort_by": "popular:asc"
+                    },
+                    {
+                        "collection": "coll_array_fields",
+                        "q": "Jeremy",
+                        "query_by": "name",
+                        "sort_by": "rating:desc"
+                    }
+                ])"_json;
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res.count("code"));
+    ASSERT_EQ(400, json_res["code"]);
+    ASSERT_EQ(1, json_res.count("error"));
+    ASSERT_EQ("Expected type of `rating` sort_by (float_field) at search index `1` to be the same as the type of "
+              "`popular` sort_by (bool_field) at search index `0`.", json_res["error"]);
+    json_res.clear();
+    req_params.clear();
+
+    searches = R"([
+                    {
+                        "collection": "coll_bool",
+                        "q": "the",
+                        "query_by": "title",
+                        "sort_by": "rating:asc"
+                    },
+                    {
+                        "collection": "coll_array_fields",
+                        "q": "Jeremy",
+                        "query_by": "name",
+                        "sort_by": "rating:desc"
+                    }
+                ])"_json;
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res.count("code"));
+    ASSERT_EQ(400, json_res["code"]);
+    ASSERT_EQ(1, json_res.count("error"));
+    ASSERT_EQ("Expected order of `rating` sort_by (DESC) at search index `1` to be the same as the order of `rating` "
+              "sort_by (ASC) at search index `0.", json_res["error"]);
+    json_res.clear();
+    req_params.clear();
 }
 
 TEST_F(UnionTest, SameCollection) {
@@ -391,9 +547,9 @@ TEST_F(UnionTest, SameCollection) {
     ASSERT_EQ("shampoo", json_res["hits"][1]["document"]["product_name"]);
 
     ASSERT_EQ(json_res["hits"][0]["text_match"], json_res["hits"][1]["text_match"]);
-
     json_res.clear();
     req_params.clear();
+
     searches = R"([
                     {
                         "collection": "Products",
@@ -423,9 +579,9 @@ TEST_F(UnionTest, SameCollection) {
     ASSERT_EQ("shampoo", json_res["hits"][1]["document"]["product_name"]);
 
     ASSERT_EQ(json_res["hits"][0]["text_match"], json_res["hits"][1]["text_match"]);
-
     json_res.clear();
     req_params.clear();
+
     searches = R"([
                     {
                         "collection": "Products",
@@ -456,7 +612,6 @@ TEST_F(UnionTest, SameCollection) {
 
     // Exact match gets better score.
     ASSERT_GT(json_res["hits"][0]["text_match"], json_res["hits"][1]["text_match"]);
-
     json_res.clear();
     req_params.clear();
 }
@@ -468,13 +623,14 @@ TEST_F(UnionTest, DifferentCollections) {
     searches = R"([
                     {
                         "collection": "Meals",
-                        "q": "*",
+                        "q": "he",
+                        "query_by": "title",
                         "filter_by": "$UserFavoriteMeals(user_id: user_a) ",
                         "include_fields": "$Foods($Portions(*,strategy:merge)) "
                     },
                     {
                         "collection": "Foods",
-                        "q": "br",
+                        "q": "bread",
                         "query_by": "name",
                         "filter_by": "$UserFavoriteFoods(user_id: user_a) ",
                         "include_fields": "$Portions(*,strategy:merge) "
@@ -510,7 +666,6 @@ TEST_F(UnionTest, DifferentCollections) {
     ASSERT_EQ(1, json_res["hits"][1]["document"]["Foods"][1]["portions"][0].count("unit"));
     ASSERT_EQ(0, json_res["hits"][1]["document"]["Foods"][1]["portions"][1].count("unit"));
     ASSERT_EQ(1, json_res["hits"][1]["document"]["Foods"][1]["portions"][2].count("unit"));
-
     json_res.clear();
     req_params.clear();
 }
@@ -519,6 +674,31 @@ TEST_F(UnionTest, Pagination) {
     setupNumericArrayCollection();
     setupBoolCollection();
 
+    // Since no sort_by is mentioned, the documents are returned based on seq_id (insertion order).
+    // Matches for the searches, individually:
+    // search   seq_id
+    //    0        9
+    //    0        4
+    //    0        3
+    //    0        2
+    //    0        1
+    //    1        4
+    //    1        3
+    //    1        2
+    //    1        1
+    //    1        0
+    // The return order:
+    // search   seq_id
+    //    0        9
+    //    1        4
+    //    0        4
+    //    1        3
+    //    0        3
+    //    1        2
+    //    0        2
+    //    1        1
+    //    0        1
+    //    1        0
     req_params = {
             {"page", "1"},
             {"per_page", "2"}
@@ -542,19 +722,52 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_EQ(10, json_res["found"]); // 5 documents from `coll_array_fields` and 5 documents from `coll_bool`.
     ASSERT_EQ(15, json_res["out_of"]);
     ASSERT_EQ(2, json_res["hits"].size());
-    ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]);
-    ASSERT_EQ("The Godfather", json_res["hits"][0]["document"]["title"]);
+    ASSERT_EQ("9", json_res["hits"][0]["document"]["id"]);
+    ASSERT_EQ("The Legend of the Titanic", json_res["hits"][0]["document"]["title"]);
     ASSERT_EQ(578730123365187705, json_res["hits"][0]["text_match"]);
 
-    ASSERT_EQ("3", json_res["hits"][1]["document"]["id"]);
-    ASSERT_EQ("The Schindler's List", json_res["hits"][1]["document"]["title"]);
+    ASSERT_EQ("4", json_res["hits"][1]["document"]["id"]);
+    ASSERT_EQ("Jeremy Howard", json_res["hits"][1]["document"]["name"]);
     ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
+    json_res.clear();
+    req_params.clear();
 
     req_params = {
             {"page", "3"},
             {"per_page", "2"}
     };
-    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "coll_bool",
+                        "q": "the",
+                        "query_by": "title"
+                    },
+                    {
+                        "collection": "coll_array_fields",
+                        "q": "Jeremy",
+                        "query_by": "name"
+                    }
+                ])"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(10, json_res["found"]); // 5 documents from `coll_array_fields` and 5 documents from `coll_bool`.
+    ASSERT_EQ(15, json_res["out_of"]);
+    ASSERT_EQ(2, json_res["hits"].size());
+    ASSERT_EQ("3", json_res["hits"][0]["document"]["id"]);
+    ASSERT_EQ("The Schindler's List", json_res["hits"][0]["document"]["title"]);
+    ASSERT_EQ(578730123365187705, json_res["hits"][0]["text_match"]);
+
+    ASSERT_EQ("2", json_res["hits"][1]["document"]["id"]);
+    ASSERT_EQ("Jeremy Howard", json_res["hits"][1]["document"]["name"]);
+    ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
+    json_res.clear();
+    req_params.clear();
+
+    req_params = {
+            {"page", "4"},
+            {"per_page", "2"}
+    };
     searches = R"([
                     {
                         "collection": "coll_bool",
@@ -577,39 +790,138 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_EQ("Daniel the Wizard", json_res["hits"][0]["document"]["title"]);
     ASSERT_EQ(578730123365187705, json_res["hits"][0]["text_match"]);
 
-    ASSERT_EQ("3", json_res["hits"][1]["document"]["id"]);
+    ASSERT_EQ("1", json_res["hits"][1]["document"]["id"]);
     ASSERT_EQ("Jeremy Howard", json_res["hits"][1]["document"]["name"]);
     ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
+    json_res.clear();
+    req_params.clear();
+}
 
-    req_params = {
-            {"page", "4"},
-            {"per_page", "2"}
-    };
+TEST_F(UnionTest, Sorting) {
+    setupNumericArrayCollection();
+    setupBoolCollection();
+
     embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
     searches = R"([
                     {
                         "collection": "coll_bool",
                         "q": "the",
-                        "query_by": "title"
+                        "query_by": "title",
+                        "sort_by": "rating:desc"
                     },
                     {
                         "collection": "coll_array_fields",
                         "q": "Jeremy",
-                        "query_by": "name"
+                        "query_by": "name",
+                        "sort_by": "rating:desc"
                     }
                 ])"_json;
 
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(10, json_res["found"]); // 5 documents from `coll_array_fields` and 5 documents from `coll_bool`.
+    ASSERT_EQ(15, json_res["out_of"]);
+    ASSERT_EQ(10, json_res["hits"].size());
+    ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]);
+    ASSERT_EQ("Jeremy Howard", json_res["hits"][0]["document"]["name"]);
+    ASSERT_EQ(9.999, json_res["hits"][0]["document"]["rating"]);
+
+    ASSERT_EQ("1", json_res["hits"][1]["document"]["id"]);
+    ASSERT_EQ("The Godfather", json_res["hits"][1]["document"]["title"]);
+    ASSERT_EQ(9.9, json_res["hits"][1]["document"]["rating"]);
+
+    ASSERT_EQ("3", json_res["hits"][2]["document"]["id"]);
+    ASSERT_EQ("The Schindler's List", json_res["hits"][2]["document"]["title"]);
+    ASSERT_EQ(9.8, json_res["hits"][2]["document"]["rating"]);
+
+    ASSERT_EQ("4", json_res["hits"][3]["document"]["id"]);
+    ASSERT_EQ("The Wizard of Oz", json_res["hits"][3]["document"]["title"]);
+    ASSERT_EQ(8.9, json_res["hits"][3]["document"]["rating"]);
+
+    ASSERT_EQ("2", json_res["hits"][4]["document"]["id"]);
+    ASSERT_EQ("Jeremy Howard", json_res["hits"][4]["document"]["name"]);
+    ASSERT_EQ(7.812, json_res["hits"][4]["document"]["rating"]);
+
+    ASSERT_EQ("4", json_res["hits"][5]["document"]["id"]);
+    ASSERT_EQ("Jeremy Howard", json_res["hits"][5]["document"]["name"]);
+    ASSERT_EQ(5.5, json_res["hits"][5]["document"]["rating"]);
+
+    ASSERT_EQ("9", json_res["hits"][6]["document"]["id"]);
+    ASSERT_EQ("The Legend of the Titanic", json_res["hits"][6]["document"]["title"]);
+    ASSERT_EQ(2, json_res["hits"][6]["document"]["rating"]);
+
+    ASSERT_EQ("2", json_res["hits"][7]["document"]["id"]);
+    ASSERT_EQ("Daniel the Wizard", json_res["hits"][7]["document"]["title"]);
+    ASSERT_EQ(1.6, json_res["hits"][7]["document"]["rating"]);
+
+    ASSERT_EQ("0", json_res["hits"][8]["document"]["id"]);
+    ASSERT_EQ("Jeremy Howard", json_res["hits"][8]["document"]["name"]);
+    ASSERT_EQ(1.09, json_res["hits"][8]["document"]["rating"]);
+
+    ASSERT_EQ("3", json_res["hits"][9]["document"]["id"]);
+    ASSERT_EQ("Jeremy Howard", json_res["hits"][9]["document"]["name"]);
+    ASSERT_EQ(0, json_res["hits"][9]["document"]["rating"]);
+    json_res.clear();
+    req_params.clear();
+
+    searches = R"([
+                    {
+                        "collection": "coll_bool",
+                        "q": "the",
+                        "query_by": "title",
+                        "sort_by": "rating:asc"
+                    },
+                    {
+                        "collection": "coll_array_fields",
+                        "q": "Jeremy",
+                        "query_by": "name",
+                        "sort_by": "rating:asc"
+                    }
+                ])"_json;
     search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(10, json_res["found"]); // 5 documents from `coll_array_fields` and 5 documents from `coll_bool`.
     ASSERT_EQ(15, json_res["out_of"]);
-    ASSERT_EQ(2, json_res["hits"].size());
-    ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]);
+    ASSERT_EQ(10, json_res["hits"].size());
+    ASSERT_EQ("3", json_res["hits"][0]["document"]["id"]);
     ASSERT_EQ("Jeremy Howard", json_res["hits"][0]["document"]["name"]);
-    ASSERT_EQ(578730123365187705, json_res["hits"][0]["text_match"]);
+    ASSERT_EQ(0, json_res["hits"][0]["document"]["rating"]);
 
-    ASSERT_EQ("4", json_res["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", json_res["hits"][1]["document"]["id"]);
     ASSERT_EQ("Jeremy Howard", json_res["hits"][1]["document"]["name"]);
-    ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
-}
+    ASSERT_EQ(1.09, json_res["hits"][1]["document"]["rating"]);
 
+    ASSERT_EQ("2", json_res["hits"][2]["document"]["id"]);
+    ASSERT_EQ("Daniel the Wizard", json_res["hits"][2]["document"]["title"]);
+    ASSERT_EQ(1.6, json_res["hits"][2]["document"]["rating"]);
+
+    ASSERT_EQ("9", json_res["hits"][3]["document"]["id"]);
+    ASSERT_EQ("The Legend of the Titanic", json_res["hits"][3]["document"]["title"]);
+    ASSERT_EQ(2, json_res["hits"][3]["document"]["rating"]);
+
+    ASSERT_EQ("4", json_res["hits"][4]["document"]["id"]);
+    ASSERT_EQ("Jeremy Howard", json_res["hits"][4]["document"]["name"]);
+    ASSERT_EQ(5.5, json_res["hits"][4]["document"]["rating"]);
+
+    ASSERT_EQ("2", json_res["hits"][5]["document"]["id"]);
+    ASSERT_EQ("Jeremy Howard", json_res["hits"][5]["document"]["name"]);
+    ASSERT_EQ(7.812, json_res["hits"][5]["document"]["rating"]);
+
+    ASSERT_EQ("4", json_res["hits"][6]["document"]["id"]);
+    ASSERT_EQ("The Wizard of Oz", json_res["hits"][6]["document"]["title"]);
+    ASSERT_EQ(8.9, json_res["hits"][6]["document"]["rating"]);
+
+    ASSERT_EQ("3", json_res["hits"][7]["document"]["id"]);
+    ASSERT_EQ("The Schindler's List", json_res["hits"][7]["document"]["title"]);
+    ASSERT_EQ(9.8, json_res["hits"][7]["document"]["rating"]);
+
+    ASSERT_EQ("1", json_res["hits"][8]["document"]["id"]);
+    ASSERT_EQ("The Godfather", json_res["hits"][8]["document"]["title"]);
+    ASSERT_EQ(9.9, json_res["hits"][8]["document"]["rating"]);
+
+    ASSERT_EQ("1", json_res["hits"][9]["document"]["id"]);
+    ASSERT_EQ("Jeremy Howard", json_res["hits"][9]["document"]["name"]);
+    ASSERT_EQ(9.999, json_res["hits"][9]["document"]["rating"]);
+    json_res.clear();
+    req_params.clear();
+}

@@ -3607,7 +3607,7 @@ TEST_F(CollectionFacetingTest, IgnoreMissingFacetByFields) {
                           true, false, "", "", "",
                           "", true, true, false, 0, true,
                           true, DEFAULT_FILTER_BY_CANDIDATES, false, validate_field_names);
-LOG(INFO) << res_op.error();
+
     ASSERT_TRUE(res_op.ok());
 
     auto res = res_op.get();

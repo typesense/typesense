@@ -523,12 +523,12 @@ struct Union_Topster {
 
     static bool is_greater(const struct Union_KV* i, const struct Union_KV* j) {
         return std::tie(i->scores[0], i->scores[1], i->scores[2], i->search_index, i->key) >
-               std::tie(j->scores[0], j->scores[1], j->scores[2], i->search_index, j->key);
+               std::tie(j->scores[0], j->scores[1], j->scores[2], j->search_index, j->key);
     }
 
     static bool is_smaller(const struct Union_KV* i, const struct Union_KV* j) {
         return std::tie(i->scores[0], i->scores[1], i->scores[2], i->search_index, i->key) <
-               std::tie(j->scores[0], j->scores[1], j->scores[2], i->search_index, j->key);
+               std::tie(j->scores[0], j->scores[1], j->scores[2], j->search_index, j->key);
     }
 //
 //    static bool is_greater_kv_group(const std::vector<union_KV*>& i, const std::vector<union_KV*>& j) {
