@@ -10,6 +10,7 @@ class CollectionSpecificMoreTest : public ::testing::Test {
 protected:
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
+    StemmerManager& stemmerManager = StemmerManager::get_instance();
     std::atomic<bool> quit = false;
 
     std::vector<std::string> query_fields;
@@ -21,6 +22,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
+        stemmerManager.init(store);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
     }
@@ -3389,4 +3391,147 @@ TEST_F(CollectionSpecificMoreTest, IgnoreMissingQueryByFields) {
     auto res = res_op.get();
     ASSERT_EQ(0, res["hits"].size());
     ASSERT_EQ(0, res["found"].get<size_t>());
+}
+
+
+TEST_F(CollectionSpecificMoreTest, StemmingDictionary) {
+    nlohmann::json schema = R"({
+         "name": "titles",
+         "fields": [
+           {"name": "title", "type": "string", "stem_dictionary": "set1" }
+         ]
+       })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+
+    auto coll_stem = coll_stem_res.get();
+
+    std::string json_line = "{\"word\": \"people\", \"root\":\"person\"}";
+    std::vector<std::string> json_lines;
+    json_lines.push_back(json_line);
+
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set1", json_lines).ok());
+
+    schema = R"({
+         "name": "titles_no_stem",
+         "fields": [
+           {"name": "title", "type": "string" }
+         ]
+       })"_json;
+
+    auto coll_no_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_no_stem_res.ok());
+
+    auto coll_no_stem = coll_no_stem_res.get();
+
+
+    nlohmann::json doc;
+    doc["title"] = "people of america";
+    ASSERT_TRUE(coll_stem->add(doc.dump()).ok());
+
+    auto results = coll_stem->search("person", {"title"}, "", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("people of america", results["hits"][0]["document"]["title"].get<std::string>());
+
+    results = coll_no_stem->search("person", {"title"}, "", {}, sort_fields, {0}).get();
+    ASSERT_EQ(0, results["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
+    stemmerManager.delete_all_stemming_dictionaries();
+
+    std::string json_line = "{\"word\": \"people\", \"root\":\"person\"}";
+    std::vector<std::string> json_lines;
+    json_lines.push_back(json_line);
+
+    //add dictionary set
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set1", json_lines).ok());
+
+    //get dictionary set
+    nlohmann::json dictionary;
+    ASSERT_TRUE(stemmerManager.get_stemming_dictionary("set1", dictionary));
+    ASSERT_EQ("set1", dictionary["id"]);
+    ASSERT_EQ(1, dictionary["words"].size());
+    ASSERT_EQ("people", dictionary["words"][0]["word"]);
+    ASSERT_EQ("person", dictionary["words"][0]["root"]);
+
+    //add another dictionary set and get
+    json_lines.clear();
+    json_line = "{\"word\": \"qualities\", \"root\":\"quality\"}";
+    json_lines.push_back(json_line);
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set2", json_lines).ok());
+
+    ASSERT_TRUE(stemmerManager.get_stemming_dictionary("set2", dictionary));
+    ASSERT_EQ("set2", dictionary["id"]);
+    ASSERT_EQ(1, dictionary["words"].size());
+    ASSERT_EQ("qualities", dictionary["words"][0]["word"]);
+    ASSERT_EQ("quality", dictionary["words"][0]["root"]);
+
+    //add another line to same set and get
+    json_lines.clear();
+    json_line = "{\"word\": \"mangoes\", \"root\":\"mango\"}";
+    json_lines.push_back(json_line);
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set2", json_lines).ok());
+
+    ASSERT_TRUE(stemmerManager.get_stemming_dictionary("set2", dictionary));
+    ASSERT_EQ("set2", dictionary["id"]);
+    ASSERT_EQ(2, dictionary["words"].size());
+    ASSERT_EQ("qualities", dictionary["words"][0]["word"]);
+    ASSERT_EQ("quality", dictionary["words"][0]["root"]);
+    ASSERT_EQ("mangoes", dictionary["words"][1]["word"]);
+    ASSERT_EQ("mango", dictionary["words"][1]["root"]);
+
+    //get all dictionary sets
+    nlohmann::json dictionary_sets;
+    stemmerManager.get_stemming_dictionaries(dictionary_sets);
+    ASSERT_EQ(2, dictionary_sets["dictionaries"].size());
+    ASSERT_EQ("set1", dictionary_sets["dictionaries"][0].get<std::string>());
+    ASSERT_EQ("set2", dictionary_sets["dictionaries"][1].get<std::string>());
+
+    //del dictionary set and get
+    dictionary_sets.clear();
+    stemmerManager.del_stemming_dictionary("set2");
+    stemmerManager.get_stemming_dictionaries(dictionary_sets);
+    ASSERT_EQ(1, dictionary_sets["dictionaries"].size());
+    ASSERT_EQ("set1", dictionary_sets["dictionaries"][0].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, ReloadStemmingDictionaryOnRestart) {
+    stemmerManager.delete_all_stemming_dictionaries();
+
+    std::string json_line = "{\"word\": \"people\", \"root\":\"person\"}";
+    std::vector<std::string> json_lines;
+    json_lines.push_back(json_line);
+
+    //add dictionary set
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set1", json_lines).ok());
+
+    //get dictionary set
+    nlohmann::json dictionary;
+    ASSERT_TRUE(stemmerManager.get_stemming_dictionary("set1", dictionary));
+    ASSERT_EQ("set1", dictionary["id"]);
+    ASSERT_EQ(1, dictionary["words"].size());
+    ASSERT_EQ("people", dictionary["words"][0]["word"]);
+    ASSERT_EQ("person", dictionary["words"][0]["root"]);
+
+    //dispose collection manager and reload all stemming dictionaries
+    collectionManager.dispose();
+    stemmerManager.dispose();
+    delete store;
+
+    std::string state_dir_path = "/tmp/typesense_test/collection_specific_more";
+    store = new Store(state_dir_path);
+
+    stemmerManager.init(store);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    ASSERT_TRUE(stemmerManager.get_stemming_dictionary("set1", dictionary));
+    ASSERT_EQ("set1", dictionary["id"]);
+    ASSERT_EQ(1, dictionary["words"].size());
+    ASSERT_EQ("people", dictionary["words"][0]["word"]);
+    ASSERT_EQ("person", dictionary["words"][0]["root"]);
+
+    collectionManager.drop_collection("coll1");
 }

@@ -2909,6 +2909,111 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
     return true;
 }
 
+bool post_import_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const char *BATCH_SIZE = "batch_size";
+    const char *ID = "id";
+
+    if(req->params.count(BATCH_SIZE) == 0) {
+        req->params[BATCH_SIZE] = "40";
+    }
+
+    if(req->params.count(ID) == 0) {
+        res->final = true;
+        res->set_400("Parameter `" + std::string(ID) + "` must be provided while importing dictionary words.");
+        stream_response(req, res);
+        return false;
+    }
+
+    if(!StringUtils::is_uint32_t(req->params[BATCH_SIZE])) {
+        res->final = true;
+        res->set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
+        stream_response(req, res);
+        return false;
+    }
+
+    std::vector<std::string> json_lines;
+    StringUtils::split(req->body, json_lines, "\n", false, false);
+
+    if(req->last_chunk_aggregate) {
+        //LOG(INFO) << "req->last_chunk_aggregate is true";
+        req->body = "";
+    }
+
+    // When only one partial record arrives as a chunk, an empty body is pushed to response stream
+    bool single_partial_record_body = (json_lines.empty() && !req->body.empty());
+    std::stringstream response_stream;
+
+    if(!single_partial_record_body) {
+        auto op = StemmerManager::get_instance().upsert_stemming_dictionary(req->params.at(ID), json_lines);
+        if(!op.ok()) {
+            res->set(op.code(), op.error());
+            stream_response(req, res);
+        }
+
+        for (size_t i = 0; i < json_lines.size(); i++) {
+            bool res_start = (res->status_code == 0) && (i == 0);
+
+            if(res_start) {
+                // indicates first import result to be streamed
+                response_stream << json_lines[i];
+            } else {
+                response_stream << "\n" << json_lines[i];
+            }
+        }
+
+        // Since we use `res->status_code == 0` for flagging `res_start`, we will only set this
+        // when we have accumulated enough response data to stream.
+        // Otherwise, we will send an empty line as first response.
+        res->status_code = 200;
+    }
+
+    res->content_type_header = "text/plain; charset=utf-8";
+    res->body = response_stream.str();
+
+    res->final.store(req->last_chunk_aggregate);
+    stream_response(req, res);
+
+    return true;
+}
+
+bool get_stemming_dictionaries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json dictionaries;
+    StemmerManager::get_instance().get_stemming_dictionaries(dictionaries);
+
+    res->set_200(dictionaries.dump());
+    return true;
+}
+
+bool get_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& id = req->params["id"];
+    nlohmann::json dictionary;
+
+    if(!StemmerManager::get_instance().get_stemming_dictionary(id, dictionary)) {
+        res->set_404();
+        return false;
+    }
+
+    res->set_200(dictionary.dump());
+    return true;
+}
+
+bool del_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& id = req->params["id"];
+    nlohmann::json dictionary;
+
+    auto delete_op = StemmerManager::get_instance().del_stemming_dictionary(id);
+
+    if(!delete_op.ok()) {
+        res->set(delete_op.code(), delete_op.error());
+    }
+
+    nlohmann::json res_json;
+    res_json["id"] = id;
+    res->set_200(res_json.dump());
+
+    return true;
+}
+
 bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const char* N = "n";
 

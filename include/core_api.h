@@ -173,6 +173,15 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
 
 bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+//plurals, nouns
+bool post_import_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_stemming_dictionaries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Misc helpers
 
 void get_collections_for_auth(std::map<std::string, std::string>& req_params, const std::string& body,
