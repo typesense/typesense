@@ -736,11 +736,14 @@ TEST_F(UnionTest, Pagination) {
             {"page", "3"},
             {"per_page", "2"}
     };
+    // Pagination parameters of individual searches should have no effect.
     searches = R"([
                     {
                         "collection": "coll_bool",
                         "q": "the",
-                        "query_by": "title"
+                        "query_by": "title",
+                        "page": 10,
+                        "per_page": 10
                     },
                     {
                         "collection": "coll_array_fields",
