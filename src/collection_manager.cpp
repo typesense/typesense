@@ -109,12 +109,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         }
 
         if(field_obj.count(fields::embed) != 0 && !field_obj[fields::embed].empty()) {
-            size_t num_dim = 0;
+            size_t num_dim = field_obj[fields::num_dim];
             auto& model_config = field_obj[fields::embed][fields::model_config];
-
-            if(field_obj.find(fields::num_dim) != field_obj.end()) {
-                num_dim = field_obj[fields::num_dim];
-            }
 
             auto res = EmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
             if(!res.ok()) {

@@ -348,7 +348,7 @@ TEST_F(CollectionManagerTest, ParallelCollectionCreation) {
 TEST_F(CollectionManagerTest, ShouldInitCollection) {
     nlohmann::json collection_meta1 =
             nlohmann::json::parse("{\"name\": \"foobar\", \"id\": 100, \"fields\": [{\"name\": \"org\", \"type\": "
-                                  "\"string\", \"facet\": false}], \"default_sorting_field\": \"foo\"}");
+                                  "\"string\", \"facet\": false}, {\"name\": \"vector_field\", \"type\": \"float[]\", \"num_dim\": 128, \"facet\": false}], \"default_sorting_field\": \"foo\"}");
 
     spp::sparse_hash_map<std::string, std::string> referenced_in;
     spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins;
@@ -357,13 +357,15 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
                                                                async_referenced_ins);
     ASSERT_EQ("foobar", collection->get_name());
     ASSERT_EQ(100, collection->get_collection_id());
-    ASSERT_EQ(1, collection->get_fields().size());
+    ASSERT_EQ(2, collection->get_fields().size());
     ASSERT_EQ("foo", collection->get_default_sorting_field());
     ASSERT_EQ(0, collection->get_created_at());
 
     ASSERT_FALSE(collection->get_fields().at(0).infix);
     ASSERT_FALSE(collection->get_fields().at(0).sort);
     ASSERT_EQ("", collection->get_fields().at(0).locale);
+
+    ASSERT_EQ(128, collection->get_fields().at(1).num_dim);
 
     delete collection;
 
