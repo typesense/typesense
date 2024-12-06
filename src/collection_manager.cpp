@@ -1988,8 +1988,6 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     }
     const std::string & this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
-    LOG(INFO) << collection_meta;
-
     std::string collection_next_seq_id_str;
     StoreStatus next_seq_id_status = cm.store->get(Collection::get_next_seq_id_key(this_collection_name),
                                                 collection_next_seq_id_str);
