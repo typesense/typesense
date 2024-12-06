@@ -119,7 +119,10 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                 continue;
             }
 
-            field_obj[fields::num_dim] = num_dim;
+            if(field_obj[fields::num_dim] == 0) {
+                field_obj[fields::num_dim] = num_dim;
+            }
+
             LOG(INFO) << "Model init done.";
         }
 
@@ -1984,6 +1987,8 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         LOG(ERROR) << "";
     }
     const std::string & this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
+
+    LOG(INFO) << collection_meta;
 
     std::string collection_next_seq_id_str;
     StoreStatus next_seq_id_status = cm.store->get(Collection::get_next_seq_id_key(this_collection_name),
