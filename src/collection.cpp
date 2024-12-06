@@ -3544,7 +3544,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                              std::to_string(search_index) + "` to be the same as the order of `" +
                                              first_search_sort_fields[i].name + "` sort_by ("
                                              += first_search_sort_fields[i].order + ") at search index `" +=
-                                             std::to_string(0) + ".");
+                                             std::to_string(0) + "`.");
                 }
             }
         } else {

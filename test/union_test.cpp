@@ -512,7 +512,7 @@ TEST_F(UnionTest, ErrorHandling) {
     ASSERT_EQ(400, json_res["code"]);
     ASSERT_EQ(1, json_res.count("error"));
     ASSERT_EQ("Expected order of `rating` sort_by (DESC) at search index `1` to be the same as the order of `rating` "
-              "sort_by (ASC) at search index `0.", json_res["error"]);
+              "sort_by (ASC) at search index `0`.", json_res["error"]);
     json_res.clear();
     req_params.clear();
 }
