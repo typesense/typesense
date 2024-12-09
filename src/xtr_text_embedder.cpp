@@ -81,9 +81,7 @@ embedding_res_t XTRTextEmbedder::embed(const std::string& text, const size_t max
     if(shape.size() < 2) {
         shape.insert(shape.begin(), 1);
     }
-
-    LOG(INFO) << "Shape: " << shape[0] << " " << shape[1] << " " << shape[2];
-
+    
     std::vector<std::vector<uint64_t>> output;
     for (int i = 0; i < shape[1]; i++) {
         std::vector<uint64_t> output_row;
