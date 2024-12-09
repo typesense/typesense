@@ -11,6 +11,7 @@
 #include "core_api.h"
 #include "vq_model_manager.h"
 #include "conversation_model.h"
+#include "xtr_text_embedder.h"
 
 class CollectionVectorTest : public ::testing::Test {
 protected:
@@ -5360,4 +5361,24 @@ TEST_F(CollectionVectorTest, EmbedFieldMustBeFloatArray) {
 
     ASSERT_FALSE(field_op.ok());
     ASSERT_EQ("Fields with the `embed` parameter can only be of type `float[]`.", field_op.error());
+}
+
+
+TEST_F(CollectionVectorTest, TestXTRModel){
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto embedder = TextEmbedder("xtr", false);
+
+    auto result = embedder.Embed("FOOTBALL");
+
+    ASSERT_TRUE(result.is_binary);
+    LOG(INFO) << "Result size: " << result.binary_embeddings.size();
+    for (auto i = 0; i < result.binary_embeddings.size(); ++i) {
+        // print as binary string
+        for (auto j = 0; j < result.binary_embeddings[i].size(); ++j) {
+            LOG(INFO) << result.binary_embeddings[i][j];
+            LOG(INFO) << std::bitset<64>(result.binary_embeddings[i][j]);
+        }
+    }
+
 }

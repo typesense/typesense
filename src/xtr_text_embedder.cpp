@@ -63,10 +63,11 @@ embedding_res_t XTRTextEmbedder::embed(const std::string& text, const size_t max
     std::vector<int> attention_mask(encoded_inputs.attention_mask.begin(), encoded_inputs.attention_mask.end());
     std::vector<int> token_type_ids(encoded_inputs.token_type_ids.begin(), encoded_inputs.token_type_ids.end());
 
+
     Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
-    for(int i = 0; i < input_node_names.size(); i++) {
-        input_tensors.push_back(Ort::Value::CreateTensor<int>(memory_info, (int*) input_ids.data(), input_ids.size(), input_shapes[i].data(), input_shapes[i].size()));
-    }
+    input_tensors.push_back(Ort::Value::CreateTensor<int>(memory_info, (int*) input_ids.data(), input_ids.size(), input_shapes[0].data(), input_shapes[0].size()));
+    input_tensors.push_back(Ort::Value::CreateTensor<int>(memory_info, (int*) attention_mask.data(), attention_mask.size(), input_shapes[1].data(), input_shapes[1].size()));
+    input_tensors.push_back(Ort::Value::CreateTensor<int>(memory_info, (int*) token_type_ids.data(), token_type_ids.size(), input_shapes[2].data(), input_shapes[2].size()));
     auto allocator = Ort::AllocatorWithDefaultOptions();
     std::vector<embedding_res_t> outputs;
     std::vector<const char*> output_node_names = {output_node_name.c_str()};
@@ -74,19 +75,19 @@ embedding_res_t XTRTextEmbedder::embed(const std::string& text, const size_t max
     auto output_tensor = session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), 1);
     lock.unlock();
 
-    uint64_t* data = output_tensor[0].GetTensorMutableData<uint64_t>();
+    const uint64_t* data = output_tensor[0].GetTensorData<uint64_t>();
 
     auto shape = output_tensor[0].GetTensorTypeAndShapeInfo().GetShape();
 
     if(shape.size() < 2) {
         shape.insert(shape.begin(), 1);
     }
-    
+
     std::vector<std::vector<uint64_t>> output;
-    for (int i = 0; i < shape[1]; i++) {
+    for (int i = 0; i < shape[0]; i++) {
         std::vector<uint64_t> output_row;
-        for (int j = 0; j < shape[2]; j++) {
-            output_row.push_back(data[i * shape[2] + j]);
+        for (int j = 0; j < shape[1]; j++) {
+            output_row.push_back(data[i * shape[1] + j]);
         }
         output.push_back(output_row);
     }
@@ -100,6 +101,10 @@ std::vector<embedding_res_t> XTRTextEmbedder::batch_embed(const std::vector<std:
     for(int i = 0; i < inputs.size(); i += 16) {
         auto input_batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + 16, static_cast<int>(inputs.size())));
         auto encoded_inputs = batch_encode(input_batch, max_seq_len);
+
+        std::vector<std::vector<int>> input_ids(encoded_inputs.input_ids.begin(), encoded_inputs.input_ids.end());
+        std::vector<std::vector<int>> attention_mask(encoded_inputs.attention_mask.begin(), encoded_inputs.attention_mask.end());
+        std::vector<std::vector<int>> token_type_ids(encoded_inputs.token_type_ids.begin(), encoded_inputs.token_type_ids.end());
         
         // create input tensor object from data values
         Ort::AllocatorWithDefaultOptions allocator;
@@ -111,9 +116,9 @@ std::vector<embedding_res_t> XTRTextEmbedder::batch_embed(const std::vector<std:
         input_shapes.push_back({static_cast<int64_t>(encoded_inputs.attention_mask.size()), static_cast<int64_t>(encoded_inputs.attention_mask[0].size())});
         input_shapes.push_back({static_cast<int64_t>(encoded_inputs.token_type_ids.size()), static_cast<int64_t>(encoded_inputs.token_type_ids[0].size())});
 
-        for(int i = 0; i < input_node_names.size(); i++) {
-            input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, (int64_t*) encoded_inputs.input_ids.data(), encoded_inputs.input_ids.size(), input_shapes[i].data(), input_shapes[i].size()));
-        }
+        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, (int*) input_ids.data(), input_ids.size(), input_shapes[0].data(), input_shapes[0].size()));
+        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, (int*) attention_mask.data(), attention_mask.size(), input_shapes[1].data(), input_shapes[1].size()));
+        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, (int*) token_type_ids.data(), token_type_ids.size(), input_shapes[2].data(), input_shapes[2].size()));
 
         std::vector<const char*> output_node_names = {output_node_name.c_str()};
         std::unique_lock<std::mutex> lock(mutex_);
@@ -126,10 +131,10 @@ std::vector<embedding_res_t> XTRTextEmbedder::batch_embed(const std::vector<std:
         }
         std::vector<std::vector<uint64_t>> output;
 
-        for (int i = 0; i < shape[1]; i++) {
+        for (int i = 0; i < shape[0]; i++) {
             std::vector<uint64_t> output_row;
-            for (int j = 0; j < shape[2]; j++) {
-                output_row.push_back(data[i * shape[2] + j]);
+            for (int j = 0; j < shape[1]; j++) {
+                output_row.push_back(data[i * shape[1] + j]);
             }
             output.push_back(output_row);
         }

@@ -53,11 +53,14 @@ TextEmbedder::TextEmbedder(const std::string& model_name, const bool is_public_m
         return;
     }
     auto output_type = session_->GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo().GetElementType();
-    if(output_type != ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64) {
+    LOG(INFO) << "Output type: " << output_type;
+    if(output_type == ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT64) {
         // XTR model
+        LOG(INFO) << "XTR model detected";
         xtr_text_embedder_ = std::make_unique<XTRTextEmbedder>(session_, env_, vocab_path);
         return;
     }
+    LOG(INFO) << "Local model initialized";
     auto output_tensor_count = session_->GetOutputCount();
     for (size_t i = 0; i < output_tensor_count; i++) {
         auto shape = session_->GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
