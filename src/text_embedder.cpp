@@ -24,8 +24,8 @@ TextEmbedder::TextEmbedder(const std::string& model_name, const bool is_public_m
 
             dlclose(handle);
 
-            OrtCUDAProviderOptions cuda_options;
-            session_options.AppendExecutionProvider_CUDA(cuda_options);
+            //OrtCUDAProviderOptions cuda_options;
+            //session_options.AppendExecutionProvider_CUDA(cuda_options);
         }
     }
     std::string abs_path = EmbedderManager::get_absolute_model_path(model_name, is_public_model);
@@ -36,6 +36,7 @@ TextEmbedder::TextEmbedder(const std::string& model_name, const bool is_public_m
     std::ifstream config_file(EmbedderManager::get_absolute_config_path(model_name, is_public_model));
     nlohmann::json config;
     config_file >> config;
+    LOG(INFO) << "Config: " << config.dump();
     TokenizerType tokenizer_type = EmbedderManager::get_tokenizer_type(config);
     auto vocab_path = EmbedderManager::get_absolute_vocab_path(model_name, config["vocab_file_name"].get<std::string>(), is_public_model);
     if(tokenizer_type == TokenizerType::bert) {
@@ -49,6 +50,12 @@ TextEmbedder::TextEmbedder(const std::string& model_name, const bool is_public_m
         tokenizer_ = std::make_unique<CLIPTokenizerWrapper>(vocab_path);
         output_tensor_name = "text_embeds";
         num_dim = 512;
+        return;
+    }
+    auto output_type = session_->GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo().GetElementType();
+    if(output_type != ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64) {
+        // XTR model
+        xtr_text_embedder_ = std::make_unique<XTRTextEmbedder>(session_, env_, vocab_path);
         return;
     }
     auto output_tensor_count = session_->GetOutputCount();
@@ -120,6 +127,8 @@ std::vector<float> TextEmbedder::mean_pooling(const std::vector<std::vector<floa
 embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
     if(is_remote()) {
         return remote_embedder_->Embed(text, remote_embedder_timeout_ms, remote_embedding_num_tries);
+    } else if(is_xtr()) {
+        return xtr_text_embedder_->embed(text);
     } else {
         std::unique_lock<std::mutex> lock(mutex_);
         auto encoded_input = tokenizer_->Encode(text);
@@ -195,7 +204,11 @@ embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote
 std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size,
                                                        const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     std::vector<embedding_res_t> outputs;
-    if(!is_remote()) {
+    if(is_remote()) {
+        outputs = std::move(remote_embedder_->batch_embed(inputs, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries));
+    } else if(is_xtr()) {
+        outputs = std::move(xtr_text_embedder_->batch_embed(inputs));
+    } else {
         for(int i = 0; i < inputs.size(); i += 8) {
             auto input_batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + 8, static_cast<int>(inputs.size())));
             auto encoded_inputs = batch_encode(input_batch);
@@ -298,8 +311,6 @@ std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::st
                 }
             }
         }
-    } else {
-        outputs = std::move(remote_embedder_->batch_embed(inputs, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries));
     }
     
     return outputs;

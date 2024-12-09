@@ -7,6 +7,7 @@
 #include "option.h"
 #include "text_embedder_tokenizer.h"
 #include "text_embedder_remote.h"
+#include "xtr_text_embedder.h"
 
 
 class TextEmbedder {
@@ -24,6 +25,11 @@ class TextEmbedder {
         bool is_remote() {
             return remote_embedder_ != nullptr;
         }
+
+        bool is_xtr() {
+            return xtr_text_embedder_ != nullptr;
+        }
+
         Option<bool> validate();
 
         std::shared_ptr<Ort::Session> get_session() {
@@ -49,6 +55,7 @@ class TextEmbedder {
         batch_encoded_input_t batch_encode(const std::vector<std::string>& inputs);
         std::unique_ptr<TextEmbeddingTokenizer> tokenizer_;
         std::unique_ptr<RemoteEmbedder> remote_embedder_;
+        std::unique_ptr<XTRTextEmbedder> xtr_text_embedder_;
         std::string vocab_file_name;
         static std::vector<float> mean_pooling(const std::vector<std::vector<float>>& input, const std::vector<int64_t>& attention_mask);
         std::string output_tensor_name;
