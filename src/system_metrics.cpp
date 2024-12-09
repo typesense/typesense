@@ -147,7 +147,7 @@ uint64_t SystemMetrics::get_memory_used_bytes() {
     memory_used_bytes = (memory_total_bytes - memory_available_bytes) + (swap_total_bytes - swap_free_bytes);
 
     // add back memory that jemalloc has reserved, is unused and has not been returned to OS
-    memory_used_bytes -= SystemMetrics::get_instance().get_cached_jemalloc_unused_memory();
+    //memory_used_bytes -= SystemMetrics::get_instance().get_cached_jemalloc_unused_memory();
 
 #endif
 
