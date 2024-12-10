@@ -783,10 +783,6 @@ public:
     nlohmann::json get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document,
                                     const std::string& val, bool is_array) const;
 
-    static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs, 
-                    const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed, 
-                    const std::vector<sort_by>& sort_by_fields);
-
     void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed,
                      const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size = 200,
                      const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);

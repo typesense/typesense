@@ -2722,7 +2722,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
 
             // sort again based on bucketed match score
             std::partial_sort(raw_result_kvs.begin(), raw_result_kvs.begin() + max_kvs_bucketed, raw_result_kvs.end(),
-                              Topster::is_greater_kv_group);
+                              KV::is_greater_kv_group);
 
             // restore original scores
             for(i = 0; i < max_kvs_bucketed; i++) {
@@ -3558,18 +3558,18 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         return Option<bool>(408, "Request Timeout");
     }
 
-    auto union_topster = std::make_unique<Union_Topster>(std::max<size_t>(union_params.fetch_size,
-                                                                          Index::DEFAULT_TOPSTER_SIZE));
+    auto union_topster = std::make_unique<Topster<Union_KV, std::pair<uint32_t, uint64_t>, pair_hash>>(
+                                                std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto& search_param = search_params_guards[search_index];
 
         for (auto& kvs: search_param->raw_result_kvs) {
             Union_KV kv(*kvs[0], search_index);
-            union_topster->add(&kv);
+            union_topster->add(&kv, Union_KV::get_key, Union_KV::is_greater, Union_KV::is_smaller);
         }
     }
-    union_topster->sort();
+    union_topster->sort(Union_KV::is_greater);
 
     const long start_result_index = union_params.offset;
 
@@ -4264,61 +4264,6 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             std::vector<std::vector<std::string>> q_phrases_dummy;
 
             process_tokens(tokens_non_stemmed, q_unstemmed_tokens, q_exclude_tokens_dummy, q_phrases_dummy, exclude_operator_prior, phrase_search_op_prior, phrase, stopwords_set,  already_segmented, locale, nullptr);
-        }
-    }
-}
-
-void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs,
-                                const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed, 
-                                const std::vector<sort_by>& sort_by_fields) {
-    if(topster->distinct) {
-        // we have to pick top-K groups
-        Topster gtopster(topster->MAX_SIZE);
-
-        int group_count_index = -1;
-        int group_sort_order = 1;
-
-        for(int i = 0; i < sort_by_fields.size(); ++i) {
-            if(sort_by_fields[i].name == sort_field_const::group_found) {
-                group_count_index = i;
-                
-                if(sort_by_fields[i].order == sort_field_const::asc) {
-                    group_sort_order *= -1;
-                } 
-
-                break;
-            }
-        }
-
-        for(auto& group_topster: topster->group_kv_map) {
-            group_topster.second->sort();
-            if(group_topster.second->size != 0) {
-                KV* kv_head = group_topster.second->getKV(0);
-                
-                if(group_count_index >= 0) {
-                    const auto& itr = groups_processed.find(kv_head->distinct_key);
-                    if(itr != groups_processed.end()) {
-                        kv_head->scores[group_count_index] = itr->second * group_sort_order;
-                    }
-                }
-                gtopster.add(kv_head);
-            }
-        }
-
-        gtopster.sort();
-
-        for(size_t i = 0; i < gtopster.size; i++) {
-            KV* kv = gtopster.getKV(i);
-            const std::vector<KV*> group_kvs(
-                topster->group_kv_map[kv->distinct_key]->kvs,
-                topster->group_kv_map[kv->distinct_key]->kvs+topster->group_kv_map[kv->distinct_key]->size
-            );
-            result_kvs.emplace_back(group_kvs);
-        }
-    } else {
-        for(uint32_t t = 0; t < topster->size; t++) {
-            KV* kv = topster->getKV(t);
-            result_kvs.push_back({kv});
         }
     }
 }

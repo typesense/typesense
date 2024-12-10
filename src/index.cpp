@@ -1683,17 +1683,17 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
     }
 }
 
-void Index::aggregate_topster(Topster* agg_topster, Topster* index_topster) {
+void Index::aggregate_topster(Topster<KV>* agg_topster, Topster<KV>* index_topster) {
     if(index_topster->distinct) {
         for(auto &group_topster_entry: index_topster->group_kv_map) {
-            Topster* group_topster = group_topster_entry.second;
-            for(const auto& map_kv: group_topster->kv_map) {
-                agg_topster->add(map_kv.second);
+            auto group_topster = group_topster_entry.second;
+            for(const auto& map_kv: group_topster->map) {
+                agg_topster->add(map_kv.second, KV::get_key, KV::is_greater, KV::is_smaller);
             }
         }
     } else {
-        for(const auto& map_kv: index_topster->kv_map) {
-            agg_topster->add(map_kv.second);
+        for(const auto& map_kv: index_topster->map) {
+            agg_topster->add(map_kv.second, KV::get_key, KV::is_greater, KV::is_smaller);
         }
     }
 }
@@ -1709,7 +1709,7 @@ Option<bool> Index::search_all_candidates(const size_t num_search_fields,
                                           std::vector<std::vector<art_leaf*>>& searched_queries,
                                           tsl::htrie_map<char, token_leaf>& qtoken_set,
                                           const std::vector<token_t>& dropped_tokens,
-                                          Topster*& topster,
+                                          Topster<KV>*& topster,
                                           spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                           size_t& num_keyword_matches,
                                           uint32_t*& all_result_ids, size_t& all_result_ids_len,
@@ -2402,7 +2402,7 @@ Option<bool> Index::run_search(search_args* search_params) {
 
 void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
                                  const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
-                                 Topster*& curated_topster,
+                                 Topster<KV>*& curated_topster,
                                  std::vector<std::vector<art_leaf*>> & searched_queries) const {
 
     if(included_ids_map.empty()) {
@@ -2427,21 +2427,22 @@ void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
             scores[2] = int64_t(1);
 
             KV kv(0, seq_id, distinct_id, 0, scores);
-            curated_topster->add(&kv);
+            curated_topster->add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
         }
     }
 }
 
-void Index::concat_topster_ids(Topster*& topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) {
+void Index::concat_topster_ids(Topster<KV>*& topster,
+                               spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) {
     if(topster->distinct) {
         for(auto &group_topster_entry: topster->group_kv_map) {
-            Topster* group_topster = group_topster_entry.second;
-            for(const auto& map_kv: group_topster->kv_map) {
+            auto group_topster = group_topster_entry.second;
+            for(const auto& map_kv: group_topster->map) {
                 topster_ids[map_kv.first].push_back(map_kv.second);
             }
         }
     } else {
-        for(const auto& map_kv: topster->kv_map) {
+        for(const auto& map_kv: topster->map) {
             //LOG(INFO) << "map_kv.second.key: " << map_kv.second->key;
             //LOG(INFO) << "map_kv.first: " << map_kv.first;
             topster_ids[map_kv.first].push_back(map_kv.second);
@@ -2696,7 +2697,7 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
 
             std::vector<facet> facets;
             std::vector<std::vector<art_leaf*>> searched_queries;
-            Topster* topster = nullptr;
+            Topster<KV>* topster = nullptr;
             spp::sparse_hash_map<uint64_t, uint32_t> groups_processed;
             uint32_t* result_ids = nullptr;
             size_t result_ids_len = 0;
@@ -2971,7 +2972,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const int max_facet_values,
                    const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                    const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
-                   const std::vector<uint32_t>& num_typos, Topster*& topster, Topster*& curated_topster,
+                   const std::vector<uint32_t>& num_typos, Topster<KV>*& topster, Topster<KV>*& curated_topster,
                    const size_t fetch_size,
                    const size_t per_page,
                    const size_t offset, const token_ordering token_order, const std::vector<bool>& prefixes,
@@ -3041,8 +3042,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         topster_size = std::min<size_t>(topster_size, num_seq_ids());
     }
     topster_size = std::max((size_t)1, topster_size);  // needs to be atleast 1 since scoring is mandatory
-    topster = new Topster(topster_size, group_limit);
-    curated_topster = new Topster(topster_size, group_limit);
+    topster = new Topster<KV>(topster_size, group_limit);
+    curated_topster = new Topster<KV>(topster_size, group_limit);
 
     std::set<uint32_t> curated_ids;
     std::map<size_t, std::map<size_t, uint32_t>> included_ids_map;  // outer pos => inner pos => list of IDs
@@ -3160,7 +3161,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 result_ids.push_back(seq_id);
                 KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
-                int ret = topster->add(&kv);
+                int ret = topster->add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
 
                 if(group_limit != 0 && ret < 2) {
                     groups_processed[distinct_id]++;
@@ -3258,7 +3259,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores, std::move(references));
                 kv.vector_distance = vec_dist_score;
-                int ret = topster->add(&kv);
+                int ret = topster->add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
 
                 if(group_limit != 0 && ret < 2) {
                     groups_processed[distinct_id]++;
@@ -3602,9 +3603,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         }
                     }
                     
-                    std::sort(kvs.begin(), kvs.end(), Topster::is_greater);
+                    std::sort(kvs.begin(), kvs.end(), KV::is_greater);
                 } else {
-                    topster->sort();
+                    topster->sort(KV::is_greater);
                 }
 
                 // Reciprocal rank fusion
@@ -3649,8 +3650,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             }
                         }
                     } else {
-                        auto result_it = topster->kv_map.find(seq_id);
-                        if(result_it != topster->kv_map.end()) {
+                        auto result_it = topster->map.find(seq_id);
+                        if(result_it != topster->map.end()) {
                             found_kv = result_it->second;
                         }
                     }
@@ -3724,7 +3725,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         kv.text_match_score = 0;
                         kv.vector_distance = dist_result.first;
 
-                        auto ret = topster->add(&kv);
+                        auto ret = topster->add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
                         vec_search_ids.push_back(seq_id);
 
                         if(group_limit != 0 && ret < 2) {
@@ -3764,11 +3765,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                            prioritize_token_position, prioritize_num_matching_fields);
     }
 
-    topster->sort();
-    curated_topster->sort();
+    topster->sort(KV::is_greater);
+    curated_topster->sort(KV::is_greater);
 
-    Collection::populate_result_kvs(topster, raw_result_kvs, groups_processed, sort_fields_std);
-    Collection::populate_result_kvs(curated_topster, override_result_kvs, groups_processed, sort_fields_std);
+    populate_result_kvs(topster, raw_result_kvs, groups_processed, sort_fields_std);
+    populate_result_kvs(curated_topster, override_result_kvs, groups_processed, sort_fields_std);
     std::vector<uint32_t> top_k_result_ids, top_k_curated_result_ids;
     std::vector<facet> top_k_facets;
 
@@ -4176,7 +4177,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                         const std::vector<uint32_t>& num_typos,
                                         std::vector<std::vector<art_leaf*>> & searched_queries,
                                         tsl::htrie_map<char, token_leaf>& qtoken_set,
-                                        Topster*& topster, spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                                        Topster<KV>*& topster, spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                         uint32_t*& all_result_ids, size_t & all_result_ids_len,
                                         const size_t group_limit, const std::vector<std::string>& group_by_fields,
                                         const bool group_missing_values,
@@ -4763,7 +4764,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
                                          const size_t num_search_fields,
                                          const text_match_type_t match_type,
                                          const std::vector<sort_by>& sort_fields,
-                                         Topster*& topster,
+                                         Topster<KV>*& topster,
                                          spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                          std::vector<std::vector<art_leaf*>>& searched_queries,
                                          tsl::htrie_map<char, token_leaf>& qtoken_set,
@@ -4917,7 +4918,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
             kv.text_match_score = aggregated_score;
         }
 
-        int ret = topster->add(&kv);
+        int ret = topster->add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
         if(group_limit != 0 && ret < 2) {
             groups_processed[distinct_id]++;
         }
@@ -5226,7 +5227,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
                                      std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                                      const std::vector<std::string>& group_by_fields,
                                      const bool group_missing_values,
-                                     Topster* actual_topster,
+                                     Topster<KV>* actual_topster,
                                      const int sort_order[3],
                                      std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                                      const std::vector<size_t>& geopoint_indices,
@@ -5391,7 +5392,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
 
         KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores, std::move(references));
 
-        int ret = actual_topster->add(&kv);
+        int ret = actual_topster->add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
         if(group_limit != 0 && ret < 2) {
             groups_processed[distinct_id]++;
         }
@@ -5410,7 +5411,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
 Option<bool> Index::do_synonym_search(const std::vector<search_field_t>& the_fields,
                                       const text_match_type_t match_type,
                                       filter_node_t const* const& filter_tree_root,
-                                      const std::vector<sort_by>& sort_fields_std, Topster*& curated_topster,
+                                      const std::vector<sort_by>& sort_fields_std, Topster<KV>*& curated_topster,
                                       const token_ordering& token_order,
                                       const size_t typo_tokens_threshold, const size_t group_limit,
                                       const std::vector<std::string>& group_by_fields, 
@@ -5425,7 +5426,7 @@ Option<bool> Index::do_synonym_search(const std::vector<search_field_t>& the_fie
                                       const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
                                       size_t exclude_token_ids_size,
                                       const std::unordered_set<uint32_t>& excluded_group_ids,
-                                      Topster* actual_topster,
+                                      Topster<KV>* actual_topster,
                                       std::vector<std::vector<token_t>>& q_pos_synonyms,
                                       int syn_orig_num_tokens,
                                       spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
@@ -5468,7 +5469,7 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                                     const bool group_missing_values,
                                     const size_t max_extra_prefix,
                                     const size_t max_extra_suffix,
-                                    const std::vector<token_t>& query_tokens, Topster* actual_topster,
+                                    const std::vector<token_t>& query_tokens, Topster<KV>* actual_topster,
                                     filter_result_iterator_t* const filter_result_iterator,
                                     const int sort_order[3],
                                     std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
@@ -5566,7 +5567,7 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                     }
 
                     KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores, std::move(references));
-                    int ret = actual_topster->add(&kv);
+                    int ret = actual_topster->add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
 
                     if(group_limit != 0 && ret < 2) {
                         groups_processed[distinct_id]++;
@@ -5723,7 +5724,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
             }
 
             std::vector<std::vector<art_leaf*>> searched_queries;
-            Topster* topster = nullptr;
+            Topster<KV>* topster = nullptr;
             spp::sparse_hash_map<uint64_t, uint32_t> groups_processed;
             uint32_t* field_result_ids = nullptr;
             size_t field_result_ids_len = 0;
@@ -5871,7 +5872,7 @@ void Index::curate_filtered_ids(const uint32_t* exclude_token_ids, size_t exclud
 }
 
 Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root,
-                                    const std::vector<sort_by>& sort_fields, Topster*& topster, Topster*& curated_topster,
+                                    const std::vector<sort_by>& sort_fields, Topster<KV>*& topster, Topster<KV>*& curated_topster,
                                     spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                     std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                                     const std::vector<std::string>& group_by_fields, 
@@ -5901,7 +5902,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                                (approx_filter_ids_length + num_threads - 1) / num_threads;  // rounds up
 
     spp::sparse_hash_map<uint64_t, uint64_t> tgroups_processed[num_threads];
-    Topster* topsters[num_threads];
+    Topster<KV>* topsters[num_threads];
     std::vector<posting_list_t::iterator_t> plists;
 
     size_t num_processed = 0;
@@ -5929,7 +5930,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
         searched_queries.push_back({});
 
-        topsters[thread_id] = new Topster(topster->MAX_SIZE, topster->distinct);
+        topsters[thread_id] = new Topster<KV>(topster->MAX_SIZE, topster->distinct);
         auto& compute_sort_score_status = compute_sort_score_statuses[thread_id] = nullptr;
 
         thread_pool->enqueue([this, &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
@@ -5995,7 +5996,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
                 KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores, std::move(references));
 
-                int ret = topsters[thread_id]->add(&kv);
+                int ret = topsters[thread_id]->add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
                 if(group_limit != 0 && ret < 2) {
                     tgroups_processed[thread_id][distinct_id]++;
                 }
@@ -7696,7 +7697,7 @@ void Index::get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result
     std::sort(result_ids.begin(), result_ids.end());
 }
 
-void Index::compute_aux_scores(Topster* topster, const std::vector<search_field_t>& the_fields,
+void Index::compute_aux_scores(Topster<KV>* topster, const std::vector<search_field_t>& the_fields,
                                const std::vector<token_t>& query_tokens, uint16_t search_query_size,
                                const std::vector<sort_by>& sort_fields_std, const int* sort_order,
                                const vector_query_t& vector_query, const text_match_type_t match_type,
@@ -7750,7 +7751,7 @@ void Index::compute_aux_scores(Topster* topster, const std::vector<search_field_
     };
 
     std::vector<KV *> text_match_ids;
-    for (auto &kv: topster->kv_map) {
+    for (auto &kv: topster->map) {
         if (kv.second->text_match_score == 0) {
             //only found via vector distance, should compute text_match_score later
             text_match_ids.push_back(kv.second);
@@ -7787,7 +7788,7 @@ void Index::compute_aux_scores(Topster* topster, const std::vector<search_field_
         std::sort(text_match_ids.begin(), text_match_ids.end(), [&](const auto& kv1, const auto& kv2) {
             return kv1->key < kv2->key;
         });
-        compute_text_match_aux_score(text_match_ids, topster->kv_map.size() - text_match_ids.size() + 1);
+        compute_text_match_aux_score(text_match_ids, topster->map.size() - text_match_ids.size() + 1);
     }
 
     //rerank results
@@ -7795,7 +7796,7 @@ void Index::compute_aux_scores(Topster* topster, const std::vector<search_field_
     std::unordered_map<int32_t, int32_t> keyword_seq_id_ranks;
     std::vector<KV*> kvs;
 
-    for(const auto& kv : topster->kv_map) {
+    for(const auto& kv : topster->map) {
         kvs.push_back(kv.second);
     }
 
@@ -7818,7 +7819,7 @@ void Index::compute_aux_scores(Topster* topster, const std::vector<search_field_
     }
 
     //compute fusion_score
-    for(auto& kv : topster->kv_map) {
+    for(auto& kv : topster->map) {
         auto seq_id = kv.second->key;
         kv.second->scores[kv.second->match_score_index] = float_to_int64_t((1.0/keyword_seq_id_ranks[seq_id]) * (1.0 - vector_query.alpha) +
                                                             (1.0/semantic_seq_id_ranks[seq_id]) * vector_query.alpha);
@@ -7859,6 +7860,61 @@ float Index::compute_decay_function_score(const sort_by& sort_field, uint32_t se
             break;
     }
     return res;
+}
+
+void Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV *>> &result_kvs,
+                                const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                                const std::vector<sort_by>& sort_by_fields) {
+    if(topster->distinct) {
+        // we have to pick top-K groups
+        Topster<KV> gtopster(topster->MAX_SIZE);
+
+        int group_count_index = -1;
+        int group_sort_order = 1;
+
+        for(int i = 0; i < sort_by_fields.size(); ++i) {
+            if(sort_by_fields[i].name == sort_field_const::group_found) {
+                group_count_index = i;
+
+                if(sort_by_fields[i].order == sort_field_const::asc) {
+                    group_sort_order *= -1;
+                }
+
+                break;
+            }
+        }
+
+        for(auto& group_topster: topster->group_kv_map) {
+            group_topster.second->sort(KV::is_greater);
+            if(group_topster.second->size != 0) {
+                KV* kv_head = group_topster.second->getKV(0);
+
+                if(group_count_index >= 0) {
+                    const auto& itr = groups_processed.find(kv_head->distinct_key);
+                    if(itr != groups_processed.end()) {
+                        kv_head->scores[group_count_index] = itr->second * group_sort_order;
+                    }
+                }
+                gtopster.add(kv_head, KV::get_key, KV::is_greater, KV::is_smaller);
+            }
+        }
+
+        gtopster.sort(KV::is_greater);
+
+        for(size_t i = 0; i < gtopster.size; i++) {
+            KV* kv = gtopster.getKV(i);
+            const std::vector<KV*> group_kvs(
+                    topster->group_kv_map[kv->distinct_key]->kvs,
+                    topster->group_kv_map[kv->distinct_key]->kvs+topster->group_kv_map[kv->distinct_key]->size
+            );
+            result_kvs.emplace_back(group_kvs);
+        }
+    } else {
+        for(uint32_t t = 0; t < topster->size; t++) {
+            KV* kv = topster->getKV(t);
+            result_kvs.push_back({kv});
+        }
+    }
 }
 
 /*
