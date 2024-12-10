@@ -3203,18 +3203,16 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             filter_result_iterator->compute_iterators();
 
             uint32_t filter_id_count = filter_result_iterator->approx_filter_ids_length;
+
             if (filter_by_provided && filter_id_count < vector_query.flat_search_cutoff) {
                 process_results_bruteforce(filter_result_iterator, vector_query, field_vector_index, dist_results);
-            }
-
-            filter_result_iterator->reset();
-            search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
-
-            if(!filter_by_provided ||
+            } else if(!filter_by_provided ||
                 (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid)) {
                 dist_results.clear();
                 process_results_hnsw_index(filter_result_iterator, vector_query, field_vector_index, filterFunctor, k, dist_results, true);
             }
+
+            search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
             std::vector<uint32_t> nearest_ids;
             std::vector<uint32_t> eval_filter_indexes;
@@ -3586,11 +3584,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 if (filter_by_provided && filter_id_count < vector_query.flat_search_cutoff) {
                     process_results_bruteforce(filter_result_iterator, vector_query, field_vector_index, dist_results);
-                }
-
-                filter_result_iterator->reset();
-
-                if (!filter_by_provided || (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid)) {
+                } else if (!filter_by_provided || (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid)) {
                     dist_results.clear();
                     // use k as 100 by default for ensuring results stability in pagination
                     size_t default_k = 100;
