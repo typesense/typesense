@@ -27,7 +27,7 @@ configure_make(
         "//conditions:default": {},
     }),
     configure_options = select({
-        ":linux_arm64": ["--with-lg-page=16", "--disable-cache-oblivious"],
+        ":linux_arm64": ["--disable-cache-oblivious"],
         "//conditions:default": ["--disable-cache-oblivious"],
     }),
     lib_source = ":all_srcs",
