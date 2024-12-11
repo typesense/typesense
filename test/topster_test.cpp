@@ -37,10 +37,10 @@ TEST(TopsterTest, MaxIntValues) {
         scores[2] = data[i].secondary_attr;
 
         KV kv(data[i].query_index, data[i].key, data[i].key, 0, scores);
-        topster.add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
+        topster.add(&kv);
     }
 
-    topster.sort(KV::is_greater);
+    topster.sort();
 
     std::vector<uint64_t> ids = {4, 1, 5, 8, 9};
 
@@ -78,10 +78,10 @@ TEST(TopsterTest, StableSorting) {
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
         KV kv(0, id_score.first, id_score.first, 0, scores);
-        topster1K.add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
+        topster1K.add(&kv);
     }
 
-    topster1K.sort(KV::is_greater);
+    topster1K.sort();
 
     std::vector<uint64_t> record_ids;
 
@@ -95,10 +95,10 @@ TEST(TopsterTest, StableSorting) {
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
         KV kv(0, id_score.first, id_score.first, 0, scores);
-        topster250.add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
+        topster250.add(&kv);
     }
 
-    topster250.sort(KV::is_greater);
+    topster250.sort();
 
     for(uint32_t i = 0; i < topster250.size; i++) {
         ASSERT_EQ(record_ids[i], topster250.getKeyAt(i));
@@ -110,10 +110,10 @@ TEST(TopsterTest, StableSorting) {
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
         KV kv(0, id_score.first, id_score.first, 0, scores);
-        topster500.add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
+        topster500.add(&kv);
     }
 
-    topster500.sort(KV::is_greater);
+    topster500.sort();
 
     for(uint32_t i = 0; i < topster500.size; i++) {
         ASSERT_EQ(record_ids[i], topster500.getKeyAt(i));
@@ -125,10 +125,10 @@ TEST(TopsterTest, StableSorting) {
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
         KV kv(0, id_score.first, id_score.first, 0, scores);
-        topster750.add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
+        topster750.add(&kv);
     }
 
-    topster750.sort(KV::is_greater);
+    topster750.sort();
 
     for(uint32_t i = 0; i < topster750.size; i++) {
         ASSERT_EQ(record_ids[i], topster750.getKeyAt(i));
@@ -166,10 +166,10 @@ TEST(TopsterTest, MaxFloatValues) {
         scores[2] = data[i].secondary_attr;
 
         KV kv(data[i].query_index, data[i].key, data[i].key, 0, scores);
-        topster.add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
+        topster.add(&kv);
     }
 
-    topster.sort(KV::is_greater);
+    topster.sort();
 
     std::vector<uint64_t> ids = {4, 1, 5, 8, 9};
 
@@ -211,10 +211,10 @@ TEST(TopsterTest, DistinctIntValues) {
         scores[2] = data[i].secondary_attr;
 
         KV kv(data[i].query_index, i+100, data[i].distinct_key, 0, scores);
-        dist_topster.add(&kv, KV::get_key, KV::is_greater, KV::is_smaller);
+        dist_topster.add(&kv);
     }
 
-    dist_topster.sort(KV::is_greater);
+    dist_topster.sort();
 
     std::vector<uint64_t> distinct_ids = {4, 1, 8, 5, 9};
 

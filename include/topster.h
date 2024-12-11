@@ -133,7 +133,7 @@ struct KV {
                     std::tie(j[0]->scores[0], j[0]->scores[1], j[0]->scores[2], j[0]->key);
     }
 
-    static uint64_t get_key(const KV* kv) {
+    static constexpr uint64_t get_key(const KV* kv) {
         return kv->key;
     }
 };
@@ -176,7 +176,7 @@ struct Union_KV : public KV {
                     std::tie(j->scores[0], j->scores[1], j->scores[2], j->search_index, j->key);
     }
 
-    static std::pair<uint32_t, uint64_t> get_key(const Union_KV* union_kv) {
+    static constexpr std::pair<uint32_t, uint64_t> get_key(const Union_KV* union_kv) {
         return std::make_pair(union_kv->search_index, union_kv->key);
     }
 };
@@ -191,7 +191,8 @@ struct pair_hash {
 /*
 * Remembers the max-K elements seen so far using a min-heap
 */
-template <typename T, typename K = uint64_t, typename H = std::hash<uint64_t>>
+template <typename T, typename K = uint64_t, typename H = std::hash<uint64_t>, const auto& get_key = KV::get_key,
+            const auto& is_greater = KV::is_greater, const auto& is_smaller = KV::is_smaller>
 struct Topster {
     const uint32_t MAX_SIZE;
     uint32_t size;
@@ -203,7 +204,7 @@ struct Topster {
 
     size_t distinct;
     spp::sparse_hash_set<uint64_t> group_doc_seq_ids;
-    spp::sparse_hash_map<uint64_t, Topster<T, K, H>*> group_kv_map;
+    spp::sparse_hash_map<uint64_t, Topster<T, K, H, get_key, is_greater, is_smaller>*> group_kv_map;
 
     explicit Topster(size_t capacity): Topster(capacity, 0) {
     }
@@ -247,8 +248,7 @@ struct Topster {
         (*b)->array_index = a_index;
     }
 
-    template<typename F, typename G, typename S>
-    int add(T* kv, const F& get_key, const G& is_greater, const S& is_smaller) {
+    int add(T* kv) {
         /*LOG(INFO) << "kv_map size: " << kv_map.size() << " -- kvs[0]: " << kvs[0]->scores[kvs[0]->match_score_index];
         for(auto& mkv: kv_map) {
             LOG(INFO) << "kv key: " << mkv.first << " => " << mkv.second->scores[mkv.second->match_score_index];
@@ -278,10 +278,10 @@ struct Topster {
             // Grouping cannot be a streaming operation, so aggregate the KVs associated with every group.
             auto kvs_it = group_kv_map.find(kv->distinct_key);
             if(kvs_it != group_kv_map.end()) {
-                kvs_it->second->add(kv, get_key, is_greater, is_smaller);
+                kvs_it->second->add(kv);
             } else {
-                auto g_topster = new Topster<T, K, H>(distinct, 0);
-                g_topster->add(kv, get_key, is_greater, is_smaller);
+                auto g_topster = new Topster<T, K, H, get_key, is_greater, is_smaller>(distinct, 0);
+                g_topster->add(kv);
                 group_kv_map.insert({kv->distinct_key, g_topster});
             }
             
@@ -374,8 +374,7 @@ struct Topster {
     }
 
     // topster must be sorted before iterated upon to remove dead array entries
-    template<typename G>
-    void sort(const G& is_greater) {
+    void sort() {
         if(!distinct) {
             std::stable_sort(kvs, kvs + size, is_greater);
         }

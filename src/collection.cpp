@@ -3558,18 +3558,19 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         return Option<bool>(408, "Request Timeout");
     }
 
-    auto union_topster = std::make_unique<Topster<Union_KV, std::pair<uint32_t, uint64_t>, pair_hash>>(
-                                                std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
+    auto union_topster = std::make_unique<Topster<Union_KV, std::pair<uint32_t, uint64_t>, pair_hash, Union_KV::get_key,
+                                                        Union_KV::is_greater, Union_KV::is_smaller>>(
+                                                            std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto& search_param = search_params_guards[search_index];
 
         for (auto& kvs: search_param->raw_result_kvs) {
             Union_KV kv(*kvs[0], search_index);
-            union_topster->add(&kv, Union_KV::get_key, Union_KV::is_greater, Union_KV::is_smaller);
+            union_topster->add(&kv);
         }
     }
-    union_topster->sort(Union_KV::is_greater);
+    union_topster->sort();
 
     const long start_result_index = union_params.offset;
 
