@@ -425,6 +425,14 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
     }
 
+    if(field_json.count(fields::token_separators) == 0) {
+        field_json[fields::token_separators] = nlohmann::json::array();
+    }
+
+    if(field_json.count(fields::symbols_to_index) == 0) {
+        field_json[fields::symbols_to_index] = nlohmann::json::array();
+    }
+
     the_fields.emplace_back(
             field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
@@ -432,7 +440,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
                   field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], 
                   field_json[fields::store], field_json[fields::stem], field_json[fields::stem_dictionary],
-                  field_json[fields::hnsw_params], field_json[fields::async_reference])
+                  field_json[fields::hnsw_params], field_json[fields::async_reference], field_json[fields::token_separators],
+                  field_json[fields::symbols_to_index])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
@@ -831,6 +840,22 @@ Option<bool> field::fields_to_json_fields(const std::vector<field>& fields, cons
         if (!field.reference.empty()) {
             field_val[fields::reference] = field.reference;
             field_val[fields::async_reference] = field.is_async_reference;
+        }
+
+        if(!field.token_separators.empty()) {
+            field_val[fields::token_separators] = nlohmann::json::array();
+
+            for(const auto& c : field.token_separators) {
+                field_val[fields::token_separators].push_back(c);
+            }
+        }
+
+        if(!field.symbols_to_index.empty()) {
+            field_val[fields::symbols_to_index] = nlohmann::json::array();
+
+            for(const auto& c : field.symbols_to_index) {
+                field_val[fields::symbols_to_index].push_back(c);
+            }
         }
 
         fields_json.push_back(field_val);

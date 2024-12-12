@@ -232,7 +232,7 @@ size_t facet_index_t::intersect(facet& a_facet, const field& facet_field,
                                 bool estimate_facets,
                                 size_t facet_sample_interval,
                                 const std::vector<std::vector<std::string>>& fvalue_searched_tokens,
-                                const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
+                                const std::vector<char>& coll_symbols_to_index, const std::vector<char>& coll_token_separators,
                                 const uint32_t* result_ids, size_t result_ids_len,
                                 size_t max_facet_count, std::map<std::string, docid_count_t>& found,
                                 bool is_wildcard_no_filter_query, const std::string& sort_order) {
@@ -261,6 +261,9 @@ size_t facet_index_t::intersect(facet& a_facet, const field& facet_field,
             auto facet_str = facet_count_it->facet_value;
             std::vector<std::string> facet_tokens;
             if(facet_field.is_string()) {
+                const auto& token_separators = facet_field.token_separators.empty() ? coll_token_separators : facet_field.token_separators;
+                const auto& symbols_to_index = facet_field.symbols_to_index.empty() ? coll_symbols_to_index : facet_field.symbols_to_index;
+
                 Tokenizer(facet_str, true, false, facet_field.locale,
                           symbols_to_index, token_separators).tokenize(facet_tokens);
             } else {
