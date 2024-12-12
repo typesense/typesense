@@ -1800,3 +1800,24 @@ TEST_F(CollectionAllFieldsTest, GeopointSortValue) {
               " The sort index is used during GeoSearch.", create_op.error());
 
 }
+
+TEST_F(CollectionAllFieldsTest, FieldTokenSeparators) {
+    nlohmann::json schema = R"({
+        "name": "TokenSymbols",
+        "fields": [
+            {"name": "product", "type": "string", "token_separators":["-"], "symbols_to_index":["_"]}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+
+    Collection* coll = create_op.get();
+    const auto& fields = coll->get_fields();
+
+    ASSERT_EQ(1, fields.size());
+    ASSERT_EQ(1, fields[0].token_separators.size());
+    ASSERT_EQ('-', fields[0].token_separators.at(0));
+    ASSERT_EQ(1, fields[0].symbols_to_index.size());
+    ASSERT_EQ('_', fields[0].symbols_to_index.at(0));
+}
