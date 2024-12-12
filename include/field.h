@@ -170,11 +170,11 @@ struct field {
         }
 
         for(const auto& item : token_separators) {
-            this->token_separators.push_back(item.get<char>());
+            this->token_separators.push_back(item.get<std::string>()[0]);
         }
 
         for(const auto& item : symbols_to_index) {
-            this->symbols_to_index.push_back(item.get<char>());
+            this->symbols_to_index.push_back(item.get<std::string>()[0]);
         }
     }
 
