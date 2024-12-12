@@ -1812,12 +1812,88 @@ TEST_F(CollectionAllFieldsTest, FieldTokenSeparators) {
     auto create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(create_op.ok());
 
-    Collection* coll = create_op.get();
-    const auto& fields = coll->get_fields();
+    Collection *coll = create_op.get();
+    const auto &fields = coll->get_fields();
 
     ASSERT_EQ(1, fields.size());
     ASSERT_EQ(1, fields[0].token_separators.size());
     ASSERT_EQ('-', fields[0].token_separators.at(0));
     ASSERT_EQ(1, fields[0].symbols_to_index.size());
     ASSERT_EQ('_', fields[0].symbols_to_index.at(0));
+
+    //create another collection without fieldwise token separators
+    nlohmann::json schema2 = R"({
+                "name": "TokenSymbols2",
+                "fields": [
+                    {"name": "product", "type": "string"}
+                ]
+            })"_json;
+
+    create_op = collectionManager.create_collection(schema2);
+    ASSERT_TRUE(create_op.ok());
+
+    Collection *coll2 = create_op.get();
+
+    nlohmann::json doc;
+
+    doc["product"] = "Nike-Running Shoe";
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    doc["product"] = "Adidias_Running_Shoe";
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    auto res = coll->search("running", {"product"}, "", {}, {}, {2}, 1, 1, FREQUENCY, {true}, 1,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 5, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>",
+                            {}, 1000,
+                            true, false, true, "", false, 6000 * 1000, 4, 7, fallback, 4, {off}, 3, 3, 2, 2, false, "",
+                            true, 0, max_score,
+                            100, 0, 4294967295UL, "").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"]);
+
+    //search in anothe collection without fieldwise token separators
+    res = coll2->search("running", {"product"}, "", {}, {}, {2}, 1, 1, FREQUENCY, {true}, 1,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 5, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {},
+                        1000,
+                        true, false, true, "", false, 6000 * 1000, 4, 7, fallback, 4, {off}, 3, 3, 2, 2, false, "", true, 0,
+                        max_score,
+                        100, 0, 4294967295UL, "").get();
+
+    ASSERT_EQ(0, res["hits"].size());
+
+    //field level token separators should take presidence over collection level
+    nlohmann::json schema3 = R"({
+                "name": "TokenSymbols3",
+                "fields": [
+                    {"name": "product", "type": "string", "token_separators":["-"]}
+                ],
+                "token_separators":["_"]
+            })"_json;
+
+    create_op = collectionManager.create_collection(schema3);
+    ASSERT_TRUE(create_op.ok());
+
+    Collection *coll3 = create_op.get();
+
+    doc["product"] = "Nike-Running_Shoe";
+    ASSERT_TRUE(coll3->add(doc.dump()).ok());
+
+    doc["product"] = "Nike_Running-Shoe";
+    ASSERT_TRUE(coll3->add(doc.dump()).ok());
+
+    res = coll->search("running", {"product"}, "", {}, {}, {2}, 1, 1, FREQUENCY, {true}, 1,
+                       spp::sparse_hash_set<std::string>(),
+                       spp::sparse_hash_set<std::string>(), 5, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {},
+                       1000,
+                       true, false, true, "", false, 6000 * 1000, 4, 7, fallback, 4, {off}, 3, 3, 2, 2, false, "", true, 0,
+                       max_score,
+                       100, 0, 4294967295UL, "").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"]); //field token separator works over collection level
 }
