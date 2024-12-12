@@ -383,6 +383,22 @@ nlohmann::json Collection::get_summary_json() const {
             field_json[fields::async_reference] = coll_field.is_async_reference;
         }
 
+        if(!coll_field.token_separators.empty()) {
+            field_json[fields::token_separators] = nlohmann::json::array();
+
+            for(const auto& c : coll_field.token_separators) {
+                field_json[fields::token_separators].push_back(c);
+            }
+        }
+
+        if(!coll_field.symbols_to_index.empty()) {
+            field_json[fields::symbols_to_index] = nlohmann::json::array();
+
+            for(const auto& c : coll_field.symbols_to_index) {
+                field_json[fields::symbols_to_index].push_back(c);
+            }
+        }
+
         fields_arr.push_back(field_json);
     }
 
