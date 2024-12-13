@@ -1162,6 +1162,11 @@ Option<bool> Join::initialize_ref_include_exclude_fields_vec(const std::string& 
             }
         }
 
+        StringUtils::trim(ref_fields);
+        if (ref_fields == "*") {
+            ref_fields.clear();
+        }
+
         // For an alias `foo`,
         // In case of "merge" reference doc, we need append `foo.` to all the top level keys of reference doc.
         // In case of "nest" reference doc, `foo` becomes the key with reference doc as value.
