@@ -17,9 +17,9 @@ class TextEmbedder {
         // Constructor for remote models
         TextEmbedder(const nlohmann::json& model_config, size_t num_dims, const bool has_custom_dims = false);
         ~TextEmbedder();
-        embedding_res_t Embed(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2);
+        embedding_res_t Embed(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2, const size_t max_seq_len = 512);
         std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
-                                                 const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);
+                                                 const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2, const size_t max_seq_len = 512);
         const std::string& get_vocab_file_name() const;
         const size_t get_num_dim() const;
         bool is_remote() {
@@ -52,7 +52,7 @@ class TextEmbedder {
         std::shared_ptr<Ort::Session> session_;
         std::shared_ptr<Ort::Env> env_;
         encoded_input_t Encode(const std::string& text);
-        batch_encoded_input_t batch_encode(const std::vector<std::string>& inputs);
+        batch_encoded_input_t batch_encode(const std::vector<std::string>& inputs, size_t max_seq_len);
         std::unique_ptr<TextEmbeddingTokenizer> tokenizer_;
         std::unique_ptr<RemoteEmbedder> remote_embedder_;
         std::unique_ptr<XTRTextEmbedder> xtr_text_embedder_;

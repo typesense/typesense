@@ -14,17 +14,16 @@ BertTokenizerWrapper::BertTokenizerWrapper(const std::string& vocab_path) {
                     ustring("[CLS]"), ustring("[MASK]"), true, true, ustring("##"),512, std::string("longest_first"));
 }
 
-encoded_input_t BertTokenizerWrapper::Encode(const std::string& text) {
+encoded_input_t BertTokenizerWrapper::Encode(const std::string& text, size_t max_seq_len) {
     auto encoded = bert_tokenizer_->Encode(bert_tokenizer_->Tokenize(ustring(text)));
+    if (encoded.size() > max_seq_len) {
+        encoded.resize(max_seq_len);
+    }
     auto input_ids = bert_tokenizer_->AddSpecialToken(encoded);
     auto token_type_ids = bert_tokenizer_->GenerateTypeId(encoded);
     auto attention_mask = std::vector<int64_t>(input_ids.size(), 1);
     // BERT supports max sequence length of 512
-    if (input_ids.size() > 512) {
-        input_ids.resize(512);
-        token_type_ids.resize(512);
-        attention_mask.resize(512);
-    }
+
     return {input_ids, token_type_ids, attention_mask};
 }
 
@@ -33,15 +32,14 @@ encoded_input_t BertTokenizerWrapper::Encode(const std::string& text) {
 DistilbertTokenizer::DistilbertTokenizer(const std::string& vocab_path) : BertTokenizerWrapper(vocab_path) {}
 
 
-encoded_input_t DistilbertTokenizer::Encode(const std::string& text) {
-    auto encoded = bert_tokenizer_->Encode(bert_tokenizer_->Tokenize(ustring(text)));
+encoded_input_t DistilbertTokenizer::Encode(const std::string& text, size_t max_seq_len) {
+    auto tokens = bert_tokenizer_->Tokenize(ustring(text));
+    if (tokens.size() > max_seq_len) {
+        tokens.resize(max_seq_len);
+    }
+    auto encoded = bert_tokenizer_->Encode(tokens);
     auto input_ids = bert_tokenizer_->AddSpecialToken(encoded);
     auto attention_mask = std::vector<int64_t>(input_ids.size(), 1);
-    // DistilBERT supports max sequence length of 512
-    if (input_ids.size() > 512) {
-        input_ids.resize(512);
-        attention_mask.resize(512);
-    }
     return {input_ids, {}, attention_mask};
 }
 
@@ -72,19 +70,17 @@ const std::vector<std::string> XLMRobertaTokenizer::tokenize(const std::string& 
 }
 
 
-encoded_input_t XLMRobertaTokenizer::Encode(const std::string& text) {
+encoded_input_t XLMRobertaTokenizer::Encode(const std::string& text, size_t max_seq_len) {
     auto tokens = tokenize(text);
+    if (tokens.size() > max_seq_len) {
+        tokens.resize(max_seq_len);
+    }
     auto input_ids = std::vector<int64_t>(tokens.size());
     auto attention_mask = std::vector<int64_t>(tokens.size(), 1);
     for (size_t i = 0; i < tokens.size(); i++) {
         input_ids[i] = token_to_id(tokens[i]);
     }
     // XLM-RoBERTa supports max sequence length of 128
-    if (input_ids.size() > 128) {
-        input_ids.resize(128);
-        attention_mask.resize(128);
-        input_ids[input_ids.size() - 1] = fairseq_tokens_to_ids_["<eos>"];
-    }
 
     return {input_ids, {}, attention_mask};
 }
@@ -99,7 +95,7 @@ CLIPTokenizerWrapper::CLIPTokenizerWrapper(const std::string& vocab_path) {
     }
 }
 
-encoded_input_t CLIPTokenizerWrapper::Encode(const std::string& text) {
+encoded_input_t CLIPTokenizerWrapper::Encode(const std::string& text, size_t max_seq_len) {
     auto res = clip_tokenizer_->tokenize({text});
 
     // convert vector int to vector int64_t

@@ -12,7 +12,7 @@ XTRTextEmbedder::~XTRTextEmbedder() {
 
 encoded_input_t XTRTextEmbedder::encode(const std::string& text, const size_t max_seq_len) {
     std::unique_lock<std::mutex> lock(mutex_);
-    auto encoded_input = tokenizer_->Encode(text);
+    auto encoded_input = tokenizer_->Encode(text, max_seq_len);
     lock.unlock();
     return encoded_input;
 }
@@ -20,7 +20,7 @@ encoded_input_t XTRTextEmbedder::encode(const std::string& text, const size_t ma
 batch_encoded_input_t XTRTextEmbedder::batch_encode(const std::vector<std::string>& inputs, const size_t max_seq_len) {
     batch_encoded_input_t encoded_inputs;
     for(auto& input : inputs) {
-        auto encoded_input = tokenizer_->Encode(input);
+        auto encoded_input = tokenizer_->Encode(input, max_seq_len);
         encoded_inputs.input_ids.push_back(encoded_input.input_ids);
         encoded_inputs.attention_mask.push_back(encoded_input.attention_mask);
         encoded_inputs.token_type_ids.push_back(encoded_input.token_type_ids);
@@ -101,11 +101,29 @@ std::vector<embedding_res_t> XTRTextEmbedder::batch_embed(const std::vector<std:
     for(int i = 0; i < inputs.size(); i += 16) {
         auto input_batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + 16, static_cast<int>(inputs.size())));
         auto encoded_inputs = batch_encode(input_batch, max_seq_len);
+        // flatten input tensors
+        std::vector<int> input_ids_flat;
+        std::vector<int> attention_mask_flat;
+        std::vector<int> token_type_ids_flat;
 
-        std::vector<std::vector<int>> input_ids(encoded_inputs.input_ids.begin(), encoded_inputs.input_ids.end());
-        std::vector<std::vector<int>> attention_mask(encoded_inputs.attention_mask.begin(), encoded_inputs.attention_mask.end());
-        std::vector<std::vector<int>> token_type_ids(encoded_inputs.token_type_ids.begin(), encoded_inputs.token_type_ids.end());
-        
+        for(auto& input_ids_row : encoded_inputs.input_ids) {
+            for(auto& input_id : input_ids_row) {
+                input_ids_flat.push_back(input_id);
+            }
+        }
+
+        for(auto& attention_mask_row : encoded_inputs.attention_mask) {
+            for(auto& attention_mask_val : attention_mask_row) {
+                attention_mask_flat.push_back(attention_mask_val);
+            }
+        }
+
+        for(auto& token_type_ids_row : encoded_inputs.token_type_ids) {
+            for(auto& token_type_id : token_type_ids_row) {
+                token_type_ids_flat.push_back(token_type_id);
+            }
+        }
+
         // create input tensor object from data values
         Ort::AllocatorWithDefaultOptions allocator;
         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
@@ -116,9 +134,9 @@ std::vector<embedding_res_t> XTRTextEmbedder::batch_embed(const std::vector<std:
         input_shapes.push_back({static_cast<int64_t>(encoded_inputs.attention_mask.size()), static_cast<int64_t>(encoded_inputs.attention_mask[0].size())});
         input_shapes.push_back({static_cast<int64_t>(encoded_inputs.token_type_ids.size()), static_cast<int64_t>(encoded_inputs.token_type_ids[0].size())});
 
-        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, (int*) input_ids.data(), input_ids.size(), input_shapes[0].data(), input_shapes[0].size()));
-        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, (int*) attention_mask.data(), attention_mask.size(), input_shapes[1].data(), input_shapes[1].size()));
-        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, (int*) token_type_ids.data(), token_type_ids.size(), input_shapes[2].data(), input_shapes[2].size()));
+        input_tensors.push_back(Ort::Value::CreateTensor<int>(memory_info, (int*) input_ids_flat.data(), input_ids_flat.size(), input_shapes[0].data(), input_shapes[0].size()));
+        input_tensors.push_back(Ort::Value::CreateTensor<int>(memory_info, (int*) attention_mask_flat.data(), attention_mask_flat.size(), input_shapes[1].data(), input_shapes[1].size()));
+        input_tensors.push_back(Ort::Value::CreateTensor<int>(memory_info, (int*) token_type_ids_flat.data(), token_type_ids_flat.size(), input_shapes[2].data(), input_shapes[2].size()));
 
         std::vector<const char*> output_node_names = {output_node_name.c_str()};
         std::unique_lock<std::mutex> lock(mutex_);
