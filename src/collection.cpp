@@ -3496,7 +3496,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         }
 
         nlohmann::json params;
-        params["collection_name"] = coll->get_name();
+        params["collection"] = coll->get_name();
         params["per_page"] = union_params.per_page;
         params["q"] = coll_args.raw_query;
         request_json_list[search_index] = params;
@@ -3512,22 +3512,21 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
             for (size_t i = 0; i < first_search_sort_fields.size(); i++) {
                 if (this_search_sort_fields[i].type != first_search_sort_fields[i].type) {
                     std::string append_hint;
+                    const auto& first_search_collection_name = request_json_list[0]["collection"].get<std::string>();
                     if (default_sorting_field_used && first_request_default_sorting_field_used) {
                         // Both the current and first search request have declared a default sorting field.
-                        append_hint = " Both `" + coll->get_name() + "` and `" +
-                                        request_json_list[0]["collection_name"].get<std::string>() + "` collections have"
-                                        " declared a default sorting field of different type. Since union expects the"
-                                        " searches to sort_by on the same type of fields, default sorting fields of the"
-                                        " collections should be removed.";
+                        append_hint = " Both `" + coll->get_name() + "` and `" + first_search_collection_name +
+                                        "` collections have declared a default sorting field of different type. Since"
+                                        " union expects the searches to sort_by on the same type of fields, default"
+                                        " sorting fields of the collections should be removed.";
                     } else if (default_sorting_field_used) {
                         append_hint = " `" + coll->get_name() + "` collection has declared a default sorting field of "
                                         "different type. Since union expects the searches to sort_by on the same type "
                                         "of fields, default sorting field of the collection should be removed.";
                     } else if (first_request_default_sorting_field_used) {
-                        append_hint = " `" + request_json_list[0]["collection_name"].get<std::string>() + "` collection "
-                                        "has declared a default sorting field of different type. Since union expects "
-                                        "the searches to sort_by on the same type of fields, default sorting field of "
-                                        "the collection should be removed.";
+                        append_hint = " `" + first_search_collection_name + "` collection has declared a default sorting"
+                                        " field of different type. Since union expects the searches to sort_by on the"
+                                        " same type of fields, default sorting field of the collection should be removed.";
                     }
 
                     return Option<bool>(400, "Expected type of `" + this_search_sort_fields[i].name + "` sort_by ("
@@ -3725,7 +3724,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     }
 
     for (auto& request: request_json_list) {
-        result["union_requests"] += std::move(request);
+        result["union_request_params"] += std::move(request);
     }
 
     result["search_cutoff"] = search_cutoff;
