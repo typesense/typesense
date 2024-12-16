@@ -5,7 +5,7 @@
 #include <fstream>
 
 TEST(TopsterTest, MaxIntValues) {
-    Topster topster(5);
+    Topster<KV> topster(5);
 
     struct {
         uint16_t query_index;
@@ -73,7 +73,7 @@ TEST(TopsterTest, StableSorting) {
 
     infile.close();
 
-    Topster topster1K(1000);
+    Topster<KV> topster1K(1000);
 
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
@@ -90,7 +90,7 @@ TEST(TopsterTest, StableSorting) {
     }
 
     // check on Topster<250>
-    Topster topster250(250);
+    Topster<KV> topster250(250);
 
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
@@ -105,7 +105,7 @@ TEST(TopsterTest, StableSorting) {
     }
 
     // check on Topster<500>
-    Topster topster500(500);
+    Topster<KV> topster500(500);
 
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
@@ -120,7 +120,7 @@ TEST(TopsterTest, StableSorting) {
     }
 
     // check on Topster<750>
-    Topster topster750(750);
+    Topster<KV> topster750(750);
 
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
@@ -136,7 +136,7 @@ TEST(TopsterTest, StableSorting) {
 }
 
 TEST(TopsterTest, MaxFloatValues) {
-    Topster topster(5);
+    Topster<KV> topster(5);
 
     struct {
         uint16_t query_index;
@@ -179,7 +179,7 @@ TEST(TopsterTest, MaxFloatValues) {
 }
 
 TEST(TopsterTest, DistinctIntValues) {
-    Topster dist_topster(5, 2);
+    Topster<KV> dist_topster(5, 2);
 
     struct {
         uint16_t query_index;

@@ -47,7 +47,6 @@ private:
     ResourceType* _resource;
 };
 
-
 // Singleton, for managing meta information of all collections and house keeping
 class CollectionManager {
 private:
@@ -197,6 +196,10 @@ public:
                                   nlohmann::json& embedded_params,
                                   std::string& results_json_str,
                                   uint64_t start_ts);
+
+    static Option<bool> do_union(std::map<std::string, std::string>& req_params,
+                                 std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
+                                 nlohmann::json& response, uint64_t start_ts);
 
     static bool parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields);
 
