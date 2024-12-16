@@ -4605,6 +4605,54 @@ TEST_F(JoinIncludeExcludeFieldsTest, OptionalRefrenceField) {
 
 }
 
+TEST_F(JoinIncludeExcludeFieldsTest, UnindexedField) {
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "foo", "type": "string", "index": false, "optional": true}
+        ]
+    })"_json;
+
+    auto customers = collectionManager.get_collection_unsafe("Customers");
+    auto alter_op = customers->alter(schema_changes);
+
+    auto doc = R"({
+                    "id": "1",
+                    "foo": "bar"
+                })"_json;
+    auto add_op = customers->add(doc.dump(), index_operation_t::UPDATE, "1");
+    ASSERT_TRUE(add_op.ok());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a && product_price:<100)"},
+            {"include_fields", "$Customers(*)"}
+    };
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    nlohmann::json res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    // No fields are mentioned in `include_fields`, should include all fields of Products and Customers by default.
+    ASSERT_EQ(7, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_description"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("embedding"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("rating"));
+    // Default strategy of reference includes is nest. No alias was provided, collection name becomes the field name.
+    ASSERT_EQ(6, res_obj["hits"][0]["document"]["Customers"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("customer_id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("customer_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("foo"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_price"));
+}
+
 TEST_F(CollectionJoinTest, FilterByReferenceArrayField) {
     auto schema_json =
             R"({
