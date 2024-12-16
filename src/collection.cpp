@@ -3421,6 +3421,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     auto request_json_list = std::vector<nlohmann::json>(size);
     bool first_request_default_sorting_field_used = false;
     spp::sparse_hash_set<uint32_t> unique_collection_ids;
+    long totalSearchTime = 0;
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto begin = std::chrono::high_resolution_clock::now();
@@ -3461,6 +3462,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
         searchTimeMillis.emplace_back(std::chrono::duration_cast<std::chrono::milliseconds>(
                                             std::chrono::high_resolution_clock::now() - begin).count());
+        totalSearchTime += searchTimeMillis.back();
 
         if (!search_op.ok()) {
             return search_op;
@@ -3579,6 +3581,8 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     result = nlohmann::json::object();
     result["found"] = total;
     result["out_of"] = out_of;
+    result["search_time_ms"] = totalSearchTime;
+    result["page"] = union_params.page;
 
     std::string hits_key = "hits";
     result[hits_key] = nlohmann::json::array();

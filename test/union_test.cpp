@@ -604,6 +604,8 @@ TEST_F(UnionTest, SameCollection) {
     ASSERT_EQ(2, json_res["found"].get<size_t>());
     ASSERT_EQ(2, json_res["out_of"]);
     ASSERT_EQ(2, json_res["hits"].size());
+    ASSERT_EQ(1, json_res.count("search_time_ms"));
+    ASSERT_EQ(1, json_res.count("page"));
     ASSERT_EQ(1, json_res["hits"][0]["document"].size());
     ASSERT_EQ(1, json_res["hits"][0]["document"].count("product_name"));
     ASSERT_EQ("shampoo", json_res["hits"][0]["document"]["product_name"]);
@@ -724,6 +726,7 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(10, json_res["found"]); // 5 documents from `coll_array_fields` and 5 documents from `coll_bool`.
     ASSERT_EQ(15, json_res["out_of"]);
+    ASSERT_EQ(1, json_res["page"]);
     ASSERT_EQ(2, json_res["hits"].size());
     ASSERT_EQ("9", json_res["hits"][0]["document"]["id"]);
     ASSERT_EQ("The Legend of the Titanic", json_res["hits"][0]["document"]["title"]);
@@ -759,6 +762,7 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(10, json_res["found"]); // 5 documents from `coll_array_fields` and 5 documents from `coll_bool`.
     ASSERT_EQ(15, json_res["out_of"]);
+    ASSERT_EQ(3, json_res["page"]);
     ASSERT_EQ(2, json_res["hits"].size());
     ASSERT_EQ("3", json_res["hits"][0]["document"]["id"]);
     ASSERT_EQ("The Schindler's List", json_res["hits"][0]["document"]["title"]);
@@ -791,6 +795,7 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(10, json_res["found"]); // 5 documents from `coll_array_fields` and 5 documents from `coll_bool`.
     ASSERT_EQ(15, json_res["out_of"]);
+    ASSERT_EQ(4, json_res["page"]);
     ASSERT_EQ(2, json_res["hits"].size());
     ASSERT_EQ("2", json_res["hits"][0]["document"]["id"]);
     ASSERT_EQ("Daniel the Wizard", json_res["hits"][0]["document"]["title"]);
