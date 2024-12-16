@@ -701,7 +701,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
     }
 
-    const char* UNION_RESULT = "union_result";
+    const char* UNION_RESULT = "union";
     auto is_union = false;
     auto it = req_json.find(UNION_RESULT);
     if (it != req_json.end() && it.value().is_boolean()) {
