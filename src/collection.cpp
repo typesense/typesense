@@ -3469,7 +3469,8 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         }
 
         const auto& search_params = search_params_guard;
-        total += search_params->all_result_ids_len;
+        const auto& found = search_params->all_result_ids_len;
+        total += found;
         if (unique_collection_ids.count(coll_id) == 0) {
             out_of += coll->get_num_documents();
             unique_collection_ids.insert(coll_id);
@@ -3501,6 +3502,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         params["collection"] = coll->get_name();
         params["per_page"] = union_params.per_page;
         params["q"] = coll_args.raw_query;
+        params["found"] = found;
         request_json_list[search_index] = params;
 
         // All the searches should sort_by on the same type of field and in the same order.
@@ -3661,6 +3663,8 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
         wrapper_doc["document"] = document;
         wrapper_doc["highlight"] = highlight_res;
+        wrapper_doc["search_index"] = search_index;
+        wrapper_doc["collection"] = coll->get_name();
 
         const auto& match_type = coll_args.match_type;
         const auto& field_query_tokens = search_params->field_query_tokens;
