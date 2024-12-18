@@ -728,13 +728,22 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_EQ(15, json_res["out_of"]);
     ASSERT_EQ(1, json_res["page"]);
     ASSERT_EQ(2, json_res["hits"].size());
+    ASSERT_EQ(0, json_res["hits"][0]["search_index"]);
+    ASSERT_EQ("coll_bool", json_res["hits"][0]["collection"]);
     ASSERT_EQ("9", json_res["hits"][0]["document"]["id"]);
     ASSERT_EQ("The Legend of the Titanic", json_res["hits"][0]["document"]["title"]);
     ASSERT_EQ(578730123365187705, json_res["hits"][0]["text_match"]);
 
+    ASSERT_EQ(1, json_res["hits"][1]["search_index"]);
+    ASSERT_EQ("coll_array_fields", json_res["hits"][1]["collection"]);
     ASSERT_EQ("4", json_res["hits"][1]["document"]["id"]);
     ASSERT_EQ("Jeremy Howard", json_res["hits"][1]["document"]["name"]);
     ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
+
+    ASSERT_EQ(5, json_res["union_request_params"][0]["found"]);
+    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection"]);
+    ASSERT_EQ(5, json_res["union_request_params"][1]["found"]);
+    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection"]);
     json_res.clear();
     req_params.clear();
 
@@ -771,6 +780,11 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_EQ("2", json_res["hits"][1]["document"]["id"]);
     ASSERT_EQ("Jeremy Howard", json_res["hits"][1]["document"]["name"]);
     ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
+
+    ASSERT_EQ(2, json_res["union_request_params"][0]["per_page"]);
+    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection"]);
+    ASSERT_EQ(2, json_res["union_request_params"][1]["per_page"]);
+    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection"]);
     json_res.clear();
     req_params.clear();
 
