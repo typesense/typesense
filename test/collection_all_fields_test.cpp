@@ -1896,4 +1896,88 @@ TEST_F(CollectionAllFieldsTest, FieldTokenSeparators) {
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"]); //field token separator works over collection level
+
+    //validation
+
+    //multi char string is not permitted
+    nlohmann::json invalid_schema = R"({
+                "name": "invalid_schema",
+                "fields": [
+                    {"name": "product", "type": "string", "token_separators":["_+#"], "symbols_to_index":["_"]}
+                ]
+            })"_json;
+
+    create_op = collectionManager.create_collection(invalid_schema);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Invalid field token_separators val.", create_op.error());
+
+    //non string vals not permitted
+    invalid_schema = R"({
+                    "name": "invalid_schema",
+                    "fields": [
+                        {"name": "product", "type": "string", "token_separators":["_"], "symbols_to_index":[1]}
+                    ]
+                })"_json;
+
+    create_op = collectionManager.create_collection(invalid_schema);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Invalid field symbols_to_index val.", create_op.error());
+}
+
+TEST_F(CollectionAllFieldsTest, FieldTokenSeparatorsOnRestart) {
+    nlohmann::json schema = R"({
+        "name": "TokenSymbols",
+        "fields": [
+            {"name": "product", "type": "string", "token_separators":["-"], "symbols_to_index":["_"]},
+            {"name": "desc", "type": "string", "token_separators":["&"], "symbols_to_index":["$"]}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+
+    Collection* collection = create_op.get();
+
+    auto fields = collection->get_fields();
+
+    ASSERT_EQ(2, fields.size());
+    ASSERT_EQ("product", fields[0].name);
+    ASSERT_EQ(1, fields[0].token_separators.size());
+    ASSERT_EQ('-', fields[0].token_separators[0]);
+    ASSERT_EQ(1, fields[0].symbols_to_index.size());
+    ASSERT_EQ('_', fields[0].symbols_to_index[0]);
+
+    ASSERT_EQ("desc", fields[1].name);
+    ASSERT_EQ(1, fields[1].token_separators.size());
+    ASSERT_EQ('&', fields[1].token_separators[0]);
+    ASSERT_EQ(1, fields[1].symbols_to_index.size());
+    ASSERT_EQ('$', fields[1].symbols_to_index[0]);
+
+    //dispose collection manager and reload
+    collectionManager.dispose();
+    delete store;
+    fields.clear();
+
+    std::string state_dir_path = "/tmp/typesense_test/collection_all_fields";
+    store = new Store(state_dir_path);
+
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    collection = collectionManager.get_collection("TokenSymbols").get();
+
+    fields = collection->get_fields();
+
+    ASSERT_EQ(2, fields.size());
+    ASSERT_EQ("product", fields[0].name);
+    ASSERT_EQ(1, fields[0].token_separators.size());
+    ASSERT_EQ('-', fields[0].token_separators[0]);
+    ASSERT_EQ(1, fields[0].symbols_to_index.size());
+    ASSERT_EQ('_', fields[0].symbols_to_index[0]);
+
+    ASSERT_EQ("desc", fields[1].name);
+    ASSERT_EQ(1, fields[1].token_separators.size());
+    ASSERT_EQ('&', fields[1].token_separators[0]);
+    ASSERT_EQ(1, fields[1].symbols_to_index.size());
+    ASSERT_EQ('$', fields[1].symbols_to_index[0]);
 }

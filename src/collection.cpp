@@ -387,7 +387,8 @@ nlohmann::json Collection::get_summary_json() const {
             field_json[fields::token_separators] = nlohmann::json::array();
 
             for(const auto& c : coll_field.token_separators) {
-                field_json[fields::token_separators].push_back(c);
+                std::string token{c};
+                field_json[fields::token_separators].push_back(token);
             }
         }
 
@@ -395,7 +396,8 @@ nlohmann::json Collection::get_summary_json() const {
             field_json[fields::symbols_to_index] = nlohmann::json::array();
 
             for(const auto& c : coll_field.symbols_to_index) {
-                field_json[fields::symbols_to_index].push_back(c);
+                std::string symbol{c};
+                field_json[fields::symbols_to_index].push_back(symbol);
             }
         }
 
