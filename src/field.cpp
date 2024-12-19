@@ -430,7 +430,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     } else {
         for(const auto& item : field_json[fields::token_separators]) {
             if(!item.is_string() || item.empty() || item.get<std::string>().size() != 1) {
-                return Option<bool>(400, "Invalid field token_separators val.");
+                return Option<bool>(400, "The `token_separators` must be an array of characters.");
             }
         }
     }
@@ -440,7 +440,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     } else {
         for(const auto& item : field_json[fields::symbols_to_index]) {
             if (!item.is_string() || item.empty() || item.get<std::string>().size() != 1) {
-                return Option<bool>(400, "Invalid field symbols_to_index val.");
+                return Option<bool>(400, "The `symbols_to_index` must be an array of characters.");
             }
         }
     }

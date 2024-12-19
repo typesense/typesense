@@ -1909,7 +1909,7 @@ TEST_F(CollectionAllFieldsTest, FieldTokenSeparators) {
 
     create_op = collectionManager.create_collection(invalid_schema);
     ASSERT_FALSE(create_op.ok());
-    ASSERT_EQ("Invalid field token_separators val.", create_op.error());
+    ASSERT_EQ("The `token_separators` must be an array of characters.", create_op.error());
 
     //non string vals not permitted
     invalid_schema = R"({
@@ -1921,7 +1921,7 @@ TEST_F(CollectionAllFieldsTest, FieldTokenSeparators) {
 
     create_op = collectionManager.create_collection(invalid_schema);
     ASSERT_FALSE(create_op.ok());
-    ASSERT_EQ("Invalid field symbols_to_index val.", create_op.error());
+    ASSERT_EQ("The `symbols_to_index` must be an array of characters.", create_op.error());
 }
 
 TEST_F(CollectionAllFieldsTest, FieldTokenSeparatorsOnRestart) {
