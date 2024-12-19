@@ -427,10 +427,22 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
     if(field_json.count(fields::token_separators) == 0) {
         field_json[fields::token_separators] = nlohmann::json::array();
+    } else {
+        for(const auto& item : field_json[fields::token_separators]) {
+            if(!item.is_string() || item.empty() || item.get<std::string>().size() != 1) {
+                return Option<bool>(400, "Invalid field token_separators val.");
+            }
+        }
     }
 
     if(field_json.count(fields::symbols_to_index) == 0) {
         field_json[fields::symbols_to_index] = nlohmann::json::array();
+    } else {
+        for(const auto& item : field_json[fields::symbols_to_index]) {
+            if (!item.is_string() || item.empty() || item.get<std::string>().size() != 1) {
+                return Option<bool>(400, "Invalid field symbols_to_index val.");
+            }
+        }
     }
 
     the_fields.emplace_back(
@@ -846,7 +858,8 @@ Option<bool> field::fields_to_json_fields(const std::vector<field>& fields, cons
             field_val[fields::token_separators] = nlohmann::json::array();
 
             for(const auto& c : field.token_separators) {
-                field_val[fields::token_separators].push_back(c);
+                std::string token{c};
+                field_val[fields::token_separators].push_back(token);
             }
         }
 
@@ -854,7 +867,8 @@ Option<bool> field::fields_to_json_fields(const std::vector<field>& fields, cons
             field_val[fields::symbols_to_index] = nlohmann::json::array();
 
             for(const auto& c : field.symbols_to_index) {
-                field_val[fields::symbols_to_index].push_back(c);
+                std::string symbol{c};
+                field_val[fields::symbols_to_index].push_back(symbol);
             }
         }
 
