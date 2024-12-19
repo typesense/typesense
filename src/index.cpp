@@ -6614,7 +6614,9 @@ void Index::remove_field(uint32_t seq_id, nlohmann::json& document, const std::s
         options.set_index_contains_points_only(true);
         S2RegionTermIndexer indexer(options);
 
-        const std::vector<std::vector<double>>& latlongs = search_field.is_single_geopoint() ?
+        // Geopoint field that is part of an object array will be marked as `geopoint[]` type, but it should be treated
+        // as a `geopoint` type.
+        const std::vector<std::vector<double>>& latlongs = search_field.is_single_geopoint() || search_field.nested_array ?
                                                            std::vector<std::vector<double>>{document[field_name].get<std::vector<double>>()} :
                                                            document[field_name].get<std::vector<std::vector<double>>>();
 
