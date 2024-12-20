@@ -294,6 +294,9 @@ void Index::compute_token_offsets_facets(index_record& record,
 
         bool is_facet = search_schema.at(field_name).facet;
 
+        const auto& token_separators = the_field.token_separators.empty() ? local_token_separators : the_field.token_separators;
+        const auto& symbols_to_index = the_field.symbols_to_index.empty() ? local_symbols_to_index : the_field.symbols_to_index;
+
         // non-string, non-geo faceted field should be indexed as faceted string field as well
         if(the_field.facet && !the_field.is_string() && !the_field.is_geopoint()) {
             if(the_field.is_array()) {
@@ -322,7 +325,7 @@ void Index::compute_token_offsets_facets(index_record& record,
                 }
 
                 tokenize_string_array(strings, the_field,
-                                      local_symbols_to_index, local_token_separators,
+                                      symbols_to_index, token_separators,
                                       offset_facet_hashes.offsets);
             } else {
                 std::string text;
@@ -342,7 +345,7 @@ void Index::compute_token_offsets_facets(index_record& record,
                 }
 
                 tokenize_string(text, the_field,
-                                local_symbols_to_index, local_token_separators,
+                                symbols_to_index, token_separators,
                                 offset_facet_hashes.offsets);
             }
         }
@@ -350,11 +353,11 @@ void Index::compute_token_offsets_facets(index_record& record,
         if(the_field.is_string()) {
             if(the_field.type == field_types::STRING) {
                 tokenize_string(document[field_name], the_field,
-                                local_symbols_to_index, local_token_separators,
+                                symbols_to_index, token_separators,
                                 offset_facet_hashes.offsets);
             } else {
                 tokenize_string_array(document[field_name], the_field,
-                                      local_symbols_to_index, local_token_separators,
+                                      symbols_to_index, token_separators,
                                       offset_facet_hashes.offsets);
             }
         }

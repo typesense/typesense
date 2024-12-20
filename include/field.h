@@ -67,6 +67,8 @@ namespace fields {
     static const std::string range_index = "range_index";
     static const std::string stem = "stem";
     static const std::string stem_dictionary = "stem_dictionary";
+    static const std::string token_separators = "token_separators";
+    static const std::string symbols_to_index = "symbols_to_index";
 
     // Some models require additional parameters to be passed to the model during indexing/querying
     // For e.g. e5-small model requires prefix "passage:" for indexing and "query:" for querying
@@ -142,6 +144,9 @@ struct field {
   
     nlohmann::json hnsw_params;
 
+    std::vector<char> token_separators;
+    std::vector<char> symbols_to_index;
+
     field() {}
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
@@ -149,7 +154,7 @@ struct field {
           int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine,
           std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false,
           const bool store = true, const bool stem = false, const std::string& stem_dictionary = "", const nlohmann::json hnsw_params = nlohmann::json(),
-          const bool async_reference = false) :
+          const bool async_reference = false, const nlohmann::json& token_separators = {}, const nlohmann::json& symbols_to_index = {}) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
             embed(embed), range_index(range_index), store(store), stem(stem), stem_dictionary(stem_dictionary),
@@ -162,6 +167,14 @@ struct field {
         if (stem || !stem_dictionary.empty()) {
             this->stem = true;
             stemmer = StemmerManager::get_instance().get_stemmer(locale, stem_dictionary);
+        }
+
+        for(const auto& item : token_separators) {
+            this->token_separators.push_back(item.get<std::string>()[0]);
+        }
+
+        for(const auto& item : symbols_to_index) {
+            this->symbols_to_index.push_back(item.get<std::string>()[0]);
         }
     }
 
