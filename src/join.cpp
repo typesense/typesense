@@ -727,10 +727,12 @@ Option<bool> parse_reference_filter_helper(const std::string& filter_query, size
                                            std::string& join) {
     auto error = Option<bool>(400, "Could not parse the reference filter: `" + filter_query.substr(index) + "`.");
 
-    if (index >= filter_query.size() || filter_query[index] != '$') {
+    if (index + 2 >= filter_query.size() ||
+            (filter_query[index] != '$' && (filter_query[index] != '!' || filter_query[index + 1] != '$'))) {
         return error;
     }
 
+    const bool is_negate_join = filter_query[index] == '!';
     auto const start_index = index;
     auto size = filter_query.size();
     auto parenthesis_pos = filter_query.find('(', index + 1);
@@ -738,10 +740,11 @@ Option<bool> parse_reference_filter_helper(const std::string& filter_query, size
         return error;
     }
 
-    index = parenthesis_pos;
-    ref_coll_name = filter_query.substr(start_index + 1, parenthesis_pos - start_index - 1);
+    index = index + 1 + is_negate_join;
+    ref_coll_name = filter_query.substr(index, parenthesis_pos - index);
     StringUtils::trim(ref_coll_name);
 
+    index = parenthesis_pos;
     // The reference filter could have parenthesis inside it. $Foo((X && Y) || Z)
     int parenthesis_count = 1;
     while (++index < size && parenthesis_count > 0) {
@@ -844,8 +847,8 @@ int8_t skip_index_to_join(const std::string& filter_query, size_t& i) {
             }
             i += 2;
         } else {
-            // Reference filter would start with $ symbol.
-            if (c == '$') {
+            // Reference filter would start with $ symbol or !$.
+            if (c == '$' || (i + 1 < size && c == '!' && filter_query[i + 1] == '$')) {
                 return 1;
             } else {
                 while (i + 1 < size && filter_query[++i] != ':');
@@ -886,40 +889,39 @@ void Join::get_reference_collection_names(const std::string& filter_query,
         }
 
         auto c = filter_query[i];
-        // Reference filter would start with $ symbol.
-        if (c == '$') {
-            auto open_paren_pos = filter_query.find('(', ++i);
-            if (open_paren_pos == std::string::npos) {
-                ref_include->collection_names.clear();
-                return;
-            }
+        const auto& is_negate_join = filter_query[i] == '!';
+        auto open_paren_pos = filter_query.find('(', ++i);
+        if (open_paren_pos == std::string::npos) {
+            ref_include->collection_names.clear();
+            return;
+        }
 
-            auto reference_collection_name = filter_query.substr(i, open_paren_pos - i);
-            StringUtils::trim(reference_collection_name);
-            if (!reference_collection_name.empty()) {
-                ref_include->collection_names.insert(reference_collection_name);
-            }
+        auto reference_collection_name = filter_query.substr(i + is_negate_join,
+                                                             open_paren_pos - (i + is_negate_join));
+        StringUtils::trim(reference_collection_name);
+        if (!reference_collection_name.empty()) {
+            ref_include->collection_names.insert(reference_collection_name);
+        }
 
-            i = open_paren_pos;
-            int parenthesis_count = 1;
-            while (++i < size && parenthesis_count > 0) {
-                if (filter_query[i] == '(') {
-                    parenthesis_count++;
-                } else if (filter_query[i] == ')') {
-                    parenthesis_count--;
-                }
+        i = open_paren_pos;
+        int parenthesis_count = 1;
+        while (++i < size && parenthesis_count > 0) {
+            if (filter_query[i] == '(') {
+                parenthesis_count++;
+            } else if (filter_query[i] == ')') {
+                parenthesis_count--;
             }
+        }
 
-            if (parenthesis_count != 0) {
-                ref_include->collection_names.clear();
-                return;
-            }
+        if (parenthesis_count != 0) {
+            ref_include->collection_names.clear();
+            return;
+        }
 
-            // Need to process the filter expression inside parenthesis in case of nested join.
-            auto sub_filter_query = filter_query.substr(open_paren_pos + 1, i - open_paren_pos - 2);
-            if (sub_filter_query.find('$') != std::string::npos) {
-                get_reference_collection_names(sub_filter_query, ref_include->nested_include);
-            }
+        // Need to process the filter expression inside parenthesis in case of nested join.
+        auto sub_filter_query = filter_query.substr(open_paren_pos + 1, i - open_paren_pos - 2);
+        if (sub_filter_query.find('$') != std::string::npos) {
+            get_reference_collection_names(sub_filter_query, ref_include->nested_include);
         }
     }
 }

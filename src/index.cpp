@@ -1868,13 +1868,76 @@ void aggregate_nested_references(single_filter_result_t *const reference_result,
     references = temp_references;
 }
 
+template <typename F>
+void negate_left_join(id_list_t* const seq_ids, std::unique_ptr<uint32_t[]>& reference_docs, uint32_t& reference_docs_count,
+                      F&& get_doc_id, std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
+                      std::unordered_set<uint32_t>& unique_doc_ids,
+                      negate_left_join_t& negate_left_join_info) {
+    auto it = seq_ids->new_iterator();
+    auto negate_reference_docs = new uint32_t[seq_ids->num_ids() - reference_docs_count];
+    size_t negate_index = 0;
+    for (size_t i = 0; i < reference_docs_count && it.valid(); i++) {
+        while (it.valid() && it.id() < reference_docs[i]) {
+            negate_reference_docs[negate_index++] = it.id();
+            it.next();
+        }
+        if (!it.valid()) {
+            break;
+        }
+        while (i + 1 < reference_docs_count && (reference_docs[i] + 1 == reference_docs[i + 1])) { // Skip consecutive ids.
+            i++;
+        }
+        it.skip_to(reference_docs[i] + 1);
+    }
+
+    if (reference_docs_count > 0 && it.valid()) {
+        it.skip_to(reference_docs[reference_docs_count - 1] + 1);
+    }
+    while (it.valid()) {
+        negate_reference_docs[negate_index++] = it.id();
+        it.next();
+    }
+
+    reference_docs.reset(negate_reference_docs);
+    reference_docs_count = negate_index;
+
+    std::unordered_set<uint32_t> unique_negate_doc_ids;
+    for (uint32_t i = 0; i < reference_docs_count; i++) {
+        auto& reference_doc_id = negate_reference_docs[i];
+        std::vector<uint32_t> doc_ids = get_doc_id(reference_doc_id);
+
+        for (const auto& doc_id: doc_ids) {
+            // If we have 3 products: product_a, product_b, product_c
+            // and products_viewed like:
+            // user_a:  [product_a]
+            // user_b:  [product_a, product_b]
+            // We should return product_b and product_c for "Products not seen by user_a".
+            // So rejecting doc_id's already present in unique_doc_ids (product_a in the above example).
+            if (doc_id == Index::reference_helper_sentinel_value || unique_doc_ids.count(doc_id) != 0) {
+                continue;
+            }
+
+            id_pairs.emplace_back(doc_id, reference_doc_id);
+            unique_negate_doc_ids.insert(doc_id);
+        }
+    }
+
+    negate_left_join_info.excluded_ids_size = unique_doc_ids.size();
+    negate_left_join_info.excluded_ids.reset(new uint32_t[unique_doc_ids.size()]);
+    std::copy(unique_doc_ids.begin(), unique_doc_ids.end(), negate_left_join_info.excluded_ids.get());
+
+    unique_doc_ids = unique_negate_doc_ids;
+}
+
 Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
                                                      filter_result_t& filter_result,
                                                      const std::string& ref_collection_name,
                                                      const std::string& field_name,
+                                                     negate_left_join_t& negate_left_join_info,
                                                      const bool& validate_field_names) const {
     std::shared_lock lock(mutex);
 
+    const auto& is_normal_join = !negate_left_join_info.is_negate_join;
     auto ref_filter_result_iterator = filter_result_iterator_t(ref_collection_name, this, filter_tree_root, false,
                                                                DEFAULT_FILTER_BY_CANDIDATES,
                                                                search_begin_us, search_stop_us, validate_field_names);
@@ -1884,7 +1947,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     }
 
     ref_filter_result_iterator.compute_iterators();
-    if (ref_filter_result_iterator.approx_filter_ids_length == 0) {
+    if (ref_filter_result_iterator.approx_filter_ids_length == 0 && is_normal_join) {
         return Option(true);
     }
 
@@ -1897,12 +1960,16 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
         return Option<bool>(true);
     }
 
-    uint32_t* reference_docs = ref_filter_result->docs;
+    auto reference_docs = std::unique_ptr<uint32_t[]>(ref_filter_result->docs);
     ref_filter_result->docs = nullptr;
-    std::unique_ptr<uint32_t[]> docs_guard(reference_docs);
 
     auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
     auto const is_nested_join = !ref_filter_result_iterator.reference.empty();
+
+    if (is_nested_join && negate_left_join_info.is_negate_join) {
+        Option<bool>(400, "Left negate join cannot contain a nested join.");
+    }
+
     if (search_schema.at(reference_helper_field_name).is_singular()) { // Only one reference per doc.
         if (sort_index.count(reference_helper_field_name) == 0) {
             return Option<bool>(400, "`" + reference_helper_field_name + "` is not present in sort index.");
@@ -1989,8 +2056,22 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
                 continue;
             }
 
-            id_pairs.emplace_back(std::make_pair(doc_id, reference_doc_id));
+            if (is_normal_join) {
+                id_pairs.emplace_back(doc_id, reference_doc_id);
+            }
             unique_doc_ids.insert(doc_id);
+        }
+
+        if (negate_left_join_info.is_negate_join) {
+            negate_left_join(seq_ids, reference_docs, count,
+                             [&ref_index](const uint32_t& reference_doc_id) -> std::vector<uint32_t> {
+                                 auto it = ref_index.find(reference_doc_id);
+                                 if (it == ref_index.end()) { // Reference field might be optional.
+                                     return std::vector<uint32_t>(1, Index::reference_helper_sentinel_value);
+                                 }
+                                 return std::vector<uint32_t>(1, it->second);
+                             },
+                             id_pairs, unique_doc_ids, negate_left_join_info);
         }
 
         if (id_pairs.empty()) {
@@ -2133,10 +2214,27 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
 
         for (size_t j = 0; j < doc_ids_len; j++) {
             auto doc_id = doc_ids[j];
-            id_pairs.emplace_back(std::make_pair(doc_id, reference_doc_id));
+            if (is_normal_join) {
+                id_pairs.emplace_back(doc_id, reference_doc_id);
+            }
             unique_doc_ids.insert(doc_id);
         }
         delete[] doc_ids;
+    }
+
+    if (negate_left_join_info.is_negate_join) {
+        negate_left_join(seq_ids, reference_docs, count,
+                         [&ref_index](const uint32_t& reference_doc_id) {
+                             size_t doc_ids_len = 0;
+                             uint32_t* doc_ids = nullptr;
+
+                             ref_index.search(EQUALS, reference_doc_id, &doc_ids, doc_ids_len);
+
+                             const auto vec = std::vector<uint32_t>(doc_ids, doc_ids + doc_ids_len);
+                             delete[] doc_ids;
+                             return vec;
+                         },
+                         id_pairs, unique_doc_ids, negate_left_join_info);
     }
 
     if (id_pairs.empty()) {

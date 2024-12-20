@@ -8852,4 +8852,228 @@ TEST_F(CollectionJoinTest, InitializeRefIncludeExcludeFields) {
     ASSERT_TRUE(nested_include_excludes[0].alias.empty());
     ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
     ref_include_exclude_fields_vec.clear();
+
+    filter_query = "!$retailers(location:(33.865,-118.375,100 km))";
+    include_fields_vec = {};
+    exclude_fields_vec = {};
+    initialize_op = Join::initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                    exclude_fields_vec,
+                                                                    ref_include_exclude_fields_vec);
+    ASSERT_TRUE(initialize_op.ok());
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+    ASSERT_EQ("retailers", ref_include_exclude_fields_vec[0].collection_name);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].include_fields.empty());
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].exclude_fields.empty());
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].alias.empty());
+    ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].nested_join_includes.empty());
+    ref_include_exclude_fields_vec.clear();
+
+    filter_query = "!$retailers(location:(33.865,-118.375,100 km))";
+    include_fields_vec = {"$retailers(*, strategy:merge) as re"};
+    exclude_fields_vec = {"$retailers(title)"};
+    initialize_op = Join::initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                    exclude_fields_vec,
+                                                                    ref_include_exclude_fields_vec);
+    ASSERT_TRUE(initialize_op.ok());
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+    ASSERT_EQ("retailers", ref_include_exclude_fields_vec[0].collection_name);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].include_fields.empty());
+    ASSERT_EQ("title", ref_include_exclude_fields_vec[0].exclude_fields);
+    ASSERT_EQ("re.", ref_include_exclude_fields_vec[0].alias);
+    ASSERT_EQ(ref_include::merge, ref_include_exclude_fields_vec[0].strategy);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].nested_join_includes.empty());
+}
+
+TEST_F(CollectionJoinTest, NegateLeftJoinOneToOne) {
+    auto schema_json =
+            R"({
+                "name":  "books",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": true}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "id": "0",
+                "title": "Famous Five",
+                "author_id": "0"
+            })"_json,
+            R"({
+                "id": "1",
+                "title": "Space War Blues",
+                "author_id": "1"
+            })"_json,
+            R"({
+                "id": "2",
+                "title": "12:01 PM",
+                "author_id": "1"
+            })"_json,
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "authors",
+                "fields": [
+                    {"name": "first_name", "type": "string"},
+                    {"name": "last_name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "0",
+                "first_name": "Enid",
+                "last_name": "Blyton"
+            })"_json,
+            R"({
+                "id": "1",
+                "first_name": "Richard",
+                "last_name": "Lupoff"
+            })"_json,
+            R"({
+                "id": "2",
+                "first_name": "William",
+                "last_name": "Shakespeare"
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "authors"},
+            {"q", "*"},
+            {"filter_by", "!$books(author_id: 1)"}, // All the books except for author 1.
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ(0, res_obj["hits"][0]["document"].count("books"));
+
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("Famous Five", res_obj["hits"][1]["document"]["books"]["title"]);
+}
+
+TEST_F(CollectionJoinTest, NegateLeftJoinOneToMany) {
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string"},
+                    {"name": "product_description", "type": "string"},
+                    {"name": "rating", "type": "int32"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair.",
+                "rating": "2"
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "soap",
+                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients.",
+                "rating": "4"
+            })"_json,
+            R"({
+                "product_id": "product_c",
+                "product_name": "comb",
+                "product_description": "Experience the natural elegance and gentle care of our handcrafted wooden combs – because your hair deserves the best.",
+                "rating": "3"
+            })"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "User_Views",
+                "fields": [
+                    {"name": "user_id", "type": "string"},
+                    {"name": "product_ids", "type": "string[]", "reference": "Products.product_id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "user_id": "user_a",
+                "product_ids": ["product_a"]
+            })"_json,
+            R"({
+                "user_id": "user_b",
+                "product_ids": ["product_a", "product_b"]
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "!$User_Views(user_id: user_a)"}, // All the products not viewed by user_a.
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("comb", res_obj["hits"][0]["document"]["product_name"]);
+    ASSERT_EQ(0, res_obj["hits"][0]["document"].count("User_Views"));
+
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("soap", res_obj["hits"][1]["document"]["product_name"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["User_Views"].size());
+    ASSERT_EQ("user_b", res_obj["hits"][1]["document"]["User_Views"][0]["user_id"]);
 }

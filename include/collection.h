@@ -913,6 +913,7 @@ public:
     Option<bool> get_reference_filter_ids(const std::string& filter_query,
                                           filter_result_t& filter_result,
                                           const std::string& reference_field_name,
+                                          negate_left_join_t& negate_left_join_info,
                                           const bool& validate_field_names = true) const;
 
     Option<nlohmann::json> get(const std::string & id) const;

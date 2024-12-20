@@ -39,6 +39,7 @@ struct filter {
 
     // Would store `Foo` in case of a filter expression like `$Foo(bar := baz)`
     std::string referenced_collection_name{};
+    bool is_negate_join = false;
 
     std::vector<nlohmann::json> params{};
 

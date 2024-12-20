@@ -397,6 +397,10 @@ TEST(StringUtilsTest, TokenizeFilterQuery) {
     tokenList = {"(", "(", "age: <5", "||", "age: >10", ")", "&&", "category:= [shoes]", ")", "&&",
                  "$Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))"};
     tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "$Customers(customer_id:=customer_a) || !$Customers_2(customer_id:=customer_a)";
+    tokenList = {"$Customers(customer_id:=customer_a)", "||", "!$Customers_2(customer_id:=customer_a)"};
+    tokenizeTestHelper(filter_query, tokenList);
 }
 
 void splitIncludeExcludeTestHelper(const std::string& include_exclude_fields, const std::vector<std::string>& expected) {
