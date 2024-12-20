@@ -42,3 +42,5 @@ struct export_state_t: public req_state_t {
 
 Option<bool> stateful_remove_docs(deletion_state_t* deletion_state, size_t batch_size, bool& done);
 Option<bool> stateful_export_docs(export_state_t* export_state, size_t batch_size, bool& done);
+Option<bool> multi_search_validate_and_add_params(std::map<std::string, std::string>& req_params,
+                                                  nlohmann::json& search_params, const bool& is_conversation);

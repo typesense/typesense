@@ -522,6 +522,22 @@ struct sort_random_t {
 };
 
 struct sort_by {
+    /// Used to make sure different searches sort_by on the same type of field/expression in Union.
+    enum sort_by_type_t {
+        string_field,
+        int32_field,
+        int64_field,
+        float_field,
+        bool_field,
+        geopoint_field,
+        eval_expression,
+        join_expression,
+        text_match,
+        random_order,
+        vector_search,
+        insertion_order
+    };
+
     enum missing_values_t {
         first,
         last,
@@ -570,6 +586,8 @@ struct sort_by {
     float decay_val = 0.5f;
     sort_by_params_t sort_by_param = none;
 
+    sort_by_type_t type{};
+
     sort_by(const std::string & name, const std::string & order):
             name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
             missing_values(normal) {
@@ -580,6 +598,7 @@ struct sort_by {
             geo_precision(0), missing_values(normal) {
         name = sort_field_const::eval;
         eval.scores = std::move(scores);
+        type = eval_expression;
     }
 
     sort_by(const std::string &name, const std::string &order, uint32_t text_match_buckets, int64_t geopoint,
@@ -587,6 +606,7 @@ struct sort_by {
             name(name), order(order), text_match_buckets(text_match_buckets),
             geopoint(geopoint), exclude_radius(exclude_radius), geo_precision(geo_precision),
             missing_values(normal) {
+        type = geopoint_field;
     }
 
     sort_by(const sort_by& other) {
@@ -610,6 +630,7 @@ struct sort_by {
         scale = other.scale;
         offset = other.offset;
         decay_val = other.decay_val;
+        type = other.type;
     }
 
     sort_by& operator=(const sort_by& other) {
@@ -628,6 +649,7 @@ struct sort_by {
         eval = other.eval;
         reference_collection_name = other.reference_collection_name;
         nested_join_collection_names = other.nested_join_collection_names;
+        type = other.type;
         return *this;
     }
 

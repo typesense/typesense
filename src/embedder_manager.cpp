@@ -201,25 +201,20 @@ Option<ImageEmbedder*> EmbedderManager::get_image_embedder(const nlohmann::json&
 
 void EmbedderManager::delete_text_embedder(const std::string& model_path) {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
-    if (text_embedders.find(model_path) != text_embedders.end()) {
-        text_embedders.erase(model_path);
-    }
 
-    if (public_models.find(model_path) != public_models.end()) {
-        public_models.erase(model_path);
-    }
+    text_embedders.erase(model_path);
+    public_models.erase(model_path);
 }
 
 void EmbedderManager::delete_all_text_embedders() {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
     text_embedders.clear();
+    public_models.clear();
 }
 
 void EmbedderManager::delete_image_embedder(const std::string& model_path) {
     std::unique_lock<std::mutex> lock(image_embedders_mutex);
-    if (image_embedders.find(model_path) != image_embedders.end()) {
-        image_embedders.erase(model_path);
-    }
+    image_embedders.erase(model_path);
 }
 
 void EmbedderManager::delete_all_image_embedders() {

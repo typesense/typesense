@@ -1549,7 +1549,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 std::vector<sort_by> sort_fields;
                 std::vector<std::vector<art_leaf*>> searched_filters;
                 tsl::htrie_map<char, token_leaf> qtoken_set;
-                Topster* topster = nullptr;
+                Topster<KV>* topster = nullptr;
                 spp::sparse_hash_map<uint64_t, uint32_t> groups_processed;
                 uint32_t* all_result_ids = nullptr;
                 size_t all_result_ids_len = 0;

@@ -2064,6 +2064,36 @@ TEST_F(CollectionNestedFieldsTest, NestedFieldWithGeopointArray) {
     ASSERT_EQ("Field `addresses.geoPoint` must be an array of geopoint.", create_op.error());
 }
 
+TEST_F(CollectionNestedFieldsTest, ObjectArrayWithGeopoint) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "addresses", "type": "object[]"},
+            {"name": "addresses.geoPoint", "type": "geopoint[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({"addresses": [{"geoPoint": [19.07283, 72.88261]}] })"_json;
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {}, "addresses.geoPoint: (19.07, 72.882, 1 mi)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+    ASSERT_EQ(1, results["found"]);
+
+    auto remove_op = coll1->remove("0");
+    ASSERT_TRUE(remove_op.ok());
+
+    results = coll1->search("*", {}, "addresses.geoPoint: (19.07, 72.882, 1 mi)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+    ASSERT_EQ(0, results["found"]);
+}
+
 TEST_F(CollectionNestedFieldsTest, NestedFieldWithGeopoint) {
     nlohmann::json schema = R"({
             "name": "coll1",
