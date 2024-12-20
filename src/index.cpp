@@ -5618,8 +5618,8 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                 if(filter_result_iterator->validity == filter_result_iterator_t::valid) {
                     filter_result_t result;
                     filter_result_iterator->and_scalar(raw_infix_ids, raw_infix_ids_length, result);
-                    if(raw_infix_ids != &infix_ids[0]) {
-                        delete [] raw_infix_ids;
+                    if(raw_infix_ids == &infix_ids[0]) {
+                        raw_infix_ids = nullptr;
                     }
 
                     filtered_infix_ids = std::move(result);
