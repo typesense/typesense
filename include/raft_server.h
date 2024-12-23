@@ -71,12 +71,15 @@ private:
     const std::shared_ptr<http_req> req;
     const std::shared_ptr<http_res> res;
     const std::string ext_snapshot_path;
+    const std::string state_dir_path;
 
 public:
 
     OnDemandSnapshotClosure(ReplicationState *replication_state, const std::shared_ptr<http_req>& req,
-                            const std::shared_ptr<http_res>& res, const std::string& ext_snapshot_path) :
-        replication_state(replication_state), req(req), res(res), ext_snapshot_path(ext_snapshot_path) {}
+                            const std::shared_ptr<http_res>& res, const std::string& ext_snapshot_path,
+                            const std::string& state_dir_path) :
+        replication_state(replication_state), req(req), res(res), ext_snapshot_path(ext_snapshot_path),
+        state_dir_path(state_dir_path) {}
 
     ~OnDemandSnapshotClosure() {}
 
@@ -130,7 +133,6 @@ private:
     std::string raft_dir_path;
 
     std::string ext_snapshot_path;
-    std::atomic<bool> ext_snapshot_succeeded;
 
     int election_timeout_interval_ms;
 
@@ -212,9 +214,7 @@ public:
 
     void set_ext_snapshot_path(const std::string &snapshot_path);
 
-    bool get_ext_snapshot_succeeded();
-
-    const std::string& get_ext_snapshot_path() const;
+    void set_snapshot_in_progress(const bool snapshot_in_progress);
 
     // for timed snapshots
     void do_snapshot(const std::string& nodes);

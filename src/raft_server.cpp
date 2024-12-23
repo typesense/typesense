@@ -509,43 +509,11 @@ void* ReplicationState::save_snapshot(void* arg) {
         }
     }
 
-    const std::string& temp_snapshot_dir = sa->writer->get_path();
-
     sa->done->Run();
-
-    sa->replication_state->ext_snapshot_succeeded = true;
-
-    // if an external snapshot is requested, copy latest snapshot directory into that
-    if(!sa->ext_snapshot_path.empty()) {
-        // temp directory will be moved to final snapshot directory, so let's wait for that to happen
-        while(butil::DirectoryExists(butil::FilePath(temp_snapshot_dir))) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-
-        LOG(INFO) << "Copying system snapshot to external snapshot directory at " << sa->ext_snapshot_path;
-
-        const butil::FilePath& dest_state_dir = butil::FilePath(sa->ext_snapshot_path + "/state");
-
-        if(!butil::DirectoryExists(dest_state_dir)) {
-            butil::CreateDirectory(dest_state_dir, true);
-        }
-
-        const butil::FilePath& src_snapshot_dir = butil::FilePath(sa->state_dir_path + "/snapshot");
-        const butil::FilePath& src_meta_dir = butil::FilePath(sa->state_dir_path + "/meta");
-
-        bool snapshot_copied = butil::CopyDirectory(src_snapshot_dir, dest_state_dir, true);
-        bool meta_copied = butil::CopyDirectory(src_meta_dir, dest_state_dir, true);
-
-        sa->replication_state->ext_snapshot_succeeded = snapshot_copied && meta_copied;
-    }
-
-    // notify on demand closure that external snapshotting is done
-    sa->replication_state->notify();
 
     // NOTE: *must* do a dummy write here since snapshots cannot be triggered if no write has happened since the
     // last snapshot. By doing a dummy write right after a snapshot, we ensure that this can never be the case.
     sa->replication_state->do_dummy_write();
-    sa->replication_state->snapshot_in_progress = false;
 
     LOG(INFO) << "save_snapshot done";
 
@@ -610,7 +578,6 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
 
     if(!ext_snapshot_path.empty()) {
         arg->ext_snapshot_path = ext_snapshot_path;
-        ext_snapshot_path = "";
     }
 
     // Start a new bthread to avoid blocking StateMachine for slower operations that don't need a blocking view
@@ -908,7 +875,8 @@ void ReplicationState::do_snapshot(const std::string& snapshot_path, const std::
               << (!snapshot_path.empty() ? " with external snapshot path..." : "...");
 
     thread_pool->enqueue([&snapshot_path, req, res, this]() {
-        OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res, snapshot_path);
+        OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res, snapshot_path,
+                                                                                raft_dir_path);
         ext_snapshot_path = snapshot_path;
         std::shared_lock lock(this->node_mutex);
         node->snapshot(snapshot_closure);
@@ -919,8 +887,8 @@ void ReplicationState::set_ext_snapshot_path(const std::string& snapshot_path) {
     this->ext_snapshot_path = snapshot_path;
 }
 
-const std::string &ReplicationState::get_ext_snapshot_path() const {
-    return ext_snapshot_path;
+void ReplicationState::set_snapshot_in_progress(const bool snapshot_in_progress) {
+    this->snapshot_in_progress = snapshot_in_progress;
 }
 
 void ReplicationState::do_dummy_write() {
@@ -1130,10 +1098,6 @@ void ReplicationState::do_snapshot(const std::string& nodes) {
     last_snapshot_ts = current_ts;
 }
 
-bool ReplicationState::get_ext_snapshot_succeeded() {
-    return ext_snapshot_succeeded;
-}
-
 std::string ReplicationState::get_leader_url() const {
     std::shared_lock lock(node_mutex);
 
@@ -1173,7 +1137,28 @@ void OnDemandSnapshotClosure::Run() {
     // Auto delete this after Done()
     std::unique_ptr<OnDemandSnapshotClosure> self_guard(this);
 
-    replication_state->wait(); // until on demand snapshotting completes
+    bool ext_snapshot_succeeded = false;
+
+    // if an external snapshot is requested, copy latest snapshot directory into that
+    if(!ext_snapshot_path.empty()) {
+        const butil::FilePath& dest_state_dir = butil::FilePath(ext_snapshot_path + "/state");
+
+        if(!butil::DirectoryExists(dest_state_dir)) {
+            butil::CreateDirectory(dest_state_dir, true);
+        }
+
+        const butil::FilePath& src_snapshot_dir = butil::FilePath(state_dir_path + "/snapshot");
+        const butil::FilePath& src_meta_dir = butil::FilePath(state_dir_path + "/meta");
+
+        bool snapshot_copied = butil::CopyDirectory(src_snapshot_dir, dest_state_dir, true);
+        bool meta_copied = butil::CopyDirectory(src_meta_dir, dest_state_dir, true);
+
+        ext_snapshot_succeeded = snapshot_copied && meta_copied;
+    }
+
+    // order is important, because the atomic boolean guards write to the path
+    replication_state->set_ext_snapshot_path("");
+    replication_state->set_snapshot_in_progress(false);
 
     req->last_chunk_aggregate = true;
     res->final = true;
@@ -1187,7 +1172,7 @@ void OnDemandSnapshotClosure::Run() {
         status_code = 500;
         response["success"] = false;
         response["error"] = status().error_str();
-    } else if(!replication_state->get_ext_snapshot_succeeded()) {
+    } else if(!ext_snapshot_succeeded && !ext_snapshot_path.empty()) {
         LOG(ERROR) << "On demand snapshot failed, error: copy failed.";
         status_code = 500;
         response["success"] = false;
