@@ -1922,6 +1922,7 @@ void negate_left_join(id_list_t* const seq_ids, std::unique_ptr<uint32_t[]>& ref
         }
     }
 
+    // Main purpose of `negate_left_join_info.excluded_ids` is help identify the doc_ids that don't have any references.
     negate_left_join_info.excluded_ids_size = unique_doc_ids.size();
     negate_left_join_info.excluded_ids.reset(new uint32_t[unique_doc_ids.size()]);
     std::copy(unique_doc_ids.begin(), unique_doc_ids.end(), negate_left_join_info.excluded_ids.get());
