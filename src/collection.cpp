@@ -1238,18 +1238,22 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 std::vector<std::string> match_parts;
                 const std::string& match_config = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
                 StringUtils::split(match_config, match_parts, ":");
-                if(match_parts.size() != 2 || match_parts[0] != "buckets") {
+                if(match_parts.size() != 2 || (match_parts[0] != "buckets" && match_parts[0] != "bucket_size")) {
                     return Option<bool>(400, "Invalid sorting parameter passed for _text_match.");
                 }
 
                 if(!StringUtils::is_uint32_t(match_parts[1])) {
-                    return Option<bool>(400, "Invalid value passed for _text_match `buckets` configuration.");
+                    return Option<bool>(400, "Invalid value passed for _text_match `buckets` or `bucket_size` configuration.");
                 }
 
                 sort_field_std.name = actual_field_name;
-                sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
                 sort_field_std.type = sort_by::text_match;
 
+                if(match_parts[0] == "buckets") {
+                    sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
+                } else if(match_parts[0] == "bucket_size") {
+                    sort_field_std.text_match_bucket_size = std::stoll(match_parts[1]);
+                }
             } else if(actual_field_name == sort_field_const::vector_query) {
                 const std::string& vector_query_str = sort_field_std.name.substr(paran_start + 1,
                                                                               sort_field_std.name.size() - paran_start -
@@ -2710,21 +2714,26 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
     // apply bucketing on text match score
     int match_score_index = -1;
     for(size_t i = 0; i < sort_fields_std.size(); i++) {
-        if(sort_fields_std[i].name == sort_field_const::text_match && sort_fields_std[i].text_match_buckets != 0) {
+        if(sort_fields_std[i].name == sort_field_const::text_match &&
+        (sort_fields_std[i].text_match_buckets != 0 || sort_fields_std[i].text_match_bucket_size != 0)) {
             match_score_index = i;
             break;
         }
     }
 
-    if(match_score_index >= 0 && sort_fields_std[match_score_index].text_match_buckets > 0) {
+    if(match_score_index >= 0 && (sort_fields_std[match_score_index].text_match_buckets > 0
+        || sort_fields_std[match_score_index].text_match_bucket_size > 0)) {
+
         size_t num_buckets = sort_fields_std[match_score_index].text_match_buckets;
+        size_t bucket_size = sort_fields_std[match_score_index].text_match_bucket_size;
+
         const size_t max_kvs_bucketed = std::min<size_t>(Index::DEFAULT_TOPSTER_SIZE, raw_result_kvs.size());
 
-        if(max_kvs_bucketed >= num_buckets) {
+        if((num_buckets > 0 && max_kvs_bucketed >= num_buckets) || (bucket_size > 0 && max_kvs_bucketed >= bucket_size)) {
             spp::sparse_hash_map<uint64_t, int64_t> result_scores;
 
             // only first `max_kvs_bucketed` elements are bucketed to prevent pagination issues past 250 records
-            size_t block_len = (max_kvs_bucketed / num_buckets);
+            size_t block_len = num_buckets > 0 ? (max_kvs_bucketed / num_buckets) : bucket_size;
             size_t i = 0;
             while(i < max_kvs_bucketed) {
                 int64_t anchor_score = raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index];
