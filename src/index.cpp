@@ -1876,10 +1876,28 @@ void negate_left_join(id_list_t* const seq_ids, std::unique_ptr<uint32_t[]>& ref
     auto it = seq_ids->new_iterator();
     auto negate_reference_docs = new uint32_t[seq_ids->num_ids() - reference_docs_count];
     size_t negate_index = 0;
+    std::unordered_set<uint32_t> unique_negate_doc_ids;
     for (size_t i = 0; i < reference_docs_count && it.valid(); i++) {
         while (it.valid() && it.id() < reference_docs[i]) {
-            negate_reference_docs[negate_index++] = it.id();
+            const auto& reference_doc_id = it.id();
             it.next();
+
+            negate_reference_docs[negate_index++] = reference_doc_id;
+            std::vector<uint32_t> doc_ids = get_doc_id(reference_doc_id);
+            for (const auto& doc_id: doc_ids) {
+                // If we have 3 products: product_a, product_b, product_c
+                // and products_viewed like:
+                // user_a:  [product_a]
+                // user_b:  [product_a, product_b]
+                // We should return product_b and product_c for "Products not seen by user_a".
+                // So rejecting doc_id's already present in unique_doc_ids (product_a in the above example).
+                if (doc_id == Index::reference_helper_sentinel_value || unique_doc_ids.count(doc_id) != 0) {
+                    continue;
+                }
+
+                id_pairs.emplace_back(doc_id, reference_doc_id);
+                unique_negate_doc_ids.insert(doc_id);
+            }
         }
         if (!it.valid()) {
             break;
@@ -1894,18 +1912,11 @@ void negate_left_join(id_list_t* const seq_ids, std::unique_ptr<uint32_t[]>& ref
         it.skip_to(reference_docs[reference_docs_count - 1] + 1);
     }
     while (it.valid()) {
-        negate_reference_docs[negate_index++] = it.id();
+        const auto& reference_doc_id = it.id();
         it.next();
-    }
 
-    reference_docs.reset(negate_reference_docs);
-    reference_docs_count = negate_index;
-
-    std::unordered_set<uint32_t> unique_negate_doc_ids;
-    for (uint32_t i = 0; i < reference_docs_count; i++) {
-        auto& reference_doc_id = negate_reference_docs[i];
+        negate_reference_docs[negate_index++] = reference_doc_id;
         std::vector<uint32_t> doc_ids = get_doc_id(reference_doc_id);
-
         for (const auto& doc_id: doc_ids) {
             // If we have 3 products: product_a, product_b, product_c
             // and products_viewed like:
@@ -1921,6 +1932,9 @@ void negate_left_join(id_list_t* const seq_ids, std::unique_ptr<uint32_t[]>& ref
             unique_negate_doc_ids.insert(doc_id);
         }
     }
+
+    reference_docs.reset(negate_reference_docs);
+    reference_docs_count = negate_index;
 
     // Main purpose of `negate_left_join_info.excluded_ids` is help identify the doc_ids that don't have any references.
     negate_left_join_info.excluded_ids_size = unique_doc_ids.size();
