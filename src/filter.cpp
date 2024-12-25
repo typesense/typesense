@@ -721,12 +721,15 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
         } else {
             filter filter_exp;
 
-            // Expected value: $Collection(...)
-            bool is_referenced_filter = (expression[0] == '$' && expression[expression.size() - 1] == ')');
+            // Expected value: $Collection(...) / !$Collection(...)
+            const std::regex join_pattern(R"(^(\$|(\!\$)).+\(.+\)$)");
+            bool is_referenced_filter = std::regex_match(expression, join_pattern);
             if (is_referenced_filter) {
+                const bool is_negate_join = expression[0] == '!';
                 size_t parenthesis_index = expression.find('(');
 
-                std::string collection_name = expression.substr(1, parenthesis_index - 1);
+                std::string collection_name = expression.substr(1 + is_negate_join,
+                                                                    parenthesis_index - (1 + is_negate_join));
                 auto &cm = CollectionManager::get_instance();
                 auto collection = cm.get_collection(collection_name);
                 if (collection == nullptr) {
@@ -737,6 +740,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
 
                 filter_exp = {expression.substr(parenthesis_index + 1, expression.size() - parenthesis_index - 2)};
                 filter_exp.referenced_collection_name = collection_name;
+                filter_exp.is_negate_join = is_negate_join;
             } else {
                 Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix,
                                                     validate_field_names);

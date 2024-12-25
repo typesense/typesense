@@ -388,6 +388,14 @@ struct Hasher32 {
     size_t operator()(uint32_t k) const { return (k ^ 2166136261U)  * 16777619UL; }
 };
 
+struct negate_left_join_t {
+    bool is_negate_join = false;
+    size_t excluded_ids_size = 0;
+    std::unique_ptr<uint32_t []> excluded_ids = nullptr;
+
+    negate_left_join_t() = default;
+};
+
 class Index {
 private:
     mutable std::shared_mutex mutex;
@@ -810,6 +818,7 @@ public:
                                                   filter_result_t& filter_result,
                                                   const std::string& ref_collection_name,
                                                   const std::string& field_name,
+                                                  negate_left_join_t& negate_left_join_info,
                                                   const bool& validate_field_names = true) const;
 
     Option<filter_result_t> do_filtering_with_reference_ids(const std::string& field_name,

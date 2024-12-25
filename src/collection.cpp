@@ -4325,6 +4325,7 @@ Option<bool> Collection::get_object_array_related_id(const std::string& ref_fiel
 Option<bool> Collection::get_reference_filter_ids(const std::string & filter_query,
                                                   filter_result_t& filter_result,
                                                   const std::string& reference_field_name,
+                                                  negate_left_join_t& negate_left_join_info,
                                                   const bool& validate_field_names) const {
     std::shared_lock lock(mutex);
 
@@ -4339,7 +4340,7 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
     }
 
     return index->do_reference_filtering_with_lock(filter_tree_root, filter_result, name, reference_field_name,
-                                                   validate_field_names);
+                                                   negate_left_join_info, validate_field_names);
 }
 
 bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count,

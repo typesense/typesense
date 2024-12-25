@@ -409,7 +409,7 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
             i += 2;
         } else {
             // Reference filter would start with $ symbol.
-            if (c == '$') {
+            if (c == '$' || (c == '!' && i + 1 < size && filter_query[i + 1] == '$')) {
                 auto op = Join::parse_reference_filter(filter_query, tokens, i, ref_collection_names);
                 if (!op.ok()) {
                     return op;

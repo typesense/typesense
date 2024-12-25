@@ -174,6 +174,9 @@ struct filter_result_t {
             return *this;
         }
 
+        delete[] docs;
+        delete[] coll_to_references;
+
         count = obj.count;
         docs = new uint32_t[count];
         memcpy(docs, obj.docs, count * sizeof(uint32_t));
@@ -187,6 +190,9 @@ struct filter_result_t {
         if (&obj == this) {
             return *this;
         }
+
+        delete[] docs;
+        delete[] coll_to_references;
 
         count = obj.count;
         docs = obj.docs;

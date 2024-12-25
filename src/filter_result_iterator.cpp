@@ -830,14 +830,30 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
         if (is_referenced) {
             auto const& field_name = coll->referenced_in.at(ref_collection_name);
+            negate_left_join_t negate_left_join_info{a_filter.is_negate_join};
             auto reference_filter_op = ref_collection->get_reference_filter_ids(a_filter.field_name,
                                                                                 filter_result,
-                                                                                field_name, validate_field_names);
+                                                                                field_name, negate_left_join_info,
+                                                                                validate_field_names);
             if (!reference_filter_op.ok()) {
                 status = Option<bool>(400, "Failed to join on `" + a_filter.referenced_collection_name
                                            + "` collection: " + reference_filter_op.error());
                 validity = invalid;
                 return;
+            }
+
+            if (negate_left_join_info.is_negate_join) {
+                auto index_ids = index->seq_ids->uncompress();
+                uint32_t* left_included_ids = nullptr;
+                size_t left_included_ids_length = ArrayUtils::exclude_scalar(index_ids, index->seq_ids->num_ids(),
+                                                                             negate_left_join_info.excluded_ids.get(),
+                                                                             negate_left_join_info.excluded_ids_size,
+                                                                             &left_included_ids);
+                delete [] index_ids;
+                auto left_included_result = filter_result_t(left_included_ids_length, left_included_ids);
+                filter_result_t final_result;
+                filter_result_t::or_filter_results(left_included_result, filter_result, final_result);
+                filter_result = std::move(final_result);
             }
         } else if (has_reference) {
             // Get the doc ids of reference collection matching the filter then apply filter on the current collection's
