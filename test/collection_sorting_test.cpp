@@ -1739,7 +1739,7 @@ TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                            "<mark>", "</mark>", {3}, 1000, true);
     ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Invalid value passed for _text_match `buckets` configuration.", res_op.error());
+    ASSERT_EQ("Invalid value passed for _text_match `buckets` or `bucket_size` configuration.", res_op.error());
 
     // handle negative value
     sort_fields[0] = sort_by("_text_match(buckets: -1)", "DESC");
@@ -1750,7 +1750,7 @@ TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                            "<mark>", "</mark>", {3}, 1000, true);
     ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Invalid value passed for _text_match `buckets` configuration.", res_op.error());
+    ASSERT_EQ("Invalid value passed for _text_match `buckets` or `bucket_size` configuration.", res_op.error());
 
     collectionManager.drop_collection("coll1");
 }
@@ -3218,4 +3218,118 @@ TEST_F(CollectionSortingTest, DecayFunctionsTest) {
     ASSERT_EQ(1728387250, results["hits"][3]["document"]["timestamp"].get<size_t>());
     ASSERT_EQ("0", results["hits"][4]["document"]["id"]);
     ASSERT_EQ(1728383250, results["hits"][4]["document"]["timestamp"].get<size_t>());
+}
+
+TEST_F(CollectionSortingTest, TextMatchBucketSizeRanking) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection *coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Mark Antony";
+    doc1["description"] = "Counsellor";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Marks Spencer";
+    doc2["description"] = "Sales Expert";
+    doc2["points"] = 200;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["title"] = "Mark Twain";
+    doc3["description"] = "Writer";
+    doc3["points"] = 100;
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["title"] = "Mark Zuckerberg";
+    doc4["description"] = "Entrepreneur";
+    doc4["points"] = 300;
+
+    nlohmann::json doc5;
+    doc5["id"] = "4";
+    doc5["title"] = "Marks Henry";
+    doc5["description"] = "Wrestler";
+    doc5["points"] = 200;
+
+    nlohmann::json doc6;
+    doc6["id"] = "5";
+    doc6["title"] = "Mark Hughes";
+    doc6["description"] = "Football Coach";
+    doc6["points"] = 200;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc6.dump()).ok());
+
+    sort_fields = {
+            sort_by("_text_match(bucket_size: 3)", "DESC"),
+            sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("mark", {"title"},
+                                 "", {}, sort_fields, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {3}, 1000, true).get();
+
+    //two buckets will be formed and results will rank as per points among buckets
+    ASSERT_EQ(6, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][4]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][5]["document"]["id"].get<std::string>());
+
+    //in case of bucket_size more than results, no bucketing happens
+    sort_fields = {
+            sort_by("_text_match(bucket_size: 10)", "DESC"),
+            sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("mark", {"title"},
+                            "", {}, sort_fields, {2}, 10,
+                            1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {3}, 1000, true).get();
+
+    ASSERT_EQ(6, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][4]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][5]["document"]["id"].get<std::string>());
+
+    //in case of bucket_size 0, no bucketing happens
+    sort_fields = {
+            sort_by("_text_match(bucket_size: 0)", "DESC"),
+            sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("mark", {"title"},
+                            "", {}, sort_fields, {2}, 10,
+                            1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {3}, 1000, true).get();
+
+    ASSERT_EQ(6, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][4]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][5]["document"]["id"].get<std::string>());
 }

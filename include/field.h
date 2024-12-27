@@ -565,6 +565,7 @@ struct sort_by {
 
     // for text_match score bucketing
     uint32_t text_match_buckets;
+    uint32_t text_match_bucket_size;
 
     // geo related fields
     int64_t geopoint;
@@ -589,13 +590,13 @@ struct sort_by {
     sort_by_type_t type{};
 
     sort_by(const std::string & name, const std::string & order):
-            name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
-            missing_values(normal) {
+            name(name), order(order), text_match_buckets(0), text_match_bucket_size(0), geopoint(0), exclude_radius(0),
+            geo_precision(0), missing_values(normal) {
     }
 
     sort_by(std::vector<std::string> eval_expressions, std::vector<int64_t> scores, std::string  order):
-            eval_expressions(std::move(eval_expressions)), order(std::move(order)), text_match_buckets(0), geopoint(0), exclude_radius(0),
-            geo_precision(0), missing_values(normal) {
+            eval_expressions(std::move(eval_expressions)), order(std::move(order)), text_match_buckets(0), text_match_bucket_size(0),
+            geopoint(0), exclude_radius(0), geo_precision(0), missing_values(normal) {
         name = sort_field_const::eval;
         eval.scores = std::move(scores);
         type = eval_expression;
@@ -603,7 +604,7 @@ struct sort_by {
 
     sort_by(const std::string &name, const std::string &order, uint32_t text_match_buckets, int64_t geopoint,
             uint32_t exclude_radius, uint32_t geo_precision) :
-            name(name), order(order), text_match_buckets(text_match_buckets),
+            name(name), order(order), text_match_buckets(text_match_buckets), text_match_bucket_size(0),
             geopoint(geopoint), exclude_radius(exclude_radius), geo_precision(geo_precision),
             missing_values(normal) {
         type = geopoint_field;
@@ -616,6 +617,7 @@ struct sort_by {
         eval_expressions = other.eval_expressions;
         order = other.order;
         text_match_buckets = other.text_match_buckets;
+        text_match_bucket_size = other.text_match_bucket_size;
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;
@@ -642,6 +644,7 @@ struct sort_by {
         eval_expressions = other.eval_expressions;
         order = other.order;
         text_match_buckets = other.text_match_buckets;
+        text_match_bucket_size = other.text_match_bucket_size;
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;
