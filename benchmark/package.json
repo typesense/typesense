@@ -1,0 +1,32 @@
+{
+  "name": "typesense-benchmark-cli",
+  "version": "0.0.0",
+  "description": "Benchmarking tool for Typesense",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "typesense-benchmark": "./dist/index.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "full-text search",
+    "search engine",
+    "typesense",
+    "benchmark"
+  ],
+  "author": {
+    "name": "Typesense, Inc.",
+    "email": "contact@typesense.org",
+    "url": "https://typesense.org"
+  },
+  "contributors": [
+    {
+      "name": "Fanis Tharropoulos",
+      "email": "fanis@typesense.org",
+      "url": "https://github.com/tharropoulos"
+    }
+  ],
+  "license": "GPL"
+}
