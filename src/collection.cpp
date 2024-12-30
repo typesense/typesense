@@ -5890,14 +5890,14 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     rocksdb::Iterator* iter = store->scan(seq_id_prefix, &upper_bound);
     std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
 
-    size_t num_found_docs = 0;
+    altered_docs = 0;
     std::vector<index_record> iter_batch;
     const size_t index_batch_size = 1000;
 
     auto begin = std::chrono::high_resolution_clock::now();
 
     while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
-        num_found_docs++;
+        altered_docs++;
         const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
 
         nlohmann::json document;
@@ -5914,7 +5914,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             field::flatten_doc(document, nested_fields, {}, true, flattened_fields);
         }
 
-        index_record record(num_found_docs, seq_id, document, index_operation_t::CREATE, DIRTY_VALUES::COERCE_OR_DROP);
+        index_record record(altered_docs, seq_id, document, index_operation_t::CREATE, DIRTY_VALUES::COERCE_OR_DROP);
         iter_batch.emplace_back(std::move(record));
 
         // Peek and check for last record right here so that we handle batched indexing correctly
@@ -5922,7 +5922,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         iter->Next();
         bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
 
-        if(num_found_docs % index_batch_size == 0 || last_record) {
+        if(altered_docs % index_batch_size == 0 || last_record) {
             // put delete first because a field could be deleted and added in the same change set
             if(!del_fields.empty()) {
                 for(auto& rec: iter_batch) {
@@ -5954,19 +5954,19 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             iter_batch.clear();
         }
 
-        if(num_found_docs % ((1 << 14)) == 0) {
+        if(altered_docs % ((1 << 14)) == 0) {
             // having a cheaper higher layer check to prevent checking clock too often
             auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::high_resolution_clock::now() - begin).count();
 
             if(time_elapsed > 30) {
                 begin = std::chrono::high_resolution_clock::now();
-                LOG(INFO) << "Altered " << num_found_docs << " so far.";
+                LOG(INFO) << "Altered " << altered_docs << " so far.";
             }
         }
     }
 
-    LOG(INFO) << "Finished altering " << num_found_docs << " document(s).";
+    LOG(INFO) << "Finished altering " << altered_docs << " document(s).";
     shlock.unlock();
     ulock.lock();
 
@@ -6018,6 +6018,8 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
 Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     std::shared_lock shlock(mutex);
+
+    alter_in_progress = true;
 
     LOG(INFO) << "Collection " << name << " is being prepared for alter...";
 
@@ -6091,6 +6093,10 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
             hide_credential(field_json[fields::embed][fields::model_config], "project_id");
         }
     }
+
+    alter_in_progress = false;
+    altered_docs = 0;
+    validated_docs = 0;
 
     return Option<bool>(true);
 }
@@ -6454,11 +6460,11 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     rocksdb::Iterator* iter = store->scan(seq_id_prefix, &upper_bound);
     std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
 
-    size_t num_found_docs = 0;
+    validated_docs = 0;
     auto begin = std::chrono::high_resolution_clock::now();
 
     while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
-        num_found_docs++;
+        validated_docs++;
         const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
         nlohmann::json document;
 
@@ -6548,14 +6554,14 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             }
         }
 
-        if(num_found_docs % ((1 << 14)) == 0) {
+        if(validated_docs % ((1 << 14)) == 0) {
             // having a cheaper higher layer check to prevent checking clock too often
             auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::high_resolution_clock::now() - begin).count();
 
             if(time_elapsed > 30) {
                 begin = std::chrono::high_resolution_clock::now();
-                LOG(INFO) << "Verified " << num_found_docs << " so far.";
+                LOG(INFO) << "Verified " << validated_docs << " so far.";
             }
         }
 
@@ -7481,6 +7487,19 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
     }
 
     return Option<bool>(true);
+}
+
+nlohmann::json Collection::get_alter_schema_status() const {
+    nlohmann::json status_json;
+    status_json["collection"] = this->name;
+    status_json["alter_in_progress"] = alter_in_progress.load();
+
+    if(alter_in_progress) {
+        status_json["validated_docs"] = validated_docs.load();
+        status_json["altered_docs"] = altered_docs.load();
+    }
+
+    return status_json;
 }
 
 std::shared_ptr<VQModel> Collection::get_vq_model() {

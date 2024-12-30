@@ -135,6 +135,8 @@ bool post_compact_db(const std::shared_ptr<http_req>& req, const std::shared_ptr
 
 bool post_reset_peers(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool get_schema_changes(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Rate Limiting
 
 bool get_rate_limits(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

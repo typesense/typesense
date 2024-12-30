@@ -2213,6 +2213,19 @@ bool post_reset_peers(const std::shared_ptr<http_req>& req, const std::shared_pt
     return true;
 }
 
+bool get_schema_changes(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    auto op = collectionManager.get_collection_alter_status();
+
+    if(!op.ok()) {
+        res->set(op.code(), op.error());
+    }
+
+    res->set_200(op.get().dump());
+
+    return true;
+}
+
 bool get_synonyms(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);

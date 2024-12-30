@@ -2006,3 +2006,20 @@ Option<bool> CollectionManager::update_collection_metadata(const std::string& co
 
     return Option<bool>(400, "failed to insert into store.");
 }
+
+Option<nlohmann::json> CollectionManager::get_collection_alter_status() const {
+    nlohmann::json collection_alter_status = nlohmann::json::array();
+
+    if(collections.empty()) {
+        return Option<nlohmann::json>(400, "No collections are added.");
+    }
+
+    std::unique_lock lock(mutex);
+
+    for(const auto& kv : collections) {
+        auto coll_alter_status = kv.second->get_alter_schema_status();
+        collection_alter_status.push_back(coll_alter_status);
+    }
+
+    return Option<nlohmann::json>(collection_alter_status);
+}
