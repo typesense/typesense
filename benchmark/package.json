@@ -8,6 +8,8 @@
     "typesense-benchmark": "./dist/index.js"
   },
   "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -34,6 +36,7 @@
     "@ianvs/prettier-plugin-sort-imports": "^4.4.0",
     "eslint": "^9.17.0",
     "prettier": "^3.4.2",
+    "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.2"
   }
