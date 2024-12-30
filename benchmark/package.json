@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest"
   },
   "keywords": [
     "full-text search",
@@ -41,7 +41,8 @@
     "tsup": "^8.3.5",
     "type-fest": "^4.31.0",
     "typescript": "^5.7.2",
-    "typescript-eslint": "^8.18.2"
+    "typescript-eslint": "^8.18.2",
+    "vitest": "^2.1.8"
   },
   "dependencies": {
     "commander": "^13.0.0",
