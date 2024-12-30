@@ -39,5 +39,8 @@
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.2"
+  },
+  "dependencies": {
+    "commander": "^13.0.0"
   }
 }
