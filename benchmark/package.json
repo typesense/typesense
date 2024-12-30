@@ -50,6 +50,7 @@
     "commander": "^13.0.0",
     "execa": "^9.5.2",
     "fs-extra": "^11.2.0",
-    "neverthrow": "^8.1.1"
+    "neverthrow": "^8.1.1",
+    "ora": "^8.1.1"
   }
 }
