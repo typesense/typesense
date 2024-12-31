@@ -6035,11 +6035,13 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
                                               del_fields, update_fields, this_fallback_field_type);
     if(!validate_op.ok()) {
         LOG(INFO) << "Alter failed validation: " << validate_op.error();
+        reset_alter_status_counters();
         return validate_op;
     }
 
     if(!this_fallback_field_type.empty() && !fallback_field_type.empty()) {
         LOG(INFO) << "Alter failed: schema already contains a `.*` field.";
+        reset_alter_status_counters();
         return Option<bool>(400, "The schema already contains a `.*` field.");
     }
 
@@ -6058,6 +6060,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     auto batch_alter_op = batch_alter_data(addition_fields, del_fields, fallback_field_type);
     if(!batch_alter_op.ok()) {
         LOG(INFO) << "Alter failed during alter data: " << batch_alter_op.error();
+        reset_alter_status_counters();
         return batch_alter_op;
     }
 
@@ -6066,6 +6069,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         batch_alter_op = batch_alter_data(reindex_fields, {}, fallback_field_type);
         if(!batch_alter_op.ok()) {
             LOG(INFO) << "Alter failed during alter data: " << batch_alter_op.error();
+            reset_alter_status_counters();
             return batch_alter_op;
         }
     }
@@ -6076,6 +6080,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
                 //it's an embed field
                 auto op = update_apikey(f.embed[fields::model_config], f.name);
                 if(!op.ok()) {
+                    reset_alter_status_counters();
                     return op;
                 }
             }
@@ -6094,10 +6099,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         }
     }
 
-    alter_in_progress = false;
-    altered_docs = 0;
-    validated_docs = 0;
-
+    reset_alter_status_counters();
     return Option<bool>(true);
 }
 
@@ -7489,17 +7491,18 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
     return Option<bool>(true);
 }
 
-nlohmann::json Collection::get_alter_schema_status() const {
-    nlohmann::json status_json;
-    status_json["collection"] = this->name;
-    status_json["alter_in_progress"] = alter_in_progress.load();
-
-    if(alter_in_progress) {
-        status_json["validated_docs"] = validated_docs.load();
-        status_json["altered_docs"] = altered_docs.load();
+Option<nlohmann::json> Collection::get_alter_schema_status() const {
+    if (!alter_in_progress) {
+        //alter operation is not active
+        return Option<nlohmann::json>(400, "No active alter operation running.");
     }
 
-    return status_json;
+    nlohmann::json status_json;
+
+    status_json["validated_docs"] = validated_docs;
+    status_json["altered_docs"] = altered_docs;
+
+    return Option<nlohmann::json>(status_json);
 }
 
 std::shared_ptr<VQModel> Collection::get_vq_model() {
@@ -7880,6 +7883,12 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
                                     rerank_hybrid_matches, enable_analytics, validate_field_names);
     return Option<bool>(true);
+}
+
+void Collection::reset_alter_status_counters() {
+    alter_in_progress = false;
+    validated_docs = 0;
+    altered_docs = 0;
 }
 
 union_global_params_t::union_global_params_t(const std::map<std::string, std::string> &req_params) {

@@ -2017,8 +2017,10 @@ Option<nlohmann::json> CollectionManager::get_collection_alter_status() const {
     std::unique_lock lock(mutex);
 
     for(const auto& kv : collections) {
-        auto coll_alter_status = kv.second->get_alter_schema_status();
-        collection_alter_status.push_back(coll_alter_status);
+        auto op = kv.second->get_alter_schema_status();
+        if(op.ok()) {
+            collection_alter_status.push_back(op.get());
+        }
     }
 
     return Option<nlohmann::json>(collection_alter_status);
