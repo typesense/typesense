@@ -7498,9 +7498,9 @@ Option<nlohmann::json> Collection::get_alter_schema_status() const {
     }
 
     nlohmann::json status_json;
-
-    status_json["validated_docs"] = validated_docs;
-    status_json["altered_docs"] = altered_docs;
+    status_json["collection"] = name;
+    status_json["validated_docs"] = validated_docs.load();
+    status_json["altered_docs"] = altered_docs.load();
 
     return Option<nlohmann::json>(status_json);
 }
