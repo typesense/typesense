@@ -8981,6 +8981,21 @@ TEST_F(CollectionJoinTest, NegateLeftJoinOneToOne) {
 
     ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
     ASSERT_EQ("Famous Five", res_obj["hits"][1]["document"]["books"]["title"]);
+
+    req_params = {
+            {"collection", "authors"},
+            {"q", "*"},
+            {"filter_by", "!$books(id: *)"}, // All authors not having a book.
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ(0, res_obj["hits"][0]["document"].count("books"));
 }
 
 TEST_F(CollectionJoinTest, NegateLeftJoinOneToMany) {
@@ -9076,4 +9091,20 @@ TEST_F(CollectionJoinTest, NegateLeftJoinOneToMany) {
     ASSERT_EQ("soap", res_obj["hits"][1]["document"]["product_name"]);
     ASSERT_EQ(1, res_obj["hits"][1]["document"]["User_Views"].size());
     ASSERT_EQ("user_b", res_obj["hits"][1]["document"]["User_Views"][0]["user_id"]);
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "!$User_Views(id: *)"}, // All the products not viewed by any user.
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("comb", res_obj["hits"][0]["document"]["product_name"]);
+    ASSERT_EQ(0, res_obj["hits"][0]["document"].count("User_Views"));
 }
