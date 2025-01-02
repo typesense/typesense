@@ -1074,6 +1074,8 @@ public:
                                                const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
 
     Option<nlohmann::json> get_alter_schema_status() const;
+
+    Option<size_t> remove_all_docs();
 };
 
 template<class T>

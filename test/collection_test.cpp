@@ -5281,3 +5281,25 @@ TEST_F(CollectionTest, CatchPartialResponseFromRemoteEmbedding) {
     ASSERT_EQ(res["response"]["error"], "Malformed response from OpenAI API.");
     ASSERT_EQ(res["request"]["body"], req_body);
 }
+
+TEST_F(CollectionTest, TruncateAllDocuments) {
+    nlohmann::json results = collection->search("the", query_fields, "", {}, sort_fields, {0}, 10,
+                                                1, FREQUENCY, {false}).get();
+    ASSERT_EQ(7, results["hits"].size());
+    ASSERT_EQ(7, results["found"].get<int>());
+
+    auto op = collection->remove_all_docs();
+    ASSERT_TRUE(op.ok());
+    ASSERT_EQ(25, op.get()); //count of documents deleted (file count + dummy record)
+
+    results = collection->search("the", query_fields, "", {}, sort_fields, {0}, 10,
+                                                1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"].get<int>());
+
+
+    //now all docs are deleted, try calling on empty collection
+    op = collection->remove_all_docs();
+    ASSERT_TRUE(op.ok());
+    ASSERT_EQ(0, op.get());
+}

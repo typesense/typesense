@@ -1771,6 +1771,41 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
     return true;
 }
 
+bool del_remove_all_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    res->content_type_header = "application/json";
+    res->status_code = 200;
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    auto collection = collectionManager.get_collection(req->params["collection"]);
+
+    if(collection == nullptr) {
+        req->last_chunk_aggregate = true;
+        res->final = true;
+        res->set_404();
+        stream_response(req, res);
+        return false;
+    }
+
+    auto op = collection->remove_all_docs();
+    if(!op.ok()) {
+        req->last_chunk_aggregate = true;
+        res->final = true;
+        res->set(op.code(), op.error());
+        stream_response(req, res);
+        return false;
+    }
+
+    nlohmann::json response;
+    response["num_deleted"] = op.get();
+
+    req->last_chunk_aggregate = true;
+    res->body = response.dump();
+    res->final = true;
+    stream_response(req, res);
+
+    return true;
+}
+
 bool get_aliases(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     const spp::sparse_hash_map<std::string, std::string> & symlinks = collectionManager.get_symlinks();

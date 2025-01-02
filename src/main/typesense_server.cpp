@@ -28,6 +28,7 @@ void master_server_routes() {
     // NOTE:`/documents/:id` end-points must be placed last in the list
     server->post("/collections/:collection/documents", post_add_document);
     server->del("/collections/:collection/documents", del_remove_documents, false, true);
+    server->del("/collections/:collection/documents/truncate_all", del_remove_all_documents, false, true);
 
     server->post("/collections/:collection/documents/import", post_import_documents, true, true);
     server->get("/collections/:collection/documents/export", get_export_documents, false, true);
