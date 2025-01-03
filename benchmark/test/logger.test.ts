@@ -73,34 +73,34 @@ describe("Logger", () => {
   describe("Logging Methods and Colors", () => {
     test("logs errors in red", () => {
       logger.error("Test error");
-      expect(mockConsole.error).toHaveBeenCalledWith("RED:Test error");
+      expect(mockConsole.error).toHaveBeenCalledWith("RED:\nTest error");
     });
 
     test("logs warnings in yellow", () => {
       logger.warn("Test warning");
-      expect(mockConsole.warn).toHaveBeenCalledWith("YELLOW:Test warning");
+      expect(mockConsole.warn).toHaveBeenCalledWith("YELLOW:\nTest warning");
     });
 
     test("logs info in white", () => {
       logger.info("Test info");
-      expect(mockConsole.info).toHaveBeenCalledWith("WHITE:Test info");
+      expect(mockConsole.info).toHaveBeenCalledWith("WHITE:\nTest info");
     });
 
     test("logs success in green", () => {
       logger.success("Test success");
-      expect(mockConsole.log).toHaveBeenCalledWith("GREEN:Test success");
+      expect(mockConsole.log).toHaveBeenCalledWith("GREEN:\nTest success");
     });
 
     test("logs debug in gray", () => {
       logger.setLevel(LogLevel.DEBUG);
       logger.debug("Test debug");
-      expect(mockConsole.debug).toHaveBeenCalledWith("GRAY:Test debug");
+      expect(mockConsole.debug).toHaveBeenCalledWith("GRAY:\nTest debug");
     });
 
     test("handles multiple arguments with consistent coloring", () => {
       logger.error("Error:", "Multiple", "Args");
       expect(mockConsole.error).toHaveBeenCalledWith(
-        "RED:Error: Multiple Args",
+        "RED:\nError: Multiple Args",
       );
     });
 
@@ -121,14 +121,14 @@ describe("Logger", () => {
       const error = new Error("test error");
       logger.error(error);
       expect(mockConsole.error).toHaveBeenCalledWith(
-        expect.stringContaining("RED:Error: test error"),
+        expect.stringContaining("RED:\nError: test error"),
       );
     });
 
     test("handles objects", () => {
       const obj = { test: "value" };
       logger.info(obj);
-      expect(mockConsole.info).toHaveBeenCalledWith("WHITE:[object Object]");
+      expect(mockConsole.info).toHaveBeenCalledWith("WHITE:\n[object Object]");
     });
   });
 
