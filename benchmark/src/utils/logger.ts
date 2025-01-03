@@ -85,35 +85,35 @@ class LoggerSingleton implements Logger {
   public error(...args: unknown[]): void {
     if (this.isLevelEnabled(LogLevel.ERROR)) {
       const message = this.formatMessage(args);
-      console.error(this.colorize(message, this.chalkColors.error));
+      console.error(this.colorize(`\n${message}`, this.chalkColors.error));
     }
   }
 
   public warn(...args: unknown[]): void {
     if (this.isLevelEnabled(LogLevel.WARN)) {
       const message = this.formatMessage(args);
-      console.warn(this.colorize(message, this.chalkColors.warn));
+      console.warn(this.colorize(`\n${message}`, this.chalkColors.warn));
     }
   }
 
   public info(...args: unknown[]): void {
     if (this.isLevelEnabled(LogLevel.INFO)) {
       const message = this.formatMessage(args);
-      console.info(this.colorize(message, this.chalkColors.info));
+      console.info(this.colorize(`\n${message}`, this.chalkColors.info));
     }
   }
 
   public success(...args: unknown[]): void {
     if (this.isLevelEnabled(LogLevel.INFO)) {
       const message = this.formatMessage(args);
-      console.log(this.colorize(message, this.chalkColors.success));
+      console.log(this.colorize(`\n${message}`, this.chalkColors.success));
     }
   }
 
   public debug(...args: unknown[]): void {
     if (this.isLevelEnabled(LogLevel.DEBUG)) {
       const message = this.formatMessage(args);
-      console.debug(this.colorize(message, this.chalkColors.debug));
+      console.debug(this.colorize(`\n${message}`, this.chalkColors.debug));
     }
   }
 
