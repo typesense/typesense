@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 
+import { install } from "@/commands/install";
 import { getPackageInfo } from "@/utils/package-info";
 
 process.on("SIGINT", () => process.exit(0));
@@ -18,7 +19,11 @@ function main() {
       "-v, --version",
       "output the current version",
     )
+    .enablePositionalOptions(true)
+    .passThroughOptions(true)
     .helpCommand(true);
+
+  program.addCommand(install);
 
   // Check if no arguments were provided
   if (process.argv.length <= 2) {
