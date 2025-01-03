@@ -5,7 +5,7 @@ import ora from "ora";
 import { DockerService } from "@/services/docker";
 import { FilesystemService } from "@/services/fs";
 import { GitService } from "@/services/git";
-import { TypesenseDirectoryManager } from "@/services/typesense";
+import { TypesenseDirectoryManager } from "@/services/typesense-dir";
 
 interface ServiceTypes {
   docker: DockerService;

@@ -7,7 +7,7 @@ import type { Ora } from "ora";
 
 import { errAsync, okAsync } from "neverthrow";
 
-import { DEFAULT_TYPESENSE_DIRECTORY } from "@/services/typesense";
+import { DEFAULT_TYPESENSE_DIRECTORY } from "@/services/typesense-dir";
 import { safeExeca } from "@/utils/execa";
 import { logger } from "@/utils/logger";
 
