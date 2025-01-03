@@ -17,4 +17,8 @@ function safeExeca(
   );
 }
 
+type StdOut = ExecaResult["stdout"];
+
 export { safeExeca };
+
+export type { StdOut };
