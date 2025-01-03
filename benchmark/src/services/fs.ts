@@ -31,16 +31,18 @@ export function getPlatform(): PlatformFlag {
 export class FilesystemService {
   constructor(private spinner: Ora) {}
 
-  exists(directory: string): ResultAsync<boolean, ErrorWithMessage> {
+  exists(
+    directory: string,
+    mode?: number,
+  ): ResultAsync<boolean, ErrorWithMessage> {
     this.spinner.start("Checking directory existence");
 
     return ResultAsync.fromPromise(
-      access(directory)
+      access(directory, mode)
         .then(() => true)
         .catch(() => false),
       toErrorWithMessage,
     ).map((exists) => {
-      this.spinner.succeed(`Directory ${exists ? "found" : "not found"}`);
       return exists;
     });
   }
