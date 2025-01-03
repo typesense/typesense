@@ -1,8 +1,9 @@
-import { access, mkdir, rm } from "fs/promises";
+import { access, mkdir, readdir, rm } from "fs/promises";
 import path from "path";
 import type { ErrorWithMessage } from "@/utils/error";
 import type { Ora } from "ora";
 
+import { emptyDir } from "fs-extra";
 import inquirer from "inquirer";
 import { errAsync, okAsync, ResultAsync } from "neverthrow";
 
@@ -29,7 +30,10 @@ export function getPlatform(): PlatformFlag {
 }
 
 export class FilesystemService {
-  constructor(private spinner: Ora) {}
+  constructor(
+    private spinner: Ora,
+    private yesToAll?: boolean,
+  ) {}
 
   exists(
     directory: string,
@@ -57,8 +61,140 @@ export class FilesystemService {
     });
   }
 
+  createDirectory(directory: string): ResultAsync<string, ErrorWithMessage> {
+    this.spinner.start(`Creating directory ${directory}`);
+
+    const resolved = path.resolve(directory);
+
+    return this.exists(resolved).andThen((exists) => {
+      if (exists) {
+        if (this.yesToAll) {
+          this.spinner.text = `Emptying directory ${resolved}`;
+          return ResultAsync.fromPromise(
+            emptyDir(directory),
+            toErrorWithMessage,
+          ).map(() => {
+            this.spinner.succeed(`Directory ${directory} emptied`);
+
+            return resolved;
+          });
+        }
+
+        this.spinner.stop();
+        return ResultAsync.fromPromise(
+          inquirer.prompt([
+            {
+              type: "confirm",
+              name: "overwrite",
+              message: `Directory ${resolved} already exists. Overwrite?`,
+            },
+          ]),
+          toErrorWithMessage,
+        ).andThen((answer) => {
+          if (!answer.overwrite) {
+            this.spinner.succeed(`Using existing directory ${resolved}`);
+            return okAsync(resolved);
+          }
+
+          this.spinner.text = `Emptying directory ${resolved}`;
+          return ResultAsync.fromPromise(
+            emptyDir(directory),
+            toErrorWithMessage,
+          ).map(() => {
+            this.spinner.succeed(`Directory ${directory} emptied`);
+
+            return resolved;
+          });
+        });
+      }
+
+      return ResultAsync.fromPromise(
+        mkdir(resolved, { recursive: true }),
+        toErrorWithMessage,
+      ).andThen((res) => {
+        if (res === undefined) {
+          this.spinner.fail(`Failed to create directory ${directory}`);
+          return errAsync({
+            message: `Failed to create directory ${directory}`,
+          });
+        }
+        this.spinner.succeed(`Created directory ${directory}`);
+        return okAsync(resolved);
+      });
+    });
+  }
+
   getAbsolutePath(directory: string): string {
     return path.resolve(directory);
+  }
+
+  private handleNonEmptyDirectory(
+    directory: string,
+  ): ResultAsync<string, ErrorWithMessage> {
+    if (this.yesToAll) {
+      return this.emptyDirectory(directory);
+    }
+
+    return ResultAsync.fromPromise(
+      inquirer.prompt([
+        {
+          type: "confirm",
+          name: "emptyDir",
+          message: `Directory ${directory} is not empty. Empty it?`,
+          default: true,
+        },
+      ]),
+      toErrorWithMessage,
+    ).andThen((answer) => {
+      if (!answer.emptyDir) {
+        this.spinner.warn(
+          `Directory ${directory} is not empty. Continuing may overwrite existing files.`,
+        );
+        return okAsync(directory);
+      }
+
+      return this.emptyDirectory(directory);
+    });
+  }
+
+  private emptyDirectory(
+    directory: string,
+  ): ResultAsync<string, ErrorWithMessage> {
+    this.spinner.text = `Emptying directory ${directory}`;
+    return ResultAsync.fromPromise(emptyDir(directory), toErrorWithMessage).map(
+      () => {
+        this.spinner.succeed(`Directory ${directory} emptied`);
+        return directory;
+      },
+    );
+  }
+
+  private handleNonExistingDirectory(
+    directory: string,
+  ): ResultAsync<string, ErrorWithMessage> {
+    return ResultAsync.fromPromise(
+      inquirer.prompt([
+        {
+          type: "confirm",
+          name: "createDir",
+          message: `Directory ${directory} does not exist. Create directory?`,
+          default: true,
+        },
+      ]),
+      toErrorWithMessage,
+    ).andThen((answer) => {
+      if (!answer.createDir) {
+        return errAsync({
+          message: `Directory ${directory} does not exist.`,
+        });
+      }
+
+      this.spinner.text = `Save directory ${directory} does not exist. Creating directory`;
+      return ResultAsync.fromPromise(
+        mkdir(directory, { recursive: true }),
+        toErrorWithMessage,
+      ).map(() => directory);
+    });
   }
 
   validateWorkingDirectory(
@@ -68,34 +204,20 @@ export class FilesystemService {
 
     return this.exists(resolved).andThen((exists) => {
       if (exists) {
-        this.spinner.succeed(`Save directory verified: ${resolved}`);
-        return okAsync(resolved);
+        this.spinner.succeed(`Working directory verified: ${resolved}`);
+        return ResultAsync.fromPromise(
+          readdir(resolved),
+          toErrorWithMessage,
+        ).andThen((files) => {
+          if (files.length > 0) {
+            return this.handleNonEmptyDirectory(resolved);
+          }
+          return okAsync(resolved);
+        });
       }
 
       this.spinner.stop();
-      return ResultAsync.fromPromise(
-        inquirer.prompt([
-          {
-            type: "confirm",
-            name: "createDir",
-            message: `Directory ${directory} does not exist. Create directory?`,
-            default: true,
-          },
-        ]),
-        toErrorWithMessage,
-      ).andThen((answer) => {
-        if (!answer.createDir) {
-          return errAsync({
-            message: `Directory ${directory} does not exist.`,
-          });
-        }
-
-        this.spinner.text = `Save directory ${directory} does not exist. Creating directory`;
-        return ResultAsync.fromPromise(
-          mkdir(resolved, { recursive: true }),
-          toErrorWithMessage,
-        ).map(() => resolved);
-      });
+      return this.handleNonExistingDirectory(resolved);
     });
   }
 }

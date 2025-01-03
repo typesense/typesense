@@ -31,8 +31,9 @@ export class ServiceContainer {
     containerName: string;
     typesenseDirectory?: string;
     yesToAll?: boolean;
+    binaryPath?: string;
   }) {
-    const fsService = new FilesystemService(this.spinner);
+    const fsService = new FilesystemService(this.spinner, options.yesToAll);
     const dockerService = new DockerService(
       this.spinner,
       fsService,
