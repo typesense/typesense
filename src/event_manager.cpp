@@ -51,12 +51,36 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
                                         "search event json data fields should contain `q` as string value.");
                 }
             } else {
-                if(!event_data_val.contains("doc_id") || !event_data_val["doc_id"].is_string()) {
-                    return Option<bool>(400, "event should have 'doc_id' as string value.");
+                // Check that either doc_id or doc_ids is present, but not both
+                bool has_doc_id = event_data_val.contains("doc_id");
+                bool has_doc_ids = event_data_val.contains("doc_ids");
+                
+                if(!has_doc_id && !has_doc_ids) {
+                    return Option<bool>(400, "Event must contain either 'doc_id' or 'doc_ids' field.");
+                }
+                
+                if(has_doc_id && has_doc_ids) {
+                    return Option<bool>(400, "Event cannot contain both 'doc_id' and 'doc_ids' fields.");
+                }
+
+                if(has_doc_id && !event_data_val["doc_id"].is_string()) {
+                    return Option<bool>(400, "Event's 'doc_id' must be a string value.");
+                }
+
+                if(has_doc_ids) {
+                    if(!event_data_val["doc_ids"].is_array()) {
+                        return Option<bool>(400, "Event's 'doc_ids' must be an array.");
+                    }
+                    
+                    for(const auto& doc_id: event_data_val["doc_ids"]) {
+                        if(!doc_id.is_string()) {
+                            return Option<bool>(400, "All values in 'doc_ids' must be strings.");
+                        }
+                    }
                 }
 
                 if(event_data_val.contains("collection") && !event_data_val["collection"].is_string()) {
-                    return Option<bool>(400, "'collection' should be a  string value.");
+                    return Option<bool>(400, "'collection' should be a string value.");
                 }
 
                 if(!event_data_val.contains("user_id") || !event_data_val["user_id"].is_string()) {

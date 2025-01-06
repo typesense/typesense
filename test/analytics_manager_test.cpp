@@ -378,7 +378,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
 
     req->body = event3.dump();
     ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"event should have 'doc_id' as string value.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"Event's 'doc_id' must be a string value.\"}", res->body);
 
     event3 = R"({
         "type": "conversion",
