@@ -5,11 +5,15 @@ import type { FilesystemService } from "@/services/fs";
 import type { ErrorWithMessage } from "@/utils/error";
 import type { ChildProcess } from "child_process";
 import type { Options as ExecaOptions } from "execa";
-import type { ResultAsync } from "neverthrow";
 import type { Ora } from "ora";
+import type { CollectionCreateSchema } from "typesense/lib/Typesense/Collections";
+import type { ConversationModelCreateSchema } from "typesense/lib/Typesense/ConversationModel";
+import type ConversationModels from "typesense/lib/Typesense/ConversationModels";
+import type { SearchParams } from "typesense/lib/Typesense/Documents";
 
 import { execa } from "execa";
-import { errAsync, ok, okAsync, Result } from "neverthrow";
+import { errAsync, ok, okAsync, Result, ResultAsync } from "neverthrow";
+import { Client } from "typesense";
 
 import { toErrorWithMessage } from "@/utils/error";
 import { logger } from "@/utils/logger";
@@ -17,16 +21,32 @@ import { isStringifiable } from "@/utils/stringifiable";
 
 export const DEFAULT_IP_ADDRESS = "192.168.2.25";
 
-class TypesenseProcessController extends EventEmitter {
-  http: number;
+export class TypesenseProcessController extends EventEmitter {
   process: ChildProcess;
   exitCode: number | null = null;
+  http: number;
+  private readonly apiKey: string;
   error: Error | null = null;
+  client: Client;
 
-  constructor(process: ChildProcess, http: number) {
+  constructor(process: ChildProcess, http: number, apiKey: string) {
     super();
     this.http = http;
     this.process = process;
+    this.apiKey = apiKey;
+
+    this.client = new Client({
+      nodes: [
+        {
+          host: "localhost",
+          port: http,
+          protocol: "http",
+        },
+      ],
+      apiKey: this.apiKey,
+      connectionTimeoutSeconds: 100,
+      retryIntervalSeconds: 5,
+    });
 
     this.process.on("exit", (code, signal) => {
       this.exitCode = code;
@@ -62,7 +82,7 @@ class TypesenseProcessController extends EventEmitter {
 }
 
 export class TypesenseProcessManager {
-  private processes = new Map<number, TypesenseProcessController>();
+  public processes = new Map<number, TypesenseProcessController>();
   private readonly ipAddress: string;
 
   constructor(
@@ -94,6 +114,83 @@ export class TypesenseProcessManager {
         this.spinner.fail(`Failed to stop Typesense process: ${error.message}`);
         return error;
       });
+  }
+
+  callOutToProcess(process: TypesenseProcessController) {
+    this.spinner.start(
+      `Calling out to Typesense process on node ${process.http}\n`,
+    );
+
+    return ResultAsync.fromPromise(
+      process.client.health.retrieve(),
+      toErrorWithMessage,
+    ).andThen((res) => {
+      if (!res.ok) {
+        this.spinner.fail(
+          `Typesense process on node ${process.http} is not healthy`,
+        );
+        return errAsync({
+          message: `Node ${process.http} health check failed`,
+        });
+      }
+      this.spinner.succeed(
+        `Typesense process on node ${process.http} is healthy`,
+      );
+      return okAsync(res);
+    });
+  }
+
+  queryCollection(
+    process: TypesenseProcessController,
+    options: { collectionName: string; query: SearchParams },
+  ) {
+    this.spinner.start(
+      `Querying collection ${options.collectionName} on node ${process.http}\n`,
+    );
+    return ResultAsync.fromPromise(
+      process.client
+        .collections(options.collectionName)
+        .documents()
+        .search(options.query),
+      toErrorWithMessage,
+    ).map((res) => {
+      this.spinner.succeed(
+        `Queried collection ${options.collectionName} on node ${process.http}`,
+      );
+      logger.debug(`Query result: ${JSON.stringify(res)}`);
+      return res;
+    });
+  }
+
+  indexDocuments(
+    process: TypesenseProcessController,
+    collectionName: string,
+    documents: Record<string, unknown>[],
+  ) {
+    return ResultAsync.fromPromise(
+      process.client.collections(collectionName).documents().import(documents),
+      toErrorWithMessage,
+    );
+  }
+
+  createCollection(
+    process: TypesenseProcessController,
+    schema: CollectionCreateSchema,
+  ) {
+    return ResultAsync.fromPromise(
+      process.client.collections().create(schema),
+      toErrorWithMessage,
+    );
+  }
+
+  createConversationModel(
+    process: TypesenseProcessController,
+    model: ConversationModelCreateSchema,
+  ) {
+    const models = process.client
+      .conversations()
+      .models() as unknown as ConversationModels;
+    return ResultAsync.fromPromise(models.create(model), toErrorWithMessage);
   }
 
   startProcess(options: {
@@ -186,6 +283,7 @@ export class TypesenseProcessManager {
             const typesenseInfo = new TypesenseProcessController(
               typesenseProcess,
               http,
+              this.apiKey,
             );
 
             typesenseInfo.on("exit", () => {
