@@ -1,8 +1,11 @@
-import path from "path";
+import path, { dirname } from "path";
 import { fileURLToPath } from "url";
 import type { PackageJson } from "type-fest";
 
 import fs from "fs-extra";
+
+const __filename = fileURLToPath(import.meta.url);
+const dirName = dirname(__filename);
 
 function findRoot(startDir: string): string {
   let currentDir = startDir;
@@ -27,4 +30,4 @@ function getPackageInfo(
   return fs.readJsonSync(path.join(rootDir, "package.json")) as PackageJson;
 }
 
-export { getPackageInfo, findRoot };
+export { getPackageInfo, findRoot, dirName };

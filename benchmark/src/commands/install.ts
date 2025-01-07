@@ -2,11 +2,11 @@ import { Command } from "commander";
 import { ok } from "neverthrow";
 import { z } from "zod";
 
+import { ServiceContainer } from "@/services/container";
 import { DEFAULT_TYPESENSE_GIT_URL } from "@/services/git";
 import { logger, LogLevel } from "@/utils/logger";
-import { findRoot } from "@/utils/package-info";
+import { dirName, findRoot } from "@/utils/package-info";
 import { parseOptions } from "@/utils/parse";
-import { ServiceContainer } from "@/services/container";
 
 const installOptionsSchema = z.object({
   containerName: z.string(),
@@ -54,7 +54,7 @@ const install = new Command()
   .action((options) => {
     logger.info("Installing Typesense");
 
-    const services = new ServiceContainer(findRoot(__dirname));
+    const services = new ServiceContainer(findRoot(dirName));
     const spinner = services.getSpinner();
 
     parseOptions(options as InstallOptions, installOptionsSchema, spinner)
