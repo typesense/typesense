@@ -2,6 +2,7 @@
 import { Command } from "commander";
 
 import { install } from "@/commands/install";
+import { test } from "@/commands/tests";
 import { getPackageInfo } from "@/utils/package-info";
 
 process.on("SIGINT", () => process.exit(0));
@@ -24,6 +25,7 @@ function main() {
     .helpCommand(true);
 
   program.addCommand(install);
+  program.addCommand(test);
 
   // Check if no arguments were provided
   if (process.argv.length <= 2) {
