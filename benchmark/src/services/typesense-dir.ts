@@ -44,25 +44,32 @@ export class TypesenseDirectoryManager {
     containerName: string;
     destination: string;
     commitHash: string;
-  }): ResultAsync<void, ErrorWithMessage> {
+  }): ResultAsync<string, ErrorWithMessage> {
     return this.build(options.containerName)
-      .andThen(() => this.save(options))
-      .andThen(() => this.filesystemService.removeDirectory(this.directory));
+      .andThen(() => this.save(options).map((res) => res))
+      .andThen((res) =>
+        this.filesystemService.removeDirectory(this.directory).map(() => res),
+      );
   }
 
   private save(options: {
     containerName: string;
     destination: string;
     commitHash: string;
-  }): ResultAsync<void, ErrorWithMessage> {
+  }): ResultAsync<string, ErrorWithMessage> {
     const { containerName, destination, commitHash } = options;
 
     this.spinner.start("Saving Typesense build");
-    return this.dockerService.copyFromContainer({
-      containerName,
-      destination: `${destination}/typesense-server-${commitHash}`,
-      source: "/app/bazel-bin/typesense-server",
-    });
+
+    const fullDestination = `${destination}/typesense-server-${commitHash}`;
+
+    return this.dockerService
+      .copyFromContainer({
+        containerName,
+        destination: fullDestination,
+        source: "/app/bazel-bin/typesense-server",
+      })
+      .map(() => fullDestination);
   }
 
   private build(containerName: string): ResultAsync<void, ErrorWithMessage> {
