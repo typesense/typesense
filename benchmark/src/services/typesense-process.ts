@@ -91,9 +91,14 @@ export class TypesenseProcessManager {
     private readonly apiKey: string,
     private readonly workingDirectory: string,
     private readonly fsService: FilesystemService,
+    private readonly snapshotPath: string,
     ipAddress?: string,
   ) {
     this.ipAddress = ipAddress ?? DEFAULT_IP_ADDRESS;
+  }
+
+  get getSnapshotPath() {
+    return this.snapshotPath;
   }
 
   public static readonly nodeToPortMap = {
@@ -137,6 +142,24 @@ export class TypesenseProcessManager {
         `Typesense process on node ${process.http} is healthy`,
       );
       return okAsync(res);
+    });
+  }
+
+  snapshot(process: TypesenseProcessController) {
+    this.spinner.start(
+      `Taking snapshot of Typesense process on node ${process.http}\n`,
+    );
+
+    return ResultAsync.fromPromise(
+      process.client.operations.perform("snapshot", {
+        snapshot_path: this.snapshotPath,
+      }),
+      toErrorWithMessage,
+    ).map(() => {
+      this.spinner.succeed(
+        `Took snapshot of Typesense process on node ${process.http}`,
+      );
+      return okAsync(undefined);
     });
   }
 

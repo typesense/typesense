@@ -40,7 +40,7 @@ const integrationTestOptionsSchema = z.object({
       "OpenAI API key must be provided either through environment variable or directly",
   }),
   ip: z.string(),
-  snapshot: z.string(),
+  snapshotPath: z.string(),
 });
 
 type IntegrationTestOptions = z.infer<typeof integrationTestOptionsSchema>;
@@ -340,6 +340,43 @@ class IntegrationTests {
     );
     return ResultAsync.combine(configs);
   }
+
+  snapshotTest(): ResultAsync<void, ErrorWithMessage> {
+    logger.warn("Running snapshot test");
+
+    return this.saveSnapshot()
+      .andThen(() => this.verifySnapshot())
+      .map(() => {
+        logger.success("Snapshot test passed successfully");
+      });
+  }
+
+  private verifySnapshot(): ResultAsync<void, ErrorWithMessage> {
+    this.spinner.start("Verifying snapshot");
+
+    return this.services
+      .get("fs")
+      .exists(path.join(this.typesenseProcessManager.getSnapshotPath, "state"))
+      .andThen((exists) => {
+        if (!exists) {
+          return errAsync({ message: "Snapshot file does not exist" });
+        }
+
+        return okAsync(undefined);
+      });
+  }
+
+  private saveSnapshot() {
+    this.spinner.start("Saving snapshot");
+
+    const process = this.typesenseProcessManager.processes.get(8108);
+
+    if (!process) {
+      return errAsync({ message: "Process not found for port 8108" });
+    }
+
+    return this.typesenseProcessManager.snapshot(process);
+  }
 }
 
 const test = new Command()
@@ -386,7 +423,7 @@ const test = new Command()
     "IP address to use for the Typesense Process.",
     DEFAULT_IP_ADDRESS,
   )
-  .option("-s, --snapshot <path>", "Path to the snapshot file.", cwd)
+  .option("-s, --snapshot-path <path>", "Path to the snapshot file.", cwd)
   .action((options) => {
     logger.info("Running Typesense Integration tests");
 
@@ -474,6 +511,7 @@ const test = new Command()
           options.apiKey,
           options.workingDirectory,
           services.get("fs"),
+          options.snapshotPath,
           options.ip,
         );
 
@@ -491,6 +529,7 @@ const test = new Command()
         return integrationTests
           .setupProcesses()
           .andThen(() => integrationTests.conversationTest())
+          .andThen(() => integrationTests.snapshotTest())
           .then((res) => {
             if (res.isErr()) {
               spinner.fail();
