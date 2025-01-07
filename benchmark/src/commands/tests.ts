@@ -69,7 +69,9 @@ class IntegrationTests {
     this.ipAddress = ipAddress ?? DEFAULT_IP_ADDRESS;
   }
 
-  createDataDirectories(workingDirectory: string) {
+  private createDataDirectories(
+    workingDirectory: string = this.workingDirectory,
+  ) {
     this.spinner.start("Creating data directories");
     const promises = Array.from({ length: 3 }, (_, i) =>
       this.services
@@ -85,7 +87,7 @@ class IntegrationTests {
     });
   }
 
-  mapNodesToDirectories(
+  private mapNodesToDirectories(
     dataDirs: [string, string, string],
   ): Result<NodeConfig[], ErrorWithMessage> {
     const configs: NodeConfig[] = [];
@@ -103,7 +105,7 @@ class IntegrationTests {
     return ok(configs);
   }
 
-  writeToNodesFile() {
+  private writeToNodesFile() {
     this.spinner.start("Writing nodes file");
     const nodesFile = path.join(this.workingDirectory, "nodes");
     const contents = `${this.ipAddress}:8107:8108,${this.ipAddress}:7107:7108,${this.ipAddress}:9107:9108`;
@@ -120,7 +122,19 @@ class IntegrationTests {
     });
   }
 
-  startAndVerifyProcesses(
+  setupProcesses(): ResultAsync<
+    TypesenseProcessController[],
+    ErrorWithMessage
+  > {
+    this.spinner.start("Setting up Typesense processes");
+
+    return this.writeToNodesFile()
+      .andThen(() => this.createDataDirectories())
+      .andThen((dataDirs) => this.mapNodesToDirectories(dataDirs))
+      .andThen((nodes) => this.startAndVerifyProcesses(nodes));
+  }
+
+  private startAndVerifyProcesses(
     nodes: NodeConfig[],
   ): ResultAsync<TypesenseProcessController[], ErrorWithMessage> {
     this.spinner.start("Starting node processes");
@@ -471,26 +485,12 @@ const test = new Command()
           options.openAIKey,
           options.ip,
         );
-        return { options, integrationTests };
+        return integrationTests;
       })
-      .map(({ integrationTests, options }) => {
+      .map((integrationTests) => {
         return integrationTests
-          .writeToNodesFile()
-          .andThen(() =>
-            integrationTests.createDataDirectories(options.workingDirectory),
-          )
-          .map((dataDirs) => ({ integrationTests, options, dataDirs }))
-          .andThen((res) =>
-            integrationTests
-              .mapNodesToDirectories(res.dataDirs)
-              .map((nodes) => ({ ...res, nodes })),
-          )
-          .andThen(({ nodes, integrationTests }) =>
-            integrationTests.startAndVerifyProcesses(nodes),
-          )
-          .andThen(() => {
-            return integrationTests.conversationTest();
-          })
+          .setupProcesses()
+          .andThen(() => integrationTests.conversationTest())
           .then((res) => {
             if (res.isErr()) {
               spinner.fail();
