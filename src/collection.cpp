@@ -7505,6 +7505,53 @@ Option<nlohmann::json> Collection::get_alter_schema_status() const {
     return Option<nlohmann::json>(status_json);
 }
 
+Option<size_t> Collection::remove_all_docs() {
+    size_t num_docs_removed = 0;
+
+    const std::string delete_key_prefix = get_seq_id_collection_prefix();
+    std::string delete_end_prefix = get_seq_id_collection_prefix() + "`";
+    rocksdb::Slice upper_bound(delete_end_prefix);
+
+    rocksdb::Iterator* iter = store->scan(delete_key_prefix, &upper_bound);
+    nlohmann::json document;
+
+    auto begin = std::chrono::high_resolution_clock::now();
+    while(iter->Valid() && iter->key().starts_with(delete_key_prefix)) {
+        const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
+        const std::string& doc_string = iter->value().ToString();
+
+        try {
+            document = nlohmann::json::parse(doc_string);
+        } catch(const std::exception& e) {
+            LOG(ERROR) << "JSON error: " << e.what();
+            return Option<size_t>(400, "Bad JSON.");
+        }
+
+        remove_document(document, seq_id, true);
+        num_docs_removed++;
+
+        if(num_docs_removed % ((1 << 14)) == 0) {
+            // having a cheaper higher layer check to prevent checking clock too often
+            auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::high_resolution_clock::now() - begin).count();
+
+            if(time_elapsed > 30) {
+                begin = std::chrono::high_resolution_clock::now();
+                LOG(INFO) << "Removed " << num_docs_removed << " so far.";
+            }
+        }
+
+        iter->Next();
+    }
+
+    if(num_docs_removed) {
+        store->flush();
+        store->compact_range(delete_key_prefix, delete_end_prefix);
+    }
+
+    return Option<size_t>(num_docs_removed);
+}
+
 std::shared_ptr<VQModel> Collection::get_vq_model() {
     return vq_model;
 }
