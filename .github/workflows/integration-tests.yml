@@ -1,0 +1,50 @@
+name: integration-tests
+on:
+  workflow_run:
+    workflows: ["tests"]
+    types: [completed]
+
+jobs:
+  integration-tests:
+    # Only run if the test workflow succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Download Typesense Binary
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: tests.yml
+          name: typesense-server
+          path: ./typesense-server-binary
+          workflow_conclusion: success
+
+      - name: Make binary executable
+        run: chmod +x ./typesense-server-binary/typesense-server
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: benchmark
+        run: |
+          npm install -g pnpm
+          pnpm install
+
+      - name: Build CLI
+        working-directory: benchmark
+        run: pnpm build
+
+      - name: Run Integration Tests
+        working-directory: benchmark
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          ./dist/index.js test \
+            --binary $(pwd)/../typesense-server-binary/typesense-server \
+            --working-directory $(pwd)/../tmp/test -y -v
