@@ -45,8 +45,6 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
 
 bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool del_remove_all_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
 // Alias
 
 bool get_alias(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

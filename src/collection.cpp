@@ -7544,6 +7544,11 @@ Option<size_t> Collection::remove_all_docs() {
         iter->Next();
     }
 
+    if(num_docs_removed) {
+        store->flush();
+        store->compact_all();
+    }
+
     return Option<size_t>(num_docs_removed);
 }
 
