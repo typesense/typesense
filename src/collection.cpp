@@ -7508,15 +7508,15 @@ Option<nlohmann::json> Collection::get_alter_schema_status() const {
 Option<size_t> Collection::remove_all_docs() {
     size_t num_docs_removed = 0;
 
-    const std::string seq_id_prefix = get_seq_id_collection_prefix();
-    std::string upper_bound_key = get_seq_id_collection_prefix() + "`";
-    rocksdb::Slice upper_bound(upper_bound_key);
+    const std::string delete_key_prefix = get_seq_id_collection_prefix();
+    std::string delete_end_prefix = get_seq_id_collection_prefix() + "`";
+    rocksdb::Slice upper_bound(delete_end_prefix);
 
-    rocksdb::Iterator* iter = store->scan(seq_id_prefix, &upper_bound);
+    rocksdb::Iterator* iter = store->scan(delete_key_prefix, &upper_bound);
     nlohmann::json document;
 
     auto begin = std::chrono::high_resolution_clock::now();
-    while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
+    while(iter->Valid() && iter->key().starts_with(delete_key_prefix)) {
         const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
         const std::string& doc_string = iter->value().ToString();
 
@@ -7546,7 +7546,7 @@ Option<size_t> Collection::remove_all_docs() {
 
     if(num_docs_removed) {
         store->flush();
-        store->compact_all();
+        store->compact_range(delete_key_prefix, delete_end_prefix);
     }
 
     return Option<size_t>(num_docs_removed);
