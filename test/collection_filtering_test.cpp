@@ -3024,22 +3024,48 @@ TEST_F(CollectionFilteringTest, FilterOnStemmedField) {
 
     auto coll = op.get();
 
-    nlohmann::json doc1 = {
-        {"id", "124"},
-        {"keywords", {"Restaurant"}}
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "id": "124",
+                "keywords": ["Running Shoes"]
+            })"_json,
+            R"({
+                "id": "125",
+                "keywords": ["Baking"]
+            })"_json
     };
-
-    nlohmann::json doc2 = {
-        {"id", "125"},
-        {"keywords", {"Baking"}}
-    };
-
-    ASSERT_TRUE(coll->add(doc1.dump()).ok());
-    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+    for (auto const &json: documents) {
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
 
     auto results = coll->search("*", {}, "keywords:=Baking", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("125", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "keywords:=Running Shoes", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("124", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "keywords:=run Shoes", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("124", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "keywords:=run Shoe", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("124", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "keywords:shoe", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("124", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "keywords:[shoe, baking]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("125", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("124", results["hits"][1]["document"]["id"].get<std::string>());
 
 }
 

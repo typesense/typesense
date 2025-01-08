@@ -657,20 +657,10 @@ Option<bool> toFilter(const std::string& expression,
             std::vector<std::string> filter_values;
             StringUtils::split_to_values(
                     raw_value.substr(filter_value_index + 1, raw_value.size() - filter_value_index - 2), filter_values);
-            if(_field.stem) {
-                auto stemmer = _field.get_stemmer();
-                for (std::string& filter_value: filter_values) {
-                    filter_value = stemmer->stem(filter_value);
-                }
-            }
+
             filter_exp = {field_name, filter_values, {str_comparator}};
         } else {
-            std::string filter_value = raw_value.substr(filter_value_index);
-            if(_field.stem) {
-                auto stemmer = _field.get_stemmer();
-                filter_value = stemmer->stem(filter_value);
-            }
-            filter_exp = {field_name, {filter_value}, {str_comparator}};
+            filter_exp = {field_name, {raw_value.substr(filter_value_index)}, {str_comparator}};
         }
 
         filter_exp.apply_not_equals = apply_not_equals;
