@@ -163,6 +163,22 @@ export class TypesenseProcessManager {
     });
   }
 
+  getCollection(process: TypesenseProcessController, collectionName: string) {
+    this.spinner.start(
+      `Getting collection ${collectionName} on node ${process.http}\n`,
+    );
+
+    return ResultAsync.fromPromise(
+      process.client.collections(collectionName).retrieve(),
+      toErrorWithMessage,
+    ).map((res) => {
+      this.spinner.succeed(
+        `Got collection ${collectionName} on node ${process.http}`,
+      );
+      return res;
+    });
+  }
+
   queryCollection(
     process: TypesenseProcessController,
     options: { collectionName: string; query: SearchParams },

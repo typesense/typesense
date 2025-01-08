@@ -55,8 +55,10 @@ class IntegrationTests {
   private readonly ipAddress: string;
 
   public static baseCollectionName = "base_collection";
+  public static openAICollectionName = "openai_collection";
   public static conversationStoreName = "conversation_store";
   public static conversationModelName = "gpt-4-turbo";
+  private nodes: NodeConfig[] = [];
 
   constructor(
     protected readonly services: ServiceContainer,
@@ -90,7 +92,7 @@ class IntegrationTests {
   private mapNodesToDirectories(
     dataDirs: [string, string, string],
   ): Result<NodeConfig[], ErrorWithMessage> {
-    const configs: NodeConfig[] = [];
+    const nodes: NodeConfig[] = [];
 
     for (const [nodeId, ports] of Object.entries(
       TypesenseProcessManager.nodeToPortMap,
@@ -99,10 +101,11 @@ class IntegrationTests {
       if (dataDir === undefined) {
         return err(new Error(`Missing data directory for node ${nodeId}`));
       }
-      configs.push({ ...ports, dataDir });
+      nodes.push({ ...ports, dataDir });
     }
 
-    return ok(configs);
+    this.nodes = nodes;
+    return ok(nodes);
   }
 
   private writeToNodesFile() {
@@ -362,6 +365,7 @@ class IntegrationTests {
           return errAsync({ message: "Snapshot file does not exist" });
         }
 
+        this.spinner.succeed("Snapshot verified");
         return okAsync(undefined);
       });
   }
@@ -376,6 +380,111 @@ class IntegrationTests {
     }
 
     return this.typesenseProcessManager.snapshot(process);
+  }
+
+  openAIEmbeddingTest(): ResultAsync<void, ErrorWithMessage> {
+    logger.warn("Running OpenAI Embedding test");
+
+    return this.createOpenAIEmbeddingCollection()
+      .andThen(() =>
+        ResultAsync.fromPromise(
+          new Promise((resolve) => setTimeout(resolve, 2000)),
+          toErrorWithMessage,
+        ),
+      )
+      .andThen(() => this.validateOpenAIEmbeddingCollection())
+      .andThen(() => {
+        // Cleanup any existing processes to restart them
+        const cleanupResults = Array.from(
+          this.typesenseProcessManager.processes.values(),
+        ).map((process) =>
+          process
+            .cleanup()
+            .asyncAndThen(() => okAsync<void, ErrorWithMessage>(undefined)),
+        );
+
+        return ResultAsync.combine(cleanupResults);
+      })
+      .andThen(() => {
+        this.spinner.start("Cleaning up before restarting processes");
+        return ResultAsync.fromPromise(
+          new Promise((resolve) => setTimeout(resolve, 10000)),
+          toErrorWithMessage,
+        ).map(() => {
+          this.spinner.succeed("Cleanup complete");
+        });
+      })
+      .andThen(() =>
+        this.startAndVerifyProcesses(Array.from(this.nodes.values())),
+      )
+      .andThen(() => this.validateOpenAIEmbeddingCollection())
+      .map(() => {
+        logger.success("OpenAI Embedding test passed successfully");
+      });
+  }
+
+  private createOpenAIEmbeddingCollection(numDim = 256) {
+    this.spinner.start(
+      "Creating OpenAI Embedding collection with custom number of  dimensions",
+    );
+
+    const collection: CollectionCreateSchema = {
+      name: IntegrationTests.openAICollectionName,
+      fields: [
+        {
+          name: "product_name",
+          type: "string",
+          facet: false,
+        },
+        {
+          name: "embedding",
+          type: "float[]",
+          num_dim: numDim,
+          embed: {
+            from: ["product_name"],
+            model_config: {
+              model_name: "openai/text-embedding-3-large",
+              api_key: this.openAIKey,
+            },
+          },
+        },
+      ],
+    };
+
+    const process = this.typesenseProcessManager.processes.get(8108);
+
+    if (!process) {
+      return errAsync({ message: "Process not found for port 8108" });
+    }
+
+    return this.typesenseProcessManager
+      .createCollection(process, collection)
+      .map(() => {
+        this.spinner.succeed("OpenAI Embedding collection created");
+      });
+  }
+
+  private validateOpenAIEmbeddingCollection(numDim = 256) {
+    this.spinner.start("Validating OpenAI Embedding collection");
+
+    const process = this.typesenseProcessManager.processes.get(8108);
+
+    if (!process) {
+      return errAsync({ message: "Process not found for port 8108" });
+    }
+
+    return this.typesenseProcessManager
+      .getCollection(process, IntegrationTests.openAICollectionName)
+      .map((collection) => {
+        if (
+          collection.fields?.find((field) => field.name === "embedding")
+            ?.num_dim !== numDim
+        ) {
+          return err({ message: `Number of dimensions is not ${numDim}` });
+        }
+
+        this.spinner.succeed("OpenAI Embedding collection validated");
+      });
   }
 }
 
@@ -426,10 +535,8 @@ const test = new Command()
   .option("-s, --snapshot-path <path>", "Path to the snapshot file.", cwd)
   .action((options) => {
     logger.info("Running Typesense Integration tests");
-
     const services = new ServiceContainer(findRoot(dirName));
     const spinner = services.getSpinner();
-
     parseOptions(
       options as IntegrationTestOptions,
       integrationTestOptionsSchema,
@@ -439,7 +546,6 @@ const test = new Command()
         if (options.verbose) {
           logger.setLevel(LogLevel.DEBUG);
         }
-
         logger.debug("Parsed options");
         return ok(options);
       })
@@ -450,7 +556,6 @@ const test = new Command()
           gitUrl: options.typesenseGitUrl,
           yesToAll: options.yes,
         });
-
         return services
           .get("fs")
           .validateWorkingDirectory(options.workingDirectory)
@@ -460,7 +565,6 @@ const test = new Command()
         if (options.binary) {
           return ok({ ...options, binary: options.binary });
         }
-
         return services
           .get("typesense")
           .validateDirectory()
@@ -502,9 +606,8 @@ const test = new Command()
           )
           .map((binaryPath) => ({ ...options, binary: binaryPath }));
       })
-      .map((options) => {
+      .andThen((options) => {
         logger.debug("Starting Typesense process");
-
         const typesenseProcessManager = new TypesenseProcessManager(
           spinner,
           options.binary,
@@ -514,7 +617,6 @@ const test = new Command()
           options.snapshotPath,
           options.ip,
         );
-
         const integrationTests = new IntegrationTests(
           services,
           spinner,
@@ -523,23 +625,24 @@ const test = new Command()
           options.openAIKey,
           options.ip,
         );
-        return integrationTests;
+
+        return ok(integrationTests);
       })
-      .map((integrationTests) => {
-        return integrationTests
+      .andThen((integrationTests) =>
+        integrationTests
           .setupProcesses()
           .andThen(() => integrationTests.conversationTest())
           .andThen(() => integrationTests.snapshotTest())
-          .then((res) => {
-            if (res.isErr()) {
-              spinner.fail();
-              logger.error(res.error.message);
-              process.exit(1);
-            } else {
-              logger.success("Integration tests passed successfully");
-              process.exit(0);
-            }
-          });
+          .andThen(() => integrationTests.openAIEmbeddingTest()),
+      )
+      .then((result) => {
+        if (result.isErr()) {
+          spinner.fail();
+          logger.error(result.error.message);
+          process.exit(1);
+        }
+        logger.success("Integration tests passed successfully");
+        process.exit(0);
       });
   });
 
