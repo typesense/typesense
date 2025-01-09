@@ -968,9 +968,9 @@ TEST_F(CollectionTest, MultipleFields) {
 
     query_fields = {"cast"};
     results = coll_mul_fields->search("chris", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
-    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(4, results["hits"].size());
 
-    ids = {"6", "1", "7"};
+    ids = {"6", "8", "1", "7"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string result_id = result["document"]["id"];

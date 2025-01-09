@@ -1579,7 +1579,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 const std::vector<size_t> geopoint_indices;
 
                 auto fuzzy_search_fields_op = index->fuzzy_search_fields(fq_fields, value_tokens, {}, text_match_type_t::max_score,
-                                                                         nullptr, 0, &dummy_it, {}, {}, sort_fields,
+                                                                         nullptr, 0, &dummy_it, {}, sort_fields,
                                                                          {0}, searched_filters, qtoken_set, topster,
                                                                          groups_processed, all_result_ids, all_result_ids_len,
                                                                          0, group_by_fields, false, false, false, false,

@@ -2759,32 +2759,43 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
         }
     }
 
-    // Sort based on position in overridden list
-    std::sort(
-      override_result_kvs.begin(), override_result_kvs.end(),
-      [](const std::vector<KV*>& a, std::vector<KV*>& b) -> bool {
-          return a[0]->distinct_key < b[0]->distinct_key;
-      }
-    );
-
     std::vector<std::vector<KV*>> result_group_kvs;
     size_t override_kv_index = 0;
     size_t raw_results_index = 0;
+
+    std::map<uint64_t, size_t> override_group_id_positions;
 
     // merge raw results and override results
     while(raw_results_index < raw_result_kvs.size()) {
         if(override_kv_index < override_result_kvs.size()) {
             size_t result_position = result_group_kvs.size() + 1;
-            uint64_t override_position = override_result_kvs[override_kv_index][0]->distinct_key;
+            auto override_kv = override_result_kvs[override_kv_index][0];
+            uint64_t override_position = -override_kv->scores[0];
             if(result_position == override_position) {
-                override_result_kvs[override_kv_index][0]->match_score_index = CURATED_RECORD_IDENTIFIER;
+                override_kv->match_score_index = CURATED_RECORD_IDENTIFIER;
                 result_group_kvs.push_back(override_result_kvs[override_kv_index]);
+                override_group_id_positions[override_kv->distinct_key] = result_group_kvs.size()-1;
                 override_kv_index++;
                 continue;
             }
         }
 
-        result_group_kvs.push_back(raw_result_kvs[raw_results_index]);
+        if(group_limit) {
+            auto raw_kv = raw_result_kvs[raw_results_index][0];
+            auto pos_it = override_group_id_positions.find(raw_kv->distinct_key);
+            if(pos_it != override_group_id_positions.end()) {
+                auto results_pos = pos_it->second;
+                for(size_t i = 0; i < raw_result_kvs[raw_results_index].size() &&
+                                result_group_kvs[results_pos].size() < group_limit; i++) {
+                    result_group_kvs[results_pos].push_back(raw_result_kvs[raw_results_index][i]);
+                }
+            } else {
+                result_group_kvs.push_back(raw_result_kvs[raw_results_index]);
+            }
+        } else {
+            result_group_kvs.push_back(raw_result_kvs[raw_results_index]);
+        }
+
         raw_results_index++;
     }
 

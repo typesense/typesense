@@ -531,7 +531,7 @@ TEST_F(CollectionFilteringTest, FilterAndQueryFieldRestrictions) {
                                         FREQUENCY, {false});
     ASSERT_EQ(true, result_op.ok());
     results = result_op.get();
-    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(4, results["hits"].size());
 
     // bad query string
     result_op = coll_mul_fields->search("captain", query_fields, "BLAH", facets, sort_fields, {0}, 10, 1,
@@ -2542,9 +2542,9 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
 
     nlohmann::json results = coll_mul_fields->search("*", {}, "cast: Chris", {}, {}, {0},
                                                      10, 1, FREQUENCY, {false}).get();
-    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(4, results["hits"].size());
 
-    std::vector<std::string> ids = {"6", "1", "7"};
+    std::vector<std::string> ids = {"6", "8", "1", "7"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -2555,9 +2555,9 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
 
     results = coll_mul_fields->search("*", {}, "cast: Ch*", {}, {}, {0},
                                                      10, 1, FREQUENCY, {false}).get();
-    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(4, results["hits"].size());
 
-    ids = {"6", "1", "7"};
+    ids = {"6", "8", "1", "7"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);

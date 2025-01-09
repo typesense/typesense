@@ -98,12 +98,13 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
 
     results = coll1->search("chris", {"cast"}, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
 
-    ASSERT_EQ(3, results["hits"].size());
-    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ(4, results["found"].get<size_t>());
 
     ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("7", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("8", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("7", results["hits"][3]["document"]["id"].get<std::string>().c_str());
 
     // reject field with a different type than already inferred type
     // default for `index_all_fields` is `DIRTY_FIELD_COERCE_IGNORE`

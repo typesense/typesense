@@ -1240,34 +1240,30 @@ TEST_F(CollectionGroupingTest, GroupByMultipleFacetFieldsWithPinning) {
                                   {"3:1,4:2"}, {}, {"size"}, 2).get();
 
     ASSERT_EQ(5, res["found_docs"].get<size_t>());
-    ASSERT_EQ(4, res["found"].get<size_t>());
-    ASSERT_EQ(4, res["grouped_hits"].size());
+    ASSERT_EQ(3, res["found"].get<size_t>());
+    ASSERT_EQ(3, res["grouped_hits"].size());
 
     ASSERT_EQ(10, res["grouped_hits"][0]["group_key"][0].get<size_t>());
-    ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(2, res["grouped_hits"][0]["hits"].size());
     ASSERT_EQ("3", res["grouped_hits"][0]["hits"][0]["document"]["id"]);
     ASSERT_FLOAT_EQ(4.6, res["grouped_hits"][0]["hits"][0]["document"]["rating"].get<float>());
+    ASSERT_EQ("4", res["grouped_hits"][0]["hits"][1]["document"]["id"]);
+    ASSERT_FLOAT_EQ(4.8, res["grouped_hits"][0]["hits"][1]["document"]["rating"].get<float>());
 
-    ASSERT_EQ(10, res["grouped_hits"][1]["group_key"][0].get<size_t>());
-    ASSERT_EQ(1, res["grouped_hits"][1]["hits"].size());
-    ASSERT_EQ("4", res["grouped_hits"][1]["hits"][0]["document"]["id"]);
+    ASSERT_EQ(11, res["grouped_hits"][1]["group_key"][0].get<size_t>());
+    ASSERT_EQ(2, res["grouped_hits"][1]["hits"].size());
+    ASSERT_EQ("5", res["grouped_hits"][1]["hits"][0]["document"]["id"]);
     ASSERT_FLOAT_EQ(4.8, res["grouped_hits"][1]["hits"][0]["document"]["rating"].get<float>());
+    ASSERT_EQ("1", res["grouped_hits"][1]["hits"][1]["document"]["id"]);
+    ASSERT_FLOAT_EQ(4.3, res["grouped_hits"][1]["hits"][1]["document"]["rating"].get<float>());
 
-    ASSERT_EQ(11, res["grouped_hits"][2]["group_key"][0].get<size_t>());
-    ASSERT_EQ(2, res["grouped_hits"][2]["found"].get<size_t>());
+    ASSERT_EQ(12, res["grouped_hits"][2]["group_key"][0].get<size_t>());
+    ASSERT_EQ(3, res["grouped_hits"][2]["found"].get<size_t>());
     ASSERT_EQ(2, res["grouped_hits"][2]["hits"].size());
-    ASSERT_EQ("5", res["grouped_hits"][2]["hits"][0]["document"]["id"]);
-    ASSERT_FLOAT_EQ(4.8, res["grouped_hits"][2]["hits"][0]["document"]["rating"].get<float>());
-    ASSERT_EQ("1", res["grouped_hits"][2]["hits"][1]["document"]["id"]);
-    ASSERT_FLOAT_EQ(4.3, res["grouped_hits"][2]["hits"][1]["document"]["rating"].get<float>());
-
-    ASSERT_EQ(12, res["grouped_hits"][3]["group_key"][0].get<size_t>());
-    ASSERT_EQ(3, res["grouped_hits"][3]["found"].get<size_t>());
-    ASSERT_EQ(2, res["grouped_hits"][3]["hits"].size());
-    ASSERT_EQ("2", res["grouped_hits"][3]["hits"][0]["document"]["id"]);
-    ASSERT_FLOAT_EQ(4.6, res["grouped_hits"][3]["hits"][0]["document"]["rating"].get<float>());
-    ASSERT_EQ("8", res["grouped_hits"][3]["hits"][1]["document"]["id"]);
-    ASSERT_FLOAT_EQ(4.4, res["grouped_hits"][3]["hits"][1]["document"]["rating"].get<float>());
+    ASSERT_EQ("2", res["grouped_hits"][2]["hits"][0]["document"]["id"]);
+    ASSERT_FLOAT_EQ(4.6, res["grouped_hits"][2]["hits"][0]["document"]["rating"].get<float>());
+    ASSERT_EQ("8", res["grouped_hits"][2]["hits"][1]["document"]["id"]);
+    ASSERT_FLOAT_EQ(4.4, res["grouped_hits"][2]["hits"][1]["document"]["rating"].get<float>());
 
     ASSERT_STREQ("colors", res["facet_counts"][0]["field_name"].get<std::string>().c_str());
 
@@ -1300,7 +1296,7 @@ TEST_F(CollectionGroupingTest, GroupByPinnedHitsOrder) {
                                   "", 1,
                                   {"6:1,1:2"}, {}, {"size"}, 1).get();
 
-    ASSERT_EQ(2, res["found"].get<size_t>());
+    ASSERT_EQ(4, res["found"].get<size_t>());
     ASSERT_EQ(2, res["grouped_hits"].size());
 
     ASSERT_EQ(12, res["grouped_hits"][0]["group_key"][0].get<size_t>());
@@ -1311,6 +1307,26 @@ TEST_F(CollectionGroupingTest, GroupByPinnedHitsOrder) {
     ASSERT_EQ(1, res["grouped_hits"][1]["hits"].size());
     ASSERT_EQ("1", res["grouped_hits"][1]["hits"][0]["document"]["id"]);
 
+    // with group limit 2
+    res = coll_group->search("*", {"title"}, "size:=[12,11]", {}, {}, {0}, 50, 0, NOT_SET,
+                             {false}, Index::DROP_TOKENS_THRESHOLD,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4,
+                             "", 1,
+                             {"6:1,1:2"}, {}, {"size"}, 2).get();
+
+    ASSERT_EQ(4, res["found"].get<size_t>());
+    ASSERT_EQ(2, res["grouped_hits"].size());
+    ASSERT_EQ(12, res["grouped_hits"][0]["group_key"][0].get<size_t>());
+    ASSERT_EQ(2, res["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ("6", res["grouped_hits"][0]["hits"][0]["document"]["id"]);
+    ASSERT_EQ("2", res["grouped_hits"][0]["hits"][1]["document"]["id"]);
+
+    ASSERT_EQ(11, res["grouped_hits"][1]["group_key"][0].get<size_t>());
+    ASSERT_EQ(2, res["grouped_hits"][1]["hits"].size());
+    ASSERT_EQ("1", res["grouped_hits"][1]["hits"][0]["document"]["id"]);
+    ASSERT_EQ("5", res["grouped_hits"][1]["hits"][1]["document"]["id"]);
+
     //try with pinned hits in other order
     res = coll_group->search("*", {"title"}, "size:=[12,11]", {}, {}, {0}, 50, 0, NOT_SET,
                                   {false}, Index::DROP_TOKENS_THRESHOLD,
@@ -1319,7 +1335,7 @@ TEST_F(CollectionGroupingTest, GroupByPinnedHitsOrder) {
                                   "", 1,
                                   {"5:1,8:2"}, {}, {"size"}, 1).get();
 
-    ASSERT_EQ(2, res["found"].get<size_t>());
+    ASSERT_EQ(4, res["found"].get<size_t>());
     ASSERT_EQ(2, res["grouped_hits"].size());
 
     ASSERT_EQ(11, res["grouped_hits"][0]["group_key"][0].get<size_t>());
@@ -1338,7 +1354,7 @@ TEST_F(CollectionGroupingTest, GroupByPinnedHitsOrder) {
                              "", 1,
                              {"5:1,8:2,0:3"}, {}, {"size"}, 1).get();
 
-    ASSERT_EQ(3, res["found"].get<size_t>());
+    ASSERT_EQ(6, res["found"].get<size_t>());
     ASSERT_EQ(3, res["grouped_hits"].size());
 
     ASSERT_EQ(11, res["grouped_hits"][0]["group_key"][0].get<size_t>());
