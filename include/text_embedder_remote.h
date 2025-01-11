@@ -11,13 +11,17 @@
 
 struct embedding_res_t {
     std::vector<float> embedding;
+    std::vector<std::vector<uint64_t>> binary_embeddings;
     nlohmann::json error = nlohmann::json::object();
     int status_code;
     bool success;
+    bool is_binary = false;
 
     embedding_res_t() : success(false) {} 
 
     embedding_res_t(const std::vector<float>& embedding) : embedding(embedding), success(true) {}
+
+    embedding_res_t(const std::vector<std::vector<uint64_t>>& binary_embeddings) : binary_embeddings(binary_embeddings), success(true), is_binary(true) {}
 
     embedding_res_t(int status_code, const nlohmann::json& error) : error(error), success(false), status_code(status_code) {}
 };

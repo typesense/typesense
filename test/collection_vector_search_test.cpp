@@ -11,6 +11,8 @@
 #include "core_api.h"
 #include "vq_model_manager.h"
 #include "conversation_model.h"
+#include "xtr_text_embedder.h"
+#include "xtr_function.h"
 
 class CollectionVectorTest : public ::testing::Test {
 protected:
@@ -5361,3 +5363,82 @@ TEST_F(CollectionVectorTest, EmbedFieldMustBeFloatArray) {
     ASSERT_FALSE(field_op.ok());
     ASSERT_EQ("Fields with the `embed` parameter can only be of type `float[]`.", field_op.error());
 }
+
+
+// TEST_F(CollectionVectorTest, TestXTRModel){
+//     EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+//     auto embedder = TextEmbedder("xtr", false);
+//     // concat binary embeddings
+//     std::vector<XTR_token_t> doc_tokens;
+
+//     // open corp
+//     int doc_id = 0;
+//     int token_id = 0;
+
+//     // open corpus.jsonl
+//     std::ifstream file(std::string(ROOT_DIR)+"test/corpus.jsonl");
+//     std::string line;
+//     std::unordered_map<std::string, nlohmann::json> docs;
+//     std::unordered_map<int, std::string> doc_id_to_id;
+//     while (std::getline(file, line)) {
+//         auto json = nlohmann::json::parse(line);
+//         docs[json["_id"].get<std::string>()] = json;
+//         auto embeddings = embedder.Embed(json["title"].get<std::string>() + " " + json["text"].get<std::string>());
+//         for (auto& embedding : embeddings.binary_embeddings[0]) {
+//             XTR_token_t token = {embedding, doc_id, token_id};
+//             doc_tokens.push_back(token);
+//             token_id++;
+//         }
+//         doc_id_to_id[doc_id] = json["_id"].get<std::string>();
+//         doc_id++;
+//         if(doc_id % 100 == 0) {
+//             sleep(1);
+//         }
+//     }
+
+//     file.close();
+
+//     // load qrels first
+//     std::ifstream qrels_file(std::string(ROOT_DIR)+"test/test.tsv");
+//     std::getline(qrels_file, line); // skip header
+//     std::set<std::string> actual_queries;
+//     while (std::getline(qrels_file, line)) {
+//         // split by tab
+//         std::vector<std::string> parts;
+//         std::string part;
+//         std::istringstream ss(line);
+//         while (std::getline(ss, part, '\t')) {
+//             parts.push_back(part);
+//         }
+//         actual_queries.insert(parts[0]);
+//     }
+
+//     qrels_file.close();
+
+//     std::ifstream queries_file(std::string(ROOT_DIR)+"test/queries.jsonl");
+//     std::unordered_map<std::string, std::string> query_id_to_text;
+//     int q_idx = 0;
+//     while(std::getline(queries_file, line)) {
+//         auto query = nlohmann::json::parse(line);
+//         query_id_to_text[query["_id"].get<std::string>()] = query["text"].get<std::string>();
+//     }
+
+//     queries_file.close();
+//     std::ofstream results_file(std::string(ROOT_DIR)+"test/results.jsonl");
+
+//     for(auto& query_id: actual_queries) {
+//         auto& query_text = query_id_to_text[query_id];
+//         auto embeddings = embedder.Embed(query_text, 3000, 2, 32);
+//         auto top_k = get_top_k(doc_tokens, embeddings.binary_embeddings[0], 1000);
+//         auto search_results = search(top_k);
+//         nlohmann::json result;
+//         result[query_id] = nlohmann::json::object();
+//         for(auto& search_result: search_results) {
+//             result[query_id][doc_id_to_id[search_result.first]] = search_result.second;
+//         }
+//         results_file << result.dump() << std::endl;
+//     }
+
+//     results_file.close();
+
+// }

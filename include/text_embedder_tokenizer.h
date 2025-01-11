@@ -1,4 +1,4 @@
-#pragma
+#pragma once
 
 #include <vector>
 #include <unordered_map>
@@ -33,7 +33,7 @@ struct batch_encoded_input_t {
 class TextEmbeddingTokenizer {
     private:
     public:
-        virtual encoded_input_t Encode(const std::string& text) = 0;
+        virtual encoded_input_t Encode(const std::string& text, size_t max_seq_len = 512) = 0;
         virtual ~TextEmbeddingTokenizer() = default;
         virtual TokenizerType get_tokenizer_type() = 0;
 };
@@ -43,7 +43,7 @@ class BertTokenizerWrapper : public TextEmbeddingTokenizer {
         std::unique_ptr<BertTokenizer> bert_tokenizer_;
     public:
         BertTokenizerWrapper(const std::string& vocab_path);
-        encoded_input_t Encode(const std::string& text) override;
+        encoded_input_t Encode(const std::string& text, size_t max_seq_len = 512) override;
         virtual TokenizerType get_tokenizer_type() override {
             return TokenizerType::bert;
         }
@@ -52,7 +52,7 @@ class BertTokenizerWrapper : public TextEmbeddingTokenizer {
 class DistilbertTokenizer : public BertTokenizerWrapper {
     public:
         DistilbertTokenizer(const std::string& vocab_path);
-        encoded_input_t Encode(const std::string& text) override;
+        encoded_input_t Encode(const std::string& text, size_t max_seq_len = 512) override;
 };
 
 class XLMRobertaTokenizer : public TextEmbeddingTokenizer {
@@ -69,7 +69,7 @@ class XLMRobertaTokenizer : public TextEmbeddingTokenizer {
         const std::vector<std::string> tokenize(const std::string& text);
     public:
         XLMRobertaTokenizer(const std::string& model_path);
-        encoded_input_t Encode(const std::string& text) override;
+        encoded_input_t Encode(const std::string& text, size_t max_seq_len = 512) override;
         virtual TokenizerType get_tokenizer_type() override {
             return TokenizerType::xlm_roberta;
         }
@@ -81,7 +81,7 @@ class CLIPTokenizerWrapper : public TextEmbeddingTokenizer {
         std::mutex mutex_;
     public:
         CLIPTokenizerWrapper(const std::string& vocab_path);
-        encoded_input_t Encode(const std::string& text) override;
+        encoded_input_t Encode(const std::string& text, size_t max_seq_len = 512) override;
         virtual TokenizerType get_tokenizer_type() override {
             return TokenizerType::clip;
         }
