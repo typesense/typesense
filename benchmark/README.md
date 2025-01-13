@@ -13,6 +13,11 @@ A command-line tool for benchmarking, testing, and managing Typesense server ins
   - Snapshot functionality
 - **Cross-Platform Support**: Works on multiple architectures (amd64, arm64)
 - **Configurable Environment**: Flexible configuration options for testing different scenarios
+- **Performance Benchmarking**:
+  - Search latency measurement with p95 metrics
+  - Bulk indexing performance testing
+  - Configurable concurrent user load testing
+  - Version comparison capabilities
 
 ## Prerequisites
 
@@ -44,7 +49,7 @@ pnpm build
 
 ## Usage
 
-The tool provides two main commands: `install` and `test`.
+The tool provides three main commands: `install`, `test`, and `benchmark`.
 
 ### Installing Typesense
 
@@ -81,6 +86,21 @@ Options:
   -y, --yes                      Answer yes to all prompts
 ```
 
+### Running Benchmarks
+
+```bash
+typesense-benchmark benchmark [options]
+
+Options:
+  --commit-hashes <hashes...>    Commits to compare
+  --binaries <paths...>         Paths to pre-built binaries to compare
+  --batch-size <num>            Batch size for indexing (default: 100)
+  --duration <time>             Duration for search tests (e.g., "30s", "1m")
+  --fail <percentage>           Regression threshold percentage (default: 50)
+  --api-key <key>              API key for Typesense
+  -v, --verbose                Enable verbose output
+```
+
 ## Configuration
 
 The tool can be configured through command-line options or environment variables:
@@ -102,6 +122,10 @@ benchmark/
 ├── src/
 │   ├── commands/     # CLI commands
 │   ├── services/     # Core services
+│   │   ├── docker.ts       # Docker management
+│   │   ├── k6.ts          # k6 load testing
+│   │   └── typesense-process.ts  # Process control
+│   ├── benchmarks/   # Benchmark scenarios
 │   └── utils/        # Utility functions
 ├── test/            # Test files
 └── dist/            # Compiled output
