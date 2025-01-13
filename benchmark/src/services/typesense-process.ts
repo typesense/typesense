@@ -50,9 +50,15 @@ export class TypesenseProcessController extends EventEmitter {
 
     this.process.on("exit", (code, signal) => {
       this.exitCode = code;
-      logger.info(
+
+      const logLevel = code === 0 ? "debug" : "error";
+
+      logger[logLevel](
         `[Node ${http}] Process exited with code=${code} signal=${signal}`,
       );
+
+      this.exitCode = code;
+
       this.emit("exit", { code, http });
     });
 
