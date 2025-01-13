@@ -5393,59 +5393,22 @@ TEST_F(CollectionVectorTest, UpdateEmbeddings) {
     auto coll = collection_create_op.get();
 
     auto add_op = coll->add(R"({
-        "text": "On that day, mankind received a grim reminder. We lived in fear of the Titans and were disgraced to live in these cages we called walls."
+        "text": "foo"
     })"_json.dump());
 
     ASSERT_TRUE(add_op.ok());
+    ASSERT_NEAR(0.1110895648598671, add_op.get()["embedding"][0].get<float>(), 1e-4);
+    ASSERT_NEAR(-0.11710234731435776, add_op.get()["embedding"][1].get<float>(), 1e-4);
+    ASSERT_NEAR(-0.5319093465805054, add_op.get()["embedding"][2].get<float>(), 1e-4);
 
-    auto search_res = coll->search("On that day, mankind received a grim reminder. We lived in fear of the Titans and were disgraced to live in these cages we called walls.", {"text", "embedding"}, "", {},
-                                   {}, {0}, 10, 1, FREQUENCY, {true},
-                                   Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
-                                   {"embedding"}, 10, "",
-                                   30, 4, "", 40,
-                                   {}, {}, {}, 0, "<mark>",
-                                   "</mark>", {}, 1000, true,
-                                   false, true, "", false,
-                                   6000 * 1000, 4, 7, fallback, 4,
-                                   {off}, INT16_MAX, INT16_MAX, 2,
-                                   2, false, "", true,
-                                   0, max_score, 100, 0, 0,
-                                   "exhaustive", 30000, 2, "",
-                                   {}, {}, "right_to_left", true,
-                                   true, false, "", "", "",
-                                   "", true, true, false, 0, true,
-                                   true, DEFAULT_FILTER_BY_CANDIDATES, false).get();
-    
-    ASSERT_EQ(1, search_res["found"].get<size_t>());
-    ASSERT_EQ(1, search_res["hits"].size());
-    ASSERT_TRUE(search_res["hits"][0]["vector_distance"].get<float>() < 0.1);
 
     auto update_op = coll->add(R"({
         "id": "0",
-        "text": "On that day, mankind received a grim reminder. We lived in fear of the Titans and were disgraced to live in these cages we called walls. But we also learned that we could fight back."
+        "text": "bar"
     })"_json.dump(), UPDATE);
 
     ASSERT_TRUE(update_op.ok());
-
-    search_res = coll->search("On that day, mankind received a grim reminder. We lived in fear of the Titans and were disgraced to live in these cages we called walls. But we also learned that we could fight back.", {"text", "embedding"}, "", {},
-                              {}, {0}, 10, 1, FREQUENCY, {true},
-                              Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
-                              {"embedding"}, 10, "",
-                              30, 4, "", 40,
-                              {}, {}, {}, 0, "<mark>",
-                              "</mark>", {}, 1000, true,
-                              false, true, "", false,
-                              6000 * 1000, 4, 7, fallback, 4,
-                              {off}, INT16_MAX, INT16_MAX, 2,
-                              2, false, "", true,
-                              0, max_score, 100, 0, 0,
-                              "exhaustive", 30000, 2, "",
-                              {}, {}, "right_to_left", true,
-                              true, false, "", "", "",
-                              "", true, true, false, 0, true,
-                              true, DEFAULT_FILTER_BY_CANDIDATES, false).get();
-
-    ASSERT_EQ(1, search_res["found"].get<size_t>());
-    ASSERT_EQ(1, search_res["hits"].size());
-    ASSERT_TRUE(search_res["hits"][0]["vector_distance"].get<float>() < 0.1);
+    ASSERT_NEAR(0.1689663827419281, update_op.get()["embedding"][0].get<float>(), 1e-4);
+    ASSERT_NEAR(-0.3069036900997162, update_op.get()["embedding"][1].get<float>(), 1e-4);
+    ASSERT_NEAR(-0.5030900239944458, update_op.get()["embedding"][2].get<float>(), 1e-4);
 }
