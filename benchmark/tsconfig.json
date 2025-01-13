@@ -12,6 +12,7 @@
     "moduleResolution": "Bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
     "moduleDetection": "force",
     "jsx": "preserve",
     "noUncheckedIndexedAccess": true,
