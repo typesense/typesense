@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 
+import { benchmark } from "@/commands/benchmark";
 import { install } from "@/commands/install";
 import { test } from "@/commands/tests";
 import { getPackageInfo } from "@/utils/package-info";
@@ -26,6 +27,7 @@ function main() {
 
   program.addCommand(install);
   program.addCommand(test);
+  program.addCommand(benchmark);
 
   // Check if no arguments were provided
   if (process.argv.length <= 2) {
