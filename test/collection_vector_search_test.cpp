@@ -5397,9 +5397,6 @@ TEST_F(CollectionVectorTest, UpdateEmbeddings) {
     })"_json.dump());
 
     ASSERT_TRUE(add_op.ok());
-    ASSERT_NEAR(0.1110895648598671, add_op.get()["embedding"][0].get<float>(), 1e-4);
-    ASSERT_NEAR(-0.11710234731435776, add_op.get()["embedding"][1].get<float>(), 1e-4);
-    ASSERT_NEAR(-0.5319093465805054, add_op.get()["embedding"][2].get<float>(), 1e-4);
 
 
     auto update_op = coll->add(R"({
@@ -5408,7 +5405,15 @@ TEST_F(CollectionVectorTest, UpdateEmbeddings) {
     })"_json.dump(), UPDATE);
 
     ASSERT_TRUE(update_op.ok());
-    ASSERT_NEAR(0.1689663827419281, update_op.get()["embedding"][0].get<float>(), 1e-4);
-    ASSERT_NEAR(-0.3069036900997162, update_op.get()["embedding"][1].get<float>(), 1e-4);
-    ASSERT_NEAR(-0.5030900239944458, update_op.get()["embedding"][2].get<float>(), 1e-4);
+
+    add_op = coll->add(R"({
+        "text": "bar"
+    })"_json.dump());
+
+    auto add_values = add_op.get()["embedding"].get<std::vector<float>>();
+    auto update_values = update_op.get()["embedding"].get<std::vector<float>>();
+
+    for (size_t i = 0; i < add_values.size(); ++i) {
+        ASSERT_NEAR(add_values[i], update_values[i], 0.0001);
+    }
 }
