@@ -7387,22 +7387,18 @@ void Index::process_embed_results(const std::vector<std::pair<index_record*, std
                                   const field& the_field) {
     std::unordered_map<index_record*, std::vector<embedding_res_t>> index_records_to_embeddings;
     for(size_t i = 0; i < values_to_embed_text.size(); i++) {
-        if(!values_to_embed_text[i].first->indexed.ok()) {
-            continue;
-        }
         if(!embeddings_text[i].success) {
-            values_to_embed_text[i].first->index_failure(embeddings_text[i].status_code, embeddings_text[i].error);
+            values_to_embed_text[i].first->embedding_res = embeddings_text[i].error;
+            values_to_embed_text[i].first->index_failure(embeddings_text[i].status_code, "");
             continue;
         }
         index_records_to_embeddings[values_to_embed_text[i].first].push_back(embeddings_text[i]);
     }
 
     for(size_t i = 0; i < values_to_embed_image.size(); i++) {
-        if(!values_to_embed_image[i].first->indexed.ok()) {
-            continue;
-        }
         if(!embeddings_image[i].success) {
-            values_to_embed_image[i].first->index_failure(embeddings_image[i].status_code, embeddings_image[i].error);
+            values_to_embed_image[i].first->embedding_res = embeddings_image[i].error;
+            values_to_embed_image[i].first->index_failure(embeddings_image[i].status_code, "");
             continue;
         }
         index_records_to_embeddings[values_to_embed_image[i].first].push_back(embeddings_image[i]);
@@ -7425,8 +7421,8 @@ void Index::process_embed_results(const std::vector<std::pair<index_record*, std
         for(size_t j = 0; j < avg_embedding.embedding.size(); j++) {
             avg_embedding.embedding[j] /= record.second.size();
         }
-        auto& doc = record.first->is_update ? record.first->new_doc : record.first->doc;
-        doc[the_field.name] = avg_embedding.embedding;
+        record.first->new_doc[the_field.name] = avg_embedding.embedding;
+        record.first->doc[the_field.name] = avg_embedding.embedding;
     }
 }
 
