@@ -600,10 +600,11 @@ private:
                                    const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size = 200,
                                    const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);
     
-    static void process_embed_results(std::vector<std::pair<index_record*, std::string>>& values_to_embed,
-                                     const index_record* record,
-                                     const std::vector<embedding_res_t>& embedding_results,
-                                     size_t& count, const field& the_field);
+    static void process_embed_results(const std::vector<std::pair<index_record*, std::string>>& values_to_embed_text,
+                                      const std::vector<embedding_res_t>& embeddings_text,
+                                      const std::vector<std::pair<index_record*, std::string>>& values_to_embed_image,
+                                      const std::vector<embedding_res_t>& embeddings_image,
+                                      const field& the_field);
 
     void update_async_references(const std::string& collection_name, const field& afield,
                                  std::vector<index_record>& iter_batch,

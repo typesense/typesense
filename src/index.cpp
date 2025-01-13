@@ -501,18 +501,26 @@ void Index::validate_and_preprocess(Index *index,
                     LOG(INFO) << "index_rec.new_doc: " << index_rec.new_doc;
                     LOG(INFO) << "index_rec.del_doc: " << index_rec.del_doc;
                 }*/
-
                 if(generate_embeddings) {
-                    for(auto& field: index_rec.doc.items()) {
-                        for(auto& embedding_field : embedding_fields) {
-                            if(!embedding_field.embed[fields::from].is_null()) {
-                                auto embed_from_vector = embedding_field.embed[fields::from].get<std::vector<std::string>>();
+                    for(auto& embedding_field : embedding_fields) {
+                        auto embed_from_vector = embedding_field.embed[fields::from].get<std::vector<std::string>>();
+                        for(auto& embed_from: embed_from_vector) {
+                            if(index_rec.doc.count(embed_from) != 0) {
+                                
                                 for(auto& embed_from: embed_from_vector) {
-                                    if(embed_from == field.key()) {
-                                        records_to_embed.push_back(&index_rec);
-                                        break;
+                                    if(index_rec.doc.count(embed_from) == 0) {
+                                        // copy the value from old doc to new doc if it is not present in the new doc
+                                        if(index_rec.old_doc.count(embed_from) == 0) {
+                                            index_rec.index_failure(400, "One or more of the fields to embed is missing in the both the old and new documents");
+                                            break;
+                                        }
+                                        index_rec.doc[embed_from] = index_rec.old_doc[embed_from];
                                     }
                                 }
+                                if(index_rec.indexed.ok()) {
+                                    records_to_embed.push_back(&index_rec);
+                                }
+                                break;
                             }
                         }
                     }
@@ -7336,16 +7344,11 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
         
         // get vector of values
         std::vector<std::string> values_text, values_image;
-
-        std::unordered_set<index_record*> records_to_index;
-        for(const auto& value_to_embed : values_to_embed_text) {
-            values_text.push_back(value_to_embed.second);
-            records_to_index.insert(value_to_embed.first);  
+        for(auto& record : values_to_embed_text) {
+            values_text.push_back(record.second);
         }
-
-        for(const auto& value_to_embed : values_to_embed_image) {
-            values_image.push_back(value_to_embed.second);
-            records_to_index.insert(value_to_embed.first);
+        for(auto& record : values_to_embed_image) {
+            values_image.push_back(record.second);
         }
 
         EmbedderManager& embedder_manager = EmbedderManager::get_instance();
@@ -7373,65 +7376,53 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                                                             remote_embedding_num_tries);
         }
 
-        for(auto& record: records_to_index) {
-            size_t count = 0;
-            if(!values_to_embed_text.empty()) {
-                process_embed_results(values_to_embed_text, record, embeddings_text, count, field);
-            }
-
-            if(!values_to_embed_image.empty()) {
-                process_embed_results(values_to_embed_image, record, embeddings_image, count, field);
-            }
-
-            if(count > 1) {
-                auto& doc = record->is_update ? record->new_doc : record->doc;
-                std::vector<float> existing_embedding = doc[field.name].get<std::vector<float>>();
-                // average embeddings
-                for(size_t i = 0; i < existing_embedding.size(); i++) {
-                    existing_embedding[i] /= count;
-                }
-                doc[field.name] = existing_embedding;
-            }
-        }
+        process_embed_results(values_to_embed_text, embeddings_text, values_to_embed_image, embeddings_image, field);
     }
 }
 
-void Index::process_embed_results(std::vector<std::pair<index_record*, std::string>>& values_to_embed,
-                                     const index_record* record,
-                                     const std::vector<embedding_res_t>& embedding_results,
-                                     size_t& count, const field& the_field) {
-    for(size_t i = 0; i < values_to_embed.size(); i++) {
-        auto& value_to_embed = values_to_embed[i];
-        if(record == value_to_embed.first) {
-            if(!value_to_embed.first->embedding_res.empty()) {
-                continue;
-            }
-
-            if(!embedding_results[i].success) {
-                value_to_embed.first->embedding_res = embedding_results[i].error;
-                value_to_embed.first->index_failure(embedding_results[i].status_code, "");
-                continue;
-            }
-
-            std::vector<float> embedding_vals;
-            auto& doc = value_to_embed.first->is_update ? value_to_embed.first->new_doc : value_to_embed.first->doc;
-            if(doc.count(the_field.name) == 0) {
-                embedding_vals = embedding_results[i].embedding;
-            } else {
-                std::vector<float> existing_embedding = doc[the_field.name].get<std::vector<float>>();
-                // accumulate embeddings
-                for(size_t j = 0; j < existing_embedding.size(); j++) {
-                    existing_embedding[j] += embedding_results[i].embedding[j];
-                }
-                embedding_vals = existing_embedding;
-            }
-
-            // `new_doc` is written to disk (contains complete document with old+new changes)
-            // `doc` represents the delta to be indexed, so we have to populate both.
-            value_to_embed.first->new_doc[the_field.name] = embedding_vals;
-            value_to_embed.first->doc[the_field.name] = embedding_vals;
-            count++;
+void Index::process_embed_results(const std::vector<std::pair<index_record*, std::string>>& values_to_embed_text,
+                                  const std::vector<embedding_res_t>& embeddings_text,
+                                  const std::vector<std::pair<index_record*, std::string>>& values_to_embed_image,
+                                  const std::vector<embedding_res_t>& embeddings_image,
+                                  const field& the_field) {
+    std::unordered_map<index_record*, std::vector<embedding_res_t>> index_records_to_embeddings;
+    for(size_t i = 0; i < values_to_embed_text.size(); i++) {
+        if(!embeddings_text[i].success) {
+            values_to_embed_text[i].first->embedding_res = embeddings_text[i].error;
+            values_to_embed_text[i].first->index_failure(embeddings_text[i].status_code, "");
+            continue;
         }
+        index_records_to_embeddings[values_to_embed_text[i].first].push_back(embeddings_text[i]);
+    }
+
+    for(size_t i = 0; i < values_to_embed_image.size(); i++) {
+        if(!embeddings_image[i].success) {
+            values_to_embed_image[i].first->embedding_res = embeddings_image[i].error;
+            values_to_embed_image[i].first->index_failure(embeddings_image[i].status_code, "");
+            continue;
+        }
+        index_records_to_embeddings[values_to_embed_image[i].first].push_back(embeddings_image[i]);
+    }
+
+    // get average embeddings for each record
+    for(auto& record: index_records_to_embeddings) {
+        if(!record.first->indexed.ok()) {
+            continue;
+        }
+        
+        embedding_res_t avg_embedding(record.second[0].embedding);
+
+        for(size_t i = 1; i < record.second.size(); i++) {
+            for(size_t j = 0; j < avg_embedding.embedding.size(); j++) {
+                avg_embedding.embedding[j] += record.second[i].embedding[j];
+            }
+        }
+
+        for(size_t j = 0; j < avg_embedding.embedding.size(); j++) {
+            avg_embedding.embedding[j] /= record.second.size();
+        }
+        record.first->new_doc[the_field.name] = avg_embedding.embedding;
+        record.first->doc[the_field.name] = avg_embedding.embedding;
     }
 }
 
