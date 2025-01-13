@@ -5420,9 +5420,10 @@ TEST_F(CollectionVectorTest, UpdateEmbeddings) {
     ASSERT_EQ(1, search_res["hits"].size());
     ASSERT_TRUE(search_res["hits"][0]["vector_distance"].get<float>() < 0.1);
 
-    auto update_op = coll->update("0", R"({
+    auto update_op = coll->add(R"({
+        "id": "0",
         "text": "On that day, mankind received a grim reminder. We lived in fear of the Titans and were disgraced to live in these cages we called walls. But we also learned that we could fight back."
-    })"_json.dump());
+    })"_json.dump(), UPDATE);
 
     ASSERT_TRUE(update_op.ok());
 
