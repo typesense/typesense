@@ -35,6 +35,7 @@
     "@eslint/js": "^9.17.0",
     "@ianvs/prettier-plugin-sort-imports": "^4.4.0",
     "@types/fs-extra": "^11.0.4",
+    "@types/k6": "^0.54.2",
     "@types/node": "^22.10.2",
     "eslint": "^9.17.0",
     "prettier": "^3.4.2",
@@ -46,13 +47,18 @@
     "zod": "^3.24.1"
   },
   "dependencies": {
+    "@influxdata/influxdb3-client": "^0.12.0",
     "chalk": "^5.4.1",
     "commander": "^13.0.0",
+    "docker-compose": "^1.1.0",
     "execa": "^9.5.2",
     "fs-extra": "^11.2.0",
+    "influx": "^5.9.3",
     "inquirer": "^12.3.0",
+    "k6": "^0.0.0",
     "neverthrow": "^8.1.1",
     "ora": "^8.1.1",
+    "table": "^6.9.0",
     "typesense": "2.0.0-13"
   }
 }
