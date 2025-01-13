@@ -5393,59 +5393,27 @@ TEST_F(CollectionVectorTest, UpdateEmbeddings) {
     auto coll = collection_create_op.get();
 
     auto add_op = coll->add(R"({
-        "text": "On that day, mankind received a grim reminder. We lived in fear of the Titans and were disgraced to live in these cages we called walls."
+        "text": "foo"
     })"_json.dump());
 
     ASSERT_TRUE(add_op.ok());
 
-    auto search_res = coll->search("On that day, mankind received a grim reminder. We lived in fear of the Titans and were disgraced to live in these cages we called walls.", {"text", "embedding"}, "", {},
-                                   {}, {0}, 10, 1, FREQUENCY, {true},
-                                   Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
-                                   {"embedding"}, 10, "",
-                                   30, 4, "", 40,
-                                   {}, {}, {}, 0, "<mark>",
-                                   "</mark>", {}, 1000, true,
-                                   false, true, "", false,
-                                   6000 * 1000, 4, 7, fallback, 4,
-                                   {off}, INT16_MAX, INT16_MAX, 2,
-                                   2, false, "", true,
-                                   0, max_score, 100, 0, 0,
-                                   "exhaustive", 30000, 2, "",
-                                   {}, {}, "right_to_left", true,
-                                   true, false, "", "", "",
-                                   "", true, true, false, 0, true,
-                                   true, DEFAULT_FILTER_BY_CANDIDATES, false).get();
-    
-    ASSERT_EQ(1, search_res["found"].get<size_t>());
-    ASSERT_EQ(1, search_res["hits"].size());
-    ASSERT_TRUE(search_res["hits"][0]["vector_distance"].get<float>() < 0.1);
 
     auto update_op = coll->add(R"({
         "id": "0",
-        "text": "On that day, mankind received a grim reminder. We lived in fear of the Titans and were disgraced to live in these cages we called walls. But we also learned that we could fight back."
+        "text": "bar"
     })"_json.dump(), UPDATE);
 
     ASSERT_TRUE(update_op.ok());
 
-    search_res = coll->search("On that day, mankind received a grim reminder. We lived in fear of the Titans and were disgraced to live in these cages we called walls. But we also learned that we could fight back.", {"text", "embedding"}, "", {},
-                              {}, {0}, 10, 1, FREQUENCY, {true},
-                              Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
-                              {"embedding"}, 10, "",
-                              30, 4, "", 40,
-                              {}, {}, {}, 0, "<mark>",
-                              "</mark>", {}, 1000, true,
-                              false, true, "", false,
-                              6000 * 1000, 4, 7, fallback, 4,
-                              {off}, INT16_MAX, INT16_MAX, 2,
-                              2, false, "", true,
-                              0, max_score, 100, 0, 0,
-                              "exhaustive", 30000, 2, "",
-                              {}, {}, "right_to_left", true,
-                              true, false, "", "", "",
-                              "", true, true, false, 0, true,
-                              true, DEFAULT_FILTER_BY_CANDIDATES, false).get();
+    add_op = coll->add(R"({
+        "text": "bar"
+    })"_json.dump());
 
-    ASSERT_EQ(1, search_res["found"].get<size_t>());
-    ASSERT_EQ(1, search_res["hits"].size());
-    ASSERT_TRUE(search_res["hits"][0]["vector_distance"].get<float>() < 0.1);
+    auto add_values = add_op.get()["embedding"].get<std::vector<float>>();
+    auto update_values = update_op.get()["embedding"].get<std::vector<float>>();
+
+    for (size_t i = 0; i < add_values.size(); ++i) {
+        ASSERT_NEAR(add_values[i], update_values[i], 0.0001);
+    }
 }
