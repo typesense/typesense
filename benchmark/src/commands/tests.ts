@@ -1,4 +1,5 @@
 import { writeFile } from "fs/promises";
+import { networkInterfaces } from "os";
 import path from "path";
 import type { TypesenseProcessController } from "@/services/typesense-process";
 import type { ErrorWithMessage } from "@/utils/error";
@@ -39,7 +40,7 @@ const integrationTestOptionsSchema = z.object({
     message:
       "OpenAI API key must be provided either through environment variable or directly",
   }),
-  ip: z.string(),
+  ip: z.string().optional(),
   snapshotPath: z.string(),
 });
 
@@ -52,7 +53,8 @@ interface NodeConfig {
 }
 
 class IntegrationTests {
-  private readonly ipAddress: string;
+  private readonly ipAddress: string | null;
+  private readonly isInCi = process.env.CI === "true";
 
   public static baseCollectionName = "base_collection";
   public static openAICollectionName = "openai_collection";
@@ -68,7 +70,7 @@ class IntegrationTests {
     private readonly openAIKey: string,
     ipAddress?: string,
   ) {
-    this.ipAddress = ipAddress ?? DEFAULT_IP_ADDRESS;
+    this.ipAddress = ipAddress ?? this.findDefaultNetworkAddress();
   }
 
   private createDataDirectories(
@@ -89,6 +91,22 @@ class IntegrationTests {
     });
   }
 
+  private findDefaultNetworkAddress(): string | null {
+    const interfaces = networkInterfaces();
+
+    if (!this.isInCi) {
+      return DEFAULT_IP_ADDRESS;
+    }
+
+    return (
+      Object.values(interfaces)
+        .flatMap((interfaceInfo) => interfaceInfo ?? [])
+        .find(
+          (info) =>
+            info.family === "IPv4" && info.address.startsWith("10.1.0."),
+        )?.address ?? null
+    );
+  }
   private mapNodesToDirectories(
     dataDirs: [string, string, string],
   ): Result<NodeConfig[], ErrorWithMessage> {
@@ -111,6 +129,11 @@ class IntegrationTests {
   private writeToNodesFile() {
     this.spinner.start("Writing nodes file");
     const nodesFile = path.join(this.workingDirectory, "nodes");
+
+    if (this.ipAddress === null) {
+      return errAsync({ message: "IP address not found" });
+    }
+
     const contents = `${this.ipAddress}:8107:8108,${this.ipAddress}:7107:7108,${this.ipAddress}:9107:9108`;
 
     logger.debug(
@@ -527,11 +550,7 @@ const test = new Command()
     "OpenAI API key. Defaults to OPENAI_API_KEY in PATH",
     process.env.OPENAI_API_KEY,
   )
-  .option(
-    "--ip <ip>",
-    "IP address to use for the Typesense Process.",
-    DEFAULT_IP_ADDRESS,
-  )
+  .option("--ip <ip>", "IP address to use for the Typesense Process.")
   .option("-s, --snapshot-path <path>", "Path to the snapshot file.", cwd)
   .action((options) => {
     logger.info("Running Typesense Integration tests");
