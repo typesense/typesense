@@ -96,7 +96,7 @@ export class TypesenseProcessController extends EventEmitter {
 
 export class TypesenseProcessManager {
   public processes = new Map<number, TypesenseProcessController>();
-  private readonly ipAddress: string;
+  private readonly ipAddress?: string;
   private readonly snapshotPath: string;
 
   constructor(
@@ -108,7 +108,7 @@ export class TypesenseProcessManager {
     snapshotPath?: string,
     ipAddress?: string,
   ) {
-    this.ipAddress = ipAddress ?? DEFAULT_IP_ADDRESS;
+    this.ipAddress = ipAddress;
     this.snapshotPath =
       snapshotPath ?? path.join(this.workingDirectory, "snapshots");
   }
@@ -304,6 +304,8 @@ export class TypesenseProcessManager {
               path.join(this.workingDirectory, "nodes"),
             ];
 
+            const ipArgs = ["--peering-address", this.ipAddress];
+
             const baseArgs = [
               `--data-dir=${dataDir}`,
               `--api-key=${this.apiKey}`,
@@ -311,16 +313,21 @@ export class TypesenseProcessManager {
               `${http}`,
               `--api-address`,
               `0.0.0.0`,
-              `--peering-address`,
-              `${this.ipAddress}`,
               `--peering-port`,
               `${grpc}`,
             ];
 
-            const args =
-              options?.multiNode !== false ?
-                multiNodeArgs.concat(baseArgs)
-              : baseArgs;
+            const args: string[] = [];
+
+            if (options?.multiNode !== false) {
+              args.push(...multiNodeArgs);
+            }
+
+            if (this.ipAddress) {
+              args.push(...(ipArgs as string[]));
+            }
+
+            args.push(...baseArgs);
 
             const execaOptions: ExecaOptions = {
               cwd: this.workingDirectory,
