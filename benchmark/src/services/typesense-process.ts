@@ -16,7 +16,7 @@ import { errAsync, ok, okAsync, Result, ResultAsync } from "neverthrow";
 import { Client } from "typesense";
 
 import { toErrorWithMessage } from "@/utils/error";
-import { logger } from "@/utils/logger";
+import { logger, LogLevel } from "@/utils/logger";
 import { isStringifiable } from "@/utils/stringifiable";
 
 export const DEFAULT_IP_ADDRESS = "192.168.2.25";
@@ -49,6 +49,7 @@ export class TypesenseProcessController extends EventEmitter {
           protocol: "http",
         },
       ],
+      logLevel: logger.getLevel() === LogLevel.DEBUG ? "debug" : "info",
       apiKey: this.apiKey,
       connectionTimeoutSeconds: 100,
       retryIntervalSeconds: 5,
