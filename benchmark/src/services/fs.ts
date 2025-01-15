@@ -1,11 +1,14 @@
-import { access, mkdir, readdir, rm } from "fs/promises";
+import { access, mkdir, readdir, rm, writeFile } from "fs/promises";
 import path from "path";
+import { Readable } from "stream";
 import type { ErrorWithMessage } from "@/utils/error";
 import type { Ora } from "ora";
 
 import { emptyDir } from "fs-extra";
+import gunzip from "gunzip-maybe";
 import inquirer from "inquirer";
 import { errAsync, okAsync, ResultAsync } from "neverthrow";
+import { extract } from "tar-stream";
 
 import { toErrorWithMessage } from "@/utils/error";
 
@@ -169,11 +172,83 @@ export class FilesystemService {
     );
   }
 
+  private decompressStream(
+    buffer: ArrayBuffer,
+  ): ResultAsync<void, ErrorWithMessage> {
+    this.spinner.start("Decompressing dataset");
+
+    return ResultAsync.fromPromise(
+      new Promise<string>((resolve, reject) => {
+        const extraction = extract();
+        let jsonContent = "";
+
+        extraction.on("entry", (header, stream, next) => {
+          if (header.name.endsWith(".jsonl")) {
+            stream.on("data", (chunk) => {
+              jsonContent += chunk;
+            });
+          }
+          stream.on("end", () => next());
+          stream.resume();
+        });
+
+        extraction.on("finish", () => {
+          resolve(jsonContent);
+        });
+
+        extraction.on("error", (err) => {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+          reject(toErrorWithMessage(err));
+        });
+
+        const readable = Readable.from(Buffer.from(buffer));
+        readable.pipe(gunzip()).pipe(extraction);
+      }),
+      toErrorWithMessage,
+    )
+      .andThen((jsonContent) => {
+        return ResultAsync.fromPromise(
+          mkdir("data", { recursive: true }).then(() =>
+            writeFile("data/data.json", jsonContent),
+          ),
+          toErrorWithMessage,
+        );
+      })
+      .map(() => {
+        this.spinner.succeed("Dataset decompressed and saved successfully");
+      });
+  }
+
+  downloadTypesenseDataset(url: string): ResultAsync<void, ErrorWithMessage> {
+    this.spinner.start(`Downloading dataset from ${url}`);
+
+    return ResultAsync.fromPromise(fetch(url), toErrorWithMessage)
+      .andThen((response) => {
+        if (!response.ok) {
+          return errAsync({
+            message: `Failed to download dataset: ${response.statusText}`,
+          });
+        }
+
+        return ResultAsync.fromPromise(
+          response.arrayBuffer(),
+          toErrorWithMessage,
+        );
+      })
+      .andThen((buffer) => this.decompressStream(buffer))
+      .map(() => {
+        this.spinner.succeed(`Dataset downloaded successfully`);
+      });
+  }
+
   private handleNonExistingDirectory(
     directory: string,
   ): ResultAsync<string, ErrorWithMessage> {
-    if (this.yesToAll){
-      return ResultAsync.fromPromise(mkdir(directory, { recursive: true }), toErrorWithMessage).map(() => directory);
+    if (this.yesToAll) {
+      return ResultAsync.fromPromise(
+        mkdir(directory, { recursive: true }),
+        toErrorWithMessage,
+      ).map(() => directory);
     }
 
     return ResultAsync.fromPromise(
