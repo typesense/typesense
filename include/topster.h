@@ -207,14 +207,17 @@ struct Topster {
 
     std::unordered_map<uint64_t, T*> map;
 
+    bool is_group_by_first_pass;
     size_t distinct;
     spp::sparse_hash_set<uint64_t> group_doc_seq_ids;
     spp::sparse_hash_map<uint64_t, Topster<T, get_key, get_distinct_key, is_greater, is_smaller>*> group_kv_map;
 
-    explicit Topster(size_t capacity): Topster(capacity, 0) {
+    explicit Topster(size_t capacity): Topster(capacity, 0, false) {
     }
 
-    explicit Topster(size_t capacity, size_t distinct): MAX_SIZE(capacity), size(0), distinct(distinct) {
+    explicit Topster(size_t capacity, size_t distinct, bool is_group_by_first_pass) :
+                                                                MAX_SIZE(capacity), size(0), distinct(distinct),
+                                                                is_group_by_first_pass(is_group_by_first_pass) {
         // we allocate data first to get a memory block whose indices are then assigned to `kvs`
         // we use separate **kvs for easier pointer swaps
         data = new T[capacity];
@@ -263,15 +266,16 @@ struct Topster {
        
         bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller(kv, kvs[0]);
         size_t heap_op_index = 0;
+        const bool& is_group_by_second_pass = distinct && !is_group_by_first_pass;
 
-        if(!distinct && less_than_min_heap) {
-            // for non-distinct, if incoming value is smaller than min-heap ignore
+        if(!is_group_by_second_pass && less_than_min_heap) {
+            // for non-distinct or first group_by pass, if incoming value is smaller than min-heap ignore
             return 0;
         }
 
         bool SIFT_DOWN = true;
 
-        if(distinct) {
+        if(is_group_by_second_pass) {
             const auto& doc_seq_id_exists = 
                 (group_doc_seq_ids.find(kv->key) != group_doc_seq_ids.end());
         
@@ -292,10 +296,11 @@ struct Topster {
             
             return ret;
 
-        } else { // not distinct
+        } else { // not distinct or first group_by pass
             //LOG(INFO) << "Searching for key: " << kv->key;
 
-            const auto& found_it = map.find(get_key(kv));
+            const auto& key = is_group_by_first_pass ? get_distinct_key(kv) : get_key(kv);
+            const auto& found_it = map.find(key);
             bool is_duplicate_key = (found_it != map.end());
 
             /*
@@ -319,7 +324,7 @@ struct Topster {
 
                 // replace existing kv and sift down
                 heap_op_index = existing_kv->array_index;
-                map.erase(get_key(kvs[heap_op_index]));
+                map.erase(is_group_by_first_pass ? get_distinct_key(kvs[heap_op_index]) : get_key(kvs[heap_op_index]));
             } else {  // not duplicate
 
                 if(size < MAX_SIZE) {
@@ -332,12 +337,12 @@ struct Topster {
                     // we have to replace min heap element since array is full
                     SIFT_DOWN = true;
                     heap_op_index = 0;
-                    map.erase(get_key(kvs[heap_op_index]));
+                    map.erase(is_group_by_first_pass ? get_distinct_key(kvs[heap_op_index]) : get_key(kvs[heap_op_index]));
                 }
             }
 
             // kv will be copied into the pointer at heap_op_index
-            map.emplace(get_key(kv), kvs[heap_op_index]);
+            map.emplace(key, kvs[heap_op_index]);
         }
 
         // we have to replace the existing element in the heap and sift down
@@ -380,7 +385,7 @@ struct Topster {
 
     // topster must be sorted before iterated upon to remove dead array entries
     void sort() {
-        if(!distinct) {
+        if(!distinct || is_group_by_first_pass) {
             std::stable_sort(kvs, kvs + size, is_greater);
         }
     }
