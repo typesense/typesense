@@ -507,41 +507,47 @@ class Benchmarks {
   }
 
   private performBenchmarks(commitHashes: string[]) {
-    return this.createDataDirectories().andThen(() =>
-      commitHashes.reduce(
-        (promise, commitHash, index) =>
-          promise.andThen(() => {
-            this.spinner.start("Running benchmarks");
-            return this.startProcess(commitHash).andThen(() => {
-              const benchmarkGroup = this.benchmarkGroupsByCommitHash[commitHash];
-              if (!benchmarkGroup) {
-                return errAsync(new Error(`No benchmark group found for ${commitHash}`));
-              }
-              return benchmarkGroup.k6Benchmark
-                .performIndexingBenchmark()
-                .andThen(() => benchmarkGroup.k6Benchmark.performSearchBenchmark())
-                .map(() => {
-                  this.spinner.succeed(`Benchmarks complete for ${commitHash}`);
+    return this.createDataDirectories()
+      .andThen(() =>
+        this.services
+          .get("fs")
+          .downloadTypesenseDataset("https://dl.typesense.org/datasets/musicbrainz-1M-songs.jsonl.tar.gz"),
+      )
+      .andThen(() =>
+        commitHashes.reduce(
+          (promise, commitHash, index) =>
+            promise.andThen(() => {
+              this.spinner.start("Running benchmarks");
+              return this.startProcess(commitHash).andThen(() => {
+                const benchmarkGroup = this.benchmarkGroupsByCommitHash[commitHash];
+                if (!benchmarkGroup) {
+                  return errAsync(new Error(`No benchmark group found for ${commitHash}`));
+                }
+                return benchmarkGroup.k6Benchmark
+                  .performIndexingBenchmark()
+                  .andThen(() => benchmarkGroup.k6Benchmark.performSearchBenchmark())
+                  .map(() => {
+                    this.spinner.succeed(`Benchmarks complete for ${commitHash}`);
 
-                  for (const controller of benchmarkGroup.processManager.processes.values()) {
-                    controller.cleanup();
-                  }
-                })
-                .andThen(() => {
-                  // Only delay if not the last iteration
-                  if (index < commitHashes.length - 1) {
-                    this.spinner.start("Waiting 10 seconds before next benchmark...");
-                    return this.delay(10000).map(() => {
-                      this.spinner.succeed("Delay complete");
-                    });
-                  }
-                  return okAsync(undefined);
-                });
-            });
-          }),
-        okAsync<void, ErrorWithMessage>(undefined),
-      ),
-    );
+                    for (const controller of benchmarkGroup.processManager.processes.values()) {
+                      controller.cleanup();
+                    }
+                  })
+                  .andThen(() => {
+                    // Only delay if not the last iteration
+                    if (index < commitHashes.length - 1) {
+                      this.spinner.start("Waiting 10 seconds before next benchmark...");
+                      return this.delay(10000).map(() => {
+                        this.spinner.succeed("Delay complete");
+                      });
+                    }
+                    return okAsync(undefined);
+                  });
+              });
+            }),
+          okAsync<void, ErrorWithMessage>(undefined),
+        ),
+      );
   }
 }
 
