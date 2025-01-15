@@ -169,7 +169,7 @@ export class K6Benchmarks {
       BATCH_SIZE: this.config.batchSize,
       COLLECTION_NAME: K6Benchmarks.COLLECTION_NAME,
       PORT: this.config.port,
-      HOST: this.isInCi ? "typesense" : "host.docker.internal",
+      HOST: "host.docker.internal",
       COMMIT_HASH: this.config.commitHash,
       ...additionalVars,
     };
