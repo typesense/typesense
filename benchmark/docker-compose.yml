@@ -14,6 +14,7 @@ services:
       - INFLUXDB_DB=k6
     volumes:
       - ./influxdb.generated.conf:/etc/influxdb/influxdb.conf
+      - ./influxdb-data:/var/lib/influxdb
     command: influxd -config /etc/influxdb/influxdb.conf
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8086/ping"]
