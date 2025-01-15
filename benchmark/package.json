@@ -1,11 +1,11 @@
 {
-  "name": "ts-test",
+  "name": "ts-cli",
   "version": "0.0.0",
   "description": "Benchmarking tool for Typesense",
   "type": "module",
   "main": "index.js",
   "bin": {
-    "typesense-benchmark": "./dist/index.js"
+    "ts-cli": "./dist/index.js"
   },
   "scripts": {
     "dev": "tsup --watch",
