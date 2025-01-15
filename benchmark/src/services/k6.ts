@@ -68,9 +68,13 @@ export class K6Benchmarks {
     });
   }
 
-  private executeK6Benchmark(options: { scriptPath: string; name: string }): ResultAsync<void, ErrorWithMessage> {
+  private executeK6Benchmark(options: {
+    scriptPath: string;
+    name: string;
+    additionalVars?: Record<string, unknown>;
+  }): ResultAsync<void, ErrorWithMessage> {
     const { scriptPath, name } = options;
-    const envVarString = this.buildK6EnvironmentVars();
+    const envVarString = this.buildK6EnvironmentVars(options.additionalVars);
     this.config.spinner.start(`Running ${name} benchmark\n`);
 
     const command = [
@@ -156,7 +160,9 @@ export class K6Benchmarks {
     return okAsync(undefined);
   }
 
-  private buildK6EnvironmentVars(): string {
+  private buildK6EnvironmentVars(
+    additionalVars?: Record<string, unknown>,
+  ): string {
     const envVarMap = {
       API_KEY: this.config.apiKey,
       DURATION: this.config.duration,
@@ -165,6 +171,7 @@ export class K6Benchmarks {
       PORT: this.config.port,
       HOST: this.isInCi ? "typesense" : "host.docker.internal",
       COMMIT_HASH: this.config.commitHash,
+      ...additionalVars,
     };
 
     return Object.entries(envVarMap)
