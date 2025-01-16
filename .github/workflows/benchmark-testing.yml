@@ -164,7 +164,7 @@ jobs:
           echo "Previous SHA: ${{ steps.get-runs.outputs.previous_sha }}"
           
           ./dist/index.js benchmark \
-            --binaries $(pwd)/../current-binary/typesense-server $(pwd)/../base-binary/typesense-server -c ${{ steps.get-runs.outputs.latest_sha }} ${{ steps.get-runs.outputs.previous_sha }} -d $(pwd)/benchmark-workdir  -y -v  --duration 1m
+            --binaries $(pwd)/../base-binary/typesense-server $(pwd)/../current-binary/typesense-server -c ${{ steps.get-runs.outputs.previous_sha }} ${{ steps.get-runs.outputs.latest_sha }} -d $(pwd)/benchmark-workdir  -y -v  --duration 30s
 
       # Fix permissions and save data
       - name: Fix permissions for artifact upload
