@@ -312,11 +312,11 @@ export const options: K6Options = {
   scenarios: Object.fromEntries(
     searchScenarios.flatMap((scenario, index) => {
       const durationInSeconds = parseDuration(DURATION);
-      const gap = 1; // 1-second gap between scenarios
-      const startTime10vu = index * (durationInSeconds + gap) * 2;
-      const startTime100vu = startTime10vu + durationInSeconds + gap;
+      const gap = 5; // 5-second gap between scenarios
+      const startTime50vu = index * (durationInSeconds + gap) * 2;
+      const startTime100vu = startTime50vu + durationInSeconds + gap;
       return [
-        [`${scenario.name}_10vu`, createScenarioConfig(scenario, 10, startTime10vu)],
+        [`${scenario.name}_50vu`, createScenarioConfig(scenario, 50, startTime50vu)],
         [`${scenario.name}_100vu`, createScenarioConfig(scenario, 100, startTime100vu)],
       ];
     }),
