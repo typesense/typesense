@@ -309,6 +309,7 @@ const createScenarioConfig = (
 });
 
 export const options: K6Options = {
+  systemTags: [],
   scenarios: Object.fromEntries(
     searchScenarios.flatMap((scenario, index) => {
       const durationInSeconds = parseDuration(DURATION);
@@ -394,7 +395,7 @@ export default function (): void {
 
   if (!scenario.wildCardQuery) {
     // Pick search phrase
-    const searchPhrase = getSearchPhrase(Number(__ENV.VUS) || 15);
+    const searchPhrase = getSearchPhrase(10);
     // Break the search phrase out into characters to simulate users typing
     const queries = instantSearchQueriesForSearchPhrase(searchPhrase.phrase ?? "aaa");
 
