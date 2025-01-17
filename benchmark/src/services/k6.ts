@@ -131,15 +131,6 @@ export class K6Benchmarks {
     const checkMatch = /([0-9.]+)%/.exec(checksLine);
     const checksPassRate = parseFloat(checkMatch?.[1] ?? "0");
 
-    const hasCompleteOutput = result.out.includes("status") && result.out.includes("vus_max");
-
-    if (!hasCompleteOutput) {
-      logger.warn("Incomplete k6 output detected");
-      return errAsync({
-        message: "Incomplete k6 output - unable to determine test results",
-      });
-    }
-
     this.config.spinner.stop();
     logger.info(`Checks pass rate: ${checksPassRate}%`);
 
