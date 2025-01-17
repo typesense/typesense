@@ -11,11 +11,6 @@
 #include <match_score.h>
 #include <string_utils.h>
 #include <tokenizer.h>
-#include <s2/s2point.h>
-#include <s2/s2latlng.h>
-#include <s2/s2region_term_indexer.h>
-#include <s2/s2cap.h>
-#include <s2/s2loop.h>
 #include <posting.h>
 #include <thread_local_vars.h>
 #include <unordered_set>
@@ -84,6 +79,8 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
                 spp::sparse_hash_map<uint32_t, int64_t*> * doc_to_geos = new spp::sparse_hash_map<uint32_t, int64_t*>();
                 geo_array_index.emplace(a_field.name, doc_to_geos);
             }
+        } else if(a_field.is_geopolygon()) {
+            field_geopolygon_index.emplace(a_field.name, new GeoPolygonIndex());
         } else {
             if (a_field.range_index) {
                 auto trie = a_field.is_bool() ? new NumericTrie(8) :
@@ -233,6 +230,13 @@ Index::~Index() {
     }
 
     object_array_reference_index.clear();
+
+    for(auto& geopolygon_index : field_geopolygon_index) {
+        delete  geopolygon_index.second;
+        geopolygon_index.second = nullptr;
+    }
+
+    field_geopolygon_index.clear();
 }
 
 int64_t Index::get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field) {
@@ -723,7 +727,7 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
     // b) `afield` value could be empty
 
     // non-geo faceted field should be indexed as faceted string field as well
-    bool is_facet_field = (afield.facet && !afield.is_geopoint());
+    bool is_facet_field = (afield.facet && !afield.is_geopoint() && !afield.is_geopolygon());
 
     if(afield.is_string() || is_facet_field) {
         std::unordered_map<std::string, std::vector<art_document>> token_to_doc_offsets;
@@ -922,16 +926,23 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
                     num_tree->insert(value, seq_id);
                 }
             });
-        } else if(afield.type == field_types::GEOPOINT || afield.type == field_types::GEOPOINT_ARRAY) {
-            auto geopoint_range_index = geo_range_index.at(afield.name);
+        } else if(afield.type == field_types::GEOPOINT || afield.type == field_types::GEOPOINT_ARRAY || afield.type == field_types::GEOPOLYGON) {
+            auto geopoint_range_index = afield.type != field_types::GEOPOLYGON ? geo_range_index.at(afield.name) : nullptr;
+            auto geopolygon_index = afield.type == field_types::GEOPOLYGON ? field_geopolygon_index.at(afield.name) : nullptr;
 
             iterate_and_index_numerical_field(iter_batch, afield,
-            [&afield, &geo_array_index=geo_array_index, geopoint_range_index](const index_record& record, uint32_t seq_id) {
+            [&afield, &geo_array_index=geo_array_index, geopoint_range_index, &geopolygon_index](const index_record& record, uint32_t seq_id) {
                 // nested geopoint value inside an array of object will be a simple array so must be treated as geopoint
                 bool nested_obj_arr_geopoint = (afield.nested && afield.type == field_types::GEOPOINT_ARRAY &&
                                     !record.doc[afield.name].empty() && record.doc[afield.name][0].is_number());
 
-                if(afield.type == field_types::GEOPOINT || nested_obj_arr_geopoint) {
+                if(afield.type == field_types::GEOPOLYGON) {
+                    const std::vector<double>& latlongs = record.doc[afield.name];
+                    auto op = geopolygon_index->addPolygon(latlongs, seq_id);
+                    if(!op.ok()) {
+                        LOG(ERROR) <<  op.error();
+                    }
+                } else if(afield.type == field_types::GEOPOINT || nested_obj_arr_geopoint) {
                     // this could be a nested gepoint array so can have more than 2 array values
                     const std::vector<double>& latlongs = record.doc[afield.name];
                     for(size_t li = 0; li < latlongs.size(); li+=2) {
@@ -1808,7 +1819,8 @@ bool Index::field_is_indexed(const std::string& field_name) const {
     return search_index.count(field_name) != 0 ||
     numerical_index.count(field_name) != 0 ||
     range_index.count(field_name) != 0 ||
-    geo_range_index.count(field_name) != 0;
+    geo_range_index.count(field_name) != 0 ||
+    field_geopolygon_index.count(field_name) != 0;
 }
 
 Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root,
@@ -6735,6 +6747,9 @@ void Index::remove_field(uint32_t seq_id, nlohmann::json& document, const std::s
                 field_geo_array_map->erase(seq_id);
             }
         }
+    } else if(search_field.is_geopolygon()) {
+        auto geopolygonIndex = field_geopolygon_index.at(field_name);
+        geopolygonIndex->removePolygon(seq_id);
     }
 
     // remove facets
@@ -8001,6 +8016,16 @@ void Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV
             result_kvs.push_back({kv});
         }
     }
+}
+
+GeoPolygonIndex* Index::get_geopolygon_index(const std::string &field_name) const {
+    auto find_it = field_geopolygon_index.find(field_name);
+
+    if(find_it == field_geopolygon_index.end()) {
+        return nullptr;
+    }
+
+    return find_it->second;
 }
 
 /*
