@@ -84,7 +84,7 @@ jobs:
           tar -czvf bazel-cache.tar.gz -C ~/.cache/bazel .
 
       - name: Save bazel cache
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: bazel-cache
@@ -96,7 +96,7 @@ jobs:
       - name: Set BAZEL_BIN_FULL_PATH
         run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
       - name: Save build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: typesense-server
           path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
