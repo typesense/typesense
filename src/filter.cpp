@@ -576,7 +576,7 @@ Option<bool> toFilter(const std::string& expression,
             std::vector<std::string> filter_values;
             StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
             filter_exp = {field_name, {}, {}};
-            for (std::string &filter_value: filter_values) {
+            for (std::string& filter_value: filter_values) {
                 if (filter_value != "true" && filter_value != "false") {
                     return Option<bool>(400, "Values of filter field `" + _field.name +
                                              "`: must be `true` or `false`.");
