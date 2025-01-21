@@ -3513,8 +3513,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         if(split_join_tokens == always || (all_result_ids_len == 0 && split_join_tokens == fallback)) {
             std::vector<std::vector<std::string>> space_resolved_queries;
 
+            std::vector<std::string> orig_q_include_tokens;
+
             for (size_t i = 0; i < num_search_fields; i++) {
-                std::vector<std::string> orig_q_include_tokens;
+                orig_q_include_tokens.clear();
                 for(auto& q_include_token: field_query_tokens[i].q_include_tokens) {
                     orig_q_include_tokens.push_back(q_include_token.value);
                 }
@@ -3532,7 +3534,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 std::vector<token_t> resolved_tokens;
 
                 for(size_t j=0; j < resolved_query.size(); j++) {
-                    bool is_prefix = (j == resolved_query.size()-1);
+                    bool is_prefix = (j == resolved_query.size()-1 &&
+                                        orig_q_include_tokens.back() == resolved_query.back());
                     resolved_tokens.emplace_back(j, space_resolved_queries[0][j], is_prefix,
                                                  space_resolved_queries[0][j].size(), 0);
                 }
