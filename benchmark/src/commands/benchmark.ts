@@ -1,15 +1,17 @@
 import path from "path";
 import type { ErrorWithMessage } from "@/utils/error";
+import type { Point } from "@/utils/plot";
 import type { NumericIndices } from "@/utils/types";
 import type { IResults } from "influx";
 import type { Ora } from "ora";
 import type { TableUserConfig } from "table";
 
+import * as asciichart from "asciichart";
 import chalk from "chalk";
 import { Command } from "commander";
 import { ps, upMany } from "docker-compose";
 import { InfluxDB } from "influx";
-import { errAsync, ok, okAsync, ResultAsync } from "neverthrow";
+import { err, errAsync, ok, okAsync, ResultAsync } from "neverthrow";
 import { table } from "table";
 import { z } from "zod";
 
@@ -21,6 +23,7 @@ import { toErrorWithMessage } from "@/utils/error";
 import { logger, LogLevel } from "@/utils/logger";
 import { dirName, findRoot } from "@/utils/package-info";
 import { parseOptions } from "@/utils/parse";
+import { plot } from "@/utils/plot";
 
 const cwd = process.cwd();
 
@@ -32,6 +35,19 @@ interface FormattedResults {
   percentageChange: number;
   formattedPercentageChange: string;
 }
+
+type CommitHash = string;
+
+type ScenarioData = Record<string, Point[]>;
+
+type HistoricalData = Record<
+  CommitHash,
+  {
+    scenario: string;
+    vus: number;
+    p95: number;
+  }[]
+>;
 
 const benchmarkOptionSchema = z.object({
   containerName: z.string(),
@@ -196,7 +212,7 @@ class Benchmarks {
     return okAsync(results);
   }
 
-  private getResults(): ResultAsync<BenchmarkResults, { message: string; commitHash?: string }> {
+  private getComparisonResults(): ResultAsync<BenchmarkResults, { message: string; commitHash?: string }> {
     const influx = new InfluxDB({
       host: "localhost",
       port: 8086,
@@ -382,6 +398,7 @@ class Benchmarks {
 
     return okAsync(resultMap);
   }
+
   private calculatePercentageChange(oldValue: number, newValue: number) {
     if (oldValue === 0) {
       return newValue === 0 ? 0 : Infinity; // No change if both 0, Infinite increase if old is 0 and new is positive
@@ -404,6 +421,147 @@ class Benchmarks {
     return chalk[percentageChange < 0 ? "green" : "red"](`${sign}${formattedChange}%`);
   }
 
+  private groupPointsByScenarioAndVU(data: HistoricalData): Map<string, Map<number, Point[]>> {
+    const scenarioMap = new Map<string, Map<number, Point[]>>();
+
+    Object.entries(data).forEach(([commitHash, results]) => {
+      results.forEach((result) => {
+        const { scenario, vus, p95 } = result;
+        const point: Point = { x: commitHash, y: p95 };
+
+        // Get or create the VU map for this scenario
+        const vuMap = scenarioMap.get(scenario) ?? new Map<number, Point[]>();
+        if (!scenarioMap.has(scenario)) {
+          scenarioMap.set(scenario, vuMap);
+        }
+
+        // Get or create the points array for this VU count
+        const points = vuMap.get(vus) ?? [];
+        if (!vuMap.has(vus)) {
+          vuMap.set(vus, points);
+        }
+
+        points.push(point);
+      });
+    });
+
+    return scenarioMap;
+  }
+
+  private formatScenarioData(scenarioMap: Map<string, Map<number, Point[]>>): [ScenarioData, ScenarioData][] {
+    return Array.from(scenarioMap.entries()).map(([scenario, vuMap]) => {
+      const vuEntries = Array.from(vuMap.entries()) as [[number, Point[]], [number, Point[]]];
+
+      if (vuEntries.length !== 2) {
+        throw new Error(`Scenario ${scenario} must have exactly 2 VU entries`);
+      }
+
+      const [firstVU, secondVU] = vuEntries;
+
+      return [this.createScenarioDataPoint(scenario, firstVU), this.createScenarioDataPoint(scenario, secondVU)];
+    });
+  }
+
+  private createScenarioDataPoint(scenario: string, vuEntry: [number, Point[]]): ScenarioData {
+    const [vuCount, points] = vuEntry;
+    const key = `${scenario} (${vuCount}vu)`;
+    return { [key]: points };
+  }
+
+  private transformHistoricalData(data: HistoricalData): [ScenarioData, ScenarioData][] {
+    const scenarioMap = this.groupPointsByScenarioAndVU(data);
+
+    return this.formatScenarioData(scenarioMap);
+  }
+
+  private getHistoricalResults() {
+    const influx = new InfluxDB({
+      host: "localhost",
+      port: 8086,
+      database: "k6",
+    });
+
+    const searchDurationQuery = `
+    SELECT PERCENTILE("value", 95) AS "p95_value"
+    FROM "search_processing_time_ms"
+    WHERE time >= now() - 30d
+    GROUP BY "commitHash", "scenario", "vus"
+    ORDER BY time ASC
+  `;
+
+    return (
+      ResultAsync.fromPromise(
+        influx.query<{
+          commitHash: string;
+          scenario: string;
+          vus: string;
+          p95_value: number;
+        }>(searchDurationQuery),
+        toErrorWithMessage,
+      )
+        .map((res) => this.mapHistoricalResults(res))
+        .map((res) => this.transformHistoricalData(res))
+        // .map((res) => {
+        //   console.dir(res, { depth: null });
+        // });
+        .map((res) => this.printPlots(res))
+    );
+  }
+
+  printPlots(results: [ScenarioData, ScenarioData][]) {
+    results.forEach(([first, second]) => {
+      const label1 = Object.keys(first)[0];
+      const label2 = Object.keys(second)[0];
+
+      if (!label1 || !label2) {
+        return;
+      }
+
+      const points = [first[label1], second[label2]];
+
+      const isFull = points.every((point) => point && point.length > 0);
+
+      if (!isFull) {
+        return err({ message: "Missing data for plot" });
+      }
+
+      logger.info(
+        plot(points as Point[][], {
+          title: `${label1.split(" ")[0]} over ${points[0]?.length} commits`,
+          xLabel: "Commit Hash",
+          yLabel: "p95 search_time_ms",
+          lineLabels: [label1, label2],
+          colors: [asciichart.blue, asciichart.green],
+          width: 50,
+          height: 30,
+        }),
+      );
+    });
+  }
+  private mapHistoricalResults(
+    results: IResults<{
+      commitHash: string;
+      scenario: string;
+      vus: string;
+      p95_value: number;
+    }>,
+  ): HistoricalData {
+    const resultMap: HistoricalData = {};
+
+    for (const { commitHash, scenario, vus, p95_value } of results) {
+      if (!resultMap[commitHash]) {
+        resultMap[commitHash] = [];
+      }
+      resultMap[commitHash].push({
+        scenario: scenario,
+        vus: Number(vus),
+        p95: p95_value,
+      });
+    }
+
+    return resultMap;
+  }
+
   private printTable(results: BenchmarkResults): ResultAsync<FormattedResults[], ErrorWithMessage> {
     const formattedRows: FormattedResults[] = [];
     const importDuration = results[this.commitHashes[0]]?.indexDuration;
@@ -414,6 +572,7 @@ class Benchmarks {
     }
 
     const importPercentageChange = this.calculatePercentageChange(importDuration, importDurationNew);
+
     formattedRows.push({
       metric: "Time to bulk import",
       variable: "1M records",
@@ -440,7 +599,9 @@ class Benchmarks {
     for (const [key, oldP95] of previousSearchResultsMap) {
       const newP95 = newSearchResultsMap.get(key);
       if (newP95 === undefined) {
-        return errAsync({ message: `${key} doesn't have a value for the search benchmark` });
+        return errAsync({
+          message: `${key} doesn't have a value for the search benchmark`,
+        });
       }
       const percentageChange = this.calculatePercentageChange(oldP95, newP95);
       formattedRows.push({
@@ -492,7 +653,7 @@ class Benchmarks {
 
     return this.startContainers()
       .andThen(() =>
-        this.getResults()
+        this.getComparisonResults()
           .orElse((error) => {
             if (error.commitHash) {
               return this.performBenchmarks([error.commitHash]);
@@ -500,10 +661,11 @@ class Benchmarks {
 
             return this.performBenchmarks(this.commitHashes);
           })
-          .andThen(() => this.getResults())
+          .andThen(() => this.getComparisonResults())
           .andThen((res) => this.printTable(res)),
       )
-      .andThen((results) => this.handleResults(results));
+      .andThen((results) => this.handleResults(results))
+      .andThen(() => this.getHistoricalResults());
   }
 
   private performBenchmarks(commitHashes: string[]) {
@@ -641,7 +803,7 @@ const benchmark = new Command()
           logger.error(result.error.message);
           process.exit(1);
         }
-        logger.success("Integration tests passed successfully");
+        logger.success("Benchmarks completed successfully");
         process.exit(0);
       });
   });
