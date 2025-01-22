@@ -565,9 +565,15 @@ class Benchmarks {
     }
 
     // Sort commits by first appearance
-    const sortedCommits = [...new Set(results.map((r) => r.commitHash))].sort(
-      (a, b) => (firstAppearances.get(a) ?? 0) - (firstAppearances.get(b) ?? 0),
-    );
+    const sortedCommits = [...new Set(results.map((r) => r.commitHash))].sort((a, b) => {
+      const timeA = firstAppearances.get(a) ?? 0;
+      const timeB = firstAppearances.get(b) ?? 0;
+      return (
+        timeA < timeB ? -1
+        : timeA > timeB ? 1
+        : 0
+      );
+    });
 
     // Build result map in chronological order
     const resultMap: HistoricalData = {};
