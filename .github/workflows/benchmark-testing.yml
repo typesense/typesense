@@ -110,13 +110,10 @@ jobs:
 
       # Download previous benchmark data
       - name: Download previous benchmark data
-        uses: dawidd6/action-download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           name: benchmark-data
-          workflow: benchmark-testing.yml
           path: ./benchmark/influxdb-data
-          search_artifacts: true
-        continue-on-error: true
 
       # Prepare InfluxDB
       - name: Prepare data directory
