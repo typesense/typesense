@@ -492,7 +492,6 @@ class Benchmarks {
 
     return ResultAsync.fromPromise(
       influx.query<{
-        time: INanoDate;
         commitHash: string;
         scenario: string;
         vus: string;

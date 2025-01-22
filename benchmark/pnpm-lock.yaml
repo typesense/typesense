@@ -36,8 +36,8 @@ importers:
         specifier: ^1.4.2
         version: 1.4.2
       influx:
-        specifier: ^5.9.3
-        version: 5.9.3
+        specifier: ^5.9.7
+        version: 5.9.7
       inquirer:
         specifier: ^12.3.0
         version: 12.3.0(@types/node@22.10.2)
@@ -1379,8 +1379,8 @@ packages:
     resolution: {integrity: sha512-JmXMZ6wuvDmLiHEml9ykzqO6lwFbof0GG4IkcGaENdCRDDmMVnny7s5HsIgHCbaq0w2MyPhDqkhTUgS2LU2PHA==}
     engines: {node: '>=0.8.19'}
 
-  influx@5.9.3:
-    resolution: {integrity: sha512-QQU9CgwnaEV6zMrK8+vhVItsdoKFqDioXJrjJhRQaff9utvT3N0jcrQJT9qnxFLktqgJ5ngbDY68Zh4eo4uD/w==}
+  influx@5.9.7:
+    resolution: {integrity: sha512-F3PUzy/CHjbYizuJqekjcrMrwnY7KrK55xBoyGw3H644I5FNgcF7zX8nfXVNXEgb+giKuAI0pX6NRhB33XpEnA==}
 
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
@@ -3399,7 +3399,7 @@ snapshots:
 
   imurmurhash@0.1.4: {}
 
-  influx@5.9.3: {}
+  influx@5.9.7: {}
 
   inherits@2.0.4: {}
 

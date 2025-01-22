@@ -60,7 +60,7 @@
     "execa": "^9.5.2",
     "fs-extra": "^11.2.0",
     "gunzip-maybe": "^1.4.2",
-    "influx": "^5.9.3",
+    "influx": "^5.9.7",
     "inquirer": "^12.3.0",
     "k6": "^0.0.0",
     "neverthrow": "^8.1.1",
