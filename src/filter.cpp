@@ -78,7 +78,8 @@ Option<NUM_COMPARATOR> filter::extract_num_comparator(string &comp_and_value) {
 Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
                                                  const std::string& format_err_msg,
                                                  std::string& processed_filter_val,
-                                                 NUM_COMPARATOR& num_comparator) {
+                                                 NUM_COMPARATOR& num_comparator,
+                                                 bool is_geopolygon) {
 
     num_comparator = LESS_THAN_EQUALS;
 
@@ -92,8 +93,12 @@ Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
 
     // we will end up with: "10.45 34.56 2 km" or "10.45 34.56 2mi" or a geo polygon
 
-    if(filter_values.size() < 3) {
+    if(filter_values.size() < 3 && !is_geopolygon) {
         return Option<bool>(400, format_err_msg);
+    }
+
+    if(is_geopolygon && filter_values.size() != 2) {
+        return Option<bool>(400, "Value of geopolygon filter field must be in the format `(-44.50, 170.29)`");
     }
 
     // do validation: format should match either a point + radius or polygon
@@ -587,7 +592,7 @@ Option<bool> toFilter(const std::string& expression,
             std::string bool_value = (raw_value == "true") ? "1" : "0";
             filter_exp = {field_name, {bool_value}, {bool_comparator}};
         }
-    } else if (_field.is_geopoint()) {
+    } else if (_field.is_geopoint() || _field.is_geopolygon()) {
         filter_exp = {field_name};
         NUM_COMPARATOR num_comparator;
 
@@ -614,7 +619,7 @@ Option<bool> toFilter(const std::string& expression,
                 filter_value += ")";
                 std::string processed_filter_val;
                 auto parse_op = filter::parse_geopoint_filter_value(filter_value, format_err_msg, processed_filter_val,
-                                                                    num_comparator);
+                                                                    num_comparator, _field.is_geopolygon());
                 if (!parse_op.ok()) {
                     return parse_op;
                 }
@@ -625,7 +630,7 @@ Option<bool> toFilter(const std::string& expression,
             // single value, e.g. (10.45, 34.56, 2 km)
             std::string processed_filter_val;
             auto parse_op = filter::parse_geopoint_filter_value(raw_value, format_err_msg, processed_filter_val,
-                                                                num_comparator);
+                                                                num_comparator, _field.is_geopolygon());
             if (!parse_op.ok()) {
                 return parse_op;
             }

@@ -33,6 +33,8 @@
 #include "filter.h"
 #include "facet_index.h"
 #include "numeric_range_trie.h"
+#include "geopolygon_index.h"
+
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
 using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
@@ -429,6 +431,8 @@ private:
     spp::sparse_hash_map<std::string, NumericTrie*> range_index;
 
     spp::sparse_hash_map<std::string, NumericTrie*> geo_range_index;
+
+    spp::sparse_hash_map<std::string, GeoPolygonIndex*> field_geopolygon_index;
 
     // geo_array_field => (seq_id => values) used for exact filtering of geo array records
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;
@@ -1120,6 +1124,8 @@ public:
     static void populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV *>> &result_kvs,
                                     const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                     const std::vector<sort_by>& sort_by_fields);
+
+    GeoPolygonIndex* get_geopolygon_index(const std::string& field_name) const;
 };
 
 template<class T>

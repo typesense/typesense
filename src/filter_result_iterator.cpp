@@ -1503,6 +1503,42 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
         return;
+    } else if (f.is_geopolygon()) {
+        const std::string& filter_value = a_filter.values[0];
+
+        std::vector<std::string> filter_value_parts;
+        StringUtils::split(filter_value, filter_value_parts, ",");
+
+        if (filter_value_parts.size() != 2) {
+            status = Option<bool>(400,
+                                  "Invalid params for searching geopolygon. Lattitude-Longitude coordinates are expected.");
+            validity = invalid;
+            return;
+        }
+
+        auto lat = std::stod(filter_value_parts[0]);
+        auto lon = std::stod(filter_value_parts[1]);
+
+        auto geopolygonIndex = index->get_geopolygon_index(f.name);
+        if (geopolygonIndex) {
+            auto geo_result_ids = geopolygonIndex->findContainingPolygonsRecords(lat, lon);
+
+            if (geo_result_ids.size() > 0) {
+                uint32_t* result_ids = new uint32_t[geo_result_ids.size()];
+                std::copy(geo_result_ids.begin(), geo_result_ids.end(), result_ids);
+
+                filter_result.docs = result_ids;
+                filter_result.count = geo_result_ids.size();
+
+                seq_id = filter_result.docs[result_index];
+                is_filter_result_initialized = true;
+                approx_filter_ids_length = filter_result.count;
+                return;
+            }
+        }
+
+        validity = invalid;
+        return;
     } else if (f.is_string()) {
         art_tree* t = index->search_index.at(a_filter.field_name);
 
