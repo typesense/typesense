@@ -451,19 +451,18 @@ class Benchmarks {
 
   private formatScenarioData(
     scenarioMap: Map<string, Map<number, Point[]>>,
-  ): Result<[ScenarioData, ScenarioData][], ErrorWithMessage> {
-    const results: [ScenarioData, ScenarioData][] = [];
+  ): Result<ScenarioData[][], ErrorWithMessage> {
+    const results: ScenarioData[][] = [];
 
     for (const [scenario, vuMap] of scenarioMap.entries()) {
-      const vuEntries = Array.from(vuMap.entries()) as [[number, Point[]], [number, Point[]]];
+      const vuEntries = Array.from(vuMap.entries());
 
       console.dir(vuEntries, { depth: null });
       if (vuEntries.length !== 2) {
         return err({ message: `Scenario ${scenario} has an invalid number of VU entries` });
       }
 
-      const [firstVU, secondVU] = vuEntries;
-      results.push([this.createScenarioDataPoint(scenario, firstVU), this.createScenarioDataPoint(scenario, secondVU)]);
+      results.push(vuEntries.map((entry) => this.createScenarioDataPoint(scenario, entry)));
     }
 
     return ok(results);
@@ -475,7 +474,7 @@ class Benchmarks {
     return { [key]: points };
   }
 
-  private transformHistoricalData(data: HistoricalData): Result<[ScenarioData, ScenarioData][], ErrorWithMessage> {
+  private transformHistoricalData(data: HistoricalData): Result<ScenarioData[][], ErrorWithMessage> {
     const scenarioMap = this.groupPointsByScenarioAndVU(data);
 
     return this.formatScenarioData(scenarioMap);
@@ -513,30 +512,38 @@ class Benchmarks {
       });
   }
 
-  printPlots(results: [ScenarioData, ScenarioData][]) {
-    results.forEach(([first, second]) => {
-      const label1 = Object.keys(first)[0];
-      const label2 = Object.keys(second)[0];
+  printPlots(results: ScenarioData[][]) {
+    results.forEach((scenarios) => {
+      // Extract labels and points from all scenarios
+      const labels = scenarios.map((scenario) => Object.keys(scenario)[0]).filter(Boolean);
+      const points = scenarios.map((scenario) => {
+        const label = Object.keys(scenario)[0];
+        return label ? scenario[label] : null;
+      });
 
-      if (!label1 || !label2) {
-        return;
-      }
-
-      const points = [first[label1], second[label2]];
-
-      const isFull = points.every((point) => point && point.length > 0);
-
-      if (!isFull) {
+      // Check if we have all necessary data
+      if (labels.length === 0 || points.some((p) => !p || p.length === 0)) {
         return err({ message: "Missing data for plot" });
       }
 
+      const colorOptions = [
+        asciichart.blue,
+        asciichart.green,
+        asciichart.yellow,
+        asciichart.red,
+        asciichart.magenta,
+        asciichart.cyan,
+      ];
+
+      const colors = scenarios.map((_, i) => colorOptions[i % colorOptions.length]);
+
       logger.info(
         plot(points as Point[][], {
-          title: `${label1.split(" ")[0]} over ${points[0]?.length} commits`,
+          title: `${labels[0]!.split(" ")[0]} over ${points[0]?.length} commits`,
           xLabel: "Commit Hash",
           yLabel: "p95 search_time_ms",
-          lineLabels: [label1, label2],
-          colors: [asciichart.blue, asciichart.green],
+          lineLabels: labels as string[],
+          colors,
           width: 50,
           height: 30,
         }),
