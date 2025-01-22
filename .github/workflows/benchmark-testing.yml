@@ -116,7 +116,6 @@ jobs:
           workflow: benchmark-testing.yml
           path: ./benchmark/influxdb-data
           search_artifacts: true
-          workflow_conclusion: success
         continue-on-error: true
 
       # Prepare InfluxDB
