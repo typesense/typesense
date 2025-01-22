@@ -619,11 +619,11 @@ TEST_F(GeoFilteringTest, GeoPolygonTest) {
 
     auto coll_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(coll_op.ok());
-    Collection *coll1 = coll_op.get();
+    Collection* coll1 = coll_op.get();
 
     //should be in ccw order to avoid any issues while forming polygon
     std::vector<std::vector<std::string>> records = {
-            {"square", "0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0"},
+            {"square",    "0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0"},
             {"rectangle", "2.0, 2.0, 5.0, 2.0, 5.0, 4.0, 2.0, 4.0"}
     };
 
@@ -637,7 +637,7 @@ TEST_F(GeoFilteringTest, GeoPolygonTest) {
         doc["id"] = std::to_string(i);
         doc["name"] = records[i][0];
 
-        for (const auto &val: lat_lng_str) {
+        for (const auto& val: lat_lng_str) {
             lat_lng.push_back(std::stod(val));
         }
 
@@ -659,8 +659,8 @@ TEST_F(GeoFilteringTest, GeoPolygonTest) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 
     results = coll1->search("*",
-                                 {}, "area:(2.5, 3.5)",
-                                 {}, {}, {0}, 10, 1, FREQUENCY).get();
+                            {}, "area:(2.5, 3.5)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
@@ -671,13 +671,13 @@ TEST_F(GeoFilteringTest, GeoPolygonTest) {
     std::vector<double> lat_lng;
     std::vector<std::string> lat_lng_str;
 
-    std::vector<std::string> record {"square2", "0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0"};
+    std::vector<std::string> record{"square2", "0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0"};
     StringUtils::split(record[1], lat_lng_str, ", ");
 
     doc["id"] = "2";
     doc["name"] = record[0];
 
-    for (const auto &val: lat_lng_str) {
+    for (const auto& val: lat_lng_str) {
         lat_lng.push_back(std::stod(val));
     }
 
@@ -691,8 +691,8 @@ TEST_F(GeoFilteringTest, GeoPolygonTest) {
 
     //search same point
     results = coll1->search("*",
-                                 {}, "area:(0.5, 0.5)",
-                                 {}, {}, {0}, 10, 1, FREQUENCY).get();
+                            {}, "area:(0.5, 0.5)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
@@ -706,4 +706,21 @@ TEST_F(GeoFilteringTest, GeoPolygonTest) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    //coordinates should be in ccw or cw loop. otherwise it throws error to form polygon
+    std::vector<std::string> record2{"rectangle2", "5.0, 4.0, 5.0, 2.0, 2.0, 2.0, 2.0, 4.0"};
+    StringUtils::split(record2[1], lat_lng_str, ", ");
+
+    doc["id"] = "3";
+    doc["name"] = record[0];
+
+    for (const auto& val: lat_lng_str) {
+        lat_lng.push_back(std::stod(val));
+    }
+
+    doc["area"] = lat_lng;
+
+    op = coll1->add(doc.dump());
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Geopolygon for seq_id 3 is invalid: Edge 6 has duplicate vertex with edge 10", op.error());
 }

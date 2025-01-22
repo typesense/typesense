@@ -940,7 +940,7 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
                     const std::vector<double>& latlongs = record.doc[afield.name];
                     auto op = geopolygon_index->addPolygon(latlongs, seq_id);
                     if(!op.ok()) {
-                        LOG(ERROR) <<  op.error();
+                        throw std::invalid_argument(op.error());
                     }
                 } else if(afield.type == field_types::GEOPOINT || nested_obj_arr_geopoint) {
                     // this could be a nested gepoint array so can have more than 2 array values

@@ -619,7 +619,7 @@ Option<bool> toFilter(const std::string& expression,
                 filter_value += ")";
                 std::string processed_filter_val;
                 auto parse_op = filter::parse_geopoint_filter_value(filter_value, format_err_msg, processed_filter_val,
-                                                                    num_comparator);
+                                                                    num_comparator, _field.is_geopolygon());
                 if (!parse_op.ok()) {
                     return parse_op;
                 }

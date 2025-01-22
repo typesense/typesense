@@ -844,12 +844,12 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             if (negate_left_join_info.is_negate_join) {
                 auto index_ids = index->seq_ids->uncompress();
-                uint32_t *left_included_ids = nullptr;
+                uint32_t* left_included_ids = nullptr;
                 size_t left_included_ids_length = ArrayUtils::exclude_scalar(index_ids, index->seq_ids->num_ids(),
                                                                              negate_left_join_info.excluded_ids.get(),
                                                                              negate_left_join_info.excluded_ids_size,
                                                                              &left_included_ids);
-                delete[] index_ids;
+                delete [] index_ids;
                 auto left_included_result = filter_result_t(left_included_ids_length, left_included_ids);
                 filter_result_t final_result;
                 filter_result_t::or_filter_results(left_included_result, filter_result, final_result);
@@ -928,7 +928,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             }
         } else {
             std::vector<uint32_t> result_ids;
-            for (const auto& id_str: a_filter.values) {
+            for (const auto& id_str : a_filter.values) {
                 result_ids.push_back(std::stoul(id_str));
             }
 
@@ -974,29 +974,27 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
                 const std::string& filter_value = a_filter.values[fi];
-                auto const& value = (int64_t) std::stol(filter_value);
+                auto const& value = (int64_t)std::stol(filter_value);
 
-                if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi + 1 < a_filter.values.size()) {
+                if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
                     const std::string& next_filter_value = a_filter.values[fi + 1];
-                    auto const& range_end_value = (int64_t) std::stol(next_filter_value);
+                    auto const& range_end_value = (int64_t)std::stol(next_filter_value);
                     trie->search_range(value, true, range_end_value, true, filter_result.docs, filter_result.count);
                     fi++;
                 } else if (a_filter.comparators[fi] == EQUALS) {
                     trie->search_equal_to(value, filter_result.docs, filter_result.count);
                 } else if (a_filter.comparators[fi] == NOT_EQUALS) {
-                    uint32_t *to_exclude_ids = nullptr;
+                    uint32_t* to_exclude_ids = nullptr;
                     uint32_t to_exclude_ids_len = 0;
                     trie->search_equal_to(value, to_exclude_ids, to_exclude_ids_len);
 
                     auto all_ids = index->seq_ids->uncompress();
                     filter_result.count = ArrayUtils::exclude_scalar(all_ids, index->seq_ids->num_ids(),
-                                                                     to_exclude_ids, to_exclude_ids_len,
-                                                                     &filter_result.docs);
+                                                                     to_exclude_ids, to_exclude_ids_len, &filter_result.docs);
 
                     delete[] all_ids;
                     delete[] to_exclude_ids;
-                } else if (a_filter.comparators[fi] == GREATER_THAN ||
-                           a_filter.comparators[fi] == GREATER_THAN_EQUALS) {
+                } else if (a_filter.comparators[fi] == GREATER_THAN || a_filter.comparators[fi] == GREATER_THAN_EQUALS) {
                     trie->search_greater_than(value, a_filter.comparators[fi] == GREATER_THAN_EQUALS,
                                               filter_result.docs, filter_result.count);
                 } else if (a_filter.comparators[fi] == LESS_THAN || a_filter.comparators[fi] == LESS_THAN_EQUALS) {
@@ -1025,23 +1023,23 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             size_t i = 0;
             for (size_t fi = 0; fi < filter_values_count; fi++, i++) {
                 const std::string& filter_value = a_filter.values[fi];
-                auto const value = (int64_t) std::stol(filter_value);
+                auto const value = (int64_t)std::stol(filter_value);
                 auto const& comparator = a_filter.comparators[fi];
 
                 if (enable_lazy_evaluation && comparator == NOT_EQUALS) {
                     numerical_not_iterator_index.emplace(i);
                 }
 
-                std::vector<void *> raw_id_lists;
-                if (comparator == RANGE_INCLUSIVE && fi + 1 < filter_values_count) {
+                std::vector<void*> raw_id_lists;
+                if (comparator == RANGE_INCLUSIVE && fi+1 < filter_values_count) {
                     const std::string& next_filter_value = a_filter.values[fi + 1];
-                    auto const range_end_value = (int64_t) std::stol(next_filter_value);
+                    auto const range_end_value = (int64_t)std::stol(next_filter_value);
 
                     if (enable_lazy_evaluation) {
                         raw_id_lists = num_tree->search(comparator, value, range_end_value);
                     } else {
                         num_tree->range_inclusive_search(value, range_end_value, &filter_result.docs,
-                                                         reinterpret_cast<size_t&>(filter_result.count));
+                                                             reinterpret_cast<size_t &>(filter_result.count));
                     }
                     fi++;
                 } else {
@@ -1050,15 +1048,15 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                     } else if (a_filter.comparators[fi] == NOT_EQUALS) {
                         numeric_not_equals_filter(num_tree, value,
                                                   index->seq_ids->uncompress(), index->seq_ids->num_ids(),
-                                                  filter_result.docs, reinterpret_cast<size_t&>(filter_result.count));
+                                                  filter_result.docs, reinterpret_cast<size_t &>(filter_result.count));
                     } else {
                         num_tree->search(a_filter.comparators[fi], value, &filter_result.docs,
-                                         reinterpret_cast<size_t&>(filter_result.count));
+                                         reinterpret_cast<size_t &>(filter_result.count));
                     }
                 }
 
                 if (enable_lazy_evaluation) {
-                    std::vector<id_list_t *> lists;
+                    std::vector<id_list_t*> lists;
                     ids_t::to_expanded_id_lists(raw_id_lists, lists, expanded_id_lists);
 
                     std::vector<id_list_t::iterator_t> iters;
@@ -1088,8 +1086,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                 if (a_filter.apply_not_equals) {
                     auto const& num_ids = index->seq_ids->num_ids();
-                    approx_filter_ids_length =
-                            approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+                    approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
 
                     if (approx_filter_ids_length < numeric_filter_ids_threshold) {
                         // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
@@ -1131,31 +1128,28 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
                 const std::string& filter_value = a_filter.values[fi];
-                float value = (float) std::atof(filter_value.c_str());
+                float value = (float)std::atof(filter_value.c_str());
                 int64_t float_int64 = Index::float_to_int64_t(value);
 
-                if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi + 1 < a_filter.values.size()) {
+                if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
                     const std::string& next_filter_value = a_filter.values[fi + 1];
                     int64_t range_end_value = Index::float_to_int64_t((float) std::atof(next_filter_value.c_str()));
-                    trie->search_range(float_int64, true, range_end_value, true, filter_result.docs,
-                                       filter_result.count);
+                    trie->search_range(float_int64, true, range_end_value, true, filter_result.docs, filter_result.count);
                     fi++;
                 } else if (a_filter.comparators[fi] == EQUALS) {
                     trie->search_equal_to(float_int64, filter_result.docs, filter_result.count);
                 } else if (a_filter.comparators[fi] == NOT_EQUALS) {
-                    uint32_t *to_exclude_ids = nullptr;
+                    uint32_t* to_exclude_ids = nullptr;
                     uint32_t to_exclude_ids_len = 0;
                     trie->search_equal_to(float_int64, to_exclude_ids, to_exclude_ids_len);
 
                     auto all_ids = index->seq_ids->uncompress();
                     filter_result.count = ArrayUtils::exclude_scalar(all_ids, index->seq_ids->num_ids(),
-                                                                     to_exclude_ids, to_exclude_ids_len,
-                                                                     &filter_result.docs);
+                                                                     to_exclude_ids, to_exclude_ids_len, &filter_result.docs);
 
                     delete[] all_ids;
                     delete[] to_exclude_ids;
-                } else if (a_filter.comparators[fi] == GREATER_THAN ||
-                           a_filter.comparators[fi] == GREATER_THAN_EQUALS) {
+                } else if (a_filter.comparators[fi] == GREATER_THAN || a_filter.comparators[fi] == GREATER_THAN_EQUALS) {
                     trie->search_greater_than(float_int64, a_filter.comparators[fi] == GREATER_THAN_EQUALS,
                                               filter_result.docs, filter_result.count);
                 } else if (a_filter.comparators[fi] == LESS_THAN || a_filter.comparators[fi] == LESS_THAN_EQUALS) {
@@ -1184,7 +1178,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             size_t i = 0;
             for (size_t fi = 0; fi < filter_values_count; fi++, i++) {
                 const std::string& filter_value = a_filter.values[fi];
-                float value = (float) std::atof(filter_value.c_str());
+                float value = (float)std::atof(filter_value.c_str());
                 int64_t float_int64 = Index::float_to_int64_t(value);
                 auto const& comparator = a_filter.comparators[fi];
 
@@ -1192,8 +1186,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                     numerical_not_iterator_index.emplace(i);
                 }
 
-                std::vector<void *> raw_id_lists;
-                if (comparator == RANGE_INCLUSIVE && fi + 1 < filter_values_count) {
+                std::vector<void*> raw_id_lists;
+                if (comparator == RANGE_INCLUSIVE && fi+1 < filter_values_count) {
                     const std::string& next_filter_value = a_filter.values[fi + 1];
                     int64_t range_end_value = Index::float_to_int64_t((float) std::atof(next_filter_value.c_str()));
 
@@ -1201,7 +1195,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                         raw_id_lists = num_tree->search(comparator, float_int64, range_end_value);
                     } else {
                         num_tree->range_inclusive_search(float_int64, range_end_value, &filter_result.docs,
-                                                         reinterpret_cast<size_t&>(filter_result.count));
+                                                         reinterpret_cast<size_t &>(filter_result.count));
                     }
                     fi++;
                 } else {
@@ -1210,15 +1204,15 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                     } else if (a_filter.comparators[fi] == NOT_EQUALS) {
                         numeric_not_equals_filter(num_tree, float_int64,
                                                   index->seq_ids->uncompress(), index->seq_ids->num_ids(),
-                                                  filter_result.docs, reinterpret_cast<size_t&>(filter_result.count));
+                                                  filter_result.docs, reinterpret_cast<size_t &>(filter_result.count));
                     } else {
                         num_tree->search(a_filter.comparators[fi], float_int64, &filter_result.docs,
-                                         reinterpret_cast<size_t&>(filter_result.count));
+                                         reinterpret_cast<size_t &>(filter_result.count));
                     }
                 }
 
                 if (enable_lazy_evaluation) {
-                    std::vector<id_list_t *> lists;
+                    std::vector<id_list_t*> lists;
                     ids_t::to_expanded_id_lists(raw_id_lists, lists, expanded_id_lists);
 
                     std::vector<id_list_t::iterator_t> iters;
@@ -1248,8 +1242,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                 if (a_filter.apply_not_equals) {
                     auto const& num_ids = index->seq_ids->num_ids();
-                    approx_filter_ids_length =
-                            approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+                    approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
 
                     if (approx_filter_ids_length < numeric_filter_ids_threshold) {
                         // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
@@ -1290,20 +1283,19 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             auto const& trie = index->range_index.at(a_filter.field_name);
 
             size_t value_index = 0;
-            for (const std::string& filter_value: a_filter.values) {
+            for (const std::string& filter_value : a_filter.values) {
                 int64_t bool_int64 = (filter_value == "1") ? 1 : 0;
 
                 if (a_filter.comparators[value_index] == EQUALS) {
                     trie->search_equal_to(bool_int64, filter_result.docs, filter_result.count);
                 } else if (a_filter.comparators[value_index] == NOT_EQUALS) {
-                    uint32_t *to_exclude_ids = nullptr;
+                    uint32_t* to_exclude_ids = nullptr;
                     uint32_t to_exclude_ids_len = 0;
                     trie->search_equal_to(bool_int64, to_exclude_ids, to_exclude_ids_len);
 
                     auto all_ids = index->seq_ids->uncompress();
                     filter_result.count = ArrayUtils::exclude_scalar(all_ids, index->seq_ids->num_ids(),
-                                                                     to_exclude_ids, to_exclude_ids_len,
-                                                                     &filter_result.docs);
+                                                                     to_exclude_ids, to_exclude_ids_len, &filter_result.docs);
 
                     delete[] all_ids;
                     delete[] to_exclude_ids;
@@ -1316,8 +1308,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             // For a boolean filter like `in_stock: true` that could match a large number of ids, we use bool_iterator.
             if (a_filter.values.size() == 1 && a_filter.comparators[0] == EQUALS && !a_filter.apply_not_equals &&
-                num_tree->approx_search_count(EQUALS, (a_filter.values[0] == "1" ? 1 : 0)) >
-                bool_filter_ids_threshold) {
+                num_tree->approx_search_count(EQUALS, (a_filter.values[0] == "1" ? 1 : 0)) > bool_filter_ids_threshold) {
                 bool_iterator = num_tree_t::iterator_t(num_tree, EQUALS, (a_filter.values[0] == "1" ? 1 : 0));
                 if (!bool_iterator.is_valid) {
                     validity = invalid;
@@ -1330,7 +1321,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             }
 
             size_t value_index = 0;
-            for (const std::string& filter_value: a_filter.values) {
+            for (const std::string& filter_value : a_filter.values) {
                 int64_t bool_int64 = (filter_value == "1") ? 1 : 0;
 
                 size_t result_size = filter_result.count;
@@ -1371,7 +1362,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             StringUtils::split(filter_value, filter_value_parts, ",");  // x, y, 2, km (or) list of points
 
             bool is_polygon = StringUtils::is_float(filter_value_parts.back());
-            S2Region *query_region;
+            S2Region* query_region;
 
             double query_radius_meters;
             if (is_polygon) {
@@ -1400,8 +1391,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 if (loop->FindValidationError(&error)) {
                     delete loop;
                     status = Option<bool>(400, "Polygon" + (a_filter.values.size() > 1 ?
-                                                            " at position " + std::to_string(fi + 1) : "")
-                                               + " is invalid: " + error.text());
+                                                                " at position " + std::to_string(fi + 1) : "")
+                                                                + " is invalid: " + error.text());
                     validity = invalid;
                     return;
                 } else {
@@ -1434,7 +1425,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             auto const& geo_range_index = index->geo_range_index.at(a_filter.field_name);
 
             std::vector<uint64_t> cell_ids;
-            for (const auto& term: indexer.GetQueryTerms(*query_region, "")) {
+            for (const auto& term : indexer.GetQueryTerms(*query_region, "")) {
                 auto cell = S2CellId::FromToken(term);
                 cell_ids.push_back(cell.id());
             }
@@ -1444,7 +1435,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             // Skip exact filtering step if query radius is greater than the threshold.
             if (fi < a_filter.params.size() &&
                 query_radius_meters > a_filter.params[fi][filter::EXACT_GEO_FILTER_RADIUS_KEY].get<double>()) {
-                uint32_t *out = nullptr;
+                uint32_t* out = nullptr;
                 filter_result.count = ArrayUtils::or_scalar(geo_result_ids.data(), geo_result_ids.size(),
                                                             filter_result.docs, filter_result.count, &out);
 
@@ -1461,7 +1452,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             if (f.is_single_geopoint()) {
                 auto sort_field_index = index->sort_index.at(f.name);
 
-                for (auto result_id: geo_result_ids) {
+                for (auto result_id : geo_result_ids) {
                     // no need to check for existence of `result_id` because of indexer based pre-filtering above
                     int64_t lat_lng = sort_field_index->at(result_id);
                     S2LatLng s2_lat_lng;
@@ -1471,10 +1462,10 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                     }
                 }
             } else {
-                spp::sparse_hash_map<uint32_t, int64_t *> *geo_field_index = index->geo_array_index.at(f.name);
+                spp::sparse_hash_map<uint32_t, int64_t*>* geo_field_index = index->geo_array_index.at(f.name);
 
-                for (auto result_id: geo_result_ids) {
-                    int64_t *lat_lngs = geo_field_index->at(result_id);
+                for (auto result_id : geo_result_ids) {
+                    int64_t* lat_lngs = geo_field_index->at(result_id);
 
                     bool point_found = false;
 
@@ -1495,7 +1486,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 }
             }
 
-            uint32_t *out = nullptr;
+            uint32_t* out = nullptr;
             filter_result.count = ArrayUtils::or_scalar(&exact_geo_result_ids[0], exact_geo_result_ids.size(),
                                                         filter_result.docs, filter_result.count, &out);
 
@@ -1533,7 +1524,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             auto geo_result_ids = geopolygonIndex->findContainingPolygonsRecords(lat, lon);
 
             if (geo_result_ids.size() > 0) {
-                uint32_t *result_ids = new uint32_t[geo_result_ids.size()];
+                uint32_t* result_ids = new uint32_t[geo_result_ids.size()];
                 std::copy(geo_result_ids.begin(), geo_result_ids.end(), result_ids);
 
                 filter_result.docs = result_ids;
@@ -1549,7 +1540,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         validity = invalid;
         return;
     } else if (f.is_string()) {
-        art_tree *t = index->search_index.at(a_filter.field_name);
+        art_tree* t = index->search_index.at(a_filter.field_name);
 
         for (uint32_t i = 0; i < a_filter.values.size(); i++) {
             auto filter_value = a_filter.values[i];
@@ -1558,7 +1549,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 filter_value.erase(filter_value.size() - 1);
             }
 
-            std::vector<void *> raw_posting_lists;
+            std::vector<void*> raw_posting_lists;
 
             // there could be multiple tokens in a filter value, which we have to treat as ANDs
             // e.g. country: South Africa
@@ -1580,8 +1571,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                     continue;
                 }
 
-                art_leaf *leaf = (art_leaf *) art_search(t, (const unsigned char *) str_token.c_str(),
-                                                         str_token.length() + 1);
+                art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
+                                                         str_token.length()+1);
                 if (leaf == nullptr) {
                     continue;
                 }
@@ -1609,35 +1600,30 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                 filter_result_iterator_t dummy_it(nullptr, 0);
                 std::vector<sort_by> sort_fields;
-                std::vector<std::vector<art_leaf *>> searched_filters;
+                std::vector<std::vector<art_leaf*>> searched_filters;
                 tsl::htrie_map<char, token_leaf> qtoken_set;
-                Topster<KV> *topster = nullptr;
+                Topster<KV>* topster = nullptr;
                 spp::sparse_hash_map<uint64_t, uint32_t> groups_processed;
-                uint32_t *all_result_ids = nullptr;
+                uint32_t* all_result_ids = nullptr;
                 size_t all_result_ids_len = 0;
                 std::vector<std::string> group_by_fields;
                 std::set<uint64> query_hashes;
                 size_t typo_tokens_threshold = 0;
                 size_t min_len_1typo = 0;
                 size_t min_len_2typo = 0;
-                std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32> *, 3> field_values{};
+                std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values{};
                 const std::vector<size_t> geopoint_indices;
 
-                auto fuzzy_search_fields_op = index->fuzzy_search_fields(fq_fields, value_tokens, {},
-                                                                         text_match_type_t::max_score,
+                auto fuzzy_search_fields_op = index->fuzzy_search_fields(fq_fields, value_tokens, {}, text_match_type_t::max_score,
                                                                          nullptr, 0, &dummy_it, {}, sort_fields,
                                                                          {0}, searched_filters, qtoken_set, topster,
-                                                                         groups_processed, all_result_ids,
-                                                                         all_result_ids_len,
+                                                                         groups_processed, all_result_ids, all_result_ids_len,
                                                                          0, group_by_fields, false, false, false, false,
-                                                                         query_hashes, MAX_SCORE, {true},
-                                                                         typo_tokens_threshold,
-                                                                         false, max_filter_by_candidates, min_len_1typo,
-                                                                         min_len_2typo,
-                                                                         0, nullptr, field_values, geopoint_indices, "",
-                                                                         false);
+                                                                         query_hashes, MAX_SCORE, {true}, typo_tokens_threshold,
+                                                                         false, max_filter_by_candidates, min_len_1typo, min_len_2typo,
+                                                                         0, nullptr, field_values, geopoint_indices, "", false);
                 delete[] all_result_ids;
-                if (!fuzzy_search_fields_op.ok()) {
+                if(!fuzzy_search_fields_op.ok()) {
                     continue;
                 }
 
@@ -1652,8 +1638,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                         }
 
                         // Tokens of a filter value get AND.
-                        approx_filter_value_match = std::min(posting_t::num_ids(leaf->values),
-                                                             approx_filter_value_match);
+                        approx_filter_value_match = std::min(posting_t::num_ids(leaf->values), approx_filter_value_match);
                         raw_posting_lists.push_back(leaf->values);
                     }
 
@@ -1661,7 +1646,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                         continue;
                     }
 
-                    std::vector<posting_list_t *> plists;
+                    std::vector<posting_list_t*> plists;
                     posting_t::to_expanded_plists(raw_posting_lists, plists, expanded_plists);
                     if (plists.empty()) {
                         continue;
@@ -1684,7 +1669,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 continue;
             }
 
-            std::vector<posting_list_t *> plists;
+            std::vector<posting_list_t*> plists;
             posting_t::to_expanded_plists(raw_posting_lists, plists, expanded_plists);
             if (plists.empty()) {
                 continue;
@@ -1702,8 +1687,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
         if (a_filter.apply_not_equals) {
             auto const& num_ids = index->seq_ids->num_ids();
-            approx_filter_ids_length =
-                    approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+            approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
 
             if (approx_filter_ids_length < string_filter_ids_threshold) {
                 // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.

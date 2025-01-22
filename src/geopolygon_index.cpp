@@ -65,7 +65,7 @@ Option<bool> GeoPolygonIndex::addPolygon(const std::vector<double>& coordinates,
     //polygon->Init(std::move(loop));
     S2Error error;
     if (polygon->FindValidationError(&error)) {
-        return Option<bool>(400, "GeoPolygon for seq_id " +
+        return Option<bool>(400, "Geopolygon for seq_id " +
                                  std::to_string(seq_id) +
                                  " is invalid: " + error.text());
     }
