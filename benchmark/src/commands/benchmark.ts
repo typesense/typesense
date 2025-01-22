@@ -457,11 +457,6 @@ class Benchmarks {
     for (const [scenario, vuMap] of scenarioMap.entries()) {
       const vuEntries = Array.from(vuMap.entries());
 
-      console.dir(vuEntries, { depth: null });
-      if (vuEntries.length !== 2) {
-        return err({ message: `Scenario ${scenario} has an invalid number of VU entries` });
-      }
-
       results.push(vuEntries.map((entry) => this.createScenarioDataPoint(scenario, entry)));
     }
 
