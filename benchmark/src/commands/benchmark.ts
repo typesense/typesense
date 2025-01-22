@@ -3,6 +3,7 @@ import type { ErrorWithMessage } from "@/utils/error";
 import type { Point } from "@/utils/plot";
 import type { NumericIndices } from "@/utils/types";
 import type { IResults } from "influx";
+import type { Result } from "neverthrow";
 import type { Ora } from "ora";
 import type { TableUserConfig } from "table";
 
@@ -448,18 +449,24 @@ class Benchmarks {
     return scenarioMap;
   }
 
-  private formatScenarioData(scenarioMap: Map<string, Map<number, Point[]>>): [ScenarioData, ScenarioData][] {
-    return Array.from(scenarioMap.entries()).map(([scenario, vuMap]) => {
+  private formatScenarioData(
+    scenarioMap: Map<string, Map<number, Point[]>>,
+  ): Result<[ScenarioData, ScenarioData][], ErrorWithMessage> {
+    const results: [ScenarioData, ScenarioData][] = [];
+
+    for (const [scenario, vuMap] of scenarioMap.entries()) {
       const vuEntries = Array.from(vuMap.entries()) as [[number, Point[]], [number, Point[]]];
 
+      console.dir(vuEntries, { depth: null });
       if (vuEntries.length !== 2) {
-        throw new Error(`Scenario ${scenario} must have exactly 2 VU entries`);
+        return err({ message: `Scenario ${scenario} has an invalid number of VU entries` });
       }
 
       const [firstVU, secondVU] = vuEntries;
+      results.push([this.createScenarioDataPoint(scenario, firstVU), this.createScenarioDataPoint(scenario, secondVU)]);
+    }
 
-      return [this.createScenarioDataPoint(scenario, firstVU), this.createScenarioDataPoint(scenario, secondVU)];
-    });
+    return ok(results);
   }
 
   private createScenarioDataPoint(scenario: string, vuEntry: [number, Point[]]): ScenarioData {
@@ -468,7 +475,7 @@ class Benchmarks {
     return { [key]: points };
   }
 
-  private transformHistoricalData(data: HistoricalData): [ScenarioData, ScenarioData][] {
+  private transformHistoricalData(data: HistoricalData): Result<[ScenarioData, ScenarioData][], ErrorWithMessage> {
     const scenarioMap = this.groupPointsByScenarioAndVU(data);
 
     return this.formatScenarioData(scenarioMap);
@@ -489,23 +496,21 @@ class Benchmarks {
     ORDER BY time ASC
   `;
 
-    return (
-      ResultAsync.fromPromise(
-        influx.query<{
-          commitHash: string;
-          scenario: string;
-          vus: string;
-          p95_value: number;
-        }>(searchDurationQuery),
-        toErrorWithMessage,
-      )
-        .map((res) => this.mapHistoricalResults(res))
-        .map((res) => this.transformHistoricalData(res))
-        // .map((res) => {
-        //   console.dir(res, { depth: null });
-        // });
-        .map((res) => this.printPlots(res))
-    );
+    return ResultAsync.fromPromise(
+      influx.query<{
+        commitHash: string;
+        scenario: string;
+        vus: string;
+        p95_value: number;
+      }>(searchDurationQuery),
+      toErrorWithMessage,
+    )
+      .map((res) => this.mapHistoricalResults(res))
+      .andThen((res) => this.transformHistoricalData(res))
+      .map((data) => {
+        this.printPlots(data);
+        return data;
+      });
   }
 
   printPlots(results: [ScenarioData, ScenarioData][]) {
