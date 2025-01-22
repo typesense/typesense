@@ -540,7 +540,7 @@ class Benchmarks {
           yLabel: "p95 search_time_ms",
           lineLabels: labels as string[],
           colors,
-          width: 50,
+          width: 150,
           height: 30,
         }),
       );
