@@ -2,7 +2,7 @@ import path from "path";
 import type { ErrorWithMessage } from "@/utils/error";
 import type { Point } from "@/utils/plot";
 import type { NumericIndices } from "@/utils/types";
-import type { IResults } from "influx";
+import type { INanoDate, IResults } from "influx";
 import type { Result } from "neverthrow";
 import type { Ora } from "ora";
 import type { TableUserConfig } from "table";
@@ -551,19 +551,33 @@ class Benchmarks {
       scenario: string;
       vus: string;
       p95_value: number;
+      time: INanoDate;
     }>,
   ): HistoricalData {
-    const resultMap: HistoricalData = {};
-
-    for (const { commitHash, scenario, vus, p95_value } of results) {
-      if (!resultMap[commitHash]) {
-        resultMap[commitHash] = [];
+    // Track first appearance of each commit
+    const firstAppearances = new Map<string, number>();
+    for (const result of results) {
+      const timestamp = result.time.getTime();
+      if (!firstAppearances.has(result.commitHash) || timestamp < firstAppearances.get(result.commitHash)!) {
+        firstAppearances.set(result.commitHash, timestamp);
       }
-      resultMap[commitHash].push({
-        scenario: scenario,
-        vus: Number(vus),
-        p95: p95_value,
-      });
+    }
+
+    // Sort commits by first appearance
+    const sortedCommits = [...new Set(results.map((r) => r.commitHash))].sort(
+      (a, b) => (firstAppearances.get(a) ?? 0) - (firstAppearances.get(b) ?? 0),
+    );
+
+    // Build result map in chronological order
+    const resultMap: HistoricalData = {};
+    for (const commitHash of sortedCommits) {
+      resultMap[commitHash] = results
+        .filter((r) => r.commitHash === commitHash)
+        .map(({ scenario, vus, p95_value }) => ({
+          scenario,
+          vus: Number(vus),
+          p95: p95_value,
+        }));
     }
 
     return resultMap;
