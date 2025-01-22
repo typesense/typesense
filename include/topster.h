@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <field.h>
 #include "filter_result_iterator.h"
+#include "hll/distinct_counter.h"
 
 struct KV {
     int8_t match_score_index{};
@@ -211,6 +212,7 @@ struct Topster {
     size_t distinct;
     spp::sparse_hash_set<uint64_t> group_doc_seq_ids;
     spp::sparse_hash_map<uint64_t, Topster<T, get_key, get_distinct_key, is_greater, is_smaller>*> group_kv_map;
+    hyperloglog_hip::distinct_counter<uint64_t, std::hash<uint64_t>, 5> hyperloglog_counter = hyperloglog_hip::distinct_counter<uint64_t, std::hash<uint64_t>, 5>(12);
 
     explicit Topster(size_t capacity): Topster(capacity, 0, false) {
     }
@@ -269,6 +271,9 @@ struct Topster {
         const bool& is_group_by_second_pass = distinct && !is_group_by_first_pass;
 
         if(!is_group_by_second_pass && less_than_min_heap) {
+            if (is_group_by_first_pass) {
+                hyperloglog_counter.insert(get_distinct_key(kv));
+            }
             // for non-distinct or first group_by pass, if incoming value is smaller than min-heap ignore
             return 0;
         }
@@ -300,6 +305,10 @@ struct Topster {
             //LOG(INFO) << "Searching for key: " << kv->key;
 
             const auto& key = is_group_by_first_pass ? get_distinct_key(kv) : get_key(kv);
+            if (is_group_by_first_pass) {
+                hyperloglog_counter.insert(key);
+            }
+
             const auto& found_it = map.find(key);
             bool is_duplicate_key = (found_it != map.end());
 
