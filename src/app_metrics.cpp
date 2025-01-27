@@ -96,49 +96,47 @@ void AppMetrics::get(const std::string& rps_key, const std::string& latency_key,
     for(auto& kv: *durations) {
         auto counter_it = counts->find(kv.first);
         if(counter_it != counts->end() && counter_it->second != 0) {
-            //sort the durations to compute percentile
-            std::sort(kv.second.begin(), kv.second.end());
-            auto durations_size = durations->size();
-            auto duration = std::accumulate(kv.second.begin(), kv.second.end(), 0ul);
+            auto durations_size = kv.second.size();
+            auto total_duration = kv.second.sum();
 
             if(kv.first == SEARCH_LABEL) {
-                result[SEARCH_LATENCY_KEY] = (double(duration) / counter_it->second);
-                result[SEARCH_LATENCY_MIN_KEY] = kv.second[0];
-                result[SEARCH_LATENCY_MAX_KEY] = kv.second[durations_size-1];
-                result[SEARCH_LATENCY_70PERCENTILE_KEY] = computeNthPercentile(kv.second, 70);
-                result[SEARCH_LATENCY_95PERCENTILE_KEY] = computeNthPercentile(kv.second, 95);
-                result[SEARCH_LATENCY_99PERCENTILE_KEY] = computeNthPercentile(kv.second, 99);
+                result[SEARCH_LATENCY_KEY] = (double(total_duration) / counter_it->second);
+                result[SEARCH_LATENCY_MIN_KEY] = kv.second.min();
+                result[SEARCH_LATENCY_MAX_KEY] = kv.second.max();
+                result[SEARCH_LATENCY_70PERCENTILE_KEY] = kv.second.percentile(70);
+                result[SEARCH_LATENCY_95PERCENTILE_KEY] = kv.second.percentile(95);
+                result[SEARCH_LATENCY_99PERCENTILE_KEY] = kv.second.percentile(99);
             }
 
             else if(kv.first == IMPORT_LABEL) {
-                result[IMPORT_LATENCY_KEY] = (double(duration) / counter_it->second);
-                result[IMPORT_LATENCY_MIN_KEY] = kv.second[0];
-                result[IMPORT_LATENCY_MAX_KEY] = kv.second[durations_size-1];
-                result[IMPORT_LATENCY_70PERCENTILE_KEY] = computeNthPercentile(kv.second, 70);
-                result[IMPORT_LATENCY_95PERCENTILE_KEY] = computeNthPercentile(kv.second, 95);
-                result[IMPORT_LATENCY_99PERCENTILE_KEY] = computeNthPercentile(kv.second, 99);
+                result[IMPORT_LATENCY_KEY] = (double(total_duration) / counter_it->second);
+                result[IMPORT_LATENCY_MIN_KEY] = kv.second.min();
+                result[IMPORT_LATENCY_MAX_KEY] = kv.second.max();
+                result[IMPORT_LATENCY_70PERCENTILE_KEY] = kv.second.percentile(70);
+                result[IMPORT_LATENCY_95PERCENTILE_KEY] = kv.second.percentile(95);
+                result[IMPORT_LATENCY_99PERCENTILE_KEY] = kv.second.percentile(99);
             }
 
             else if(kv.first == DOC_WRITE_LABEL) {
-                result[DOC_WRITE_LATENCY_KEY] = (double(duration) / counter_it->second);
-                result[DOC_WRITE_LATENCY_MIN_KEY] = kv.second[0];;
-                result[DOC_WRITE_LATENCY_MAX_KEY] = kv.second[durations_size-1];
-                result[DOC_WRITE_LATENCY_70PERCENTILE_KEY] = computeNthPercentile(kv.second, 70);
-                result[DOC_WRITE_LATENCY_95PERCENTILE_KEY] = computeNthPercentile(kv.second, 95);
-                result[DOC_WRITE_LATENCY_99PERCENTILE_KEY] = computeNthPercentile(kv.second, 99);
+                result[DOC_WRITE_LATENCY_KEY] = (double(total_duration) / counter_it->second);
+                result[DOC_WRITE_LATENCY_MIN_KEY] = kv.second.min();
+                result[DOC_WRITE_LATENCY_MAX_KEY] = kv.second.max();
+                result[DOC_WRITE_LATENCY_70PERCENTILE_KEY] = kv.second.percentile(70);
+                result[DOC_WRITE_LATENCY_95PERCENTILE_KEY] = kv.second.percentile(95);
+                result[DOC_WRITE_LATENCY_99PERCENTILE_KEY] = kv.second.percentile(99);
             }
 
             else if(kv.first == DOC_DELETE_LABEL) {
-                result[DOC_DELETE_LATENCY_KEY] = (double(duration) / counter_it->second);
-                result[DOC_DELETE_LATENCY_MIN_KEY] = kv.second[0];
-                result[DOC_DELETE_LATENCY_MAX_KEY] = kv.second[durations_size-1];
-                result[DOC_DELETE_LATENCY_70PERCENTILE_KEY] = computeNthPercentile(kv.second, 70);
-                result[DOC_DELETE_LATENCY_95PERCENTILE_KEY] = computeNthPercentile(kv.second, 95);
-                result[DOC_DELETE_LATENCY_99PERCENTILE_KEY] = computeNthPercentile(kv.second, 99);
+                result[DOC_DELETE_LATENCY_KEY] = (double(total_duration) / counter_it->second);
+                result[DOC_DELETE_LATENCY_MIN_KEY] = kv.second.min();
+                result[DOC_DELETE_LATENCY_MAX_KEY] = kv.second.max();
+                result[DOC_DELETE_LATENCY_70PERCENTILE_KEY] = kv.second.percentile(70);
+                result[DOC_DELETE_LATENCY_95PERCENTILE_KEY] = kv.second.percentile(95);
+                result[DOC_DELETE_LATENCY_99PERCENTILE_KEY] = kv.second.percentile(99);
             }
 
             else {
-                result[latency_key][kv.first] = (double(duration) / counter_it->second);
+                result[latency_key][kv.first] = (double(total_duration) / counter_it->second);
             }
         }
     }
@@ -165,7 +163,7 @@ void AppMetrics::window_reset() {
 
     delete durations;
     durations = current_durations;
-    current_durations = new spp::sparse_hash_map<std::string, std::vector<uint64_t>>();
+    current_durations = new spp::sparse_hash_map<std::string, TDigest>();
 }
 
 void AppMetrics::write_access_log(const uint64_t epoch_millis, const char* remote_ip, const std::string& path) {
@@ -178,11 +176,4 @@ void AppMetrics::flush_access_log() {
     if(!access_log_path.empty()) {
         access_log << std::flush;
     }
-}
-
-uint64_t AppMetrics::computeNthPercentile(const std::vector<uint64_t>& list, int percentile) const {
-    auto total_elems = list.size();
-    auto index = (percentile * total_elems)/100.f;
-    index = lround(index) - 1; //array bounds
-    return list[index];
 }
