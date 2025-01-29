@@ -773,7 +773,7 @@ TEST_F(UnionTest, Pagination) {
                 ])"_json;
 
     auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
+    ASSERT_TRUE(search_op.ok());LOG(INFO) << json_res.dump();
     ASSERT_EQ(10, json_res["found"]); // 5 documents from `coll_array_fields` and 5 documents from `coll_bool`.
     ASSERT_EQ(15, json_res["out_of"]);
     ASSERT_EQ(1, json_res["page"]);
