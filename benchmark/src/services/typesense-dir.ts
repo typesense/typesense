@@ -47,9 +47,7 @@ export class TypesenseDirectoryManager {
   }): ResultAsync<string, ErrorWithMessage> {
     return this.build(options.containerName)
       .andThen(() => this.save(options).map((res) => res))
-      .andThen((res) =>
-        this.filesystemService.removeDirectory(this.directory).map(() => res),
-      );
+      .andThen((res) => this.filesystemService.removeDirectory(this.directory).map(() => res));
   }
 
   private save(options: {
@@ -101,24 +99,18 @@ export class TypesenseDirectoryManager {
         },
       ]),
       toErrorWithMessage,
-    ).andThen(({ rmDir }) =>
-      rmDir ? this.forceRecreateDirectory() : this.verifyExistingDirectory(),
-    );
+    ).andThen(({ rmDir }) => (rmDir ? this.forceRecreateDirectory() : this.verifyExistingDirectory()));
   }
 
   private forceRecreateDirectory(): ResultAsync<void, ErrorWithMessage> {
-    return this.filesystemService
-      .removeDirectory(this.directory)
-      .andThen(() => {
-        this.spinner.start("Preparing to clone repository");
-        return this.cloneAndVerifyRepository();
-      });
+    return this.filesystemService.removeDirectory(this.directory).andThen(() => {
+      this.spinner.start("Preparing to clone repository");
+      return this.cloneAndVerifyRepository();
+    });
   }
 
   private cloneAndVerifyRepository(): ResultAsync<void, ErrorWithMessage> {
-    return this.gitService
-      .cloneRepository()
-      .andThen(() => this.verifyExistingDirectory());
+    return this.gitService.cloneRepository().andThen(() => this.verifyExistingDirectory());
   }
 
   private verifyExistingDirectory(): ResultAsync<void, ErrorWithMessage> {

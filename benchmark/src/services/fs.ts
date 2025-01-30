@@ -12,11 +12,7 @@ import { extract } from "tar-stream";
 
 import { toErrorWithMessage } from "@/utils/error";
 
-type PlatformFlag =
-  | "linux/amd64"
-  | "linux/arm64"
-  | "darwin/amd64"
-  | "windows/amd64";
+type PlatformFlag = "linux/amd64" | "linux/arm64" | "darwin/amd64" | "windows/amd64";
 
 export function getPlatform(): PlatformFlag {
   const plat = process.arch;
@@ -38,10 +34,7 @@ export class FilesystemService {
     private yesToAll?: boolean,
   ) {}
 
-  exists(
-    directory: string,
-    mode?: number,
-  ): ResultAsync<boolean, ErrorWithMessage> {
+  exists(directory: string, mode?: number): ResultAsync<boolean, ErrorWithMessage> {
     this.spinner.start("Checking directory existence");
 
     return ResultAsync.fromPromise(
@@ -56,10 +49,7 @@ export class FilesystemService {
 
   removeDirectory(directory: string): ResultAsync<void, ErrorWithMessage> {
     this.spinner.start(`Removing directory ${directory}`);
-    return ResultAsync.fromPromise(
-      rm(directory, { recursive: true }),
-      toErrorWithMessage,
-    ).map(() => {
+    return ResultAsync.fromPromise(rm(directory, { recursive: true }), toErrorWithMessage).map(() => {
       this.spinner.succeed(`Removed directory ${directory}`);
     });
   }
@@ -73,10 +63,7 @@ export class FilesystemService {
       if (exists) {
         if (this.yesToAll) {
           this.spinner.text = `Emptying directory ${resolved}`;
-          return ResultAsync.fromPromise(
-            emptyDir(directory),
-            toErrorWithMessage,
-          ).map(() => {
+          return ResultAsync.fromPromise(emptyDir(directory), toErrorWithMessage).map(() => {
             this.spinner.succeed(`Directory ${directory} emptied`);
 
             return resolved;
@@ -100,10 +87,7 @@ export class FilesystemService {
           }
 
           this.spinner.text = `Emptying directory ${resolved}`;
-          return ResultAsync.fromPromise(
-            emptyDir(directory),
-            toErrorWithMessage,
-          ).map(() => {
+          return ResultAsync.fromPromise(emptyDir(directory), toErrorWithMessage).map(() => {
             this.spinner.succeed(`Directory ${directory} emptied`);
 
             return resolved;
@@ -111,10 +95,7 @@ export class FilesystemService {
         });
       }
 
-      return ResultAsync.fromPromise(
-        mkdir(resolved, { recursive: true }),
-        toErrorWithMessage,
-      ).andThen((res) => {
+      return ResultAsync.fromPromise(mkdir(resolved, { recursive: true }), toErrorWithMessage).andThen((res) => {
         if (res === undefined) {
           this.spinner.fail(`Failed to create directory ${directory}`);
           return errAsync({
@@ -131,9 +112,7 @@ export class FilesystemService {
     return path.resolve(directory);
   }
 
-  private handleNonEmptyDirectory(
-    directory: string,
-  ): ResultAsync<string, ErrorWithMessage> {
+  private handleNonEmptyDirectory(directory: string): ResultAsync<string, ErrorWithMessage> {
     if (this.yesToAll) {
       return this.emptyDirectory(directory);
     }
@@ -150,9 +129,7 @@ export class FilesystemService {
       toErrorWithMessage,
     ).andThen((answer) => {
       if (!answer.emptyDir) {
-        this.spinner.warn(
-          `Directory ${directory} is not empty. Continuing may overwrite existing files.`,
-        );
+        this.spinner.warn(`Directory ${directory} is not empty. Continuing may overwrite existing files.`);
         return okAsync(directory);
       }
 
@@ -160,21 +137,15 @@ export class FilesystemService {
     });
   }
 
-  private emptyDirectory(
-    directory: string,
-  ): ResultAsync<string, ErrorWithMessage> {
+  private emptyDirectory(directory: string): ResultAsync<string, ErrorWithMessage> {
     this.spinner.text = `Emptying directory ${directory}`;
-    return ResultAsync.fromPromise(emptyDir(directory), toErrorWithMessage).map(
-      () => {
-        this.spinner.succeed(`Directory ${directory} emptied`);
-        return directory;
-      },
-    );
+    return ResultAsync.fromPromise(emptyDir(directory), toErrorWithMessage).map(() => {
+      this.spinner.succeed(`Directory ${directory} emptied`);
+      return directory;
+    });
   }
 
-  private decompressStream(
-    buffer: ArrayBuffer,
-  ): ResultAsync<void, ErrorWithMessage> {
+  private decompressStream(buffer: ArrayBuffer): ResultAsync<void, ErrorWithMessage> {
     this.spinner.start("Decompressing dataset");
 
     return ResultAsync.fromPromise(
@@ -208,9 +179,7 @@ export class FilesystemService {
     )
       .andThen((jsonContent) => {
         return ResultAsync.fromPromise(
-          mkdir("data", { recursive: true }).then(() =>
-            writeFile("data/data.json", jsonContent),
-          ),
+          mkdir("data", { recursive: true }).then(() => writeFile("data/data.json", jsonContent)),
           toErrorWithMessage,
         );
       })
@@ -230,10 +199,7 @@ export class FilesystemService {
           });
         }
 
-        return ResultAsync.fromPromise(
-          response.arrayBuffer(),
-          toErrorWithMessage,
-        );
+        return ResultAsync.fromPromise(response.arrayBuffer(), toErrorWithMessage);
       })
       .andThen((buffer) => this.decompressStream(buffer))
       .map(() => {
@@ -241,14 +207,9 @@ export class FilesystemService {
       });
   }
 
-  private handleNonExistingDirectory(
-    directory: string,
-  ): ResultAsync<string, ErrorWithMessage> {
+  private handleNonExistingDirectory(directory: string): ResultAsync<string, ErrorWithMessage> {
     if (this.yesToAll) {
-      return ResultAsync.fromPromise(
-        mkdir(directory, { recursive: true }),
-        toErrorWithMessage,
-      ).map(() => directory);
+      return ResultAsync.fromPromise(mkdir(directory, { recursive: true }), toErrorWithMessage).map(() => directory);
     }
 
     return ResultAsync.fromPromise(
@@ -269,25 +230,17 @@ export class FilesystemService {
       }
 
       this.spinner.text = `Save directory ${directory} does not exist. Creating directory`;
-      return ResultAsync.fromPromise(
-        mkdir(directory, { recursive: true }),
-        toErrorWithMessage,
-      ).map(() => directory);
+      return ResultAsync.fromPromise(mkdir(directory, { recursive: true }), toErrorWithMessage).map(() => directory);
     });
   }
 
-  validateWorkingDirectory(
-    directory: string,
-  ): ResultAsync<string, ErrorWithMessage> {
+  validateWorkingDirectory(directory: string): ResultAsync<string, ErrorWithMessage> {
     const resolved = path.resolve(directory);
 
     return this.exists(resolved).andThen((exists) => {
       if (exists) {
         this.spinner.succeed(`Working directory verified: ${resolved}`);
-        return ResultAsync.fromPromise(
-          readdir(resolved),
-          toErrorWithMessage,
-        ).andThen((files) => {
+        return ResultAsync.fromPromise(readdir(resolved), toErrorWithMessage).andThen((files) => {
           if (files.length > 0) {
             return this.handleNonEmptyDirectory(resolved);
           }

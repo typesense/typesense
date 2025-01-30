@@ -46,9 +46,7 @@ class LoggerSingleton implements Logger {
     };
   }
 
-  public static getInstance(
-    initialLevel: LogLevelType = LogLevel.INFO,
-  ): LoggerSingleton {
+  public static getInstance(initialLevel: LogLevelType = LogLevel.INFO): LoggerSingleton {
     if (!LoggerSingleton.instance) {
       LoggerSingleton.instance = new LoggerSingleton(initialLevel);
     }

@@ -28,10 +28,7 @@ interface PlotConfigWithLineLabels extends PlotConfig {
   width?: number;
 }
 
-export function plot(
-  series: Point[][] | Point[],
-  config: PlotConfigWithLineLabels = {},
-): string {
+export function plot(series: Point[][] | Point[], config: PlotConfigWithLineLabels = {}): string {
   // Normalize input to MultiSeries
   const normalizedSeries = normalizeSeries(series);
   // Convert to arrays of y-values for plotting
@@ -50,9 +47,7 @@ export function plot(
         newArr.push(arr[Math.floor((i * arr.length) / config.width!)]);
       }
 
-      const isFull = newArr.every(
-        (element) => element && element !== undefined,
-      );
+      const isFull = newArr.every((element) => element && element !== undefined);
 
       if (isFull) {
         return newArr as number[];
@@ -70,10 +65,7 @@ export function plot(
   }
   const fullWidth = plotFirstLine.length;
   // get the number of characters reserved for the y-axis legend
-  const leftMargin =
-    plotFirstLine.split(/┤|┼╮|┼/)[0]?.length ?
-      plotFirstLine.split(/┤|┼╮|┼/)[0]!.length + 1
-    : 0;
+  const leftMargin = plotFirstLine.split(/┤|┼╮|┼/)[0]?.length ? plotFirstLine.split(/┤|┼╮|┼/)[0]!.length + 1 : 0;
   // the difference between the two is the actual width of the x axis
   const widthXaxis = fullWidth - leftMargin;
 
@@ -113,32 +105,16 @@ export function plot(
     }
     if (config.lineLabels) {
       let legend = "";
-      for (
-        let i = 0;
-        i < Math.min(yArrays.length, config.lineLabels.length);
-        i++
-      ) {
-        const color =
-          Array.isArray(config.colors) ? config.colors[i] : asciichart.default;
+      for (let i = 0; i < Math.min(yArrays.length, config.lineLabels.length); i++) {
+        const color = Array.isArray(config.colors) ? config.colors[i] : asciichart.default;
         legend += `    ${color}─── ${config.lineLabels[i]}${asciichart.reset}`;
       }
       yLabel +=
-        " ".repeat(
-          Math.floor(
-            Math.abs(
-              fullWidth -
-                1 -
-                stripAnsi(legend).length -
-                stripAnsi(yLabel).length,
-            ),
-          ),
-        ) + legend;
+        " ".repeat(Math.floor(Math.abs(fullWidth - 1 - stripAnsi(legend).length - stripAnsi(yLabel).length))) + legend;
     }
     yLabel += `\n${"╷".padStart(leftMargin)}\n`;
   }
   const xLabel =
-    config.xLabel ?
-      `\n${asciichart.darkgray}${config.xLabel.padStart(fullWidth - 1)}${asciichart.reset}`
-    : "";
+    config.xLabel ? `\n${asciichart.darkgray}${config.xLabel.padStart(fullWidth - 1)}${asciichart.reset}` : "";
   return `\n${title}${yLabel}${plot}\n${ticks}\n${tickLabels}${xLabel}\n`;
 }

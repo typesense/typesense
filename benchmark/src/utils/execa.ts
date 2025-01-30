@@ -11,10 +11,7 @@ function safeExeca(
   args: string[],
   opts?: Options,
 ): ResultAsync<ExecaResult<Options>, ErrorWithMessage> {
-  return ResultAsync.fromPromise(
-    execa(command, args, opts),
-    toErrorWithMessage,
-  );
+  return ResultAsync.fromPromise(execa(command, args, opts), toErrorWithMessage);
 }
 
 type StdOut = ExecaResult["stdout"];

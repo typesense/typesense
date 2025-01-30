@@ -38,8 +38,6 @@ describe("CLI Integration", () => {
   });
 
   test("handles invalid commands", async () => {
-    await expect(
-      execAsync(`node ${CLI_PATH} invalid-command`),
-    ).rejects.toThrow();
+    await expect(execAsync(`node ${CLI_PATH} invalid-command`)).rejects.toThrow();
   });
 });

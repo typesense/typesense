@@ -34,25 +34,16 @@ export class ServiceContainer {
     binaryPath?: string;
   }) {
     const fsService = new FilesystemService(this.spinner, options.yesToAll);
-    const dockerService = new DockerService(
-      this.spinner,
-      fsService,
-      this.rootDir,
-    );
+    const dockerService = new DockerService(this.spinner, fsService, this.rootDir);
 
     // Create Git service for host operations
     const hostGitService = new GitService(this.spinner, options.gitUrl);
 
     // Create Git service for container operations
-    const containerGitService = new GitService(
-      this.spinner,
-      options.gitUrl,
-      undefined,
-      {
-        containerName: options.containerName,
-        dockerService: dockerService,
-      },
-    );
+    const containerGitService = new GitService(this.spinner, options.gitUrl, undefined, {
+      containerName: options.containerName,
+      dockerService: dockerService,
+    });
 
     const typesenseManager = new TypesenseDirectoryManager(
       hostGitService, // Use host git service for TypesenseDirectoryManager
@@ -77,9 +68,7 @@ export class ServiceContainer {
   get<T extends keyof ServiceTypes>(serviceName: T): ServiceTypes[T] {
     const service = this.services[serviceName];
     if (!service) {
-      throw new Error(
-        `${serviceName} service not initialized. Call initialize() first.`,
-      );
+      throw new Error(`${serviceName} service not initialized. Call initialize() first.`);
     }
     return service as ServiceTypes[T];
   }

@@ -4,9 +4,8 @@ type UnionUpToNumber<T extends number, A extends number[] = []> =
 export type NumericIndices<T extends unknown[]> =
   T extends { length: infer R extends number } ? UnionUpToNumber<R> : never;
 
-export type EnsureExhaustive<Rec, Arr extends readonly (string  | number)[]> =
-  Exclude<keyof Rec, Arr[number]> extends never ? true
-  : "Error: Missing required keys";
+export type EnsureExhaustive<Rec, Arr extends readonly (string | number)[]> =
+  Exclude<keyof Rec, Arr[number]> extends never ? true : "Error: Missing required keys";
 
 export interface Album {
   album_name: string;

@@ -13,14 +13,8 @@ function main() {
   const packageInfo = getPackageInfo();
   const program = new Command()
     .name("Typesense CLI")
-    .description(
-      "Utilities for Typesense. Benchmark versions, build and install versions, run integration tests, etc.",
-    )
-    .version(
-      packageInfo.version ?? "1.0.0",
-      "-v, --version",
-      "output the current version",
-    )
+    .description("Utilities for Typesense. Benchmark versions, build and install versions, run integration tests, etc.")
+    .version(packageInfo.version ?? "1.0.0", "-v, --version", "output the current version")
     .enablePositionalOptions(true)
     .passThroughOptions(true)
     .helpCommand(true);

@@ -99,9 +99,7 @@ describe("Logger", () => {
 
     test("handles multiple arguments with consistent coloring", () => {
       logger.error("Error:", "Multiple", "Args");
-      expect(mockConsole.error).toHaveBeenCalledWith(
-        "RED:\nError: Multiple Args",
-      );
+      expect(mockConsole.error).toHaveBeenCalledWith("RED:\nError: Multiple Args");
     });
 
     test("does not log when level is too low", () => {
@@ -120,9 +118,7 @@ describe("Logger", () => {
     test("handles Error objects", () => {
       const error = new Error("test error");
       logger.error(error);
-      expect(mockConsole.error).toHaveBeenCalledWith(
-        expect.stringContaining("RED:\nError: test error"),
-      );
+      expect(mockConsole.error).toHaveBeenCalledWith(expect.stringContaining("RED:\nError: test error"));
     });
 
     test("handles objects", () => {

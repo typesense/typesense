@@ -60,9 +60,7 @@ export class TypesenseProcessController extends EventEmitter {
 
       const logLevel = code === 0 ? "debug" : "error";
 
-      logger[logLevel](
-        `[Node ${http}] Process exited with code=${code} signal=${signal}`,
-      );
+      logger[logLevel](`[Node ${http}] Process exited with code=${code} signal=${signal}`);
 
       this.exitCode = code;
 
@@ -109,8 +107,7 @@ export class TypesenseProcessManager {
     ipAddress?: string,
   ) {
     this.ipAddress = ipAddress;
-    this.snapshotPath =
-      snapshotPath ?? path.join(this.workingDirectory, "snapshots");
+    this.snapshotPath = snapshotPath ?? path.join(this.workingDirectory, "snapshots");
   }
 
   get getSnapshotPath() {
@@ -138,33 +135,22 @@ export class TypesenseProcessManager {
   }
 
   callOutToProcess(process: TypesenseProcessController) {
-    this.spinner.start(
-      `Calling out to Typesense process on node ${process.http}\n`,
-    );
+    this.spinner.start(`Calling out to Typesense process on node ${process.http}\n`);
 
-    return ResultAsync.fromPromise(
-      process.client.health.retrieve(),
-      toErrorWithMessage,
-    ).andThen((res) => {
+    return ResultAsync.fromPromise(process.client.health.retrieve(), toErrorWithMessage).andThen((res) => {
       if (!res.ok) {
-        this.spinner.fail(
-          `Typesense process on node ${process.http} is not healthy`,
-        );
+        this.spinner.fail(`Typesense process on node ${process.http} is not healthy`);
         return errAsync({
           message: `Node ${process.http} health check failed`,
         });
       }
-      this.spinner.succeed(
-        `Typesense process on node ${process.http} is healthy`,
-      );
+      this.spinner.succeed(`Typesense process on node ${process.http} is healthy`);
       return okAsync(res);
     });
   }
 
   snapshot(process: TypesenseProcessController) {
-    this.spinner.start(
-      `Taking snapshot of Typesense process on node ${process.http}\n`,
-    );
+    this.spinner.start(`Taking snapshot of Typesense process on node ${process.http}\n`);
 
     return ResultAsync.fromPromise(
       process.client.operations.perform("snapshot", {
@@ -172,94 +158,57 @@ export class TypesenseProcessManager {
       }),
       toErrorWithMessage,
     ).map(() => {
-      this.spinner.succeed(
-        `Took snapshot of Typesense process on node ${process.http}`,
-      );
+      this.spinner.succeed(`Took snapshot of Typesense process on node ${process.http}`);
       return okAsync(undefined);
     });
   }
 
   getCollection(process: TypesenseProcessController, collectionName: string) {
-    this.spinner.start(
-      `Getting collection ${collectionName} on node ${process.http}\n`,
-    );
+    this.spinner.start(`Getting collection ${collectionName} on node ${process.http}\n`);
 
-    return ResultAsync.fromPromise(
-      process.client.collections(collectionName).retrieve(),
-      toErrorWithMessage,
-    ).map((res) => {
-      this.spinner.succeed(
-        `Got collection ${collectionName} on node ${process.http}`,
-      );
-      return res;
-    });
+    return ResultAsync.fromPromise(process.client.collections(collectionName).retrieve(), toErrorWithMessage).map(
+      (res) => {
+        this.spinner.succeed(`Got collection ${collectionName} on node ${process.http}`);
+        return res;
+      },
+    );
   }
 
-  queryCollection(
-    process: TypesenseProcessController,
-    options: { collectionName: string; query: SearchParams },
-  ) {
-    this.spinner.start(
-      `Querying collection ${options.collectionName} on node ${process.http}\n`,
-    );
+  queryCollection(process: TypesenseProcessController, options: { collectionName: string; query: SearchParams }) {
+    this.spinner.start(`Querying collection ${options.collectionName} on node ${process.http}\n`);
     return ResultAsync.fromPromise(
-      process.client
-        .collections(options.collectionName)
-        .documents()
-        .search(options.query),
+      process.client.collections(options.collectionName).documents().search(options.query),
       toErrorWithMessage,
     ).map((res) => {
-      this.spinner.succeed(
-        `Queried collection ${options.collectionName} on node ${process.http}`,
-      );
+      this.spinner.succeed(`Queried collection ${options.collectionName} on node ${process.http}`);
       logger.debug(`Query result: ${JSON.stringify(res)}`);
       return res;
     });
   }
 
-  indexDocuments(
-    process: TypesenseProcessController,
-    collectionName: string,
-    documents: Record<string, unknown>[],
-  ) {
+  indexDocuments(process: TypesenseProcessController, collectionName: string, documents: Record<string, unknown>[]) {
     return ResultAsync.fromPromise(
       process.client.collections(collectionName).documents().import(documents),
       toErrorWithMessage,
     );
   }
 
-  createCollection(
-    process: TypesenseProcessController,
-    schema: CollectionCreateSchema,
-  ) {
-    return ResultAsync.fromPromise(
-      process.client.collections().create(schema),
-      toErrorWithMessage,
-    );
+  createCollection(process: TypesenseProcessController, schema: CollectionCreateSchema) {
+    return ResultAsync.fromPromise(process.client.collections().create(schema), toErrorWithMessage);
   }
 
-  createConversationModel(
-    process: TypesenseProcessController,
-    model: ConversationModelCreateSchema,
-  ) {
-    const models = process.client
-      .conversations()
-      .models() as unknown as ConversationModels;
+  createConversationModel(process: TypesenseProcessController, model: ConversationModelCreateSchema) {
+    const models = process.client.conversations().models() as unknown as ConversationModels;
     return ResultAsync.fromPromise(models.create(model), toErrorWithMessage);
   }
 
-  initNode(
-    dataDir: string,
-    port: number,
-  ): ResultAsync<NodeConfig, ErrorWithMessage> {
+  initNode(dataDir: string, port: number): ResultAsync<NodeConfig, ErrorWithMessage> {
     return this.fsService.exists(dataDir).andThen((exists) => {
       if (!exists) {
         return errAsync({ message: `${dataDir} does not exist` });
       }
 
-      const portObj = Object.values(TypesenseProcessManager.nodeToPortMap).find(
-        (ports) => ports.http === port,
-      );
+      const portObj = Object.values(TypesenseProcessManager.nodeToPortMap).find((ports) => ports.http === port);
 
       if (!portObj) {
         return errAsync({ message: `${port} is not a valid port` });
@@ -290,105 +239,86 @@ export class TypesenseProcessManager {
           }),
       )
       .andThen(() =>
-        this.fsService
-          .exists(this.binaryPath, constants.X_OK | constants.F_OK)
-          .andThen((exists) => {
-            if (!exists) {
-              return errAsync({
-                message: `${this.binaryPath} does not exist or is not executable`,
-              });
-            }
-
-            const multiNodeArgs = [
-              `--nodes`,
-              path.join(this.workingDirectory, "nodes"),
-            ];
-
-            const ipArgs = ["--peering-address", this.ipAddress];
-
-            const baseArgs = [
-              `--data-dir=${dataDir}`,
-              `--api-key=${this.apiKey}`,
-              `--api-port`,
-              `${http}`,
-              `--api-address`,
-              `0.0.0.0`,
-              `--peering-port`,
-              `${grpc}`,
-            ];
-
-            const args: string[] = [];
-
-            if (options?.multiNode !== false) {
-              args.push(...multiNodeArgs);
-            }
-
-            if (this.ipAddress) {
-              args.push(...(ipArgs as string[]));
-            }
-
-            args.push(...baseArgs);
-
-            const execaOptions: ExecaOptions = {
-              cwd: this.workingDirectory,
-              stdio: "pipe",
-              shell: false,
-              windowsHide: true,
-              cleanup: true,
-            };
-
-            logger.debug(
-              `[Node ${http}] Starting process with ports HTTP=${http} gRPC=${grpc}\n`,
-            );
-
-            logger.debug(
-              `[Node ${http}] Command: ${this.binaryPath} ${args.join(" ")}`,
-            );
-
-            const typesenseProcess = execa(this.binaryPath, args, execaOptions);
-
-            typesenseProcess.on("error", () => {
-              this.processes.delete(http);
+        this.fsService.exists(this.binaryPath, constants.X_OK | constants.F_OK).andThen((exists) => {
+          if (!exists) {
+            return errAsync({
+              message: `${this.binaryPath} does not exist or is not executable`,
             });
+          }
 
-            typesenseProcess.on("exit", () => {
-              this.processes.delete(http);
-            });
+          const multiNodeArgs = [`--nodes`, path.join(this.workingDirectory, "nodes")];
 
-            typesenseProcess.stdout?.on("data", (data) => {
-              const message =
-                isStringifiable(data) ?
-                  data.toString().trim()
-                : "Not a stringifiable object";
-              logger.debug(`[Node ${http}] stdout: ${message}`);
-            });
+          const ipArgs = ["--peering-address", this.ipAddress];
 
-            typesenseProcess.stderr?.on("data", (data) => {
-              const message =
-                isStringifiable(data) ?
-                  data.toString().trim()
-                : "Not a stringifiable object";
-              logger.debug(`[Node ${http}] stderr: ${message}`);
-            });
+          const baseArgs = [
+            `--data-dir=${dataDir}`,
+            `--api-key=${this.apiKey}`,
+            `--api-port`,
+            `${http}`,
+            `--api-address`,
+            `0.0.0.0`,
+            `--peering-port`,
+            `${grpc}`,
+          ];
 
-            const typesenseInfo = new TypesenseProcessController(
-              typesenseProcess,
-              http,
-              this.apiKey,
-            );
+          const args: string[] = [];
 
-            typesenseInfo.on("exit", () => {
-              this.processes.delete(http);
-            });
+          if (options?.multiNode !== false) {
+            args.push(...multiNodeArgs);
+          }
 
-            typesenseInfo.on("error", () => {
-              this.processes.delete(http);
-            });
+          if (this.ipAddress) {
+            args.push(...(ipArgs as string[]));
+          }
 
-            this.processes.set(http, typesenseInfo);
-            this.spinner.succeed(`Started Typesense process on node ${http}`);
-            return okAsync(typesenseInfo);
-          }),
+          args.push(...baseArgs);
+
+          const execaOptions: ExecaOptions = {
+            cwd: this.workingDirectory,
+            stdio: "pipe",
+            shell: false,
+            windowsHide: true,
+            cleanup: true,
+          };
+
+          logger.debug(`[Node ${http}] Starting process with ports HTTP=${http} gRPC=${grpc}\n`);
+
+          logger.debug(`[Node ${http}] Command: ${this.binaryPath} ${args.join(" ")}`);
+
+          const typesenseProcess = execa(this.binaryPath, args, execaOptions);
+
+          typesenseProcess.on("error", () => {
+            this.processes.delete(http);
+          });
+
+          typesenseProcess.on("exit", () => {
+            this.processes.delete(http);
+          });
+
+          typesenseProcess.stdout?.on("data", (data) => {
+            const message = isStringifiable(data) ? data.toString().trim() : "Not a stringifiable object";
+            logger.debug(`[Node ${http}] stdout: ${message}`);
+          });
+
+          typesenseProcess.stderr?.on("data", (data) => {
+            const message = isStringifiable(data) ? data.toString().trim() : "Not a stringifiable object";
+            logger.debug(`[Node ${http}] stderr: ${message}`);
+          });
+
+          const typesenseInfo = new TypesenseProcessController(typesenseProcess, http, this.apiKey);
+
+          typesenseInfo.on("exit", () => {
+            this.processes.delete(http);
+          });
+
+          typesenseInfo.on("error", () => {
+            this.processes.delete(http);
+          });
+
+          this.processes.set(http, typesenseInfo);
+          this.spinner.succeed(`Started Typesense process on node ${http}`);
+          return okAsync(typesenseInfo);
+        }),
       );
   }
 }

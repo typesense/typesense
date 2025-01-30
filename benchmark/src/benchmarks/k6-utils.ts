@@ -7,13 +7,9 @@ interface ValidationError {
   reason: string;
 }
 
-type ValidationResult =
-  | { isValid: true; env: K6Env }
-  | { isValid: false; errors: ValidationError[] };
+type ValidationResult = { isValid: true; env: K6Env } | { isValid: false; errors: ValidationError[] };
 
-export function validateK6Environment(
-  env: EnvVariableKey<K6Env>,
-): ValidationResult {
+export function validateK6Environment(env: EnvVariableKey<K6Env>): ValidationResult {
   const requiredKeys = [
     "API_KEY",
     "HOST",

@@ -15,10 +15,7 @@ import { z } from "zod";
 
 import { ServiceContainer } from "@/services/container";
 import { DEFAULT_TYPESENSE_GIT_URL } from "@/services/git";
-import {
-  DEFAULT_IP_ADDRESS,
-  TypesenseProcessManager,
-} from "@/services/typesense-process";
+import { DEFAULT_IP_ADDRESS, TypesenseProcessManager } from "@/services/typesense-process";
 import { toErrorWithMessage } from "@/utils/error";
 import { logger, LogLevel } from "@/utils/logger";
 import { dirName, findRoot } from "@/utils/package-info";
@@ -37,8 +34,7 @@ const integrationTestOptionsSchema = z.object({
   binary: z.string().optional(),
   apiKey: z.string(),
   openAIKey: z.string({
-    message:
-      "OpenAI API key must be provided either through environment variable or directly",
+    message: "OpenAI API key must be provided either through environment variable or directly",
   }),
   ip: z.string().optional(),
   snapshotPath: z.string(),
@@ -73,16 +69,10 @@ class IntegrationTests {
     this.ipAddress = ipAddress ?? this.findDefaultNetworkAddress();
   }
 
-  private createDataDirectories(
-    workingDirectory: string = this.workingDirectory,
-  ) {
+  private createDataDirectories(workingDirectory: string = this.workingDirectory) {
     this.spinner.start("Creating data directories");
     const promises = Array.from({ length: 3 }, (_, i) =>
-      this.services
-        .get("fs")
-        .createDirectory(
-          path.join(workingDirectory, `typesense-data-${i + 1}`),
-        ),
+      this.services.get("fs").createDirectory(path.join(workingDirectory, `typesense-data-${i + 1}`)),
     );
 
     return ResultAsync.combine(promises).andThen((res) => {
@@ -101,20 +91,13 @@ class IntegrationTests {
     return (
       Object.values(interfaces)
         .flatMap((interfaceInfo) => interfaceInfo ?? [])
-        .find(
-          (info) =>
-            info.family === "IPv4" && info.address.startsWith("10.1.0."),
-        )?.address ?? null
+        .find((info) => info.family === "IPv4" && info.address.startsWith("10.1.0."))?.address ?? null
     );
   }
-  private mapNodesToDirectories(
-    dataDirs: [string, string, string],
-  ): Result<NodeConfig[], ErrorWithMessage> {
+  private mapNodesToDirectories(dataDirs: [string, string, string]): Result<NodeConfig[], ErrorWithMessage> {
     const nodes: NodeConfig[] = [];
 
-    for (const [nodeId, ports] of Object.entries(
-      TypesenseProcessManager.nodeToPortMap,
-    )) {
+    for (const [nodeId, ports] of Object.entries(TypesenseProcessManager.nodeToPortMap)) {
       const dataDir = dataDirs[parseInt(nodeId)];
       if (dataDir === undefined) {
         return err(new Error(`Missing data directory for node ${nodeId}`));
@@ -136,22 +119,16 @@ class IntegrationTests {
 
     const contents = `${this.ipAddress}:8107:8108,${this.ipAddress}:7107:7108,${this.ipAddress}:9107:9108`;
 
-    logger.debug(
-      `Writing nodes file to ${nodesFile} with contents:\n${contents}`,
+    logger.debug(`Writing nodes file to ${nodesFile} with contents:\n${contents}`);
+    return ResultAsync.fromPromise(writeFile(nodesFile, contents, { encoding: "utf-8" }), toErrorWithMessage).map(
+      () => {
+        this.spinner.succeed("Nodes file written successfully");
+        return nodesFile;
+      },
     );
-    return ResultAsync.fromPromise(
-      writeFile(nodesFile, contents, { encoding: "utf-8" }),
-      toErrorWithMessage,
-    ).map(() => {
-      this.spinner.succeed("Nodes file written successfully");
-      return nodesFile;
-    });
   }
 
-  setupProcesses(): ResultAsync<
-    TypesenseProcessController[],
-    ErrorWithMessage
-  > {
+  setupProcesses(): ResultAsync<TypesenseProcessController[], ErrorWithMessage> {
     this.spinner.start("Setting up Typesense processes");
 
     return this.writeToNodesFile()
@@ -160,9 +137,7 @@ class IntegrationTests {
       .andThen((nodes) => this.startAndVerifyProcesses(nodes));
   }
 
-  private startAndVerifyProcesses(
-    nodes: NodeConfig[],
-  ): ResultAsync<TypesenseProcessController[], ErrorWithMessage> {
+  private startAndVerifyProcesses(nodes: NodeConfig[]): ResultAsync<TypesenseProcessController[], ErrorWithMessage> {
     this.spinner.start("Starting node processes");
 
     return this.startNodeProcesses(nodes)
@@ -170,10 +145,9 @@ class IntegrationTests {
         this.spinner.succeed("All node processes started");
         this.spinner.start("Waiting for nodes to initialize");
 
-        return ResultAsync.fromPromise(
-          new Promise((resolve) => setTimeout(resolve, 8000)),
-          toErrorWithMessage,
-        ).map(() => processes);
+        return ResultAsync.fromPromise(new Promise((resolve) => setTimeout(resolve, 8000)), toErrorWithMessage).map(
+          () => processes,
+        );
       })
       .andThen((processes) => {
         this.spinner.succeed();
@@ -233,14 +207,12 @@ class IntegrationTests {
     };
 
     return ResultAsync.combine(
-      Array.from(this.typesenseProcessManager.processes.values()).map(
-        (process) => {
-          return this.typesenseProcessManager.queryCollection(process, {
-            collectionName: IntegrationTests.baseCollectionName,
-            query: params,
-          });
-        },
-      ),
+      Array.from(this.typesenseProcessManager.processes.values()).map((process) => {
+        return this.typesenseProcessManager.queryCollection(process, {
+          collectionName: IntegrationTests.baseCollectionName,
+          query: params,
+        });
+      }),
     ).map(() => {
       this.spinner.succeed("Every node queried successfully");
     });
@@ -259,11 +231,9 @@ class IntegrationTests {
       api_key: this.openAIKey,
     };
 
-    return this.typesenseProcessManager
-      .createConversationModel(process, model)
-      .map(() => {
-        this.spinner.succeed("Conversation model created");
-      });
+    return this.typesenseProcessManager.createConversationModel(process, model).map(() => {
+      this.spinner.succeed("Conversation model created");
+    });
   }
 
   private createBaseCollection(process: TypesenseProcessController) {
@@ -295,17 +265,13 @@ class IntegrationTests {
       ],
     };
 
-    return this.typesenseProcessManager
-      .createCollection(process, collection)
-      .map((res) => {
-        this.spinner.succeed("Base collection created");
-        return res;
-      });
+    return this.typesenseProcessManager.createCollection(process, collection).map((res) => {
+      this.spinner.succeed("Base collection created");
+      return res;
+    });
   }
 
-  private createConversationStoreCollection(
-    process: TypesenseProcessController,
-  ) {
+  private createConversationStoreCollection(process: TypesenseProcessController) {
     this.spinner.start("Creating conversation store collection");
 
     const collection: CollectionCreateSchema = {
@@ -336,12 +302,10 @@ class IntegrationTests {
       ],
     };
 
-    return this.typesenseProcessManager
-      .createCollection(process, collection)
-      .map((res) => {
-        this.spinner.succeed("Conversation store collection created");
-        return res;
-      });
+    return this.typesenseProcessManager.createCollection(process, collection).map((res) => {
+      this.spinner.succeed("Conversation store collection created");
+      return res;
+    });
   }
 
   private verifyNodesHealth(
@@ -350,20 +314,12 @@ class IntegrationTests {
     this.spinner.start("Verifying node health");
 
     return ResultAsync.combine(
-      processes.map((process) =>
-        this.typesenseProcessManager
-          .callOutToProcess(process)
-          .map(() => process),
-      ),
+      processes.map((process) => this.typesenseProcessManager.callOutToProcess(process).map(() => process)),
     );
   }
 
-  private startNodeProcesses(
-    nodes: NodeConfig[],
-  ): ResultAsync<TypesenseProcessController[], ErrorWithMessage> {
-    const configs = nodes.map((node) =>
-      this.typesenseProcessManager.startProcess(node),
-    );
+  private startNodeProcesses(nodes: NodeConfig[]): ResultAsync<TypesenseProcessController[], ErrorWithMessage> {
+    const configs = nodes.map((node) => this.typesenseProcessManager.startProcess(node));
     return ResultAsync.combine(configs);
   }
 
@@ -409,37 +365,25 @@ class IntegrationTests {
     logger.warn("Running OpenAI Embedding test");
 
     return this.createOpenAIEmbeddingCollection()
-      .andThen(() =>
-        ResultAsync.fromPromise(
-          new Promise((resolve) => setTimeout(resolve, 2000)),
-          toErrorWithMessage,
-        ),
-      )
+      .andThen(() => ResultAsync.fromPromise(new Promise((resolve) => setTimeout(resolve, 2000)), toErrorWithMessage))
       .andThen(() => this.validateOpenAIEmbeddingCollection())
       .andThen(() => {
         // Cleanup any existing processes to restart them
-        const cleanupResults = Array.from(
-          this.typesenseProcessManager.processes.values(),
-        ).map((process) =>
-          process
-            .cleanup()
-            .asyncAndThen(() => okAsync<void, ErrorWithMessage>(undefined)),
+        const cleanupResults = Array.from(this.typesenseProcessManager.processes.values()).map((process) =>
+          process.cleanup().asyncAndThen(() => okAsync<void, ErrorWithMessage>(undefined)),
         );
 
         return ResultAsync.combine(cleanupResults);
       })
       .andThen(() => {
         this.spinner.start("Cleaning up before restarting processes");
-        return ResultAsync.fromPromise(
-          new Promise((resolve) => setTimeout(resolve, 10000)),
-          toErrorWithMessage,
-        ).map(() => {
-          this.spinner.succeed("Cleanup complete");
-        });
+        return ResultAsync.fromPromise(new Promise((resolve) => setTimeout(resolve, 10000)), toErrorWithMessage).map(
+          () => {
+            this.spinner.succeed("Cleanup complete");
+          },
+        );
       })
-      .andThen(() =>
-        this.startAndVerifyProcesses(Array.from(this.nodes.values())),
-      )
+      .andThen(() => this.startAndVerifyProcesses(Array.from(this.nodes.values())))
       .andThen(() => this.validateOpenAIEmbeddingCollection())
       .map(() => {
         logger.success("OpenAI Embedding test passed successfully");
@@ -447,9 +391,7 @@ class IntegrationTests {
   }
 
   private createOpenAIEmbeddingCollection(numDim = 256) {
-    this.spinner.start(
-      "Creating OpenAI Embedding collection with custom number of  dimensions",
-    );
+    this.spinner.start("Creating OpenAI Embedding collection with custom number of  dimensions");
 
     const collection: CollectionCreateSchema = {
       name: IntegrationTests.openAICollectionName,
@@ -480,11 +422,9 @@ class IntegrationTests {
       return errAsync({ message: "Process not found for port 8108" });
     }
 
-    return this.typesenseProcessManager
-      .createCollection(process, collection)
-      .map(() => {
-        this.spinner.succeed("OpenAI Embedding collection created");
-      });
+    return this.typesenseProcessManager.createCollection(process, collection).map(() => {
+      this.spinner.succeed("OpenAI Embedding collection created");
+    });
   }
 
   private validateOpenAIEmbeddingCollection(numDim = 256) {
@@ -499,10 +439,7 @@ class IntegrationTests {
     return this.typesenseProcessManager
       .getCollection(process, IntegrationTests.openAICollectionName)
       .map((collection) => {
-        if (
-          collection.fields?.find((field) => field.name === "embedding")
-            ?.num_dim !== numDim
-        ) {
+        if (collection.fields?.find((field) => field.name === "embedding")?.num_dim !== numDim) {
           return err({ message: `Number of dimensions is not ${numDim}` });
         }
 
@@ -514,16 +451,8 @@ class IntegrationTests {
 const test = new Command()
   .name("test")
   .description("Run the integration tests")
-  .option(
-    "-n, --container-name <name>",
-    "Name for the Docker container. Defaults to bazel-build",
-    "bazel-build",
-  )
-  .option(
-    "-i, --image-name <image>",
-    "Name for the Docker image. Defaults to ubuntu-build",
-    "ubuntu-build",
-  )
+  .option("-n, --container-name <name>", "Name for the Docker container. Defaults to bazel-build", "bazel-build")
+  .option("-i, --image-name <image>", "Name for the Docker image. Defaults to ubuntu-build", "ubuntu-build")
   .option(
     "-g, --typesense-git-url <url>",
     "Git URL for the Typesense repo. Defaults to the main Typesense github repo",
@@ -534,33 +463,19 @@ const test = new Command()
     "Directory where the Typesense repo is saved. Defaults to the current directory",
     cwd,
   )
-  .option(
-    "-c, --commitHash <commit-hash>",
-    "Hash of the commit to install. Defaults to the latest commit",
-  )
+  .option("-c, --commitHash <commit-hash>", "Hash of the commit to install. Defaults to the latest commit")
   .option("-v, --verbose", "Verbose output", false)
   .option("-y, --yes", "Verbose output", false)
-  .option(
-    "-b, --binary <path>",
-    "Path of prebuilt-binary. Use this to skip the building process.",
-  )
+  .option("-b, --binary <path>", "Path of prebuilt-binary. Use this to skip the building process.")
   .option("--api-key <key>", "API key to use for the Typesense Process.", "xyz")
-  .option(
-    "--openAI-key <key>",
-    "OpenAI API key. Defaults to OPENAI_API_KEY in PATH",
-    process.env.OPENAI_API_KEY,
-  )
+  .option("--openAI-key <key>", "OpenAI API key. Defaults to OPENAI_API_KEY in PATH", process.env.OPENAI_API_KEY)
   .option("--ip <ip>", "IP address to use for the Typesense Process.")
   .option("-s, --snapshot-path <path>", "Path to the snapshot file.", cwd)
   .action((options) => {
     logger.info("Running Typesense Integration tests");
     const services = new ServiceContainer(findRoot(dirName));
     const spinner = services.getSpinner();
-    parseOptions(
-      options as IntegrationTestOptions,
-      integrationTestOptionsSchema,
-      spinner,
-    )
+    parseOptions(options as IntegrationTestOptions, integrationTestOptionsSchema, spinner)
       .andThen((options) => {
         if (options.verbose) {
           logger.setLevel(LogLevel.DEBUG);
@@ -587,23 +502,15 @@ const test = new Command()
         return services
           .get("typesense")
           .validateDirectory()
-          .andThen(() =>
-            services.get("docker").validateImage(options.imageName),
-          )
+          .andThen(() => services.get("docker").validateImage(options.imageName))
           .andThen(() =>
             services.get("docker").validateContainer({
               containerName: options.containerName,
               imageName: options.imageName,
             }),
           )
-          .andThen(() =>
-            services.get("docker").startContainer(options.containerName),
-          )
-          .andThen(() =>
-            services
-              .get("containerGit")
-              .markDirectoryAsSafe(options.workingDirectory),
-          )
+          .andThen(() => services.get("docker").startContainer(options.containerName))
+          .andThen(() => services.get("containerGit").markDirectoryAsSafe(options.workingDirectory))
           .andThen(() =>
             services
               .get("containerGit")

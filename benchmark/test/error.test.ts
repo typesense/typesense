@@ -96,9 +96,7 @@ describe("Error Handler", () => {
         handleError(result.error);
       }
 
-      expect(logger.error).toHaveBeenCalledWith(
-        "error for argument 'name': Expected string, received number",
-      );
+      expect(logger.error).toHaveBeenCalledWith("error for argument 'name': Expected string, received number");
       expect(process.exit).toHaveBeenCalledWith(1);
     });
 
@@ -113,14 +111,8 @@ describe("Error Handler", () => {
       }
 
       expect(logger.error).toHaveBeenCalledTimes(2);
-      expect(logger.error).toHaveBeenNthCalledWith(
-        1,
-        "error for argument 'name': Expected string, received number",
-      );
-      expect(logger.error).toHaveBeenNthCalledWith(
-        2,
-        "error for argument 'age': Number must be greater than 0",
-      );
+      expect(logger.error).toHaveBeenNthCalledWith(1, "error for argument 'name': Expected string, received number");
+      expect(logger.error).toHaveBeenNthCalledWith(2, "error for argument 'age': Number must be greater than 0");
       expect(process.exit).toHaveBeenCalledWith(1);
     });
 
@@ -139,9 +131,7 @@ describe("Error Handler", () => {
         handleError(result.error);
       }
 
-      expect(logger.error).toHaveBeenCalledWith(
-        "error for argument 'user.details.age': Number must be greater than 0",
-      );
+      expect(logger.error).toHaveBeenCalledWith("error for argument 'user.details.age': Number must be greater than 0");
       expect(process.exit).toHaveBeenCalledWith(1);
     });
   });

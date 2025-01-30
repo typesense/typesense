@@ -151,9 +151,7 @@ export class K6Benchmarks {
     return okAsync(undefined);
   }
 
-  private buildK6EnvironmentVars(
-    additionalVars?: Record<string, unknown>,
-  ): string {
+  private buildK6EnvironmentVars(additionalVars?: Record<string, unknown>): string {
     const envVarMap = {
       API_KEY: this.config.apiKey,
       DURATION: this.config.duration,

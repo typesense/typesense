@@ -16,9 +16,7 @@ function parseOptions<T extends ZodType>(
   if (!parsedOpts.success) {
     return errAsync({
       message: parsedOpts.error.errors
-        .map(
-          (err) => `Error for argument '${err.path.join(".")}': ${err.message}`,
-        )
+        .map((err) => `Error for argument '${err.path.join(".")}': ${err.message}`)
         .join("\n"),
     });
   }

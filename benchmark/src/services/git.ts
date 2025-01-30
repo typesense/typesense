@@ -11,8 +11,7 @@ import { DEFAULT_TYPESENSE_DIRECTORY } from "@/services/typesense-dir";
 import { safeExeca } from "@/utils/execa";
 import { logger } from "@/utils/logger";
 
-export const DEFAULT_TYPESENSE_GIT_URL =
-  "https://github.com/typesense/typesense.git";
+export const DEFAULT_TYPESENSE_GIT_URL = "https://github.com/typesense/typesense.git";
 
 export class GitService {
   private readonly url: string;
@@ -31,15 +30,9 @@ export class GitService {
     this.directory = directory ?? DEFAULT_TYPESENSE_DIRECTORY;
   }
 
-  private execCommand(
-    args: string[],
-    isClone?: true,
-  ): ResultAsync<StdOut, ErrorWithMessage> {
+  private execCommand(args: string[], isClone?: true): ResultAsync<StdOut, ErrorWithMessage> {
     if (this.execContext) {
-      return this.execContext.dockerService.execInContainer(
-        this.execContext.containerName,
-        `git ${args.join(" ")}`,
-      );
+      return this.execContext.dockerService.execInContainer(this.execContext.containerName, `git ${args.join(" ")}`);
     }
 
     // Use process.cwd() only for clone operations, this.directory for everything else
@@ -56,17 +49,13 @@ export class GitService {
       .andThen(() =>
         this.execCommand(["pull", "origin"]).orElse((err) => {
           if (err.message.includes("You are not currently on a branch")) {
-            return this.switchBack().andThen(() =>
-              this.execCommand(["pull", "origin"]),
-            );
+            return this.switchBack().andThen(() => this.execCommand(["pull", "origin"]));
           }
           return errAsync(err);
         }),
       )
       .andThen(() => {
-        return commitHash ?
-            okAsync(commitHash)
-          : this.revParseHead().map((head) => head);
+        return commitHash ? okAsync(commitHash) : this.revParseHead().map((head) => head);
       })
       .andThen((targetCommit) => {
         this.spinner.start(`Switching to commit ${targetCommit}`);
@@ -79,15 +68,11 @@ export class GitService {
               const trimmedCommitHash = commitHash.slice(0, minLen);
 
               if (trimmedCurrentCommit !== trimmedCommitHash) {
-                return this.switchBack().andThen(() =>
-                  errAsync({ message: "Failed to checkout to commit" }),
-                );
+                return this.switchBack().andThen(() => errAsync({ message: "Failed to checkout to commit" }));
               }
             }
 
-            this.spinner.succeed(
-              `Checked out to ${commitHash ? "commit" : "HEAD"} ${targetCommit}`,
-            );
+            this.spinner.succeed(`Checked out to ${commitHash ? "commit" : "HEAD"} ${targetCommit}`);
             return okAsync(targetCommit);
           }),
         );
@@ -117,13 +102,9 @@ export class GitService {
     });
   }
 
-  markDirectoryAsSafe(
-    directory: string,
-  ): ResultAsync<string, ErrorWithMessage> {
+  markDirectoryAsSafe(directory: string): ResultAsync<string, ErrorWithMessage> {
     const args = ["config", "--global", "--add", "safe.directory", directory];
-    logger.debug(
-      `Marking directory as safe with command: git ${args.join(" ")}`,
-    );
+    logger.debug(`Marking directory as safe with command: git ${args.join(" ")}`);
 
     this.spinner.start("Marking directory as safe");
 

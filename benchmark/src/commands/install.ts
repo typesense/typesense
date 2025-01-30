@@ -25,16 +25,8 @@ const cwd = process.cwd();
 const install = new Command()
   .name("install")
   .description("Install a specific Typesense version")
-  .option(
-    "-n, --container-name <name>",
-    "Name for the Docker container. Defaults to bazel-build",
-    "bazel-build",
-  )
-  .option(
-    "-i, --image-name <image>",
-    "Name for the Docker image. Defaults to ubuntu-build",
-    "ubuntu-build",
-  )
+  .option("-n, --container-name <name>", "Name for the Docker container. Defaults to bazel-build", "bazel-build")
+  .option("-i, --image-name <image>", "Name for the Docker image. Defaults to ubuntu-build", "ubuntu-build")
   .option(
     "-g, --typesense-git-url <url>",
     "Git URL for the Typesense repo. Defaults to the main Typesense github repo",
@@ -45,10 +37,7 @@ const install = new Command()
     "Directory where the Typesense repo is saved. Defaults to the current directory",
     cwd,
   )
-  .option(
-    "-c, --commitHash <commit-hash>",
-    "Hash of the commit to install. Defaults to the latest commit",
-  )
+  .option("-c, --commitHash <commit-hash>", "Hash of the commit to install. Defaults to the latest commit")
   .option("-y, --yes", "Answer yes to all prompts", false)
   .option("-v, --verbose", "Verbose output", false)
   .action((options) => {
@@ -128,9 +117,7 @@ const install = new Command()
           })
           .map(() => options),
       )
-      .andThen((options) =>
-        services.get("docker").stopContainer(options.containerName),
-      )
+      .andThen((options) => services.get("docker").stopContainer(options.containerName))
       .then((res) => {
         if (res.isOk()) {
           logger.success("Typesense installed successfully");

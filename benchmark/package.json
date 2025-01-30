@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
-    "test": "vitest"
+    "test": "vitest",
+    "format": "prettier --write \"**/*.{ts, md}\""
   },
   "keywords": [
     "full-text search",

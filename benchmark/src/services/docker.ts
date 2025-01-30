@@ -23,18 +23,9 @@ export class DockerService {
     this.rootDir = rootDir;
   }
 
-  execInContainer(
-    containerName: string,
-    command: string,
-  ): ResultAsync<StdOut, ErrorWithMessage> {
+  execInContainer(containerName: string, command: string): ResultAsync<StdOut, ErrorWithMessage> {
     logger.debug(`Executing in container ${containerName}: ${command}`);
-    return execaAsync("docker", [
-      "exec",
-      containerName,
-      "bash",
-      "-c",
-      command,
-    ]).map(({ stdout }) => stdout);
+    return execaAsync("docker", ["exec", containerName, "bash", "-c", command]).map(({ stdout }) => stdout);
   }
 
   stopContainer(containerName: string): ResultAsync<void, ErrorWithMessage> {
@@ -50,9 +41,7 @@ export class DockerService {
     });
   }
 
-  stopContainers(
-    containerNames: string[],
-  ): ResultAsync<void, ErrorWithMessage> {
+  stopContainers(containerNames: string[]): ResultAsync<void, ErrorWithMessage> {
     this.spinner.start("Stopping containers");
 
     const childSpinners = containerNames.map(() => {
@@ -71,9 +60,7 @@ export class DockerService {
         });
       }),
     ).map(() => {
-      this.spinner.succeed(
-        `Containers ${containerNames.join(" and ")} stopped`,
-      );
+      this.spinner.succeed(`Containers ${containerNames.join(" and ")} stopped`);
     });
   }
 
@@ -88,31 +75,17 @@ export class DockerService {
         this.spinner.succeed(`Image ${imageName} verified`);
         return imageName;
       })
-      .orElse((error) =>
-        error.message.includes("No such object") ?
-          this.buildImage(imageName)
-        : err(error),
-      );
+      .orElse((error) => (error.message.includes("No such object") ? this.buildImage(imageName) : err(error)));
   }
 
   validateContainer(options: {
     containerName: string;
     imageName: string;
-  }): ResultAsync<
-    { containerName: string; imageName: string },
-    ErrorWithMessage
-  > {
+  }): ResultAsync<{ containerName: string; imageName: string }, ErrorWithMessage> {
     this.spinner.start("Verifying container");
 
-    const args = [
-      "inspect",
-      "--format",
-      "{{.Config.Image}}",
-      options.containerName,
-    ];
-    logger.debug(
-      `Verifying container with command: docker ${args.join(" ")} for image ${options.imageName}`,
-    );
+    const args = ["inspect", "--format", "{{.Config.Image}}", options.containerName];
+    logger.debug(`Verifying container with command: docker ${args.join(" ")} for image ${options.imageName}`);
 
     return execaAsync("docker", args)
       .andThen(({ stdout }) => {
@@ -126,9 +99,7 @@ export class DockerService {
         return ok(options);
       })
       .orElse((error) =>
-        error.message.includes("No such object") ?
-          this.buildContainer(options).map(() => options)
-        : err(error),
+        error.message.includes("No such object") ? this.buildContainer(options).map(() => options) : err(error),
       );
   }
 
@@ -140,9 +111,7 @@ export class DockerService {
     const { containerName, source, destination } = options;
 
     const args = ["cp", `${containerName}:${source}`, destination];
-    logger.debug(
-      `Copying from container with command: docker ${args.join(" ")}`,
-    );
+    logger.debug(`Copying from container with command: docker ${args.join(" ")}`);
 
     this.spinner.start("Copying from container");
 
@@ -165,9 +134,7 @@ export class DockerService {
   private buildImage(imageName: string): ResultAsync<string, ErrorWithMessage> {
     const platform = getPlatform();
 
-    this.spinner.text = chalk.yellow(
-      `Image not found. Building image ${imageName} with platform ${platform}`,
-    );
+    this.spinner.text = chalk.yellow(`Image not found. Building image ${imageName} with platform ${platform}`);
 
     const args = [
       "buildx",
@@ -190,10 +157,7 @@ export class DockerService {
     });
   }
 
-  private buildContainer(options: {
-    containerName: string;
-    imageName: string;
-  }): ResultAsync<
+  private buildContainer(options: { containerName: string; imageName: string }): ResultAsync<
     {
       containerName: string;
       imageName: string;
@@ -201,9 +165,7 @@ export class DockerService {
     ErrorWithMessage
   > {
     this.spinner.color = "yellow";
-    this.spinner.text = chalk.yellow(
-      `Container not found. Building container ${options.containerName}...`,
-    );
+    this.spinner.text = chalk.yellow(`Container not found. Building container ${options.containerName}...`);
 
     const absolutePath = path.resolve(`${options.containerName}-typesense`);
 
@@ -212,15 +174,7 @@ export class DockerService {
         return errAsync({ message: "the path does not exist" });
       }
 
-      const args = [
-        "create",
-        "-it",
-        "--name",
-        options.containerName,
-        "-v",
-        `${absolutePath}:/app`,
-        options.imageName,
-      ];
+      const args = ["create", "-it", "--name", options.containerName, "-v", `${absolutePath}:/app`, options.imageName];
 
       logger.debug(`Building container with command: docker ${args.join(" ")}`);
       return execaAsync("docker", args, { cwd: this.rootDir }).map(() => {
