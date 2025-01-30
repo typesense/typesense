@@ -1,3 +1,4 @@
+import type { SearchParams } from "typesense/lib/Typesense/Documents";
 import type { K6Env } from "../services/k6";
 import type { EnsureExhaustive, EnvVariableKey } from "../utils/types";
 
@@ -98,3 +99,105 @@ export function validateK6Environment(env: EnvVariableKey<K6Env>): ValidationRes
 
   return { isValid: false, errors };
 }
+
+export const searchScenarios = [
+  {
+    name: "just_q",
+    params: {
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+    },
+    wildCardQuery: false,
+  },
+  {
+    name: "q_star",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+    },
+    wildCardQuery: true,
+  },
+  {
+    name: "filter_simple",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+      filter_by: "genres:Rock",
+    },
+    wildCardQuery: true,
+  },
+  {
+    name: "filter_complex",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+      filter_by: "genres:Rock && primary_artist_name:Queen || primary_artist_name:Led Zeppelin",
+    },
+    wildCardQuery: true,
+  },
+  {
+    name: "sort_simple",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+      sort_by: "release_date:desc",
+    },
+    wildCardQuery: true,
+  },
+  {
+    name: "sort_eval_condition",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+      sort_by: "_eval(primary_artist_name:Queen):desc, release_date:desc",
+    },
+    wildCardQuery: true,
+  },
+  {
+    name: "sort_eval_score",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+      sort_by: "_eval([(primary_artist_name:Queen):3, (primary_artist_name:Nirvana):5]):desc, release_date:desc",
+    },
+    wildCardQuery: true,
+  },
+  {
+    name: "facet",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+      facet_by: "genres,country,release_decade",
+    },
+    wildCardQuery: true,
+  },
+  {
+    name: "group",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+      group_by: "genres",
+    },
+    wildCardQuery: true,
+  },
+] as const satisfies Scenario[];
+
+type Scenario =
+  | {
+      name: string;
+      params: Omit<SearchParams, "q">;
+      wildCardQuery: false;
+    }
+  | {
+      name: string;
+      params: Omit<SearchParams, "q"> & { q: "*" };
+      wildCardQuery: true;
+    };
