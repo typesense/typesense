@@ -57,6 +57,7 @@
     "asciichart": "^1.5.25",
     "chalk": "^5.4.1",
     "commander": "^13.0.0",
+    "cosmiconfig": "^9.0.0",
     "docker-compose": "^1.1.0",
     "execa": "^9.5.2",
     "fs-extra": "^11.2.0",
