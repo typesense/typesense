@@ -6049,7 +6049,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     if(!validate_op.ok()) {
         auto error = "Alter failed validation: " + validate_op.error();
         LOG(INFO) << error;
-        check_store_alter_status_msg(error);
+        check_store_alter_status_msg(false, error);
         reset_alter_status_counters();
         return validate_op;
     }
@@ -6057,7 +6057,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     if(!this_fallback_field_type.empty() && !fallback_field_type.empty()) {
         auto error = "Alter failed: schema already contains a `.*` field.";
         LOG(INFO) << error;
-        check_store_alter_status_msg(error);
+        check_store_alter_status_msg(false, error);
         reset_alter_status_counters();
         return Option<bool>(400, "The schema already contains a `.*` field.");
     }
@@ -6078,7 +6078,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     if(!batch_alter_op.ok()) {
         auto error = "Alter failed during alter data: " + batch_alter_op.error();
         LOG(INFO) << error;
-        check_store_alter_status_msg(error);
+        check_store_alter_status_msg(false, error);
         reset_alter_status_counters();
         return batch_alter_op;
     }
@@ -6089,7 +6089,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         if(!batch_alter_op.ok()) {
             auto error = "Alter failed during alter data: " + batch_alter_op.error();
             LOG(INFO) << error;
-            check_store_alter_status_msg(error);
+            check_store_alter_status_msg(false, error);
             reset_alter_status_counters();
             return batch_alter_op;
         }
@@ -6101,7 +6101,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
                 //it's an embed field
                 auto op = update_apikey(f.embed[fields::model_config], f.name);
                 if(!op.ok()) {
-                    check_store_alter_status_msg(op.error());
+                    check_store_alter_status_msg(false, op.error());
                     reset_alter_status_counters();
                     return op;
                 }
@@ -6122,7 +6122,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     }
 
     reset_alter_status_counters();
-    check_store_alter_status_msg("success : true");
+    check_store_alter_status_msg(true);
     return Option<bool>(true);
 }
 
@@ -7525,10 +7525,10 @@ Option<nlohmann::json> Collection::get_alter_schema_status() const {
     status_json["validated_docs"] = validated_docs.load();
     status_json["altered_docs"] = altered_docs.load();
 
-    status_json["last_5_alter_status"] = nlohmann::json::array();
+    status_json["alter_history"] = nlohmann::json::array();
 
-    for(auto it = last_alter_msgs.rbegin(); it != last_alter_msgs.rend(); ++it) {
-        status_json["last_5_alter_status"].push_back(*it);
+    for(auto it = alter_history.rbegin(); it != alter_history.rend(); ++it) {
+        status_json["alter_history"].push_back(*it);
     }
 
     return Option<nlohmann::json>(status_json);
@@ -7581,14 +7581,22 @@ Option<size_t> Collection::remove_all_docs() {
     return Option<size_t>(num_docs_removed);
 }
 
-bool Collection::check_store_alter_status_msg(const std::string& msg) {
-    auto curr_size = last_alter_msgs.size();
+bool Collection::check_store_alter_status_msg(bool success, const std::string& msg) {
+    auto curr_size = alter_history.size();
 
     if(curr_size == ALTER_STATUS_MSG_COUNT) {
-        last_alter_msgs.pop_front();
+        alter_history.pop_front();
     }
 
-    last_alter_msgs.push_back(msg);
+    nlohmann::json resp;
+    resp["timestamp"] = std::to_string(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    resp["success"] = success;
+
+    if(!success) {
+        resp["message"] = msg;
+    }
+
+    alter_history.push_back(resp);
 
     return true;
 }

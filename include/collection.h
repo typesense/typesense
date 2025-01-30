@@ -424,7 +424,7 @@ private:
     std::atomic<size_t> altered_docs;
     std::atomic<size_t> validated_docs;
 
-    std::deque<std::string> last_alter_msgs;
+    std::deque<nlohmann::json> alter_history;
 
     // methods
 
@@ -1079,7 +1079,7 @@ public:
 
     Option<size_t> remove_all_docs();
 
-    bool check_store_alter_status_msg(const std::string& msg);
+    bool check_store_alter_status_msg(bool success, const std::string& msg = "");
 };
 
 template<class T>
