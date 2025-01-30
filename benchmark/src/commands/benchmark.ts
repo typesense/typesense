@@ -1,5 +1,6 @@
 import path from "path";
 import type { ErrorWithMessage } from "@/utils/error";
+import type { TupleOfLength } from "@/utils/parse";
 import type { Point } from "@/utils/plot";
 import type { NumericIndices } from "@/utils/types";
 import type { INanoDate, IResults } from "influx";
@@ -16,6 +17,7 @@ import { err, errAsync, ok, okAsync, ResultAsync } from "neverthrow";
 import { table } from "table";
 import { z } from "zod";
 
+import { searchScenarios } from "@/benchmarks/k6-utils";
 import { ServiceContainer } from "@/services/container";
 import { DEFAULT_TYPESENSE_GIT_URL } from "@/services/git";
 import { K6Benchmarks } from "@/services/k6";
@@ -23,18 +25,28 @@ import { TypesenseProcessManager } from "@/services/typesense-process";
 import { toErrorWithMessage } from "@/utils/error";
 import { logger, LogLevel } from "@/utils/logger";
 import { dirName, findRoot } from "@/utils/package-info";
-import { parseOptions } from "@/utils/parse";
+import { loadConfig, parseOptions } from "@/utils/parse";
 import { plot } from "@/utils/plot";
 
 const cwd = process.cwd();
 
-interface FormattedResults {
+interface FormattedIndexResult extends BaseFormattedResult {
+  vus: 1;
+  scenario: "import";
+}
+
+interface BaseFormattedResult {
   metric: string;
-  variable: string;
   oldValue: string;
   newValue: string;
   percentageChange: number;
   formattedPercentageChange: string;
+  displayVariable: string;
+}
+
+interface FormattedSearchResult extends BaseFormattedResult {
+  scenario: ScenarioNames;
+  vus: 50 | 100;
 }
 
 type CommitHash = string;
@@ -50,21 +62,80 @@ type HistoricalData = Record<
   }[]
 >;
 
+type ScenarioNames = (typeof searchScenarios)[number]["name"];
+
+type ScenarioLength = (typeof searchScenarios)["length"];
+
+const KeySchema = z.enum([...searchScenarios.map((s) => s.name)] as TupleOfLength<ScenarioNames, ScenarioLength>);
+
+export const BenchmarkConfigSchema = z
+  .object({
+    failureThresholds: z
+      .record(
+        KeySchema,
+        z.object({
+          "50vu": z.number().min(0).max(100),
+          "100vu": z.number().min(0).max(100),
+        }),
+      )
+      .refine((obj): obj is Required<typeof obj> => KeySchema.options.every((key) => obj[key] != null)),
+  })
+  .strict();
+
+type BenchmarkConfig = z.infer<typeof BenchmarkConfigSchema>;
+
+export const defaultConfig: BenchmarkConfig = {
+  failureThresholds: {
+    filter_complex: {
+      "100vu": 50,
+      "50vu": 50,
+    },
+    filter_simple: {
+      "100vu": 50,
+      "50vu": 50,
+    },
+    group: {
+      "100vu": 50,
+      "50vu": 50,
+    },
+    just_q: {
+      "100vu": 50,
+      "50vu": 50,
+    },
+    q_star: {
+      "100vu": 50,
+      "50vu": 50,
+    },
+    sort_eval_condition: {
+      "100vu": 50,
+      "50vu": 50,
+    },
+    sort_eval_score: {
+      "100vu": 50,
+      "50vu": 50,
+    },
+    sort_simple: {
+      "100vu": 50,
+      "50vu": 50,
+    },
+    facet: {
+      "100vu": 50,
+      "50vu": 50,
+    },
+  },
+};
+
 const benchmarkOptionSchema = z.object({
   containerName: z.string(),
   imageName: z.string(),
   typesenseGitUrl: z.string(),
   workingDirectory: z.string(),
+  config: z.string().optional(),
   commitHashes: z.tuple([z.string(), z.string()]),
   verbose: z.boolean(),
   yes: z.boolean(),
   binaries: z.tuple([z.string(), z.string()]),
   apiKey: z.string(),
-  fail: z
-    .string()
-    .optional()
-    .transform((value) => (value ? parseInt(value) : null))
-    .pipe(z.number().optional()),
   batchSize: z
     .string()
     .transform((value) => parseInt(value))
@@ -77,6 +148,20 @@ const benchmarkOptionSchema = z.object({
   ),
 });
 
+const BenchmarkOptionsSchemaWithFailurePoints = benchmarkOptionSchema
+  .merge(BenchmarkConfigSchema)
+  .strict()
+  .omit({
+    config: true,
+    batchSize: true,
+  })
+  .merge(
+    z.object({
+      batchSize: z.number().min(0),
+    }),
+  );
+
+type BenchmarkOptionsWithFailurePoints = z.infer<typeof BenchmarkOptionsSchemaWithFailurePoints>;
 type IntegrationTestOptions = z.infer<typeof benchmarkOptionSchema>;
 
 type BenchmarkResults = Record<
@@ -84,8 +169,8 @@ type BenchmarkResults = Record<
   {
     searchBenchmark: {
       p95: number;
-      vus: number;
-      scenario: string;
+      vus: 50 | 100;
+      scenario: ScenarioNames;
     }[];
     indexDuration: number;
   }
@@ -106,7 +191,7 @@ class Benchmarks {
   private readonly apiKey: string;
   private readonly isInCi: boolean;
   private readonly commitHashes: [string, string];
-  private readonly failAtPercentage?: number;
+  private readonly percentagesForFailure: BenchmarkConfig["failureThresholds"];
   private readonly port: number;
   private readonly spinner: Ora;
   private readonly benchmarkGroupsByCommitHash: Record<string, BenchmarkGroup>;
@@ -121,7 +206,7 @@ class Benchmarks {
     spinner: Ora;
     workingDirectory: string;
     commitHashes: [string, string];
-    failAtPercentage?: number;
+    failAtPercentage: BenchmarkConfig["failureThresholds"];
   }) {
     this.typesenseProcessManagers = options.typesenseProcessManagers;
     this.batchSize = options.batchSize;
@@ -133,7 +218,7 @@ class Benchmarks {
     this.workingDirectory = options.workingDirectory;
     this.commitHashes = options.commitHashes;
     this.isInCi = Boolean(process.env.CI) || false;
-    this.failAtPercentage = options.failAtPercentage;
+    this.percentagesForFailure = options.failAtPercentage;
 
     this.benchmarkGroupsByCommitHash = Object.fromEntries(
       this.commitHashes.map((hash, index) => [
@@ -193,24 +278,28 @@ class Benchmarks {
     return ResultAsync.fromPromise(new Promise((resolve) => setTimeout(resolve, ms)), toErrorWithMessage);
   }
 
-  private handleResults(results: FormattedResults[]): ResultAsync<FormattedResults[], { message: string }> {
-    if (!this.failAtPercentage) {
-      return okAsync(results);
-    }
+  private handleResults(results: { searchResults: FormattedSearchResult[] }): ResultAsync<void, { message: string }> {
+    const { searchResults } = results;
 
-    const failingRows = results.filter((row) => row.percentageChange > this.failAtPercentage!);
+    const failingRows = searchResults.filter((row) => {
+      const threshold = this.percentagesForFailure[row.scenario][`${row.vus}vu`];
+      return row.percentageChange > threshold;
+    });
 
     if (failingRows.length > 0) {
       const failures = failingRows
-        .map((row) => `${row.metric} for ${row.variable} changed by ${row.formattedPercentageChange}`)
+        .map((row) => {
+          const threshold = this.percentagesForFailure[row.scenario][`${row.vus}vu`];
+          return `${row.metric} for ${row.displayVariable || `${row.scenario} (${row.vus}vu)`} changed by ${row.formattedPercentageChange} (threshold: ${threshold}%)`;
+        })
         .join("\n");
 
       return errAsync({
-        message: `Performance degradation exceeded threshold of ${this.failAtPercentage}%:\n${failures}`,
+        message: `Performance degradation exceeded configured thresholds:\n${failures}`,
       });
     }
 
-    return okAsync(results);
+    return okAsync(undefined);
   }
 
   private getComparisonResults(): ResultAsync<BenchmarkResults, { message: string; commitHash?: string }> {
@@ -384,8 +473,8 @@ class Benchmarks {
       }
       resultMap[commitHash].searchBenchmark.push({
         p95: p95_value,
-        vus: Number(vus),
-        scenario,
+        vus: Number(vus) as 50 | 100,
+        scenario: scenario as ScenarioNames,
       });
     }
 
@@ -589,8 +678,10 @@ class Benchmarks {
     return resultMap;
   }
 
-  private printTable(results: BenchmarkResults): ResultAsync<FormattedResults[], ErrorWithMessage> {
-    const formattedRows: FormattedResults[] = [];
+  private printTable(
+    results: BenchmarkResults,
+  ): ResultAsync<{ searchResults: FormattedSearchResult[]; indexingResults: FormattedIndexResult }, ErrorWithMessage> {
+    const formatedSearchResults: FormattedSearchResult[] = [];
     const importDuration = results[this.commitHashes[0]]?.indexDuration;
     const importDurationNew = results[this.commitHashes[1]]?.indexDuration;
 
@@ -600,14 +691,16 @@ class Benchmarks {
 
     const importPercentageChange = this.calculatePercentageChange(importDuration, importDurationNew);
 
-    formattedRows.push({
+    const FormattedIndexResult: FormattedIndexResult = {
       metric: "Time to bulk import",
-      variable: "1M records",
-      oldValue: `${(importDuration / 1_000).toFixed(5)}s`,
-      newValue: `${(importDurationNew / 1_000).toFixed(5)}s`,
+      oldValue: `${(importDuration / 1000).toFixed(5)}s`,
+      newValue: `${(importDurationNew / 1000).toFixed(5)}s`,
       percentageChange: importPercentageChange,
       formattedPercentageChange: this.formatPercentageChange(importPercentageChange),
-    });
+      displayVariable: "1M records",
+      scenario: "import",
+      vus: 1,
+    };
 
     const previousSearchResults = results[this.commitHashes[0]]?.searchBenchmark;
     const newSearchResults = results[this.commitHashes[1]]?.searchBenchmark;
@@ -616,31 +709,43 @@ class Benchmarks {
       return errAsync(new Error("Missing search benchmark results"));
     }
 
+    // Create maps using separate scenario and vus
     const previousSearchResultsMap = new Map(
-      previousSearchResults.map((result) => [`${result.scenario} (${result.vus}vu)`, result.p95]),
-    );
-    const newSearchResultsMap = new Map(
-      newSearchResults.map((result) => [`${result.scenario} (${result.vus}vu)`, result.p95]),
+      previousSearchResults.map((result) => [
+        `${result.scenario}-${result.vus}`,
+        { p95: result.p95, scenario: result.scenario, vus: result.vus },
+      ]),
     );
 
-    for (const [key, oldP95] of previousSearchResultsMap) {
-      const newP95 = newSearchResultsMap.get(key);
-      if (newP95 === undefined) {
+    const newSearchResultsMap = new Map(
+      newSearchResults.map((result) => [
+        `${result.scenario}-${result.vus}`,
+        { p95: result.p95, scenario: result.scenario, vus: result.vus },
+      ]),
+    );
+
+    for (const [key, oldResult] of previousSearchResultsMap) {
+      const newResult = newSearchResultsMap.get(key);
+      if (!newResult) {
         return errAsync({
           message: `${key} doesn't have a value for the search benchmark`,
         });
       }
-      const percentageChange = this.calculatePercentageChange(oldP95, newP95);
-      formattedRows.push({
+
+      const percentageChange = this.calculatePercentageChange(oldResult.p95, newResult.p95);
+      formatedSearchResults.push({
         metric: "p95 search_time_ms when searching with",
-        variable: key,
-        oldValue: `${oldP95}ms`,
-        newValue: `${newP95}ms`,
-        percentageChange: percentageChange,
+        scenario: oldResult.scenario,
+        vus: oldResult.vus,
+        oldValue: `${oldResult.p95}ms`,
+        newValue: `${newResult.p95}ms`,
+        percentageChange,
         formattedPercentageChange: this.formatPercentageChange(percentageChange),
+        displayVariable: `${oldResult.scenario} (${oldResult.vus}vu)`,
       });
     }
 
+    // For display, use the displayVariable
     const columns: [string, string, string, string, string][] = [
       [
         "Metric",
@@ -649,9 +754,9 @@ class Benchmarks {
         `Value for commit ${this.commitHashes[1].slice(0, 7)}`,
         "Percentage Change",
       ],
-      ...formattedRows.map(
+      ...formatedSearchResults.map(
         (row) =>
-          [row.metric, row.variable, row.oldValue, row.newValue, row.formattedPercentageChange] as [
+          [row.metric, row.displayVariable, row.oldValue, row.newValue, row.formattedPercentageChange] as [
             string,
             string,
             string,
@@ -672,7 +777,7 @@ class Benchmarks {
     };
 
     logger.info(table(columns, tableConfig));
-    return okAsync(formattedRows);
+    return okAsync({ searchResults: formatedSearchResults, indexingResults: FormattedIndexResult });
   }
 
   benchmark() {
@@ -761,6 +866,7 @@ const benchmark = new Command()
   .option("-b, --binaries <paths...>", "Paths of the pre-built Typesense binaries to compare")
   .option("-f, --fail <percentage>", "Percentage of regression to fail the test", "50")
   .option("--api-key <key>", "API key to use for the Typesense Process.", "xyz")
+  .option("--config <path>", "Path for config file")
   .option("--batch-size <num>", "Batch size for indexing operations", "100")
   .option("--duration <num>", "Duration for each search benchmark", "1s")
   .option("--openAI-key <key>", "OpenAI API key. Defaults to OPENAI_API_KEY in PATH", process.env.OPENAI_API_KEY)
@@ -774,7 +880,24 @@ const benchmark = new Command()
           logger.setLevel(LogLevel.DEBUG);
         }
         logger.debug("Parsed options");
-        return ok(options);
+
+        return loadConfig({
+          configPath: options.config,
+          schema: BenchmarkConfigSchema,
+          defaultSchema: defaultConfig,
+          spinner,
+        })
+          .map((config) => ({
+            ...options,
+            ...config,
+          }))
+          .andThen((options) =>
+            parseOptions(
+              options as BenchmarkOptionsWithFailurePoints,
+              BenchmarkOptionsSchemaWithFailurePoints,
+              spinner,
+            ),
+          );
       })
       .andThen((options) => {
         services.initialize({
@@ -818,7 +941,7 @@ const benchmark = new Command()
           commitHashes: options.commitHashes,
           typesenseProcessManagers,
           workingDirectory: options.workingDirectory,
-          failAtPercentage: options.fail,
+          failAtPercentage: options.failureThresholds,
         });
 
         return ok(benchmark);
