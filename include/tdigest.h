@@ -52,7 +52,7 @@ public:
             total_count += node.count;
         }
 
-        double target = p * total_count;
+        double target = (p * total_count)/100.f;
         double cumulative_count = 0;
 
         for (const auto& node : data) {
