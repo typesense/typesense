@@ -448,13 +448,13 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
         std::string query;
         std::string user_id;
         std::string doc_id;
+        std::vector<std::string> doc_ids;
         std::vector<std::pair<std::string, std::string>> custom_data;
 
         if(event_type == SEARCH_EVENT) {
             query = event_json["q"].get<std::string>();
             user_id = event_json["user_id"].get<std::string>();
 
-            //add to respective popular queries/nohits queries
             if(event_collection_map_it->second.queries_ptr) {
                 event_collection_map_it->second.queries_ptr->add(query, query, false, user_id);
             } else {
@@ -468,6 +468,8 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
                     user_id = itr.value().get<std::string>();
                 } else if (itr.key() == "doc_id") {
                     doc_id = itr.value().get<std::string>();
+                } else if (itr.key() == "doc_ids") {
+                    doc_ids = itr.value().get<std::vector<std::string>>();
                 } else {
                     auto kv = std::make_pair(itr.key(), itr.value().get<std::string>());
                     custom_data.push_back(kv);
@@ -476,15 +478,18 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
         } else {
             query = event_json.contains("q") ? event_json["q"].get<std::string>() : "";
             user_id = event_json.contains("user_id") ? event_json["user_id"].get<std::string>() : "";
-            doc_id = event_json["doc_id"].get<std::string>();
+            
+            if(event_json.contains("doc_id")) {
+                doc_id = event_json["doc_id"].get<std::string>();
+            } else if(event_json.contains("doc_ids")) {
+                doc_ids = event_json["doc_ids"].get<std::vector<std::string>>();
+            }
         }
 
         if(event_collection_map_it->second.log_to_store) {
-            //only store events if log_to_store is specified in rule
-            //remove any '%' found in userid
             user_id.erase(std::remove(user_id.begin(), user_id.end(), '%'), user_id.end());
 
-            event_t event(query, event_type, now_ts_useconds, user_id, doc_id,
+            event_t event(query, event_type, now_ts_useconds, user_id, doc_id, doc_ids,
                           event_name, event_collection_map[event_name].log_to_store, custom_data);
             events_vec.emplace_back(event);
         }
@@ -495,7 +500,14 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
                 auto event_weight_map_it = counter_events_it->second.event_weight_map.find(event_name);
                 if (event_weight_map_it != counter_events_it->second.event_weight_map.end()) {
                     auto inc_val = event_weight_map_it->second;
-                    counter_events_it->second.docid_counts[doc_id] += inc_val;
+                    
+                    if(!doc_ids.empty()) {
+                        for(const auto& id: doc_ids) {
+                            counter_events_it->second.docid_counts[id] += inc_val;
+                        }
+                    } else {
+                        counter_events_it->second.docid_counts[doc_id] += inc_val;
+                    }
                 } else {
                     LOG(ERROR) << "event_name " << event_name
                                << " not defined in analytic rule for counter events.";
@@ -858,7 +870,14 @@ void event_t::to_json(nlohmann::json& obj, const std::string& coll) const {
     obj["type"] = event_type;
     obj["timestamp"] = timestamp;
     obj["user_id"] = user_id;
-    obj["doc_id"] = doc_id;
+    
+    // Include either doc_id or doc_ids in the JSON output
+    if(!doc_ids.empty()) {
+        obj["doc_ids"] = doc_ids;
+    } else if(!doc_id.empty()) {
+        obj["doc_id"] = doc_id;
+    }
+    
     obj["name"] = name;
     obj["collection"] = coll;
 

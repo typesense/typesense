@@ -1637,6 +1637,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
     const char *FILTER_BY = "filter_by";
     const char *TOP_K_BY = "top_k_by";
     const char* VALIDATE_FIELD_NAMES = "validate_field_names";
+    const char* TRUNCATE = "truncate";
 
     if(req->params.count(TOP_K_BY) != 0) {
         std::vector<std::string> parts;
@@ -1705,60 +1706,76 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
     }
 
     deletion_state_t* deletion_state = nullptr;
+    nlohmann::json response;
 
-    if(req->data == nullptr) {
-        deletion_state = new deletion_state_t{};
-        // destruction of data is managed by req destructor
-        req->data = deletion_state;
 
-        bool validate_field_names = true;
-        if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
-            validate_field_names = false;
+    if(req->params.count(TRUNCATE) != 0 && req->params[TRUNCATE] == "true") {
+        auto op = collection->remove_all_docs();
+
+        if (!op.ok()) {
+            res->set(op.code(), op.error());
+        } else {
+            response["num_deleted"] = op.get();
+            res->body = response.dump();
         }
 
-        filter_result_t filter_result;
-        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false, validate_field_names);
-
-        if(!filter_ids_op.ok()) {
-            res->set(filter_ids_op.code(), filter_ids_op.error());
-            req->last_chunk_aggregate = true;
-            res->final = true;
-            stream_response(req, res);
-            return false;
-        }
-
-        deletion_state->index_ids.emplace_back(filter_result.count, filter_result.docs);
-        filter_result.docs = nullptr;
-
-        for(size_t i=0; i<deletion_state->index_ids.size(); i++) {
-            deletion_state->offsets.push_back(0);
-        }
-        deletion_state->collection = collection.get();
-        deletion_state->num_removed = 0;
-    } else {
-        deletion_state = dynamic_cast<deletion_state_t*>(req->data);
-    }
-
-    bool done = true;
-    Option<bool> remove_op = stateful_remove_docs(deletion_state, DELETE_BATCH_SIZE, done);
-
-    //LOG(INFO) << "Deletion batch size: " << DELETE_BATCH_SIZE << ", done: " << done;
-
-    if(!remove_op.ok()) {
-        res->set(remove_op.code(), remove_op.error());
         req->last_chunk_aggregate = true;
         res->final = true;
     } else {
-        if(!done) {
-            req->last_chunk_aggregate = false;
-            res->final = false;
-        } else {
-            nlohmann::json response;
-            response["num_deleted"] = deletion_state->num_removed;
+        if (req->data == nullptr) {
+            deletion_state = new deletion_state_t{};
+            // destruction of data is managed by req destructor
+            req->data = deletion_state;
 
+            bool validate_field_names = true;
+            if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+                validate_field_names = false;
+            }
+
+            filter_result_t filter_result;
+            auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false,
+                                                            validate_field_names);
+
+            if (!filter_ids_op.ok()) {
+                res->set(filter_ids_op.code(), filter_ids_op.error());
+                req->last_chunk_aggregate = true;
+                res->final = true;
+                stream_response(req, res);
+                return false;
+            }
+
+            deletion_state->index_ids.emplace_back(filter_result.count, filter_result.docs);
+            filter_result.docs = nullptr;
+
+            for (size_t i = 0; i < deletion_state->index_ids.size(); i++) {
+                deletion_state->offsets.push_back(0);
+            }
+            deletion_state->collection = collection.get();
+            deletion_state->num_removed = 0;
+        } else {
+            deletion_state = dynamic_cast<deletion_state_t *>(req->data);
+        }
+
+        bool done = true;
+        Option<bool> remove_op = stateful_remove_docs(deletion_state, DELETE_BATCH_SIZE, done);
+
+        //LOG(INFO) << "Deletion batch size: " << DELETE_BATCH_SIZE << ", done: " << done;
+
+        if (!remove_op.ok()) {
+            res->set(remove_op.code(), remove_op.error());
             req->last_chunk_aggregate = true;
-            res->body = response.dump();
             res->final = true;
+        } else {
+            if (!done) {
+                req->last_chunk_aggregate = false;
+                res->final = false;
+            } else {
+                response["num_deleted"] = deletion_state->num_removed;
+
+                req->last_chunk_aggregate = true;
+                res->body = response.dump();
+                res->final = true;
+            }
         }
     }
 
@@ -2209,6 +2226,19 @@ bool post_reset_peers(const std::shared_ptr<http_req>& req, const std::shared_pt
     nlohmann::json response;
     response["success"] = server->reset_peers();
     res->body = response.dump();
+
+    return true;
+}
+
+bool get_schema_changes(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    auto op = collectionManager.get_collection_alter_status();
+
+    if(!op.ok()) {
+        res->set(op.code(), op.error());
+    }
+
+    res->set_200(op.get().dump());
 
     return true;
 }

@@ -2193,6 +2193,53 @@ TEST_F(CollectionSpecificTest, SplitJoinTokenAlways) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, SplitJoinTokenShouldNotBePrefixSearched) {
+    // token that's split/joined should not be used for prefix searching
+    std::vector<field> fields = {field("title", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Non stick cookware";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "Nonstick cookware";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "Non cookwareable";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "Non Scratchable Pottery";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // "cookwareable" should not match
+    auto results = coll1->search("cook ware", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search("nonscratchable", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("pottery nonscratchable", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("pottery nonscratch", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("nonscratch", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // prefix search on non-joined token should work
+    results = coll1->search("nonscratchable po", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSpecificTest, TokenCountOfWordsFarApart) {
     // word proximity is calculated using a moving window of X tokens. If only 1 token is present in the best matched
     // window, proximity ends up being perfect. So we've to ensure that scoring uses total tokens found and not

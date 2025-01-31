@@ -188,7 +188,10 @@ Option<bool> SynonymIndex::remove_synonym(const std::string & collection_name, c
 
         const auto& synonym = synonym_definitions.at(syn_iter->second);
         std::vector<std::string> keys;
-        keys.insert(keys.end(), synonym.root.begin(), synonym.root.end());
+
+        auto root_str = StringUtils::join(synonym.root, " ");
+        keys.push_back(root_str);
+
         for(const auto & syn_tokens : synonym.synonyms) {
             auto synonyms_str = StringUtils::join(syn_tokens, " ");
             keys.push_back(synonyms_str);

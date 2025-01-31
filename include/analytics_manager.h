@@ -23,6 +23,7 @@ struct event_t {
     uint64_t timestamp;
     std::string user_id;
     std::string doc_id;
+    std::vector<std::string> doc_ids;
     std::string name;
     std::vector<std::pair<std::string, std::string>> data;
     bool log_to_store;
@@ -31,13 +32,16 @@ struct event_t {
 
     ~event_t() = default;
 
-    event_t(const std::string& q, const std::string& type, uint64_t ts, const std::string& uid, const std::string& id,
-            const std::string& event_name, bool should_log_to_store, const std::vector<std::pair<std::string, std::string>> datavec) {
+    event_t(const std::string& q, const std::string& type, uint64_t ts, const std::string& uid, 
+            const std::string& id, const std::vector<std::string>& ids,
+            const std::string& event_name, bool should_log_to_store, 
+            const std::vector<std::pair<std::string, std::string>> datavec) {
         query = q;
         event_type = type;
         timestamp = ts;
         user_id = uid;
         doc_id = id;
+        doc_ids = ids;
         name = event_name;
         log_to_store = should_log_to_store;
         data = datavec;
@@ -50,6 +54,7 @@ struct event_t {
             timestamp = other.timestamp;
             user_id = other.user_id;
             doc_id = other.doc_id;
+            doc_ids = other.doc_ids;
             name = other.name;
             data = other.data;
             return *this;

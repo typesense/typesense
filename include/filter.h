@@ -63,7 +63,7 @@ struct filter {
     static Option<bool> parse_geopoint_filter_value(std::string& raw_value,
                                                     const std::string& format_err_msg,
                                                     std::string& processed_filter_val,
-                                                    NUM_COMPARATOR& num_comparator);
+                                                    NUM_COMPARATOR& num_comparator, bool is_geopolygon);
 
     static Option<bool> parse_geopoint_filter_value(std::string& raw_value,
                                                     const std::string& format_err_msg,
@@ -125,5 +125,9 @@ struct filter_node_t {
         }
 
         return *this;
+    }
+
+    bool is_match_all_ids_filter() const {
+        return !isOperator && filter_exp.field_name == "id" && !filter_exp.values.empty() &&  filter_exp.values[0] == "*";
     }
 };

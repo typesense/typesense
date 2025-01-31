@@ -2759,32 +2759,43 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
         }
     }
 
-    // Sort based on position in overridden list
-    std::sort(
-      override_result_kvs.begin(), override_result_kvs.end(),
-      [](const std::vector<KV*>& a, std::vector<KV*>& b) -> bool {
-          return a[0]->distinct_key < b[0]->distinct_key;
-      }
-    );
-
     std::vector<std::vector<KV*>> result_group_kvs;
     size_t override_kv_index = 0;
     size_t raw_results_index = 0;
+
+    std::map<uint64_t, size_t> override_group_id_positions;
 
     // merge raw results and override results
     while(raw_results_index < raw_result_kvs.size()) {
         if(override_kv_index < override_result_kvs.size()) {
             size_t result_position = result_group_kvs.size() + 1;
-            uint64_t override_position = override_result_kvs[override_kv_index][0]->distinct_key;
+            auto override_kv = override_result_kvs[override_kv_index][0];
+            uint64_t override_position = -override_kv->scores[0];
             if(result_position == override_position) {
-                override_result_kvs[override_kv_index][0]->match_score_index = CURATED_RECORD_IDENTIFIER;
+                override_kv->match_score_index = CURATED_RECORD_IDENTIFIER;
                 result_group_kvs.push_back(override_result_kvs[override_kv_index]);
+                override_group_id_positions[override_kv->distinct_key] = result_group_kvs.size()-1;
                 override_kv_index++;
                 continue;
             }
         }
 
-        result_group_kvs.push_back(raw_result_kvs[raw_results_index]);
+        if(group_limit) {
+            auto raw_kv = raw_result_kvs[raw_results_index][0];
+            auto pos_it = override_group_id_positions.find(raw_kv->distinct_key);
+            if(pos_it != override_group_id_positions.end()) {
+                auto results_pos = pos_it->second;
+                for(size_t i = 0; i < raw_result_kvs[raw_results_index].size() &&
+                                result_group_kvs[results_pos].size() < group_limit; i++) {
+                    result_group_kvs[results_pos].push_back(raw_result_kvs[raw_results_index][i]);
+                }
+            } else {
+                result_group_kvs.push_back(raw_result_kvs[raw_results_index]);
+            }
+        } else {
+            result_group_kvs.push_back(raw_result_kvs[raw_results_index]);
+        }
+
         raw_results_index++;
     }
 
@@ -5890,14 +5901,14 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     rocksdb::Iterator* iter = store->scan(seq_id_prefix, &upper_bound);
     std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
 
-    size_t num_found_docs = 0;
+    altered_docs = 0;
     std::vector<index_record> iter_batch;
     const size_t index_batch_size = 1000;
 
     auto begin = std::chrono::high_resolution_clock::now();
 
     while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
-        num_found_docs++;
+        altered_docs++;
         const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
 
         nlohmann::json document;
@@ -5914,7 +5925,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             field::flatten_doc(document, nested_fields, {}, true, flattened_fields);
         }
 
-        index_record record(num_found_docs, seq_id, document, index_operation_t::CREATE, DIRTY_VALUES::COERCE_OR_DROP);
+        index_record record(altered_docs, seq_id, document, index_operation_t::CREATE, DIRTY_VALUES::COERCE_OR_DROP);
         iter_batch.emplace_back(std::move(record));
 
         // Peek and check for last record right here so that we handle batched indexing correctly
@@ -5922,7 +5933,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         iter->Next();
         bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
 
-        if(num_found_docs % index_batch_size == 0 || last_record) {
+        if(altered_docs % index_batch_size == 0 || last_record) {
             // put delete first because a field could be deleted and added in the same change set
             if(!del_fields.empty()) {
                 for(auto& rec: iter_batch) {
@@ -5954,19 +5965,19 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             iter_batch.clear();
         }
 
-        if(num_found_docs % ((1 << 14)) == 0) {
+        if(altered_docs % ((1 << 14)) == 0) {
             // having a cheaper higher layer check to prevent checking clock too often
             auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::high_resolution_clock::now() - begin).count();
 
             if(time_elapsed > 30) {
                 begin = std::chrono::high_resolution_clock::now();
-                LOG(INFO) << "Altered " << num_found_docs << " so far.";
+                LOG(INFO) << "Altered " << altered_docs << " so far.";
             }
         }
     }
 
-    LOG(INFO) << "Finished altering " << num_found_docs << " document(s).";
+    LOG(INFO) << "Finished altering " << altered_docs << " document(s).";
     shlock.unlock();
     ulock.lock();
 
@@ -6019,6 +6030,8 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     std::shared_lock shlock(mutex);
 
+    alter_in_progress = true;
+
     LOG(INFO) << "Collection " << name << " is being prepared for alter...";
 
     // Validate that all stored documents are compatible with the proposed schema changes.
@@ -6033,11 +6046,13 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
                                               del_fields, update_fields, this_fallback_field_type);
     if(!validate_op.ok()) {
         LOG(INFO) << "Alter failed validation: " << validate_op.error();
+        reset_alter_status_counters();
         return validate_op;
     }
 
     if(!this_fallback_field_type.empty() && !fallback_field_type.empty()) {
         LOG(INFO) << "Alter failed: schema already contains a `.*` field.";
+        reset_alter_status_counters();
         return Option<bool>(400, "The schema already contains a `.*` field.");
     }
 
@@ -6056,6 +6071,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     auto batch_alter_op = batch_alter_data(addition_fields, del_fields, fallback_field_type);
     if(!batch_alter_op.ok()) {
         LOG(INFO) << "Alter failed during alter data: " << batch_alter_op.error();
+        reset_alter_status_counters();
         return batch_alter_op;
     }
 
@@ -6064,6 +6080,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         batch_alter_op = batch_alter_data(reindex_fields, {}, fallback_field_type);
         if(!batch_alter_op.ok()) {
             LOG(INFO) << "Alter failed during alter data: " << batch_alter_op.error();
+            reset_alter_status_counters();
             return batch_alter_op;
         }
     }
@@ -6074,6 +6091,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
                 //it's an embed field
                 auto op = update_apikey(f.embed[fields::model_config], f.name);
                 if(!op.ok()) {
+                    reset_alter_status_counters();
                     return op;
                 }
             }
@@ -6092,6 +6110,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         }
     }
 
+    reset_alter_status_counters();
     return Option<bool>(true);
 }
 
@@ -6454,11 +6473,11 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     rocksdb::Iterator* iter = store->scan(seq_id_prefix, &upper_bound);
     std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
 
-    size_t num_found_docs = 0;
+    validated_docs = 0;
     auto begin = std::chrono::high_resolution_clock::now();
 
     while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
-        num_found_docs++;
+        validated_docs++;
         const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
         nlohmann::json document;
 
@@ -6548,14 +6567,14 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             }
         }
 
-        if(num_found_docs % ((1 << 14)) == 0) {
+        if(validated_docs % ((1 << 14)) == 0) {
             // having a cheaper higher layer check to prevent checking clock too often
             auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::high_resolution_clock::now() - begin).count();
 
             if(time_elapsed > 30) {
                 begin = std::chrono::high_resolution_clock::now();
-                LOG(INFO) << "Verified " << num_found_docs << " so far.";
+                LOG(INFO) << "Verified " << validated_docs << " so far.";
             }
         }
 
@@ -7483,6 +7502,67 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
     return Option<bool>(true);
 }
 
+Option<nlohmann::json> Collection::get_alter_schema_status() const {
+    if (!alter_in_progress) {
+        //alter operation is not active
+        return Option<nlohmann::json>(400, "No active alter operation running.");
+    }
+
+    nlohmann::json status_json;
+    status_json["collection"] = name;
+    status_json["validated_docs"] = validated_docs.load();
+    status_json["altered_docs"] = altered_docs.load();
+
+    return Option<nlohmann::json>(status_json);
+}
+
+Option<size_t> Collection::remove_all_docs() {
+    size_t num_docs_removed = 0;
+
+    const std::string delete_key_prefix = get_seq_id_collection_prefix();
+    std::string delete_end_prefix = get_seq_id_collection_prefix() + "`";
+    rocksdb::Slice upper_bound(delete_end_prefix);
+
+    rocksdb::Iterator* iter = store->scan(delete_key_prefix, &upper_bound);
+    nlohmann::json document;
+
+    auto begin = std::chrono::high_resolution_clock::now();
+    while(iter->Valid() && iter->key().starts_with(delete_key_prefix)) {
+        const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
+        const std::string& doc_string = iter->value().ToString();
+
+        try {
+            document = nlohmann::json::parse(doc_string);
+        } catch(const std::exception& e) {
+            LOG(ERROR) << "JSON error: " << e.what();
+            return Option<size_t>(400, "Bad JSON.");
+        }
+
+        remove_document(document, seq_id, true);
+        num_docs_removed++;
+
+        if(num_docs_removed % ((1 << 14)) == 0) {
+            // having a cheaper higher layer check to prevent checking clock too often
+            auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::high_resolution_clock::now() - begin).count();
+
+            if(time_elapsed > 30) {
+                begin = std::chrono::high_resolution_clock::now();
+                LOG(INFO) << "Removed " << num_docs_removed << " so far.";
+            }
+        }
+
+        iter->Next();
+    }
+
+    if(num_docs_removed) {
+        store->flush();
+        store->compact_range(delete_key_prefix, delete_end_prefix);
+    }
+
+    return Option<size_t>(num_docs_removed);
+}
+
 std::shared_ptr<VQModel> Collection::get_vq_model() {
     return vq_model;
 }
@@ -7861,6 +7941,12 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
                                     rerank_hybrid_matches, enable_analytics, validate_field_names);
     return Option<bool>(true);
+}
+
+void Collection::reset_alter_status_counters() {
+    alter_in_progress = false;
+    validated_docs = 0;
+    altered_docs = 0;
 }
 
 union_global_params_t::union_global_params_t(const std::map<std::string, std::string> &req_params) {

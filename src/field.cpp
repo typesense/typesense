@@ -215,7 +215,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     if(field_json.count(fields::sort) == 0) {
         if(field_json["type"] == field_types::INT32 || field_json["type"] == field_types::INT64 ||
            field_json["type"] == field_types::FLOAT || field_json["type"] == field_types::BOOL ||
-           field_json["type"] == field_types::GEOPOINT || field_json["type"] == field_types::GEOPOINT_ARRAY) {
+           field_json["type"] == field_types::GEOPOINT || field_json["type"] == field_types::GEOPOINT_ARRAY ||
+           field_json["type"] == field_types::GEOPOLYGON) {
             if((field_json.count(fields::num_dim) == 0) || (field_json[fields::facet])) {
                 field_json[fields::sort] = true;
             } else {
@@ -225,7 +226,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             field_json[fields::sort] = false;
         }
     } else if (!field_json[fields::sort].get<bool>() &&
-                (field_json["type"] == field_types::GEOPOINT || field_json["type"] == field_types::GEOPOINT_ARRAY)) {
+                (field_json["type"] == field_types::GEOPOINT || field_json["type"] == field_types::GEOPOINT_ARRAY ||
+                field_json["type"] == field_types::GEOPOLYGON)) {
         return Option<bool>(400, std::string("The `sort` property of the field `") +=
                                  field_json[fields::name].get<std::string>() += "` having `" + field_json["type"].get<std::string>() +=
                                  "` type cannot be `false`. The sort index is used during GeoSearch.");
@@ -617,7 +619,11 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
 
               (detected_type == field_types::INT64_ARRAY && the_field.type == field_types::GEOPOINT && !has_obj_array) ||
 
-              (detected_type == field_types::INT64_ARRAY && the_field.type == field_types::GEOPOINT_ARRAY)
+              (detected_type == field_types::INT64_ARRAY && the_field.type == field_types::GEOPOINT_ARRAY) ||
+
+              (detected_type == field_types::FLOAT_ARRAY && the_field.type == field_types::GEOPOLYGON) ||
+
+              (detected_type == field_types::INT64_ARRAY && the_field.type == field_types::GEOPOLYGON)
            );
 
         if(detected_type == the_field.type || is_numericaly_valid) {
@@ -893,6 +899,10 @@ Option<bool> field::fields_to_json_fields(const std::vector<field>& fields, cons
 
             if(field.is_geopoint()) {
                 return Option<bool>(400, "Default sorting field cannot be of type geopoint.");
+            }
+
+            if(field.is_geopolygon()) {
+                return Option<bool>(400, "Default sorting field cannot be of type geopolygon.");
             }
 
             found_default_sorting_field = true;

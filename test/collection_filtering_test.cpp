@@ -531,7 +531,7 @@ TEST_F(CollectionFilteringTest, FilterAndQueryFieldRestrictions) {
                                         FREQUENCY, {false});
     ASSERT_EQ(true, result_op.ok());
     results = result_op.get();
-    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(4, results["hits"].size());
 
     // bad query string
     result_op = coll_mul_fields->search("captain", query_fields, "BLAH", facets, sort_fields, {0}, 10, 1,
@@ -2542,9 +2542,9 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
 
     nlohmann::json results = coll_mul_fields->search("*", {}, "cast: Chris", {}, {}, {0},
                                                      10, 1, FREQUENCY, {false}).get();
-    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(4, results["hits"].size());
 
-    std::vector<std::string> ids = {"6", "1", "7"};
+    std::vector<std::string> ids = {"6", "8", "1", "7"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -2555,9 +2555,9 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
 
     results = coll_mul_fields->search("*", {}, "cast: Ch*", {}, {}, {0},
                                                      10, 1, FREQUENCY, {false}).get();
-    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(4, results["hits"].size());
 
-    ids = {"6", "1", "7"};
+    ids = {"6", "8", "1", "7"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -3024,22 +3024,48 @@ TEST_F(CollectionFilteringTest, FilterOnStemmedField) {
 
     auto coll = op.get();
 
-    nlohmann::json doc1 = {
-        {"id", "124"},
-        {"keywords", {"Restaurant"}}
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "id": "124",
+                "keywords": ["Running Shoes"]
+            })"_json,
+            R"({
+                "id": "125",
+                "keywords": ["Baking"]
+            })"_json
     };
-
-    nlohmann::json doc2 = {
-        {"id", "125"},
-        {"keywords", {"Baking"}}
-    };
-
-    ASSERT_TRUE(coll->add(doc1.dump()).ok());
-    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+    for (auto const &json: documents) {
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
 
     auto results = coll->search("*", {}, "keywords:=Baking", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("125", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "keywords:=Running Shoes", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("124", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "keywords:=run Shoes", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("124", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "keywords:=run Shoe", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("124", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "keywords:shoe", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("124", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "keywords:[shoe, baking]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("125", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("124", results["hits"][1]["document"]["id"].get<std::string>());
 
 }
 

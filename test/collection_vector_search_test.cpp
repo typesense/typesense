@@ -5361,3 +5361,59 @@ TEST_F(CollectionVectorTest, EmbedFieldMustBeFloatArray) {
     ASSERT_FALSE(field_op.ok());
     ASSERT_EQ("Fields with the `embed` parameter can only be of type `float[]`.", field_op.error());
 }
+
+TEST_F(CollectionVectorTest, UpdateEmbeddings) {
+    nlohmann::json schema = R"({
+                "name": "test",
+                "fields": [
+                    {
+                        "name": "text",
+                        "type": "string"
+                    },
+                    {
+                        "name": "embedding",
+                        "type": "float[]",
+                        "embed": {
+                            "from": [
+                                "text"
+                            ],
+                            "model_config": {
+                                "model_name": "ts/e5-small"
+                            }
+                        }
+                    }
+                ]
+                })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "text": "foo"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+
+    auto update_op = coll->add(R"({
+        "id": "0",
+        "text": "bar"
+    })"_json.dump(), UPDATE);
+
+    ASSERT_TRUE(update_op.ok());
+
+    add_op = coll->add(R"({
+        "text": "bar"
+    })"_json.dump());
+
+    auto add_values = add_op.get()["embedding"].get<std::vector<float>>();
+    auto update_values = update_op.get()["embedding"].get<std::vector<float>>();
+
+    for (size_t i = 0; i < add_values.size(); ++i) {
+        ASSERT_NEAR(add_values[i], update_values[i], 0.0001);
+    }
+}

@@ -100,7 +100,7 @@ jobs:
         with:
           name: typesense-server
           path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
-
+   
   integration-tests:
     needs: test
 

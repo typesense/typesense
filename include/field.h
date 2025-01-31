@@ -34,6 +34,7 @@ namespace field_types {
     static const std::string FLOAT_ARRAY = "float[]";
     static const std::string BOOL_ARRAY = "bool[]";
     static const std::string GEOPOINT_ARRAY = "geopoint[]";
+    static const std::string GEOPOLYGON = "geopolygon";
 
     static const std::string IMAGE = "image";
 
@@ -265,7 +266,8 @@ struct field {
         return (type == field_types::STRING_ARRAY || type == field_types::INT32_ARRAY ||
                 type == field_types::FLOAT_ARRAY ||
                 type == field_types::INT64_ARRAY || type == field_types::BOOL_ARRAY ||
-                type == field_types::GEOPOINT_ARRAY || type == field_types::OBJECT_ARRAY);
+                type == field_types::GEOPOINT_ARRAY || type == field_types::OBJECT_ARRAY ||
+                type == field_types::GEOPOLYGON);
     }
 
     bool is_singular() const {
@@ -287,7 +289,7 @@ struct field {
     }
 
     bool is_num_sort_field() const {
-        return (has_numerical_index() || is_geopoint());
+        return (has_numerical_index() || is_geopoint() || is_geopolygon());
     }
 
     bool is_sort_field() const {
@@ -310,9 +312,13 @@ struct field {
         return stem;
     }
 
+    bool is_geopolygon() const {
+        return type == field_types::GEOPOLYGON;
+    }
+
     bool has_valid_type() const {
         bool is_basic_type = is_string() || is_integer() || is_float() || is_bool() || is_geopoint() ||
-                             is_object() || is_auto() || is_image();
+                             is_object() || is_auto() || is_image() || is_geopolygon();
         if(!is_basic_type) {
             return field_types::is_string_or_array(type);
         }

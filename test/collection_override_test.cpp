@@ -1244,15 +1244,16 @@ TEST_F(CollectionOverrideTest, CurationGroupingNonCuratedHitsShouldNotAppearOuts
                                  "", 10,
                                  "", {}, {"group_id"}, 2).get();
 
-    // when only one of the 2 records belonging to a record is used for curation, the other record
-    // should not appear back
+    // when only one of the 2 records belonging to a group is used for curation, the other record
+    // should also appear
 
-    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["found"].get<size_t>());
 
-    ASSERT_EQ(1, results["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(2, results["grouped_hits"][0]["hits"].size());
     ASSERT_EQ(1, results["grouped_hits"][1]["hits"].size());
 
     ASSERT_EQ("2", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("3", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
 
     // same for keyword search
@@ -1263,15 +1264,16 @@ TEST_F(CollectionOverrideTest, CurationGroupingNonCuratedHitsShouldNotAppearOuts
                             "", 10,
                             "", {}, {"group_id"}, 2).get();
 
-    // when only one of the 2 records belonging to a record is used for curation, the other record
-    // should not appear back
+    // when only one of the 2 records belonging to a group is used for curation, the other record
+    // should also appear
 
-    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["found"].get<size_t>());
 
-    ASSERT_EQ(1, results["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(2, results["grouped_hits"][0]["hits"].size());
     ASSERT_EQ(1, results["grouped_hits"][1]["hits"].size());
 
     ASSERT_EQ("2", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("3", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
 }
 
@@ -1566,7 +1568,7 @@ TEST_F(CollectionOverrideTest, HiddenHitsHidingSingleResult) {
 }
 
 TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
-    auto pinned_hits = "6:1,8:1,1:2,13:3,4:3";
+    auto pinned_hits = "6:1,8:1,1:2,13:3";
 
     // without any grouping parameter, only the first ID in a position should be picked
     // and other IDs should appear in their original positions
@@ -1599,7 +1601,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
                             "", 10,
                             pinned_hits, {}, {"cast"}, 2).get();
 
-    ASSERT_EQ(8, results["found"].get<size_t>());
+    ASSERT_EQ(9, results["found"].get<size_t>());
 
     ASSERT_EQ(1, results["grouped_hits"][0]["group_key"].size());
     ASSERT_EQ(2, results["grouped_hits"][0]["group_key"][0].size());
@@ -1612,7 +1614,6 @@ TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
     ASSERT_STREQ("1", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
 
     ASSERT_STREQ("13", results["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("4", results["grouped_hits"][2]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     ASSERT_STREQ("11", results["grouped_hits"][3]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("16", results["grouped_hits"][4]["hits"][0]["document"]["id"].get<std::string>().c_str());
@@ -1654,15 +1655,16 @@ TEST_F(CollectionOverrideTest, PinnedHitsGroupingNonPinnedHitsShouldNotAppearOut
                                    "", 10,
                                    pinned_hits, {}, {"group_id"}, 2).get();
 
-    // when only one of the 2 records belonging to a record is used for curation, the other record
-    // should not appear back
+    // when only one of the 2 records belonging to a group is used for curation, the other record
+    // should appear at the back
 
-    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["found"].get<size_t>());
 
-    ASSERT_EQ(1, results["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(2, results["grouped_hits"][0]["hits"].size());
     ASSERT_EQ(1, results["grouped_hits"][1]["hits"].size());
 
     ASSERT_EQ("2", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("3", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
 
     // same for keyword search
@@ -1673,15 +1675,16 @@ TEST_F(CollectionOverrideTest, PinnedHitsGroupingNonPinnedHitsShouldNotAppearOut
                             "", 10,
                             pinned_hits, {}, {"group_id"}, 2).get();
 
-    // when only one of the 2 records belonging to a record is used for curation, the other record
-    // should not appear back
+    // when only one of the 2 records belonging to a group is used for curation, the other record
+    // should appear at the back
 
-    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["found"].get<size_t>());
 
-    ASSERT_EQ(1, results["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(2, results["grouped_hits"][0]["hits"].size());
     ASSERT_EQ(1, results["grouped_hits"][1]["hits"].size());
 
     ASSERT_EQ("2", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("3", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
 }
 

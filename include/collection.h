@@ -420,6 +420,10 @@ private:
 
     nlohmann::json metadata;
 
+    std::atomic<bool> alter_in_progress;
+    std::atomic<size_t> altered_docs;
+    std::atomic<size_t> validated_docs;
+
     // methods
 
     std::string get_doc_id_key(const std::string & doc_id) const;
@@ -649,6 +653,8 @@ private:
                                         nlohmann::json& override_metadata) const;
 
     Option<bool> run_search_with_lock(search_args* search_params) const;
+
+    void reset_alter_status_counters();
 
 public:
 
@@ -1066,6 +1072,10 @@ public:
 
     Option<int64_t> get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
                                                const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
+
+    Option<nlohmann::json> get_alter_schema_status() const;
+
+    Option<size_t> remove_all_docs();
 };
 
 template<class T>

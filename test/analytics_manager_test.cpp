@@ -378,7 +378,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
 
     req->body = event3.dump();
     ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"event should have 'doc_id' as string value.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"Event's 'doc_id' must be a string value.\"}", res->body);
 
     event3 = R"({
         "type": "conversion",
@@ -691,6 +691,80 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     })"_json;
     req->body = event9.dump();
     ASSERT_TRUE(post_create_event(req, res));
+
+    // Test doc_ids validation
+    nlohmann::json event_doc_ids = R"({
+        "type": "click",
+        "name": "AP",
+        "data": {
+            "q": "technology",
+            "doc_ids": ["21", "22", "23"],
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event_doc_ids.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    // Test invalid doc_ids type
+    event_doc_ids = R"({
+        "type": "click",
+        "name": "AP",
+        "data": {
+            "q": "technology",
+            "doc_ids": "21,22,23",
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event_doc_ids.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"Event's 'doc_ids' must be an array.\"}", res->body);
+
+    // Test invalid doc_ids array elements
+    event_doc_ids = R"({
+        "type": "click",
+        "name": "AP",
+        "data": {
+            "q": "technology",
+            "doc_ids": ["21", 22, "23"],
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event_doc_ids.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"All values in 'doc_ids' must be strings.\"}", res->body);
+
+    // Test both doc_id and doc_ids present
+    event_doc_ids = R"({
+        "type": "click",
+        "name": "AP",
+        "data": {
+            "q": "technology",
+            "doc_id": "21",
+            "doc_ids": ["22", "23"],
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event_doc_ids.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"Event cannot contain both 'doc_id' and 'doc_ids' fields.\"}", res->body);
+
+    // Test neither doc_id nor doc_ids present
+    event_doc_ids = R"({
+        "type": "click",
+        "name": "AP",
+        "data": {
+            "q": "technology",
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event_doc_ids.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"Event must contain either 'doc_id' or 'doc_ids' field.\"}", res->body);
 }
 
 TEST_F(AnalyticsManagerTest, EventsPersist) {
@@ -1305,6 +1379,51 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     ASSERT_EQ(1, popular_clicks.size());
     ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
     ASSERT_EQ(1, popular_clicks["products"].docid_counts.size());
+    ASSERT_EQ(5, popular_clicks["products"].docid_counts["3"]);
+
+    // Test popularity score with multiple doc_ids
+    nlohmann::json event_multi = R"({
+        "type": "conversion",
+        "name": "CNV1",
+        "data": {
+            "q": "trousers",
+            "doc_ids": ["1", "2", "3"],
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event_multi.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    popular_clicks = analyticsManager.get_popular_clicks();
+    ASSERT_EQ(1, popular_clicks.size());
+    ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
+    ASSERT_EQ(3, popular_clicks["products"].docid_counts.size());
+    ASSERT_EQ(5, popular_clicks["products"].docid_counts["1"]);
+    ASSERT_EQ(5, popular_clicks["products"].docid_counts["2"]);
+    ASSERT_EQ(10, popular_clicks["products"].docid_counts["3"]);
+
+    // Test mixed events with both single doc_id and multiple doc_ids
+    event2 = R"({
+        "type": "click",
+        "name": "CLK1",
+        "data": {
+            "q": "shorts",
+            "doc_ids": ["2", "3"],
+            "user_id": "11"
+        }
+    })"_json;
+
+    req->body = event2.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    popular_clicks = analyticsManager.get_popular_clicks();
+    ASSERT_EQ(1, popular_clicks.size());
+    ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
+    ASSERT_EQ(3, popular_clicks["products"].docid_counts.size());
+    ASSERT_EQ(5, popular_clicks["products"].docid_counts["1"]);
+    ASSERT_EQ(6, popular_clicks["products"].docid_counts["2"]);  // 5 from conversion + 1 from click
+    ASSERT_EQ(11, popular_clicks["products"].docid_counts["3"]);  // 5 from conversion + 1 from click
 }
 
 TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
