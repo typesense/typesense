@@ -51,14 +51,14 @@ TEST_F(AppMetricsTest, EstimateQuantileDuration) {
     rng.seed(1);
 
     std::vector<int> durations;
-    for(auto i = 0; i < 100; ++i) {
+    for(auto i = 0; i < 10000; ++i) {
         durations.push_back(distrib(rng));
     }
 
     std::sort(durations.begin(), durations.end());
 
     // add to appmetrics to get approximate percentile
-    for(auto i = 0; i < 100; ++i) {
+    for(auto i = 0; i < 10000; ++i) {
         metrics.increment_count(AppMetrics::SEARCH_LABEL, 1);
         metrics.increment_duration(AppMetrics::SEARCH_LABEL, durations[i]);
     }
@@ -67,9 +67,9 @@ TEST_F(AppMetricsTest, EstimateQuantileDuration) {
 
     nlohmann::json result;
     metrics.get("rps", "latency", result);
-    ASSERT_EQ(result["search_70Percentile_latency"], 692.0);
-    ASSERT_EQ(result["search_95Percentile_latency"], 940.0);
-    ASSERT_EQ(result["search_99Percentile_latency"], 998.0);
+    ASSERT_EQ(result["search_70Percentile_latency"], 701.0);
+    ASSERT_EQ(result["search_95Percentile_latency"], 950.0);
+    ASSERT_EQ(result["search_99Percentile_latency"], 990.0);
 
     // compute accurate percentile
     auto computeNthPercentile = [&](int percentile) -> int {
@@ -79,7 +79,7 @@ TEST_F(AppMetricsTest, EstimateQuantileDuration) {
         return durations[index];
     };
 
-    ASSERT_EQ(computeNthPercentile(70), 692);
-    ASSERT_EQ(computeNthPercentile(95), 940);
-    ASSERT_EQ(computeNthPercentile(99), 998);
+    ASSERT_EQ(computeNthPercentile(70), 701);
+    ASSERT_EQ(computeNthPercentile(95), 950);
+    ASSERT_EQ(computeNthPercentile(99), 990);
 }
