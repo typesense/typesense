@@ -540,20 +540,25 @@ private:
     Option<bool> validate_and_standardize_sort_fields_with_lock(const std::vector<sort_by> & sort_fields,
                                                                 std::vector<sort_by>& sort_fields_std,
                                                                 bool is_wildcard_query,const bool is_vector_query,
-                                                                const std::string& query, bool is_group_by_query = false,
-                                                                const size_t remote_embedding_timeout_ms = 30000,
-                                                                const size_t remote_embedding_num_tries = 2,
-                                                                const bool& validate_field_names = true) const;
+                                                                const std::string& query, const bool& is_group_by_query,
+                                                                const size_t& remote_embedding_timeout_ms,
+                                                                const size_t& remote_embedding_num_tries,
+                                                                const bool& validate_field_names,
+                                                                const bool& is_reference_sort,
+                                                                const bool& is_union_search,
+                                                                const uint32_t& union_search_index) const;
 
     Option<bool> validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                       std::vector<sort_by>& sort_fields_std,
                                                       const bool is_wildcard_query,
                                                       const bool is_vector_query,
-                                                      const std::string& query, bool is_group_by_query = false,
-                                                      const size_t remote_embedding_timeout_ms = 30000,
-                                                      const size_t remote_embedding_num_tries = 2,
-                                                      const bool& validate_field_names = true,
-                                                      const bool is_reference_sort = false) const;
+                                                      const std::string& query, const bool& is_group_by_query,
+                                                      const size_t& remote_embedding_timeout_ms,
+                                                      const size_t& remote_embedding_num_tries,
+                                                      const bool& validate_field_names,
+                                                      const bool& is_reference_sort,
+                                                      const bool& is_union_search,
+                                                      const uint32_t& union_search_index) const;
     
     Option<bool> persist_collection_meta();
 
@@ -636,7 +641,9 @@ private:
                                                   std::vector<facet>& facets,
                                                   size_t& per_page,
                                                   std::string& transcribed_query,
-                                                  nlohmann::json& override_metadata) const;
+                                                  nlohmann::json& override_metadata,
+                                                  const bool& is_union_search,
+                                                  const uint32_t& union_search_index) const;
 
     Option<bool> init_index_search_args(collection_search_args_t& coll_args,
                                         std::unique_ptr<search_args>& index_args,
@@ -650,7 +657,9 @@ private:
                                         std::vector<facet>& facets,
                                         size_t& per_page,
                                         std::string& transcribed_query,
-                                        nlohmann::json& override_metadata) const;
+                                        nlohmann::json& override_metadata,
+                                        const bool& is_union_search,
+                                        const uint32_t& union_search_index) const;
 
     Option<bool> run_search_with_lock(search_args* search_params) const;
 

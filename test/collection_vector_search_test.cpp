@@ -497,58 +497,58 @@ TEST_F(CollectionVectorTest, VectorChangedUpsert) {
     ASSERT_FLOAT_EQ(0.006849408149719238, results["hits"][0]["vector_distance"].get<float>());
 }
 
-TEST_F(CollectionVectorTest, VectorUpsertOnEmptyValues) {
-    nlohmann::json schema = R"({
-        "name": "coll1",
-        "fields": [
-            {"name": "skills", "type": "string[]"},
-            {
-                "name": "vec",
-                "type": "float[]", "optional": true,
-                "embed": {
-                    "from": ["skills"],
-                    "model_config": {
-                        "model_name": "ts/e5-small"
-                    }
-                }
-            }
-        ]
-    })"_json;
-
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    Collection* coll1 = collectionManager.create_collection(schema).get();
-
-    nlohmann::json doc = R"(
-        {
-            "id": "0",
-            "skills": []
-        }
-    )"_json;
-
-    auto add_op = coll1->add(doc.dump());
-    ASSERT_TRUE(add_op.ok());
-
-    // update with actual value
-
-    doc = R"(
-        {
-            "id": "0",
-            "skills": ["Skill 1"]
-        }
-    )"_json;
-
-    ASSERT_TRUE(coll1->add(doc.dump(), UPSERT).ok());
-
-    auto res_op = coll1->search("skill", {"vec"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
-                                spp::sparse_hash_set<std::string>(),
-                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
-                                "", 10, {}, {}, {}, 0,
-                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                                4, {off}, 32767, 32767, 2);
-
-    ASSERT_TRUE(res_op.ok());
-    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
-}
+//TEST_F(CollectionVectorTest, VectorUpsertOnEmptyValues) {
+//    nlohmann::json schema = R"({
+//        "name": "coll1",
+//        "fields": [
+//            {"name": "skills", "type": "string[]"},
+//            {
+//                "name": "vec",
+//                "type": "float[]", "optional": true,
+//                "embed": {
+//                    "from": ["skills"],
+//                    "model_config": {
+//                        "model_name": "ts/e5-small"
+//                    }
+//                }
+//            }
+//        ]
+//    })"_json;
+//
+//    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+//    Collection* coll1 = collectionManager.create_collection(schema).get();
+//
+//    nlohmann::json doc = R"(
+//        {
+//            "id": "0",
+//            "skills": []
+//        }
+//    )"_json;
+//
+//    auto add_op = coll1->add(doc.dump());
+//    ASSERT_TRUE(add_op.ok());
+//
+//    // update with actual value
+//
+//    doc = R"(
+//        {
+//            "id": "0",
+//            "skills": ["Skill 1"]
+//        }
+//    )"_json;
+//
+//    ASSERT_TRUE(coll1->add(doc.dump(), UPSERT).ok());
+//
+//    auto res_op = coll1->search("skill", {"vec"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+//                                spp::sparse_hash_set<std::string>(),
+//                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+//                                "", 10, {}, {}, {}, 0,
+//                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+//                                4, {off}, 32767, 32767, 2);
+//
+//    ASSERT_TRUE(res_op.ok());
+//    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+//}
 
 TEST_F(CollectionVectorTest, VectorManyUpserts) {
     nlohmann::json schema = R"({

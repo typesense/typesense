@@ -1100,27 +1100,30 @@ void Collection::curate_results(string& actual_query, const string& filter_query
 
 Option<bool> Collection::validate_and_standardize_sort_fields_with_lock(const std::vector<sort_by> & sort_fields,
                                                                         std::vector<sort_by>& sort_fields_std,
-                                                                        const bool is_wildcard_query,
-                                                                        const bool is_vector_query,
-                                                                        const std::string& query, const bool is_group_by_query,
-                                                                        const size_t remote_embedding_timeout_ms,
-                                                                        const size_t remote_embedding_num_tries,
-                                                                        const bool& validate_field_names) const {
+                                                                        bool is_wildcard_query,const bool is_vector_query,
+                                                                        const std::string& query, const bool& is_group_by_query,
+                                                                        const size_t& remote_embedding_timeout_ms,
+                                                                        const size_t& remote_embedding_num_tries,
+                                                                        const bool& validate_field_names,
+                                                                        const bool& is_reference_sort,
+                                                                        const bool& is_union_search,
+                                                                        const uint32_t& union_search_index) const {
     std::shared_lock lock(mutex);
     return validate_and_standardize_sort_fields(sort_fields, sort_fields_std, is_wildcard_query, is_vector_query,
                                                 query, is_group_by_query, remote_embedding_timeout_ms, remote_embedding_num_tries,
-                                                validate_field_names, true);
+                                                validate_field_names, is_reference_sort, is_union_search, union_search_index);
 }
 
 Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                               std::vector<sort_by>& sort_fields_std,
-                                                              const bool is_wildcard_query,
-                                                              const bool is_vector_query,
-                                                              const std::string& query, const bool is_group_by_query, 
-                                                              const size_t remote_embedding_timeout_ms,
-                                                              const size_t remote_embedding_num_tries,
+                                                              bool is_wildcard_query,const bool is_vector_query,
+                                                              const std::string& query, const bool& is_group_by_query,
+                                                              const size_t& remote_embedding_timeout_ms,
+                                                              const size_t& remote_embedding_num_tries,
                                                               const bool& validate_field_names,
-                                                              const bool is_reference_sort) const {
+                                                              const bool& is_reference_sort,
+                                                              const bool& is_union_search,
+                                                              const uint32_t& union_search_index) const {
 
     uint32_t eval_sort_count = 0;
     size_t num_sort_expressions = 0;
@@ -1157,7 +1160,11 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                                                                                                      query,
                                                                                                      is_group_by_query,
                                                                                                      remote_embedding_timeout_ms,
-                                                                                                     remote_embedding_num_tries);
+                                                                                                     remote_embedding_num_tries,
+                                                                                                     validate_field_names,
+                                                                                                     true,
+                                                                                                     is_union_search,
+                                                                                                     union_search_index);
 
             std::vector<std::string> nested_join_coll_names;
             for (auto const& coll_name: _sort_field.nested_join_collection_names) {
@@ -1175,7 +1182,6 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 ref_sort_field_std.nested_join_collection_names.insert(ref_sort_field_std.nested_join_collection_names.begin(),
                                                                        nested_join_coll_names.begin(),
                                                                        nested_join_coll_names.end());
-                ref_sort_field_std.type = sort_by::join_expression;
 
                 sort_fields_std.emplace_back(ref_sort_field_std);
             }
@@ -1219,6 +1225,9 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             uint32_t seed = time(nullptr);
             sort_field_std.random_sort.initialize(seed);
             sort_field_std.type = sort_by::random_order;
+            continue;
+        } else if (_sort_field.name == sort_field_const::union_search_index) {
+            sort_fields_std.emplace_back(_sort_field.name, _sort_field.order);
             continue;
         }
 
@@ -1640,21 +1649,33 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
         return Option<bool>(true);
     }
 
+    bool found_text_match_score = false;
+    bool found_vector_distance = false;
+    bool found_union_search_index = false;
+
     /*
       1. Empty: [match_score, dsf] upstream
       2. ONE  : [usf, match_score]
       3. TWO  : [usf1, usf2, match_score]
+      4. THREE: do nothing
+
+      Union search: Only add (union_search_index, seq_id) if only one sort field is mentioned.
+      1. Empty: [match_score/vector_distance/dsf, (union_search_index, seq_id)]
+      2. ONE  : [usf, match_score/vector_distance/dsf/(union_search_index, seq_id)]
+      3. TWO  : do nothing
       4. THREE: do nothing
     */
     if(sort_fields_std.empty()) {
         if(!is_wildcard_query) {
             sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
             sort_fields_std.back().type = sort_by::text_match;
+            found_text_match_score = true;
         }
 
         if(is_vector_query) {
             sort_fields_std.emplace_back(sort_field_const::vector_distance, sort_field_const::asc);
             sort_fields_std.back().type = sort_by::vector_search;
+            found_vector_distance = true;
         }
 
         if(!default_sorting_field.empty()) {
@@ -1677,27 +1698,41 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             } else if (def_it->is_bool()) {
                 sort_fields_std.back().type = sort_by::bool_field;
             }
-        } else {
+        }
+        // In case of union search, the search index has higher sorting priority than the document's seq_id.
+        else if(!is_union_search) {
             sort_fields_std.emplace_back(sort_field_const::seq_id, sort_field_const::desc);
             sort_fields_std.back().type = sort_by::insertion_order;
         }
+
+        if(is_union_search && sort_fields_std.size() < 2) {
+            sort_fields_std.emplace_back(sort_field_const::union_search_index, sort_field_const::asc);
+            sort_fields_std.back().union_search_index = union_search_index;
+            sort_fields_std.back().type = sort_by::union_query_order;
+
+            sort_fields_std.emplace_back(sort_field_const::seq_id, sort_field_const::desc);
+            sort_fields_std.back().type = sort_by::insertion_order;
+
+            found_union_search_index = true;
+        }
     }
 
-    bool found_match_score = false;
-    bool found_vector_distance = false;
     for(const auto & sort_field : sort_fields_std) {
         if(sort_field.name == sort_field_const::text_match) {
-            found_match_score = true;
+            found_text_match_score = true;
         }
         if(sort_field.name == sort_field_const::vector_distance) {
             found_vector_distance = true;
         }
-        if(found_match_score && found_vector_distance) {
+        if(sort_field.name == sort_field_const::union_search_index) {
+            found_union_search_index = true;
+        }
+        if(found_text_match_score && found_vector_distance && found_union_search_index) {
             break;
         }
     }
 
-    if(!found_match_score && !is_wildcard_query && sort_fields_std.size() < 3) {
+    if(!found_text_match_score && !is_wildcard_query && sort_fields_std.size() < 3) {
         sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
         sort_fields_std.back().type = sort_by::text_match;
     }
@@ -1706,6 +1741,15 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
     if(!found_vector_distance && is_vector_query && is_wildcard_query && sort_fields_std.size() < 3) {
         sort_fields_std.emplace_back(sort_field_const::vector_distance, sort_field_const::asc);
         sort_fields_std.back().type = sort_by::vector_search;
+    }
+
+    if(!found_union_search_index && is_union_search && sort_fields_std.size() < 2) {
+        sort_fields_std.emplace_back(sort_field_const::union_search_index, sort_field_const::asc);
+        sort_fields_std.back().union_search_index = union_search_index;
+        sort_fields_std.back().type = sort_by::union_query_order;
+
+        sort_fields_std.emplace_back(sort_field_const::seq_id, sort_field_const::desc);
+        sort_fields_std.back().type = sort_by::insertion_order;
     }
 
     if(sort_fields_std.size() > 3) {
@@ -1820,11 +1864,13 @@ Option<bool> Collection::init_index_search_args_with_lock(collection_search_args
                                                           std::vector<facet>& facets,
                                                           size_t& per_page,
                                                           std::string& transcribed_query,
-                                                          nlohmann::json& override_metadata) const {
+                                                          nlohmann::json& override_metadata,
+                                                          const bool& is_union_search,
+                                                          const uint32_t& union_search_index) const {
     std::shared_lock lock(mutex);
     return init_index_search_args(coll_args, index_args, query, included_ids, include_fields_full, exclude_fields_full, q_tokens,
                                   conversation_standalone_query, vector_query, facets, per_page, transcribed_query,
-                                  override_metadata);
+                                  override_metadata, is_union_search, union_search_index);
 }
 
 Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_args,
@@ -1839,7 +1885,9 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                 std::vector<facet>& facets,
                                                 size_t& per_page,
                                                 std::string& transcribed_query,
-                                                nlohmann::json& override_metadata) const {
+                                                nlohmann::json& override_metadata,
+                                                const bool& is_union_search,
+                                                const uint32_t& union_search_index) const {
     const std::string raw_query = coll_args.raw_query;
     const std::vector<std::string>& raw_search_fields = coll_args.search_fields;
     const std::string& filter_query = coll_args.filter_query;
@@ -2414,7 +2462,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                                        sort_fields_std, is_wildcard_query, is_vector_query,
                                                                        raw_query, is_group_by_query,
                                                                        remote_embedding_timeout_ms, remote_embedding_num_tries,
-                                                                       validate_field_names);
+                                                                       validate_field_names, false, is_union_search,
+                                                                       union_search_index);
         if(!sort_validation_op.ok()) {
             return sort_validation_op;
         }
@@ -2429,7 +2478,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                                        sort_fields_std, is_wildcard_query, is_vector_query,
                                                                        raw_query, is_group_by_query,
                                                                        remote_embedding_timeout_ms, remote_embedding_num_tries,
-                                                                       validate_field_names);
+                                                                       validate_field_names, false, is_union_search,
+                                                                       union_search_index);
         if(!sort_validation_op.ok()) {
             return sort_validation_op;
         }
@@ -2533,7 +2583,6 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     return Option<bool>(true);
 }
 
-// todo: recheck search_args initialization.
 Option<nlohmann::json> Collection::search(std::string query, const std::vector<std::string> & search_fields,
                                           const std::string & filter_query, const std::vector<std::string> & facet_fields,
                                           const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
@@ -2654,7 +2703,8 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
     const auto init_index_search_args_op = init_index_search_args(coll_args, search_params_guard, query, included_ids,
                                                                   include_fields_full, exclude_fields_full, q_tokens,
                                                                   conversation_standalone_query, vector_query,
-                                                                  facets, per_page, transcribed_query, override_metadata);
+                                                                  facets, per_page, transcribed_query, override_metadata,
+                                                                  false, 0);
     if (!init_index_search_args_op.ok()) {
         return Option<nlohmann::json>(init_index_search_args_op.code(), init_index_search_args_op.error());
     }
@@ -3491,7 +3541,8 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                                                                       include_fields_full, exclude_fields_full,
                                                                                       q_tokens, conversation_standalone_query,
                                                                                       vector_query, facets, per_page,
-                                                                                      transcribed_query, override_metadata);
+                                                                                      transcribed_query, override_metadata,
+                                                                                      true, search_index);
         if (!init_index_search_args_op.ok()) {
             return init_index_search_args_op;
         }
@@ -3548,7 +3599,27 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
             const auto& first_search_sort_fields = search_params_guards[0]->sort_fields_std;
             const auto& this_search_sort_fields = search_params->sort_fields_std;
             if (this_search_sort_fields.size() != first_search_sort_fields.size()) {
-                return Option<bool>(400, "Expected size of `sort_by` parameter of all searches to be equal.");
+                std::string message = "Expected size of `sort_by` parameter of all searches to be equal. "
+                                      "The first union search sorts on {";
+                for (const auto& item: first_search_sort_fields) {
+                    message += ("`" + item.name + ": " + std::string(magic_enum::enum_name(item.type)) + "`, ");
+                }
+                if (message.back() != '{') {
+                    message[message.size() - 2] = '}';
+                } else {
+                    message += "} ";
+                }
+                message += ( "but the search at index `" + std::to_string(search_index) + "` sorts on {");
+                for (const auto& item: this_search_sort_fields) {
+                    message += ("`" + item.name + ": " + std::string(magic_enum::enum_name(item.type)) + "`, ");
+                }
+                if (message.back() != '{') {
+                    message[message.size() - 2] = '}';
+                    message[message.size() - 1] = '.';
+                } else {
+                    message += "}.";
+                }
+                return Option<bool>(400, message);
             }
 
             for (size_t i = 0; i < first_search_sort_fields.size(); i++) {
@@ -3599,7 +3670,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         return Option<bool>(408, "Request Timeout");
     }
 
-    auto union_topster = std::make_unique<Topster<Union_KV, std::pair<uint32_t, uint64_t>, pair_hash, Union_KV::get_key,
+    auto union_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
                                                         Union_KV::is_greater, Union_KV::is_smaller>>(
                                                             std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 

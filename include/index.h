@@ -398,6 +398,13 @@ struct negate_left_join_t {
     negate_left_join_t() = default;
 };
 
+struct pair_hash {
+    template <class T1, class T2>
+    std::size_t operator() (const std::pair<T1, T2> &pair) const {
+        return std::hash<T1>()(pair.first) ^ std::hash<T2>()(pair.second);
+    }
+};
+
 class Index {
 private:
     mutable std::shared_mutex mutex;
@@ -471,6 +478,7 @@ private:
     static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> str_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> vector_distance_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> vector_query_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> union_search_index_sentinel_value;
 
     // Internal utility functions
 

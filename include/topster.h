@@ -136,6 +136,10 @@ struct KV {
     static constexpr uint64_t get_key(const KV* kv) {
         return kv->key;
     }
+
+    static constexpr uint64_t get_distinct_key(const KV* kv) {
+        return kv->distinct_key;
+    }
 };
 
 struct Union_KV : public KV {
@@ -167,32 +171,33 @@ struct Union_KV : public KV {
     }
 
     static bool is_greater(const Union_KV* i, const Union_KV* j) {
-        return std::tie(i->scores[0], i->scores[1], i->scores[2], i->search_index, i->key) >
-                    std::tie(j->scores[0], j->scores[1], j->scores[2], j->search_index, j->key);
+        // When the scores are same, we'll order the Union kvs according to ascending order of their search_index and
+        // in descending order of their sequence ids.
+        return std::tie(i->scores[0], i->scores[1], i->scores[2], j->search_index, i->key) >
+                    std::tie(j->scores[0], j->scores[1], j->scores[2], i->search_index, j->key);
     }
 
     static bool is_smaller(const Union_KV* i, const Union_KV* j) {
-        return std::tie(i->scores[0], i->scores[1], i->scores[2], i->search_index, i->key) <
-                    std::tie(j->scores[0], j->scores[1], j->scores[2], j->search_index, j->key);
+        // When the scores are same, we'll order the Union kvs according to ascending order of their search_index and
+        // in descending order of their sequence ids.
+        return std::tie(i->scores[0], i->scores[1], i->scores[2], j->search_index, i->key) <
+                    std::tie(j->scores[0], j->scores[1], j->scores[2], i->search_index, j->key);
     }
 
-    static constexpr std::pair<uint32_t, uint64_t> get_key(const Union_KV* union_kv) {
-        return std::make_pair(union_kv->search_index, union_kv->key);
+    static constexpr uint64_t get_key(const Union_KV* union_kv) {
+        return StringUtils::hash_combine(union_kv->search_index, union_kv->key);
     }
-};
 
-struct pair_hash {
-    template <class T1, class T2>
-    std::size_t operator() (const std::pair<T1, T2> &pair) const {
-        return std::hash<T1>()(pair.first) ^ std::hash<T2>()(pair.second);
+    static constexpr uint64_t get_distinct_key(const Union_KV* union_kv) {
+        return StringUtils::hash_combine(union_kv->search_index, union_kv->distinct_key);
     }
 };
 
 /*
 * Remembers the max-K elements seen so far using a min-heap
 */
-template <typename T, typename K = uint64_t, typename H = std::hash<uint64_t>, const auto& get_key = KV::get_key,
-            const auto& is_greater = KV::is_greater, const auto& is_smaller = KV::is_smaller>
+template <typename T, const auto& get_key = KV::get_key, const auto& get_distinct_key = KV::get_distinct_key,
+        const auto& is_greater = KV::is_greater, const auto& is_smaller = KV::is_smaller>
 struct Topster {
     const uint32_t MAX_SIZE;
     uint32_t size;
@@ -200,11 +205,11 @@ struct Topster {
     T *data;
     T** kvs;
 
-    std::unordered_map<K, T*, H> map;
+    std::unordered_map<uint64_t, T*> map;
 
     size_t distinct;
     spp::sparse_hash_set<uint64_t> group_doc_seq_ids;
-    spp::sparse_hash_map<uint64_t, Topster<T, K, H, get_key, is_greater, is_smaller>*> group_kv_map;
+    spp::sparse_hash_map<uint64_t, Topster<T, get_key, get_distinct_key, is_greater, is_smaller>*> group_kv_map;
 
     explicit Topster(size_t capacity): Topster(capacity, 0) {
     }
@@ -280,7 +285,7 @@ struct Topster {
             if(kvs_it != group_kv_map.end()) {
                 kvs_it->second->add(kv);
             } else {
-                auto g_topster = new Topster<T, K, H, get_key, is_greater, is_smaller>(distinct, 0);
+                auto g_topster = new Topster<T, get_key, get_distinct_key, is_greater, is_smaller>(distinct, 0);
                 g_topster->add(kv);
                 group_kv_map.insert({kv->distinct_key, g_topster});
             }
@@ -389,7 +394,7 @@ struct Topster {
     }
 
     uint64_t getDistinctKeyAt(uint32_t index) {
-        return kvs[index]->distinct_key;
+        return get_distinct_key(kvs[index]);
     }
 
     T* getKV(uint32_t index) {

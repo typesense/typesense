@@ -462,6 +462,8 @@ namespace sort_field_const {
     static const std::string decay = "decay";
     static const std::string func = "func";
     static const std::string diff = "diff";
+
+    static const std::string union_search_index = "_union_search_index";
 }
 
 namespace ref_include {
@@ -537,11 +539,11 @@ struct sort_by {
         bool_field,
         geopoint_field,
         eval_expression,
-        join_expression,
         text_match,
         random_order,
         vector_search,
-        insertion_order
+        insertion_order,
+        union_query_order
     };
 
     enum missing_values_t {
@@ -595,6 +597,8 @@ struct sort_by {
 
     sort_by_type_t type{};
 
+    uint32_t union_search_index{};
+
     sort_by(const std::string & name, const std::string & order):
             name(name), order(order), text_match_buckets(0), text_match_bucket_size(0), geopoint(0), exclude_radius(0),
             geo_precision(0), missing_values(normal) {
@@ -639,6 +643,7 @@ struct sort_by {
         offset = other.offset;
         decay_val = other.decay_val;
         type = other.type;
+        union_search_index = other.union_search_index;
     }
 
     sort_by& operator=(const sort_by& other) {
@@ -659,6 +664,7 @@ struct sort_by {
         reference_collection_name = other.reference_collection_name;
         nested_join_collection_names = other.nested_join_collection_names;
         type = other.type;
+        union_search_index = other.union_search_index;
         return *this;
     }
 
