@@ -424,6 +424,8 @@ private:
     std::atomic<size_t> altered_docs;
     std::atomic<size_t> validated_docs;
 
+    std::deque<nlohmann::json> alter_history;
+
     // methods
 
     std::string get_doc_id_key(const std::string & doc_id) const;
@@ -1085,6 +1087,8 @@ public:
     Option<nlohmann::json> get_alter_schema_status() const;
 
     Option<size_t> remove_all_docs();
+
+    bool check_store_alter_status_msg(bool success, const std::string& msg = "");
 };
 
 template<class T>
