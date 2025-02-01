@@ -46,6 +46,7 @@ spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::geo_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::str_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::vector_distance_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::vector_query_sentinel_value;
+spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::union_search_index_sentinel_value;
 
 Index::Index(const std::string& name, const uint32_t collection_id, const Store* store,
              SynonymIndex* synonym_index, ThreadPool* thread_pool,
@@ -5236,6 +5237,8 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             match_score_index = i;
         } else if (field_values[i] == &seq_id_sentinel_value) {
             scores[i] = seq_id;
+        } else if(field_values[i] == &union_search_index_sentinel_value) {
+            scores[i] = sort_fields[i].union_search_index;
         } else if(field_values[i] == &geo_sentinel_value) {
             scores[i] = geopoint_distances[i];
         } else if(field_values[i] == &str_sentinel_value) {
@@ -6220,9 +6223,11 @@ Option<bool> Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& 
 
         if (sort_fields_std[i].name == sort_field_const::text_match) {
             field_values[i] = &text_match_sentinel_value;
-        } else if (sort_fields_std[i].name == sort_field_const::seq_id || 
+        } else if (sort_fields_std[i].name == sort_field_const::seq_id ||
             sort_fields_std[i].name == sort_field_const::group_found) {
             field_values[i] = &seq_id_sentinel_value;
+        } else if (sort_fields_std[i].name == sort_field_const::union_search_index) {
+            field_values[i] = &union_search_index_sentinel_value;
         } else if (sort_fields_std[i].name == sort_field_const::eval) {
             field_values[i] = &eval_sentinel_value;
             auto& eval_exp = sort_fields_std[i].eval;
