@@ -474,6 +474,7 @@ private:
     // used as sentinels
 
     static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> text_match_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> seq_id_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> group_found_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> eval_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> geo_sentinel_value;
