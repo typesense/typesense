@@ -6323,6 +6323,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
     auto parent_search_cutoff = search_cutoff;
     uint32_t excluded_result_index = 0;
     Option<bool>* compute_sort_score_statuses[num_threads];
+    std::set<uint32_t>* missing_value_ids[num_threads];
 
     for(size_t thread_id = 0; thread_id < num_threads &&
                                     filter_result_iterator->validity != filter_result_iterator_t::invalid; thread_id++) {
@@ -6340,6 +6341,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
         topsters[thread_id] = new Topster<KV>(topster->MAX_SIZE, topster->distinct, is_group_by_first_pass, false,
                                               topster->group_found_params);
         auto& compute_sort_score_status = compute_sort_score_statuses[thread_id] = nullptr;
+        missing_value_ids[thread_id] = new std::set<uint32_t>();
 
         thread_pool->enqueue([this, &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
                               thread_id, &sort_fields, &searched_queries,
@@ -6349,7 +6351,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                               check_for_circuit_break,
                               batch_result,
                               &num_processed, &m_process, &cv_process, &compute_sort_score_status,
-                              &is_group_by_first_pass, &group_by_missing_value_ids]() {
+                              &is_group_by_first_pass, &missing_value_ids]() {
             std::unique_ptr<filter_result_t> batch_result_guard(batch_result);
 
             search_begin_us = parent_search_begin;
@@ -6396,7 +6398,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                     distinct_id = 1;
                     for(auto& kv : group_by_field_it_vec) {
                         get_distinct_id(kv.it, seq_id, kv.is_array, group_missing_values, distinct_id,
-                                        is_group_by_first_pass, group_by_missing_value_ids);
+                                        is_group_by_first_pass, *missing_value_ids[thread_id]);
                     }
                 }
 
@@ -6434,6 +6436,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
             for (size_t i = thread_id; i < num_processed; i++) {
                 delete compute_sort_score_statuses[i];
                 delete topsters[i];
+                delete missing_value_ids[i];
             }
 
             return return_value;
@@ -6444,7 +6447,10 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
             groups_processed[it.first]+= it.second;
         }
         aggregate_topster(topster, topsters[thread_id], is_group_by_first_pass);
+        group_by_missing_value_ids.insert(missing_value_ids[thread_id]->begin(), missing_value_ids[thread_id]->end());
+
         delete topsters[thread_id];
+        delete missing_value_ids[thread_id];
     }
 
     /*long long int timeMillisF = std::chrono::duration_cast<std::chrono::milliseconds>(
