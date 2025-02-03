@@ -80,14 +80,21 @@ export class TypesenseProcessController extends EventEmitter {
     if (!this.process || this.process.killed) {
       return ok(undefined);
     }
-
     return Result.fromThrowable(() => {
-      this.process.kill("SIGTERM");
-      setTimeout(() => {
-        if (this.process && !this.process.killed) {
-          this.process.kill("SIGKILL");
+      try {
+        this.process.kill("SIGTERM");
+        setTimeout(() => {
+          if (this.process && !this.process.killed) {
+            this.process.kill("SIGKILL");
+          }
+        }, 20_000);
+      } catch (error: any) {
+        // If the error is just that the process was terminated by signal, that's expected
+        if (error.signal === "SIGTERM" || error.signal === "SIGKILL") {
+          return;
         }
-      }, 5000);
+        throw error;
+      }
     }, toErrorWithMessage)();
   }
 }
