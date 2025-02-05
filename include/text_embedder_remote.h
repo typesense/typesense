@@ -130,3 +130,23 @@ class GCPEmbedder : public RemoteEmbedder {
 };
 
 
+class AzureEmbedder : public RemoteEmbedder {
+    private:
+        std::string azure_url, api_key;
+        bool has_custom_dims;
+        size_t num_dims;
+
+    public:
+        AzureEmbedder(const std::string& azure_url, const std::string& api_key, const size_t num_dims, const bool has_custom_dims);
+        static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims);
+        embedding_res_t Embed(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) override;
+        std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
+                                                 const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
+        nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) override;
+        static std::string get_model_key(const nlohmann::json& model_config);
+        bool update_api_key(const std::string& api_key) override {
+            std::lock_guard<std::shared_mutex> lock(mutex);
+            this->api_key = api_key;
+            return true;
+        }
+};
