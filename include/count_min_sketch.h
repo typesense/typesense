@@ -14,7 +14,7 @@ private:
     uint32_t w, d;
     float eps;
     float gamma;
-    uint64_t **C;
+    uint32_t **C;
     int **hashes;
 
     void genajbj(int* hash, int i);
@@ -28,9 +28,9 @@ public:
         w = ceil(exp(1) / eps);
         d = ceil(log(1 / gamma));
 
-        C = new uint64_t *[d];
+        C = new uint32_t *[d];
         for (size_t i = 0; i < d; i++) {
-            C[i] = new uint64_t[w]{0};
+            C[i] = new uint32_t[w]{0};
         }
 
         srand(time(NULL));
@@ -64,7 +64,7 @@ public:
     }
 
     uint32_t estimate(uint64_t item) {
-        uint64_t min_val = UINT64_MAX;
+        uint32_t min_val = UINT32_MAX;
 
         for (size_t j = 0; j < d; j++) {
             size_t index = (hashes[j][0] * item + hashes[j][1]) % w;
