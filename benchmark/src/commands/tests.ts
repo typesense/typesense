@@ -569,8 +569,8 @@ const test = new Command()
       .andThen((integrationTests) =>
         integrationTests
           .setupProcesses()
-          // .andThen(() => integrationTests.conversationTest())
-          // .andThen(() => integrationTests.emptyDataDirectories())
+          .andThen(() => integrationTests.conversationTest())
+          .andThen(() => integrationTests.emptyDataDirectories())
           .andThen(() => integrationTests.snapshotTest())
           .andThen(() => integrationTests.emptyDataDirectories())
           .andThen(() => integrationTests.openAIEmbeddingTest())
