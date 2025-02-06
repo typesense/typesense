@@ -763,7 +763,7 @@ embedding_res_t AzureEmbedder::Embed(const std::string& text, const size_t remot
     if(has_custom_dims) {
         req_body["dimensions"] = num_dims;
     }
-    // remove "openai/" prefix
+    
     auto res_code = call_remote_api("POST", azure_url, req_body.dump(), res, res_headers, headers);
     if (res_code != 200) {
         return embedding_res_t(res_code, get_error_json(req_body, res_code, res));
@@ -793,7 +793,7 @@ std::vector<embedding_res_t> AzureEmbedder::batch_embed(const std::vector<std::s
     if(has_custom_dims) {
         req_body["dimensions"] = num_dims;
     }
-    // remove "openai/" prefix
+
     std::unordered_map<std::string, std::string> headers;
     headers["api-key"] = api_key;
     headers["Content-Type"] = "application/json";
