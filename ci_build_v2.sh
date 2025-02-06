@@ -19,6 +19,11 @@ if [[ "$@" == *"--with-cuda"* ]]; then
   CUDA_FLAGS="--define use_cuda=on --action_env=CUDA_HOME=/usr/local/cuda --action_env=CUDNN_HOME=/usr/local/cuda"
 fi
 
+JEMALLOC_FLAGS=""
+if [[ "$@" == *"--with-jemalloc-lg-page16"* ]]; then
+  JEMALLOC_FLAGS="--define enable_jemalloc_lg_page16=1"
+fi
+
 # First build protobuf
 bazel build @com_google_protobuf//:protobuf_headers
 bazel build @com_google_protobuf//:protobuf_lite
@@ -32,7 +37,7 @@ if [[ "$@" == *"--with-cuda"* ]]; then
 fi
 
 # Finally build Typesense
-bazel build --verbose_failures --jobs=6 $CUDA_FLAGS \
+bazel build --verbose_failures --jobs=6 $CUDA_FLAGS $JEMALLOC_FLAGS \
   --define=TYPESENSE_VERSION=\"$TYPESENSE_VERSION\" //:$TYPESENSE_TARGET
 
 
