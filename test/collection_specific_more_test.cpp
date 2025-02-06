@@ -3497,6 +3497,14 @@ TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
     ASSERT_EQ("set1", dictionary_sets["dictionaries"][0].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, StemmingDictionaryEmpty) {
+    stemmerManager.delete_all_stemming_dictionaries();
+    nlohmann::json dictionary_sets;
+    stemmerManager.get_stemming_dictionaries(dictionary_sets);
+    ASSERT_EQ(0, dictionary_sets["dictionaries"].size());
+    ASSERT_TRUE(dictionary_sets["dictionaries"].is_array());
+}
+
 TEST_F(CollectionSpecificMoreTest, ReloadStemmingDictionaryOnRestart) {
     stemmerManager.delete_all_stemming_dictionaries();
 
