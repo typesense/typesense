@@ -15,6 +15,7 @@ configure_make(
         "--disable-debuginfod",
         "--without-lzma",
         "--without-bzlib",
+        "--without-zstd"
     ],
     lib_source = "//:all_srcs",
     out_lib_dir = "lib",
