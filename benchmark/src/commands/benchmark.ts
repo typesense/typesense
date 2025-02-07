@@ -796,6 +796,7 @@ class Benchmarks {
       .andThen(() =>
         this.getComparisonResults()
           .orElse((error) => {
+            logger.warn(error.message);
             if (error.commitHash) {
               return this.performBenchmarks([error.commitHash]);
             }
