@@ -691,7 +691,7 @@ class Benchmarks {
 
     const importPercentageChange = this.calculatePercentageChange(importDuration, importDurationNew);
 
-    const FormattedIndexResult: FormattedIndexResult = {
+    const formattedIndexResult: FormattedIndexResult = {
       metric: "Time to bulk import",
       oldValue: `${(importDuration / 1000).toFixed(5)}s`,
       newValue: `${(importDurationNew / 1000).toFixed(5)}s`,
@@ -745,6 +745,14 @@ class Benchmarks {
       });
     }
 
+    const displayIndexResults: [string, string, string, string, string] = [
+      formattedIndexResult.metric,
+      formattedIndexResult.displayVariable,
+      formattedIndexResult.oldValue,
+      formattedIndexResult.newValue,
+      formattedIndexResult.formattedPercentageChange,
+    ];
+
     // For display, use the displayVariable
     const columns: [string, string, string, string, string][] = [
       [
@@ -754,6 +762,7 @@ class Benchmarks {
         `Value for commit ${this.commitHashes[1].slice(0, 7)}`,
         "Percentage Change",
       ],
+      displayIndexResults,
       ...formatedSearchResults.map(
         (row) =>
           [row.metric, row.displayVariable, row.oldValue, row.newValue, row.formattedPercentageChange] as [
@@ -777,7 +786,7 @@ class Benchmarks {
     };
 
     logger.info(table(columns, tableConfig));
-    return okAsync({ searchResults: formatedSearchResults, indexingResults: FormattedIndexResult });
+    return okAsync({ searchResults: formatedSearchResults, indexingResults: formattedIndexResult });
   }
 
   benchmark() {
