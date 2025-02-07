@@ -310,11 +310,10 @@ class Benchmarks {
     });
 
     const indexDurationQuery = `
-    SELECT mean("value") AS "mean_import_duration"
-    FROM "import_duration"
-    WHERE ("commitHash" = '${this.commitHashes[0]}' OR "commitHash" = '${this.commitHashes[1]}')
-    AND time >= now() - 24h
-    GROUP BY "commitHash"
+      SELECT mean("value") AS "mean_import_duration"
+      FROM "import_duration"
+      WHERE ("commitHash" = '${this.commitHashes[0]}' OR "commitHash" = '${this.commitHashes[1]}')
+      GROUP BY "commitHash"
     `;
 
     const searchDurationQuery = `
