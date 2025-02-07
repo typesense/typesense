@@ -731,6 +731,9 @@ public:
                          const bool& is_group_by_first_pass, std::set<uint32_t>& group_by_missing_value_ids,
                          bool is_reverse=false) const;
 
+    void get_facet_value(const std::string& field_name, const uint32_t seq_id, const bool& is_array,
+                         std::set<std::string>& facet_values) const;
+
     static void compute_token_offsets_facets(index_record& record,
                                              const tsl::htrie_map<char, field>& search_schema,
                                              const std::vector<char>& local_token_separators,

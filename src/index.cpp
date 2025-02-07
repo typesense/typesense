@@ -2552,30 +2552,26 @@ Option<bool> Index::run_search(search_args* search_params) {
         if (!res.ok()) {
             return res;
         }
-
         if (search_params->raw_result_kvs.empty()) {
             return Option<bool>(true);
         }
 
-        auto collection_name = get_collection_name_with_lock();
-        auto& cm = CollectionManager::get_instance();
-        auto coll = cm.get_collection(collection_name);
-        if (coll == nullptr) {
-            return Option<bool>(400, "Could not find `" + collection_name + "` collection.");
-        }
+        std::shared_lock lock(mutex);
 
-        std::vector<field> group_by_fields;
-        for (size_t i = 0; i < search_params->group_by_fields.size(); i++) {
-            const auto& field_name = search_params->group_by_fields[i];
+        struct group_by_field_t {
+            std::string field_name;
+            bool is_array;
+        };
+        std::vector<group_by_field_t> group_by_fields;
+        for (const auto& field_name: search_params->group_by_fields) {
             auto field = search_schema.find(field_name);
-            if (field == search_schema.end()) {
+            if (field == search_schema.end() || !facet_index_v4->has_hash_index(field_name)) {
                 continue;
             }
-            group_by_fields.emplace_back(*field);
+            group_by_fields.emplace_back(group_by_field_t{field_name, field->is_array()});
         }
-
         if (group_by_fields.empty()) {
-            return Option<bool>(true);
+            return Option<bool>(400, "`group_by` cannot be empty.");
         }
 
         std::vector<std::set<std::string>> group_by_values(group_by_fields.size());
@@ -2585,52 +2581,14 @@ Option<bool> Index::run_search(search_args* search_params) {
             }
 
             const auto& seq_id = item.front()->key;
-            nlohmann::json doc;
-            auto get_op = coll->get_document_from_store(seq_id, doc);
-            if (!get_op.ok()) {
-                continue;
-            }
-
             for (size_t i = 0; i < group_by_fields.size(); i++) {
-                const auto& field = group_by_fields[i];
-                const auto& field_name = field.name;
-                auto it = doc.find(field_name);
-                if (it == doc.end()) {
-                    continue;
-                }
-
-                if (field.is_singular()) {
-                    std::string value;
-                    auto single_value_filter_query_op = Join::single_value_filter_query(doc, field_name,
-                                                                                        field.type, value, false);
-                    if (!single_value_filter_query_op.ok()) {
-                        // We don't accept null value in an array of values. No need to handle 422 code.
-                        return single_value_filter_query_op;
-                    }
-                    group_by_values[i].insert(value);
-                    continue;
-                }
-
-                nlohmann::json temp_doc;
-                // Join::single_value_filter_query expects individual values.
-                std::string field_type = field.is_singular() ? field.type : field.type.substr(0, field.type.size() - 2);
-                for (size_t j = 0; j < doc[field_name].size(); j++) {
-                    temp_doc[field_name] = doc[field_name].at(j);
-                    std::string value;
-                    auto single_value_filter_query_op = Join::single_value_filter_query(temp_doc, field_name,
-                                                                                        field_type, value, false);
-                    if (!single_value_filter_query_op.ok()) {
-                        // We don't accept null value in an array of values. No need to handle 422 code.
-                        return single_value_filter_query_op;
-                    }
-                    group_by_values[i].insert(value);
-                }
+                get_facet_value(group_by_fields[i].field_name, seq_id, group_by_fields[i].is_array, group_by_values[i]);
             }
         }
 
         std::string filter_by;
-        for (size_t i = 0; i < group_by_fields.size() - 1; i++) {
-            const auto& field_name = group_by_fields[i].name;
+        for (size_t i = 0; i < group_by_fields.size(); i++) {
+            const auto& field_name = group_by_fields[i].field_name;
             auto& values = group_by_values[i];
             if (values.empty()) {
                 continue;
@@ -2641,17 +2599,10 @@ Option<bool> Index::run_search(search_args* search_params) {
                 filter_by += (value + ",");
             }
             filter_by[filter_by.size() - 1] = ']';
-            filter_by += " && ";
-        }
-        if (!group_by_values.back().empty()) {
-            const auto& field_name = group_by_fields.back().name;
-            auto& values = group_by_values.back();
 
-            filter_by += (field_name + ": [");
-            for (const auto& value: values) {
-                filter_by += (value + ",");
+            if (i + 1 < group_by_fields.size()) {
+                filter_by += " && ";
             }
-            filter_by[filter_by.size() - 1] = ']';
         }
 
         filter_node_t* new_filter_tree_root = nullptr;
@@ -2681,8 +2632,8 @@ Option<bool> Index::run_search(search_args* search_params) {
             filter_root.reset(root);
         }
 
-        // for grouping we have to aggregate group set sizes to a count value
-        search_params->found_count = search_params->topster->hyperloglog_counter.count();
+        // for grouping found_count reflects how many groups were found for the query.
+        search_params->found_count = search_params->topster->getGroupsCount();
         search_params->found_docs = search_params->all_result_ids_len;
 
         delete search_params->topster;
@@ -6768,6 +6719,28 @@ void Index::get_distinct_id(posting_list_t::iterator_t& facet_index_it, const ui
     }
 
     return;
+}
+
+void Index::get_facet_value(const std::string& field_name, const uint32_t seq_id, const bool& is_array,
+                            std::set<std::string>& facet_values) const {
+    // facet_index_v4->has_hash_index check is done upstream.
+    auto facet_index_it = facet_index_v4->get_facet_hash_index(field_name)->new_iterator();
+    if (!facet_index_it.valid()) {
+        return;
+    }
+
+    facet_index_it.skip_to(seq_id);
+    if (facet_index_it.valid() && facet_index_it.id() == seq_id) {
+        if (is_array) {
+            std::vector<uint32_t> facet_hashes;
+            posting_list_t::get_offsets(facet_index_it, facet_hashes);
+            for (const auto& facet_hash : facet_hashes) {
+                facet_values.insert(facet_index_v4->get_facet_str_val(field_name, facet_hash));
+            }
+        } else {
+            facet_values.insert(facet_index_v4->get_facet_str_val(field_name, facet_index_it.offset()));
+        }
+    }
 }
 
 inline uint32_t Index::next_suggestion2(const std::vector<tok_candidates>& token_candidates_vec,

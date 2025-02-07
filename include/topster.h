@@ -467,5 +467,9 @@ struct Topster {
     T* getKV(uint32_t index) {
         return kvs[index];
     }
+
+    size_t getGroupsCount() {
+        return hyperloglog_counter.count();
+    }
 };
 
