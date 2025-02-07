@@ -310,11 +310,10 @@ class Benchmarks {
     });
 
     const indexDurationQuery = `
-    SELECT mean("value") AS "mean_import_duration"
-    FROM "import_duration"
-    WHERE ("commitHash" = '${this.commitHashes[0]}' OR "commitHash" = '${this.commitHashes[1]}')
-    AND time >= now() - 24h
-    GROUP BY "commitHash"
+      SELECT mean("value") AS "mean_import_duration"
+      FROM "import_duration"
+      WHERE ("commitHash" = '${this.commitHashes[0]}' OR "commitHash" = '${this.commitHashes[1]}')
+      GROUP BY "commitHash"
     `;
 
     const searchDurationQuery = `
@@ -691,7 +690,7 @@ class Benchmarks {
 
     const importPercentageChange = this.calculatePercentageChange(importDuration, importDurationNew);
 
-    const FormattedIndexResult: FormattedIndexResult = {
+    const formattedIndexResult: FormattedIndexResult = {
       metric: "Time to bulk import",
       oldValue: `${(importDuration / 1000).toFixed(5)}s`,
       newValue: `${(importDurationNew / 1000).toFixed(5)}s`,
@@ -745,6 +744,14 @@ class Benchmarks {
       });
     }
 
+    const displayIndexResults: [string, string, string, string, string] = [
+      formattedIndexResult.metric,
+      formattedIndexResult.displayVariable,
+      formattedIndexResult.oldValue,
+      formattedIndexResult.newValue,
+      formattedIndexResult.formattedPercentageChange,
+    ];
+
     // For display, use the displayVariable
     const columns: [string, string, string, string, string][] = [
       [
@@ -754,6 +761,7 @@ class Benchmarks {
         `Value for commit ${this.commitHashes[1].slice(0, 7)}`,
         "Percentage Change",
       ],
+      displayIndexResults,
       ...formatedSearchResults.map(
         (row) =>
           [row.metric, row.displayVariable, row.oldValue, row.newValue, row.formattedPercentageChange] as [
@@ -777,7 +785,7 @@ class Benchmarks {
     };
 
     logger.info(table(columns, tableConfig));
-    return okAsync({ searchResults: formatedSearchResults, indexingResults: FormattedIndexResult });
+    return okAsync({ searchResults: formatedSearchResults, indexingResults: formattedIndexResult });
   }
 
   benchmark() {
@@ -787,6 +795,7 @@ class Benchmarks {
       .andThen(() =>
         this.getComparisonResults()
           .orElse((error) => {
+            logger.warn(error.message);
             if (error.commitHash) {
               return this.performBenchmarks([error.commitHash]);
             }
