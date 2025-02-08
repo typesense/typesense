@@ -143,19 +143,25 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_endpoint, const int api_port,
                                               const std::string& nodes_config) {
     if(nodes_config.empty()) {
-        std::string ip_str = butil::ip2str(peering_endpoint.ip).c_str();
-        return ip_str + ":" + std::to_string(peering_endpoint.port) + ":" + std::to_string(api_port);
+        // endpoint2str gives us "<ip>:<peering_port>", we just need to add ":<api_port>"
+        return std::string(butil::endpoint2str(peering_endpoint).c_str()) + ":" + std::to_string(api_port);
     } else {
         return resolve_node_hosts(nodes_config);
     }
 }
 
-string ReplicationState::resolve_node_hosts(const string& nodes_config) {
+std::string ReplicationState::resolve_node_hosts(const string& nodes_config) {
     std::vector<std::string> final_nodes_vec;
     std::vector<std::string> node_strings;
     StringUtils::split(nodes_config, node_strings, ",");
 
     for(const auto& node_str: node_strings) {
+        // Check if this is already an IPv6 address node by looking for []
+        if(node_str.find('[') == 0) {
+            final_nodes_vec.push_back(node_str);
+            continue;
+        }
+
         // could be an IP or a hostname that must be resolved
         std::vector<std::string> node_parts;
         StringUtils::split(node_str, node_parts, ":");
@@ -171,17 +177,37 @@ string ReplicationState::resolve_node_hosts(const string& nodes_config) {
             continue;
         }
 
-        butil::ip_t ip;
-        int status = butil::hostname2ip(node_parts[0].c_str(), &ip);
+        struct addrinfo hints, *result;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_UNSPEC;     // Allow both IPv4 and IPv6
+        hints.ai_socktype = SOCK_STREAM; // TCP
 
-        if(status == 0) {
-            final_nodes_vec.push_back(
-                std::string(butil::ip2str(ip).c_str()) + ":" + node_parts[1] + ":" + node_parts[2]
-            );
-        } else {
-            LOG(ERROR) << "Unable to resolve host: " << node_parts[0];
-            final_nodes_vec.push_back(node_str);
+        int status = getaddrinfo(node_parts[0].c_str(), nullptr, &hints, &result);
+        if (status != 0) {
+            LOG(ERROR) << "Unable to resolve host: " << node_parts[0] << ", error: " << gai_strerror(status);
+            final_nodes_vec.push_back(node_parts[0] + ":" + node_parts[1] + ":" + node_parts[2]);
+            continue;
         }
+
+        char ip_str[INET6_ADDRSTRLEN];
+        std::string resolved_ip;
+
+        // Get the first resolved address
+        if (result->ai_family == AF_INET) {
+            // IPv4
+            struct sockaddr_in *addr = (struct sockaddr_in *)result->ai_addr;
+            inet_ntop(AF_INET, &(addr->sin_addr), ip_str, INET_ADDRSTRLEN);
+            resolved_ip = ip_str;
+        } else if (result->ai_family == AF_INET6) {
+            // IPv6
+            struct sockaddr_in6 *addr = (struct sockaddr_in6 *)result->ai_addr;
+            inet_ntop(AF_INET6, &(addr->sin6_addr), ip_str, INET6_ADDRSTRLEN);
+            resolved_ip = std::string("[") + ip_str + "]";
+        }
+
+        freeaddrinfo(result);
+        final_nodes_vec.push_back((!resolved_ip.empty() ? resolved_ip : node_parts[0])
+            + ":" + node_parts[1] + ":" + node_parts[2]);
     }
 
     std::string final_nodes_config = StringUtils::join(final_nodes_vec, ",");

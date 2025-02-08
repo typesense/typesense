@@ -167,7 +167,7 @@ int init_root_logger(Config & config, const std::string & server_version) {
     return 0;
 }
 
-bool is_private_ip(uint32_t ip) {
+bool is_private_ipv4(uint32_t ip) {
     uint8_t b1, b2;
     b1 = (uint8_t) (ip >> 24);
     b2 = (uint8_t) ((ip >> 16) & 0x0ff);
@@ -190,54 +190,146 @@ bool is_private_ip(uint32_t ip) {
     return false;
 }
 
-const char* get_internal_ip(const std::string& subnet_cidr) {
+// Returns true if IPv6 address is in private range (RFC4193/RFC4291)
+bool is_private_ipv6(const struct in6_addr* addr) {
+    // Check for fc00::/7 - Unique Local Address
+    return (addr->s6_addr[0] & 0xfe) == 0xfc;
+}
+
+// Compare first n bits of IPv6 addresses for subnet matching
+bool ipv6_prefix_match(const struct in6_addr* addr1, const struct in6_addr* addr2, uint32_t prefix_len) {
+    const uint8_t* a1 = addr1->s6_addr;
+    const uint8_t* a2 = addr2->s6_addr;
+    
+    // Compare whole bytes first
+    const size_t whole_bytes = prefix_len / 8;
+    for(size_t i = 0; i < whole_bytes && i < 16; i++) {
+        if(a1[i] != a2[i]) return false;
+    }
+    
+    // Then compare remaining bits if any
+    if(prefix_len % 8) {
+        const uint8_t mask = 0xff << (8 - (prefix_len % 8));
+        if((a1[whole_bytes] & mask) != (a2[whole_bytes] & mask)) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+butil::EndPoint get_internal_endpoint(const std::string& subnet_cidr) {
     struct ifaddrs *ifap;
     getifaddrs(&ifap);
 
-    uint32_t netip = 0, netbits = 0;
+    butil::EndPoint subnet_endpoint;
+    uint32_t netbits = 0;
+    sa_family_t target_family = AF_UNSPEC;
 
     if(!subnet_cidr.empty()) {
         std::vector<std::string> subnet_parts;
         StringUtils::split(subnet_cidr, subnet_parts, "/");
         if(subnet_parts.size() == 2) {
-            butil::ip_t subnet_addr;
-            auto res = butil::str2ip(subnet_parts[0].c_str(), &subnet_addr);
-            if(res == 0) {
-                netip = subnet_addr.s_addr;
+            if(butil::str2endpoint(subnet_parts[0].c_str(), 0, &subnet_endpoint) == 0) {
                 if(StringUtils::is_uint32_t(subnet_parts[1])) {
                     netbits = std::stoll(subnet_parts[1]);
+                    target_family = butil::get_endpoint_type(subnet_endpoint);
+                    LOG(INFO) << "Using subnet with address family: " << (target_family == AF_INET ? "IPv4" : "IPv6");
                 }
             }
         }
     }
 
-    if(netip != 0 && netbits != 0) {
-        LOG(INFO) << "Using subnet ip: " << netip << ", bits: " << netbits;
+    struct sockaddr_storage subnet_addr;
+    socklen_t subnet_size;
+    if(target_family != AF_UNSPEC) {
+        butil::endpoint2sockaddr(subnet_endpoint, &subnet_addr, &subnet_size);
     }
 
+    butil::EndPoint ipv4_endpoint;
+    butil::EndPoint ipv6_endpoint;
+    bool found_ipv4 = false;
+    bool found_ipv6 = false;
+
     for(auto ifa = ifap; ifa; ifa = ifa->ifa_next) {
-        if (ifa->ifa_addr && ifa->ifa_addr->sa_family==AF_INET) {
-            auto sa = (struct sockaddr_in *) ifa->ifa_addr;
+        if (!ifa->ifa_addr) {
+            continue;
+        }
+
+        // If subnet specified, only look at matching address family
+        if(target_family != AF_UNSPEC && ifa->ifa_addr->sa_family != target_family) {
+            continue;
+        }
+
+        if(ifa->ifa_addr->sa_family == AF_INET) {
+            auto sa = (struct sockaddr_in*) ifa->ifa_addr;
             auto ipaddr = sa->sin_addr.s_addr;
-            if(is_private_ip(ntohl(ipaddr))) {
-                if(netip != 0 && netbits != 0) {
-                    unsigned int mask = 0xFFFFFFFF << (32 - netbits);
-                    if((ntohl(netip) & mask) != (ntohl(ipaddr) & mask)) {
-                        LOG(INFO) << "Skipping interface " << ifa->ifa_name << " as it does not match peering subnet.";
+
+            if(is_private_ipv4(ntohl(ipaddr))) {
+                if(target_family == AF_INET) {
+                    // Check if matches subnet
+                    auto subnet_sa = (struct sockaddr_in*)&subnet_addr;
+                    uint32_t mask = 0xFFFFFFFF << (32 - netbits);
+                    if((ntohl(subnet_sa->sin_addr.s_addr) & mask) != (ntohl(ipaddr) & mask)) {
+                        LOG(INFO) << "Skipping interface " << ifa->ifa_name << " as it does not match IPv4 subnet.";
                         continue;
                     }
                 }
-                char *ip = inet_ntoa(sa->sin_addr);
-                freeifaddrs(ifap);
-                return ip;
+                
+                // Create endpoint directly from sockaddr
+                struct sockaddr_storage ss;
+                memcpy(&ss, sa, sizeof(*sa));
+                if(butil::sockaddr2endpoint(&ss, sizeof(*sa), &ipv4_endpoint) == 0) {
+                    found_ipv4 = true;
+                    if(target_family == AF_INET) {
+                        break;  // Found match for specified subnet
+                    }
+                }
+            }
+        } else if(ifa->ifa_addr->sa_family == AF_INET6) {
+            auto sa6 = (struct sockaddr_in6*) ifa->ifa_addr;
+            
+            if(is_private_ipv6(&sa6->sin6_addr)) {
+                if(target_family == AF_INET6) {
+                    // Check if matches subnet
+                    auto subnet_sa6 = (struct sockaddr_in6*)&subnet_addr;
+                    if(!ipv6_prefix_match(&subnet_sa6->sin6_addr, &sa6->sin6_addr, netbits)) {
+                        LOG(INFO) << "Skipping interface " << ifa->ifa_name << " as it does not match IPv6 subnet.";
+                        continue;
+                    }
+                }
+
+                // Create endpoint directly from sockaddr
+                struct sockaddr_storage ss;
+                memcpy(&ss, sa6, sizeof(*sa6));
+                if(butil::sockaddr2endpoint(&ss, sizeof(*sa6), &ipv6_endpoint) == 0) {
+                    found_ipv6 = true;
+                    if(target_family == AF_INET6) {
+                        break;  // Found match for specified subnet
+                    }
+                }
             }
         }
     }
 
-    LOG(WARNING) << "Found no matching interfaces, using loopback address as internal IP.";
-
     freeifaddrs(ifap);
-    return "127.0.0.1";
+
+    // Return results based on what we found
+    if(target_family == AF_INET6 && found_ipv6) {
+        return ipv6_endpoint;
+    } else if(target_family == AF_INET && found_ipv4) {
+        return ipv4_endpoint;
+    } else if(found_ipv4) {
+        return ipv4_endpoint;
+    } else if(found_ipv6) {
+        return ipv6_endpoint;
+    }
+
+    // Return endpoint with loopback address if nothing found
+    butil::EndPoint loopback;
+    butil::str2endpoint("127.0.0.1", 0, &loopback);
+    LOG(WARNING) << "Found no matching interfaces, using loopback address.";
+    return loopback;
 }
 
 int start_raft_server(ReplicationState& replication_state, Store& store,
@@ -257,22 +349,20 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
         return -1;
     }
 
-    butil::ip_t peering_ip;
+    butil::EndPoint peering_endpoint;
     int ip_conv_status = 0;
 
     if(!peering_address.empty()) {
-        ip_conv_status = butil::str2ip(peering_address.c_str(), &peering_ip);
+        ip_conv_status = butil::str2endpoint(peering_address.c_str(), &peering_endpoint);
+
+        if(ip_conv_status != 0) {
+            LOG(ERROR) << "Failed to parse peering address `" << peering_address << "`";
+            return -1;
+        }
     } else {
-        const char* internal_ip = get_internal_ip(peering_subnet);
-        ip_conv_status = butil::str2ip(internal_ip, &peering_ip);
+        peering_endpoint = get_internal_endpoint(peering_subnet);
     }
-
-    if(ip_conv_status != 0) {
-        LOG(ERROR) << "Failed to parse peering address `" << peering_address << "`";
-        return -1;
-    }
-
-    butil::EndPoint peering_endpoint(peering_ip, peering_port);
+    peering_endpoint.port = peering_port;
 
     // start peering server
     brpc::Server raft_server;
