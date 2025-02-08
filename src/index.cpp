@@ -2558,38 +2558,27 @@ Option<bool> Index::run_search(search_args* search_params) {
 
         std::shared_lock lock(mutex);
 
-        struct group_by_field_t {
-            std::string field_name;
-            bool is_array;
-        };
-        std::vector<group_by_field_t> group_by_fields;
+        std::vector<group_by_field_it_t> group_by_fields;
         for (const auto& field_name: search_params->group_by_fields) {
             auto field = search_schema.find(field_name);
             if (field == search_schema.end() || !facet_index_v4->has_hash_index(field_name)) {
                 continue;
             }
-            group_by_fields.emplace_back(group_by_field_t{field_name, field->is_array()});
+            group_by_fields.emplace_back(group_by_field_it_t{field_name,
+                                                             facet_index_v4->get_facet_hash_index(field_name)->new_iterator(),
+                                                             field->is_array()});
         }
         if (group_by_fields.empty()) {
             return Option<bool>(400, "`group_by` cannot be empty.");
         }
 
-        std::vector<std::set<std::string>> group_by_values(group_by_fields.size());
-        for (const auto& item: search_params->raw_result_kvs) {
-            if (item.empty()) {
-                continue;
-            }
-
-            const auto& seq_id = item.front()->key;
-            for (size_t i = 0; i < group_by_fields.size(); i++) {
-                get_facet_value(group_by_fields[i].field_name, seq_id, group_by_fields[i].is_array, group_by_values[i]);
-            }
-        }
+        std::vector<std::set<std::string>> group_by_values_list(group_by_fields.size());
+        get_group_by_values(search_params->raw_result_kvs, group_by_fields, group_by_values_list);
 
         std::string filter_by;
         for (size_t i = 0; i < group_by_fields.size(); i++) {
             const auto& field_name = group_by_fields[i].field_name;
-            auto& values = group_by_values[i];
+            auto& values = group_by_values_list[i];
             if (values.empty()) {
                 continue;
             }
@@ -6721,24 +6710,42 @@ void Index::get_distinct_id(posting_list_t::iterator_t& facet_index_it, const ui
     return;
 }
 
-void Index::get_facet_value(const std::string& field_name, const uint32_t seq_id, const bool& is_array,
-                            std::set<std::string>& facet_values) const {
-    // facet_index_v4->has_hash_index check is done upstream.
-    auto facet_index_it = facet_index_v4->get_facet_hash_index(field_name)->new_iterator();
-    if (!facet_index_it.valid()) {
-        return;
-    }
+void Index::get_group_by_values(std::vector<std::vector<KV *>>& result_kvs, std::vector<group_by_field_it_t>& group_by_fields,
+                                std::vector<std::set<std::string>>& group_by_values_list) const {
+    // Sorting the kvs according to seq_id so we don't have to get a new facet iterator for every kv.
+    std::sort(result_kvs.begin(), result_kvs.end(), [](const std::vector<KV *>& a, const std::vector<KV *>& b) {
+        return (a.empty() || b.empty()) ? b.empty() : a.front()->key < b.front()->key;
+    });
 
-    facet_index_it.skip_to(seq_id);
-    if (facet_index_it.valid() && facet_index_it.id() == seq_id) {
-        if (is_array) {
-            std::vector<uint32_t> facet_hashes;
-            posting_list_t::get_offsets(facet_index_it, facet_hashes);
-            for (const auto& facet_hash : facet_hashes) {
-                facet_values.insert(facet_index_v4->get_facet_str_val(field_name, facet_hash));
+    for (const auto& vec: result_kvs) {
+        if (vec.empty()) {
+            continue;
+        }
+
+        const auto& seq_id = vec.front()->key;
+        for (size_t i = 0; i < group_by_fields.size(); i++) {
+            auto& facet_index_it = group_by_fields[i].it;
+            if (!facet_index_it.valid()) {
+                continue;
             }
-        } else {
-            facet_values.insert(facet_index_v4->get_facet_str_val(field_name, facet_index_it.offset()));
+
+            facet_index_it.skip_to(seq_id);
+            if (!facet_index_it.valid() || facet_index_it.id() != seq_id) {
+                continue;
+            }
+
+            const auto& is_array = group_by_fields[i].is_array;
+            const auto& field_name = group_by_fields[i].field_name;
+            auto& group_by_values = group_by_values_list[i];
+            if (is_array) {
+                std::vector<uint32_t> facet_hashes;
+                posting_list_t::get_offsets(facet_index_it, facet_hashes);
+                for (const auto& facet_hash : facet_hashes) {
+                    group_by_values.insert(facet_index_v4->get_facet_str_val(field_name, facet_hash));
+                }
+            } else {
+                group_by_values.insert(facet_index_v4->get_facet_str_val(field_name, facet_index_it.offset()));
+            }
         }
     }
 }
