@@ -12,7 +12,9 @@ cmake-build-release
 .DS_Store
 /bazel-*
 typesense-server-data/
+typesense-data
 .clwb/.bazelproject
 .vscode/settings.json
 /onnxruntime-prefix
 .secrets
+/dist
