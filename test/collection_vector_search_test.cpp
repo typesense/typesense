@@ -5417,3 +5417,81 @@ TEST_F(CollectionVectorTest, UpdateEmbeddings) {
         ASSERT_NEAR(add_values[i], update_values[i], 0.0001);
     }
 }
+
+
+TEST_F(CollectionVectorTest, TestRankFusionOrdering) {
+    nlohmann::json schema = R"({
+                "name": "test",
+                "fields": [
+                    {
+                        "name": "text",
+                        "type": "string"
+                    },
+                    {
+                        "name": "embedding",
+                        "type": "float[]",
+                        "embed": {
+                            "from": [
+                                "text"
+                            ],
+                            "model_config": {
+                                "model_name": "ts/e5-small"
+                            }
+                        }
+                    }
+                ]
+                })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "text": "red apple"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "text": "green apple"
+    })"_json.dump());   
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "text": "apple pie"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll->search("apple", {"text"}, "", {},
+                                {}, {2}, 10, 1,FREQUENCY, {true},
+                                Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                                {"embedding"});
+    auto res = results.get();
+
+    ASSERT_EQ(3, res["hits"].size());
+    ASSERT_EQ("apple pie", res["hits"][0]["document"]["text"]);
+    ASSERT_EQ("green apple", res["hits"][1]["document"]["text"]);
+    ASSERT_EQ("red apple", res["hits"][2]["document"]["text"]);
+
+    // Test with rank_fusion_ordering
+
+    results = coll->search("apple", {"text", "embedding"}, "", {},
+                           {}, {2}, 10, 1,FREQUENCY, {true},
+                           Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                           {"embedding"});
+    res = results.get();
+
+    ASSERT_EQ(3, res["hits"].size());
+
+    ASSERT_EQ("green apple", res["hits"][0]["document"]["text"]);
+    ASSERT_EQ("apple pie", res["hits"][1]["document"]["text"]);
+    ASSERT_EQ("red apple", res["hits"][2]["document"]["text"]);
+
+    ASSERT_TRUE(res["hits"][0]["vector_distance"].get<float>() < res["hits"][1]["vector_distance"].get<float>());
+    ASSERT_TRUE(res["hits"][1]["vector_distance"].get<float>() < res["hits"][2]["vector_distance"].get<float>());
+}
