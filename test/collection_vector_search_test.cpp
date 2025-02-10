@@ -5494,4 +5494,8 @@ TEST_F(CollectionVectorTest, TestRankFusionOrdering) {
 
     ASSERT_TRUE(res["hits"][0]["vector_distance"].get<float>() < res["hits"][1]["vector_distance"].get<float>());
     ASSERT_TRUE(res["hits"][1]["vector_distance"].get<float>() < res["hits"][2]["vector_distance"].get<float>());
+
+    ASSERT_FLOAT_EQ(0.7 + 0.3 * 1.0/1.0, res["hits"][0]["hybrid_search_info"]["rank_fusion_score"].get<float>());
+    ASSERT_FLOAT_EQ(0.7 + 0.3 * 1.0/2.0, res["hits"][1]["hybrid_search_info"]["rank_fusion_score"].get<float>());
+    ASSERT_FLOAT_EQ(0.7 + 0.3 * 1.0/3.0, res["hits"][2]["hybrid_search_info"]["rank_fusion_score"].get<float>());
 }
