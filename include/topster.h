@@ -447,7 +447,7 @@ struct Topster {
 
     // topster must be sorted before iterated upon to remove dead array entries
     void sort() {
-        if(!distinct || is_group_by_first_pass) {
+        if(!distinct) {
             std::stable_sort(kvs, kvs + size, is_greater);
         }
     }

@@ -731,7 +731,9 @@ public:
                          const bool& is_group_by_first_pass, std::set<uint32_t>& group_by_missing_value_ids,
                          bool is_reverse=false) const;
 
-    void get_group_by_values(std::vector<std::vector<KV *>>& result_kvs, std::vector<group_by_field_it_t>& group_by_fields,
+    void get_group_by_values(std::vector<std::vector<KV *>>& result_kvs,
+                             std::vector<std::vector<KV *>>& override_result_kvs,
+                             std::vector<group_by_field_it_t>& group_by_fields,
                              std::vector<std::set<std::string>>& group_by_values_list) const;
 
     static void compute_token_offsets_facets(index_record& record,

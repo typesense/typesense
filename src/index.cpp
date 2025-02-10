@@ -2573,7 +2573,8 @@ Option<bool> Index::run_search(search_args* search_params) {
         }
 
         std::vector<std::set<std::string>> group_by_values_list(group_by_fields.size());
-        get_group_by_values(search_params->raw_result_kvs, group_by_fields, group_by_values_list);
+        get_group_by_values(search_params->raw_result_kvs, search_params->override_result_kvs, group_by_fields,
+                            group_by_values_list);
 
         std::string filter_by;
         for (size_t i = 0; i < group_by_fields.size(); i++) {
@@ -2628,9 +2629,7 @@ Option<bool> Index::run_search(search_args* search_params) {
         delete search_params->topster;
         delete search_params->curated_topster;
 
-        search_params->raw_result_kvs.clear();
         search_params->groups_processed.clear();
-        search_params->override_result_kvs.clear();
         group_by_missing_value_ids.clear();
     }
 
@@ -6710,33 +6709,53 @@ void Index::get_distinct_id(posting_list_t::iterator_t& facet_index_it, const ui
     return;
 }
 
-void Index::get_group_by_values(std::vector<std::vector<KV *>>& result_kvs, std::vector<group_by_field_it_t>& group_by_fields,
+void Index::get_group_by_values(std::vector<std::vector<KV *>>& result_kvs,
+                                std::vector<std::vector<KV *>>& override_result_kvs,
+                                std::vector<group_by_field_it_t>& group_by_fields,
                                 std::vector<std::set<std::string>>& group_by_values_list) const {
-    // Sorting the kvs according to seq_id so we don't have to get a new facet iterator for every kv.
-    std::sort(result_kvs.begin(), result_kvs.end(), [](const std::vector<KV *>& a, const std::vector<KV *>& b) {
-        return (a.empty() || b.empty()) ? b.empty() : a.front()->key < b.front()->key;
-    });
-
-    for (const auto& vec: result_kvs) {
-        if (vec.empty()) {
+    std::vector<uint32_t> ids(result_kvs.size() + override_result_kvs.size());
+    uint32_t ids_size = 0;
+    for (const auto& kvs: result_kvs) {
+        if (kvs.empty()) {
             continue;
         }
 
-        const auto& seq_id = vec.front()->key;
-        for (size_t i = 0; i < group_by_fields.size(); i++) {
-            auto& facet_index_it = group_by_fields[i].it;
+        ids[ids_size++] = kvs.front()->key;
+    }
+    result_kvs.clear();
+
+    for (const auto& kvs: override_result_kvs) {
+        if (kvs.empty()) {
+            continue;
+        }
+
+        ids[ids_size++] = kvs.front()->key;
+    }
+    override_result_kvs.clear();
+
+    ids.resize(ids_size);
+
+    // Sorting the kvs according to seq_id so we don't have to get a new facet iterator for every kv.
+    gfx::timsort(ids.begin(), ids.end());
+
+    for (size_t i = 0; i < group_by_fields.size(); i++) {
+        auto& facet_index_it = group_by_fields[i].it;
+        const auto& is_array = group_by_fields[i].is_array;
+        const auto& field_name = group_by_fields[i].field_name;
+        auto& group_by_values = group_by_values_list[i];
+
+        for (const auto& seq_id: ids) {
             if (!facet_index_it.valid()) {
-                continue;
+                break;
             }
 
             facet_index_it.skip_to(seq_id);
-            if (!facet_index_it.valid() || facet_index_it.id() != seq_id) {
+            if (!facet_index_it.valid()) {
+                break;
+            } else if (facet_index_it.id() != seq_id) {
                 continue;
             }
 
-            const auto& is_array = group_by_fields[i].is_array;
-            const auto& field_name = group_by_fields[i].field_name;
-            auto& group_by_values = group_by_values_list[i];
             if (is_array) {
                 std::vector<uint32_t> facet_hashes;
                 posting_list_t::get_offsets(facet_index_it, facet_hashes);

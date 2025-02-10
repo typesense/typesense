@@ -248,10 +248,10 @@ TEST(TopsterTest, DistinctIntValues) {
         dist_topster_first_pass.add(&kv);
     }
 
-    dist_topster_first_pass.sort();
+    dist_topster_first_pass.sort(); // No need to sort the topster in case of group_by first-pass.
 
-    distinct_ids = {4, 1, 5, 8, 9, 3, 7};
-    std::vector<uint64_t> ids = {104, 101, 106, 111, 112, 103, 110};
+    distinct_ids = {7, 5, 3, 4, 1, 9, 8};
+    std::vector<uint64_t> ids = {110, 106, 103, 104, 101, 112, 111};
 
     for(uint32_t i = 0; i < dist_topster_first_pass.size; i++) {
         ASSERT_EQ(distinct_ids[i], dist_topster_first_pass.getDistinctKeyAt(i));
