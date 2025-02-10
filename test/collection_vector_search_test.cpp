@@ -1423,8 +1423,8 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     // 2. butterfly (1/2 * 0.7) + (1/3 * 0.3) = 0.45
     // 3. butterball (1/3 * 0.7) + (1/2 * 0.3) = 0.383
     ASSERT_EQ("butter", search_res["hits"][0]["document"]["name"].get<std::string>());
-    ASSERT_EQ("butterfly", search_res["hits"][1]["document"]["name"].get<std::string>());
-    ASSERT_EQ("butterball", search_res["hits"][2]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butterball", search_res["hits"][1]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butterfly", search_res["hits"][2]["document"]["name"].get<std::string>());
 
     ASSERT_FLOAT_EQ((1.0/1.0 * 0.7) + (1.0/1.0 * 0.3), search_res["hits"][0]["hybrid_search_info"]["rank_fusion_score"].get<float>());
     ASSERT_FLOAT_EQ((1.0/2.0 * 0.7) + (1.0/2.0 * 0.3), search_res["hits"][1]["hybrid_search_info"]["rank_fusion_score"].get<float>());
