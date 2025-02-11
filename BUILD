@@ -100,7 +100,8 @@ cc_binary(
         ":src_files",
     ],
     local_defines = [
-        "TYPESENSE_VERSION=\\\"$(TYPESENSE_VERSION)\\\""
+        "TYPESENSE_VERSION=\\\"$(TYPESENSE_VERSION)\\\"",
+        "TYPESENSE_GIT_COMMIT=\\\"$(TYPESENSE_GIT_COMMIT)\\\""
     ],
     linkopts = select({
         "@platforms//os:linux": ["-static-libstdc++", "-static-libgcc", "-fuse-ld=lld"],

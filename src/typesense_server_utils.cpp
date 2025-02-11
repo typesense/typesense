@@ -344,8 +344,10 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
     return 0;
 }
 
-int run_server(const Config & config, const std::string & version, void (*master_server_routes)()) {
+int run_server(const Config & config, const std::string & version, const std::string & git_commit,
+               void (*master_server_routes)()) {
     LOG(INFO) << "Starting Typesense " << version << std::flush;
+    LOG(INFO) << "Typesense Git Commit: " << git_commit << std::flush;
 #ifndef ASAN_BUILD
     if(using_jemalloc()) {
         LOG(INFO) << "Typesense is using jemalloc.";
@@ -449,6 +451,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     server = new HttpServer(
         version,
+        git_commit,
         config.get_api_address(),
         config.get_api_port(),
         config.get_ssl_cert(),

@@ -139,6 +139,7 @@ private:
     std::atomic<bool> exit_loop;
 
     std::string version;
+    std::string git_commit;
 
     // must be a vector since order of routes entered matter
     std::vector<std::pair<uint64_t, route_path>> route_hash_to_path;
@@ -203,6 +204,7 @@ private:
 
 public:
     HttpServer(const std::string & version,
+               const std::string & git_commit,
                const std::string & listen_address, uint32_t listen_port,
                const std::string & ssl_cert_path,
                const std::string & ssl_cert_key_path,
@@ -266,6 +268,7 @@ public:
     static bool on_deferred_processing_message(void *data);
 
     std::string get_version();
+    std::string get_git_commit();
 
     ThreadPool* get_thread_pool() const;
 

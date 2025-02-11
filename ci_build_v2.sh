@@ -9,6 +9,10 @@ if [ -z "$TYPESENSE_VERSION" ]; then
   TYPESENSE_VERSION="nightly"
 fi
 
+if [ -z "$TYPESENSE_GIT_COMMIT" ]; then
+  TYPESENSE_GIT_COMMIT="nightly"
+fi
+
 ARCH_NAME="amd64"
 
 if [[ "$@" == *"--graviton2"* ]] || [[ "$@" == *"--arm"* ]]; then
@@ -45,7 +49,9 @@ fi
 
 # Finally build Typesense
 bazel build --verbose_failures --jobs=$JOBS $CUDA_FLAGS \
-  --define=TYPESENSE_VERSION=\"$TYPESENSE_VERSION\" //:$TYPESENSE_TARGET
+  --define=TYPESENSE_VERSION=\"$TYPESENSE_VERSION\" \
+  --define=TYPESENSE_GIT_COMMIT=\"$TYPESENSE_GIT_COMMIT\" \
+  //:$TYPESENSE_TARGET
 
 # Copy the binary to an accessible location
 mkdir -p $PROJECT_DIR/dist
