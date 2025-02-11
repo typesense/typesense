@@ -137,7 +137,7 @@ export class FilesystemService {
     });
   }
 
-  private emptyDirectory(directory: string): ResultAsync<string, ErrorWithMessage> {
+  emptyDirectory(directory: string): ResultAsync<string, ErrorWithMessage> {
     this.spinner.text = `Emptying directory ${directory}`;
     return ResultAsync.fromPromise(emptyDir(directory), toErrorWithMessage).map(() => {
       this.spinner.succeed(`Directory ${directory} emptied`);
