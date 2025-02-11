@@ -227,7 +227,7 @@ class IntegrationTests {
       .andThen(() => this.indexConversationDocuments(process))
       .andThen(() => this.queryEachNode())
       .andThen(() => {
-        logger.success("Conversation test passed successfully");
+        logger.success("Conversation test passed successfully\n");
         return okAsync(undefined);
       });
   }
@@ -370,7 +370,7 @@ class IntegrationTests {
     return this.saveSnapshot()
       .andThen(() => this.verifySnapshot())
       .map(() => {
-        logger.success("Snapshot test passed successfully");
+        logger.success("Snapshot test passed successfully\n");
       });
   }
 
@@ -429,7 +429,7 @@ class IntegrationTests {
       })
       .andThen(() => this.validateOpenAIEmbeddingCollection())
       .map(() => {
-        logger.success("OpenAI Embedding test passed successfully");
+        logger.success("OpenAI Embedding test passed successfully\n");
       });
   }
 
@@ -616,7 +616,7 @@ const test = new Command()
           logger.error(result.error.message);
           process.exit(1);
         }
-        logger.success("Integration tests passed successfully");
+        logger.success("Integration tests passed successfully\n");
         process.exit(0);
       });
   });
