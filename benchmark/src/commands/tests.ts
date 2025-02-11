@@ -11,6 +11,7 @@ import type { SearchParams } from "typesense/lib/Typesense/Documents";
 
 import { Command } from "commander";
 import { err, errAsync, ok, okAsync, ResultAsync } from "neverthrow";
+import ora from "ora";
 import { z } from "zod";
 
 import { ServiceContainer } from "@/services/container";
@@ -278,7 +279,8 @@ class IntegrationTests {
   }
 
   private createBaseCollection(process: TypesenseProcessController) {
-    this.spinner.start("Creating base collection");
+    const spinner = ora();
+    spinner.start("Creating base collection");
 
     const collection: CollectionCreateSchema = {
       name: IntegrationTests.baseCollectionName,
@@ -307,7 +309,7 @@ class IntegrationTests {
     };
 
     return this.typesenseProcessManager.createCollection(process, collection).map((res) => {
-      this.spinner.succeed("Base collection created");
+      spinner.succeed("Base collection created");
       return res;
     });
   }
