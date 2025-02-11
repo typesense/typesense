@@ -286,6 +286,11 @@ export class TypesenseProcessManager {
             shell: false,
             windowsHide: true,
             cleanup: true,
+            extendEnv: true,
+            env: {
+              HTTP_PROXY: "http://localhost:8443",
+              HTTPS_PROXY: "http://localhost:8443",
+            },
           };
 
           logger.debug(`[Node ${http}] Starting process with ports HTTP=${http} gRPC=${grpc}\n`);

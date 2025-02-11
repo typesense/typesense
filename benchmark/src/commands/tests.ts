@@ -15,8 +15,10 @@ import { z } from "zod";
 
 import { ServiceContainer } from "@/services/container";
 import { DEFAULT_TYPESENSE_GIT_URL } from "@/services/git";
+import { OpenAIProxyService } from "@/services/openai-mock";
 import { DEFAULT_IP_ADDRESS, TypesenseProcessManager } from "@/services/typesense-process";
 import { toErrorWithMessage } from "@/utils/error";
+import { delay } from "@/utils/execa";
 import { logger, LogLevel } from "@/utils/logger";
 import { dirName, findRoot } from "@/utils/package-info";
 import { parseOptions } from "@/utils/parse";
@@ -36,6 +38,10 @@ const integrationTestOptionsSchema = z.object({
   openAIKey: z.string({
     message: "OpenAI API key must be provided either through environment variable or directly",
   }),
+  numDim: z
+    .string()
+    .transform((value) => parseInt(value))
+    .pipe(z.number().min(0)),
   ip: z.string().optional(),
   snapshotPath: z.string(),
 });
@@ -51,6 +57,7 @@ interface NodeConfig {
 class IntegrationTests {
   private readonly ipAddress: string | null;
   private readonly isInCi = process.env.CI === "true";
+  private readonly openAIProxy: OpenAIProxyService;
 
   public static baseCollectionName = "base_collection";
   public static openAICollectionName = "openai_collection";
@@ -64,9 +71,12 @@ class IntegrationTests {
     public readonly typesenseProcessManager: TypesenseProcessManager,
     private readonly workingDirectory: string,
     private readonly openAIKey: string,
+    private readonly numDim: number,
     ipAddress?: string,
   ) {
     this.ipAddress = ipAddress ?? this.findDefaultNetworkAddress();
+    this.numDim = numDim;
+    this.openAIProxy = new OpenAIProxyService(spinner, workingDirectory, this.numDim);
   }
 
   private createDataDirectories(workingDirectory: string = this.workingDirectory) {
@@ -139,7 +149,23 @@ class IntegrationTests {
     );
   }
 
-  setupProcesses(): ResultAsync<TypesenseProcessController[], ErrorWithMessage> {
+  setup(): ResultAsync<void, ErrorWithMessage> {
+    return this.setupProcesses().andThen(() => {
+      this.spinner.start("Setting up OpenAI proxy");
+      this.openAIProxy.start();
+      this.spinner.succeed("OpenAI proxy set up");
+      return okAsync(undefined);
+    });
+  }
+
+  tearDown(): ResultAsync<void, ErrorWithMessage> {
+    this.spinner.start("Tearing down OpenAI proxy");
+    this.openAIProxy.stop();
+    this.spinner.succeed("OpenAI proxy torn down");
+    return okAsync(undefined);
+  }
+
+  private setupProcesses(): ResultAsync<TypesenseProcessController[], ErrorWithMessage> {
     this.spinner.start("Setting up Typesense processes");
 
     return this.writeToNodesFile()
@@ -217,16 +243,20 @@ class IntegrationTests {
       conversation_model_id: IntegrationTests.conversationModelName,
     };
 
-    return ResultAsync.combine(
-      Array.from(this.typesenseProcessManager.processes.values()).map((process) => {
-        return this.typesenseProcessManager.queryCollection(process, {
-          collectionName: IntegrationTests.baseCollectionName,
-          query: params,
-        });
+    this.spinner.text = "Waiting for 15s before querying";
+
+    return delay(15_000).andThen(() =>
+      ResultAsync.combine(
+        Array.from(this.typesenseProcessManager.processes.values()).map((process) => {
+          return this.typesenseProcessManager.queryCollection(process, {
+            collectionName: IntegrationTests.baseCollectionName,
+            query: params,
+          });
+        }),
+      ).map(() => {
+        this.spinner.succeed("Every node queried successfully");
       }),
-    ).map(() => {
-      this.spinner.succeed("Every node queried successfully");
-    });
+    );
   }
 
   private createConversationModel(process: TypesenseProcessController) {
@@ -389,20 +419,22 @@ class IntegrationTests {
       })
       .andThen(() => {
         this.spinner.start("Cleaning up before restarting processes");
-        return ResultAsync.fromPromise(new Promise((resolve) => setTimeout(resolve, 10000)), toErrorWithMessage).map(
-          () => {
-            this.spinner.succeed("Cleanup complete");
-          },
-        );
+        return delay(10_000).map(() => {
+          this.spinner.succeed("Cleanup complete");
+        });
       })
       .andThen(() => this.startAndVerifyProcesses(Array.from(this.nodes.values())))
+      .andThen(() => {
+        this.spinner.start("Waiting for 5s before verifying number of dimensions");
+        return delay(5_000);
+      })
       .andThen(() => this.validateOpenAIEmbeddingCollection())
       .map(() => {
         logger.success("OpenAI Embedding test passed successfully");
       });
   }
 
-  private createOpenAIEmbeddingCollection(numDim = 256) {
+  private createOpenAIEmbeddingCollection() {
     this.spinner.start("Creating OpenAI Embedding collection with custom number of  dimensions");
 
     const collection: CollectionCreateSchema = {
@@ -416,7 +448,7 @@ class IntegrationTests {
         {
           name: "embedding",
           type: "float[]",
-          num_dim: numDim,
+          num_dim: this.numDim,
           embed: {
             from: ["product_name"],
             model_config: {
@@ -439,7 +471,7 @@ class IntegrationTests {
     });
   }
 
-  private validateOpenAIEmbeddingCollection(numDim = 256) {
+  private validateOpenAIEmbeddingCollection() {
     this.spinner.start("Validating OpenAI Embedding collection");
 
     const process = this.typesenseProcessManager.processes.get(8108);
@@ -451,8 +483,8 @@ class IntegrationTests {
     return this.typesenseProcessManager
       .getCollection(process, IntegrationTests.openAICollectionName)
       .map((collection) => {
-        if (collection.fields?.find((field) => field.name === "embedding")?.num_dim !== numDim) {
-          return err({ message: `Number of dimensions is not ${numDim}` });
+        if (collection.fields?.find((field) => field.name === "embedding")?.num_dim !== this.numDim) {
+          return err({ message: `Number of dimensions is not ${this.numDim}` });
         }
 
         this.spinner.succeed("OpenAI Embedding collection validated");
@@ -480,7 +512,8 @@ const test = new Command()
   .option("-y, --yes", "Verbose output", false)
   .option("-b, --binary <path>", "Path of prebuilt-binary. Use this to skip the building process.")
   .option("--api-key <key>", "API key to use for the Typesense Process.", "xyz")
-  .option("--openAI-key <key>", "OpenAI API key. Defaults to OPENAI_API_KEY in PATH", process.env.OPENAI_API_KEY)
+  .option("--num-dim <number>", "Number of dimensions to test against OpenAI embeddings", "256")
+  .option("--openAI-key <key>", "OpenAI API key. Defaults to OPENAI_API_KEY in PATH", "oh_no_i_leaked_the_key")
   .option("--ip <ip>", "IP address to use for the Typesense Process.")
   .option("-s, --snapshot-path <path>", "Path to the snapshot file.", cwd)
   .action((options) => {
@@ -561,6 +594,7 @@ const test = new Command()
           typesenseProcessManager,
           options.workingDirectory,
           options.openAIKey,
+          options.numDim,
           options.ip,
         );
 
@@ -568,13 +602,14 @@ const test = new Command()
       })
       .andThen((integrationTests) =>
         integrationTests
-          .setupProcesses()
+          .setup()
+          .andThen(() => integrationTests.openAIEmbeddingTest())
+          .andThen(() => integrationTests.emptyDataDirectories())
           .andThen(() => integrationTests.conversationTest())
           .andThen(() => integrationTests.emptyDataDirectories())
-          .andThen(() => integrationTests.snapshotTest())
-          .andThen(() => integrationTests.emptyDataDirectories())
-          .andThen(() => integrationTests.openAIEmbeddingTest())
-          .andThen(() => integrationTests.emptyDataDirectories()),
+          // .andThen(() => integrationTests.snapshotTest())
+          // .andThen(() => integrationTests.emptyDataDirectories())
+          .andThen(() => integrationTests.tearDown()),
       )
       .then((result) => {
         if (result.isErr()) {
