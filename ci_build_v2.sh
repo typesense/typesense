@@ -24,22 +24,31 @@ if [[ "$@" == *"--with-jemalloc-lg-page16"* ]]; then
   JEMALLOC_FLAGS="--define enable_jemalloc_lg_page16=1"
 fi
 
+# Extract jobs parameter if provided, default to 6
+JOBS=6
+if [[ "$@" =~ --jobs=([0-9]+) ]]; then
+  JOBS=${BASH_REMATCH[1]}
+fi
+
 # First build protobuf
-bazel build @com_google_protobuf//:protobuf_headers
-bazel build @com_google_protobuf//:protobuf_lite
-bazel build @com_google_protobuf//:protobuf
-bazel build @com_google_protobuf//:protoc
+bazel build --jobs=$JOBS @com_google_protobuf//:protobuf_headers
+bazel build --jobs=$JOBS @com_google_protobuf//:protobuf_lite
+bazel build --jobs=$JOBS @com_google_protobuf//:protobuf
+bazel build --jobs=$JOBS @com_google_protobuf//:protoc
 
 # Build whisper
 if [[ "$@" == *"--with-cuda"* ]]; then
-  bazel build @whisper.cpp//:whisper_cuda_shared $CUDA_FLAGS --experimental_cc_shared_library
+  bazel build --jobs=$JOBS @whisper.cpp//:whisper_cuda_shared $CUDA_FLAGS --experimental_cc_shared_library
   /bin/cp -f $PROJECT_DIR/$BUILD_DIR/external/whisper.cpp/libwhisper_cuda_shared.so $PROJECT_DIR/$BUILD_DIR/
 fi
 
 # Finally build Typesense
-bazel build --verbose_failures --jobs=6 $CUDA_FLAGS $JEMALLOC_FLAGS \
+bazel build --verbose_failures --jobs=$JOBS $CUDA_FLAGS $JEMALLOC_FLAGS \
   --define=TYPESENSE_VERSION=\"$TYPESENSE_VERSION\" //:$TYPESENSE_TARGET
 
+# Copy the binary to an accessible location
+mkdir -p $PROJECT_DIR/dist
+/bin/cp -f $PROJECT_DIR/$BUILD_DIR/$TYPESENSE_TARGET $PROJECT_DIR/dist/
 
 if [[ "$@" == *"--build-deploy-image"* ]]; then
     echo "Creating deployment image for Typesense $TYPESENSE_VERSION server ..."

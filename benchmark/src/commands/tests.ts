@@ -128,6 +128,17 @@ class IntegrationTests {
     );
   }
 
+  emptyDataDirectories(): ResultAsync<string[], ErrorWithMessage> {
+    this.spinner.start("Emptying data directories");
+
+    return ResultAsync.combine(this.nodes.map((node) => this.services.get("fs").emptyDirectory(node.dataDir))).map(
+      () => {
+        this.spinner.succeed("Data directories emptied");
+        return this.nodes.map((node) => node.dataDir);
+      },
+    );
+  }
+
   setupProcesses(): ResultAsync<TypesenseProcessController[], ErrorWithMessage> {
     this.spinner.start("Setting up Typesense processes");
 
@@ -225,6 +236,7 @@ class IntegrationTests {
       id: IntegrationTests.conversationModelName,
       system_prompt:
         "You are an assistant for question-answering like Paul Graham. You can only make conversations based on the provided context. If a response cannot be formed strictly using the context, politely say you don't have knowledge about that topic. Do not answer questions that are not strictly on the topic of Paul Graham'''s essays.",
+      //@ts-expect-error - history_collection is not in the ConversationModelSchema
       history_collection: "conversation_store",
       model_name: "openai/gpt-4-turbo",
       max_bytes: 16384,
@@ -558,8 +570,11 @@ const test = new Command()
         integrationTests
           .setupProcesses()
           .andThen(() => integrationTests.conversationTest())
+          .andThen(() => integrationTests.emptyDataDirectories())
           .andThen(() => integrationTests.snapshotTest())
-          .andThen(() => integrationTests.openAIEmbeddingTest()),
+          .andThen(() => integrationTests.emptyDataDirectories())
+          .andThen(() => integrationTests.openAIEmbeddingTest())
+          .andThen(() => integrationTests.emptyDataDirectories()),
       )
       .then((result) => {
         if (result.isErr()) {
