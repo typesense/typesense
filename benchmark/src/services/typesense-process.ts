@@ -205,8 +205,7 @@ export class TypesenseProcessManager {
   }
 
   createConversationModel(process: TypesenseProcessController, model: ConversationModelCreateSchema) {
-    const models = process.client.conversations().models() as unknown as ConversationModels;
-    return ResultAsync.fromPromise(models.create(model), toErrorWithMessage);
+    return ResultAsync.fromPromise(process.client.conversations().models().create(model), toErrorWithMessage);
   }
 
   initNode(dataDir: string, port: number): ResultAsync<NodeConfig, ErrorWithMessage> {
