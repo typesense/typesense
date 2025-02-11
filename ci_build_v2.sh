@@ -23,10 +23,9 @@ if [[ "$@" == *"--with-cuda"* ]]; then
   CUDA_FLAGS="--define use_cuda=on --action_env=CUDA_HOME=/usr/local/cuda --action_env=CUDNN_HOME=/usr/local/cuda"
 fi
 
-# Extract jobs parameter if provided, default to 6
-JOBS=6
-if [[ "$@" =~ --jobs=([0-9]+) ]]; then
-  JOBS=${BASH_REMATCH[1]}
+JEMALLOC_FLAGS=""
+if [[ "$@" == *"--with-jemalloc-lg-page16"* ]]; then
+  JEMALLOC_FLAGS="--define enable_jemalloc_lg_page16=1"
 fi
 
 # Extract jobs parameter if provided, default to 6
@@ -48,7 +47,7 @@ if [[ "$@" == *"--with-cuda"* ]]; then
 fi
 
 # Finally build Typesense
-bazel build --verbose_failures --jobs=$JOBS $CUDA_FLAGS \
+bazel build --verbose_failures --jobs=$JOBS $CUDA_FLAGS $JEMALLOC_FLAGS \
   --define=TYPESENSE_VERSION=\"$TYPESENSE_VERSION\" \
   --define=TYPESENSE_GIT_COMMIT=\"$TYPESENSE_GIT_COMMIT\" \
   //:$TYPESENSE_TARGET
