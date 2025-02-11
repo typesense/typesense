@@ -233,6 +233,70 @@ class IntegrationTests {
       });
   }
 
+  conversationRotationTest(): ResultAsync<void, ErrorWithMessage> {
+    logger.warn("Running conversation models on rotation test");
+
+    const process = this.typesenseProcessManager.processes.get(8108);
+    if (!process) {
+      return errAsync({ message: `Process not found for port 8108` });
+    }
+    const processesArray = Array.from(this.typesenseProcessManager.processes.values());
+
+    return this.createBaseCollection(process)
+      .andThen(() => this.createConversationStoreCollection(process))
+      .andThen(() => this.createConversationModel(process))
+      .andThen(() => {
+        const modelRetrievalResults = processesArray.map((process) =>
+          this.typesenseProcessManager.getConversationModel(process, IntegrationTests.conversationModelName),
+        );
+
+        return ResultAsync.combine(modelRetrievalResults);
+      })
+      .map(() => {
+        this.spinner.succeed("All nodes have the model");
+      })
+      .andThen(() => {
+        this.spinner.start("Starting rotation");
+
+        return processesArray.reduce(
+          (promise: ResultAsync<void, ErrorWithMessage>, process: TypesenseProcessController) =>
+            promise.andThen(() =>
+              this.restartProcessWithVerification(process, processesArray).map(() => {
+                this.spinner.succeed(`Rotation complete for port ${process.http}`);
+              }),
+            ),
+          okAsync<void, ErrorWithMessage>(undefined),
+        );
+      })
+      .map(() => {
+        logger.success("Conversation rotation test passed successfully\n");
+      });
+  }
+
+  private restartProcessWithVerification(
+    process: TypesenseProcessController,
+    allProcesses: TypesenseProcessController[],
+  ): ResultAsync<void, ErrorWithMessage> {
+    const spinner = ora();
+    return this.typesenseProcessManager
+      .restartProcess(process)
+      .asyncAndThen(() => {
+        spinner.start(`Waiting for process ${process.http} to restart`);
+        return delay(25_000);
+      })
+      .andThen(() => {
+        spinner.text = "Retrieving results";
+        const modelRetrievalResults = allProcesses.map((p) =>
+          this.typesenseProcessManager.getConversationModel(p, IntegrationTests.conversationModelName),
+        );
+        return ResultAsync.combine(modelRetrievalResults);
+      })
+      .andThen(() => {
+        spinner.succeed("All three nodes have the model");
+        return okAsync(undefined);
+      });
+  }
+
   private queryEachNode() {
     this.spinner.start("Querying each node");
 
@@ -404,27 +468,33 @@ class IntegrationTests {
     return this.typesenseProcessManager.snapshot(process);
   }
 
+  restartAllNodes() {
+    this.spinner.start("Restarting all nodes");
+    // Cleanup any existing processes to restart them
+    const cleanupResults = Array.from(this.typesenseProcessManager.processes.values()).map((process) =>
+      process.dispose().asyncAndThen(() => {
+        this.typesenseProcessManager.processes.delete(process.http);
+        return okAsync<void, ErrorWithMessage>(undefined);
+      }),
+    );
+
+    return ResultAsync.combine(cleanupResults)
+      .andThen(() => {
+        this.spinner.text = "Cleaning up before restarting processes";
+        return delay(10_000).map(() => {
+          this.spinner.succeed("Cleanup complete");
+        });
+      })
+      .andThen(() => this.startAndVerifyProcesses(Array.from(this.nodes.values())));
+  }
+
   openAIEmbeddingTest(): ResultAsync<void, ErrorWithMessage> {
     logger.warn("Running OpenAI Embedding test");
 
     return this.createOpenAIEmbeddingCollection()
       .andThen(() => ResultAsync.fromPromise(new Promise((resolve) => setTimeout(resolve, 2000)), toErrorWithMessage))
       .andThen(() => this.validateOpenAIEmbeddingCollection())
-      .andThen(() => {
-        // Cleanup any existing processes to restart them
-        const cleanupResults = Array.from(this.typesenseProcessManager.processes.values()).map((process) =>
-          process.cleanup().asyncAndThen(() => okAsync<void, ErrorWithMessage>(undefined)),
-        );
-
-        return ResultAsync.combine(cleanupResults);
-      })
-      .andThen(() => {
-        this.spinner.start("Cleaning up before restarting processes");
-        return delay(10_000).map(() => {
-          this.spinner.succeed("Cleanup complete");
-        });
-      })
-      .andThen(() => this.startAndVerifyProcesses(Array.from(this.nodes.values())))
+      .andThen(() => this.restartAllNodes())
       .andThen(() => {
         this.spinner.start("Waiting for 5s before verifying number of dimensions");
         return delay(5_000);
@@ -606,8 +676,13 @@ const test = new Command()
           .setup()
           .andThen(() => integrationTests.openAIEmbeddingTest())
           .andThen(() => integrationTests.emptyDataDirectories())
+          .andThen(() => integrationTests.restartAllNodes())
+          .andThen(() => integrationTests.conversationRotationTest())
+          .andThen(() => integrationTests.emptyDataDirectories())
+          .andThen(() => integrationTests.restartAllNodes())
           .andThen(() => integrationTests.conversationTest())
           .andThen(() => integrationTests.emptyDataDirectories())
+          .andThen(() => integrationTests.restartAllNodes())
           .andThen(() => integrationTests.snapshotTest())
           .andThen(() => integrationTests.emptyDataDirectories())
           .andThen(() => integrationTests.tearDown()),
