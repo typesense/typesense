@@ -1,0 +1,89 @@
+--- src/braft/node_manager.cpp
++++ src/braft/node_manager.cpp
+@@ -19,6 +19,7 @@
+ #include "braft/file_service.h"
+ #include "braft/builtin_service_impl.h"
+ #include "braft/cli_service.h"
++#include <butil/details/extended_endpoint.hpp>
+ 
+ namespace braft {
+ 
+@@ -28,10 +29,33 @@
+ 
+ bool NodeManager::server_exists(butil::EndPoint addr) {
+     BAIDU_SCOPED_LOCK(_mutex);
+-    if (addr.ip != butil::IP_ANY) {
+-        butil::EndPoint any_addr(butil::IP_ANY, addr.port);
+-        if (_addr_set.find(any_addr) != _addr_set.end()) {
+-            return true;
++    if (butil::is_endpoint_extended(addr)) {
++        if (butil::get_endpoint_type(addr) == AF_INET6) {
++            struct sockaddr_storage addr_ss;
++            socklen_t addr_len = butil::details::ExtendedEndPoint::address(addr)->to(&addr_ss);
++            const sockaddr_in6* addr_in6 = (const sockaddr_in6*)&addr_ss;
++            
++            for (const auto& existing : _addr_set) {
++                if (butil::is_endpoint_extended(existing) && 
++                    butil::get_endpoint_type(existing) == AF_INET6) {
++                    struct sockaddr_storage existing_ss;
++                    socklen_t existing_len = butil::details::ExtendedEndPoint::address(existing)->to(&existing_ss);
++                    const sockaddr_in6* existing_in6 = (const sockaddr_in6*)&existing_ss;
++                    if (addr_in6->sin6_port == existing_in6->sin6_port &&
++                        memcmp(&existing_in6->sin6_addr, &in6addr_any, sizeof(in6addr_any)) == 0) {
++                        return true;
++                    }
++                }
++            }
++        } else {
++            CHECK(false) << "Code not implemented for unix sockets";
++        }
++    } else {
++        for (const auto& existing : _addr_set) {
++            if (!butil::is_endpoint_extended(existing) &&
++                existing.port == addr.port && existing.ip == butil::IP_ANY) {
++                return true;
++            }
+         }
+     }
+     return _addr_set.find(addr) != _addr_set.end();
+
+--- src/braft/configuration.h
++++ src/braft/configuration.h
+@@ -58,15 +58,32 @@
+ 
+     int parse(const std::string& str) {
+         reset();
+-        char ip_str[64];
+-        if (2 > sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d", ip_str, &addr.port, &idx)) {
+-            reset();
++        
++        // Find last colon for optional index
++        size_t last_colon = str.find_last_of(':');
++        if (last_colon == std::string::npos) {
+             return -1;
+         }
+-        if (0 != butil::str2ip(ip_str, &addr.ip)) {
+-            reset();
++    
++        // Find second-to-last colon to check format
++        size_t second_last_colon = str.find_last_of(':', last_colon - 1);
++        
++        // If only one colon exists, treat as ip:port with idx=0
++        if (second_last_colon == std::string::npos) {
++            if (0 != butil::str2endpoint(str.c_str(), &addr)) {
++                return -1;
++            }
++            idx = 0;
++            return 0;
++        }
++    
++        // Otherwise parse as ip:port:idx
++        std::string endpoint_str = str.substr(0, last_colon);
++        if (0 != butil::str2endpoint(endpoint_str.c_str(), &addr)) {
+             return -1;
+         }
++        
++        idx = atoi(str.c_str() + last_colon + 1);
+         return 0;
+     }
+ 

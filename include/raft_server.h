@@ -307,6 +307,6 @@ private:
 
     void do_dummy_write();
 
-    std::string get_node_url_path(const std::string& node_addr, const std::string& path,
+    std::string get_node_url_path(const braft::PeerId& peer_id, const std::string& path,
                                   const std::string& protocol) const;
 };

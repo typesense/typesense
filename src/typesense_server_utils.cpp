@@ -218,7 +218,7 @@ bool ipv6_prefix_match(const struct in6_addr* addr1, const struct in6_addr* addr
     return true;
 }
 
-butil::EndPoint get_internal_endpoint(const std::string& subnet_cidr) {
+butil::EndPoint get_internal_endpoint(const std::string& subnet_cidr, uint32_t peering_port) {
     struct ifaddrs *ifap;
     getifaddrs(&ifap);
 
@@ -230,11 +230,18 @@ butil::EndPoint get_internal_endpoint(const std::string& subnet_cidr) {
         std::vector<std::string> subnet_parts;
         StringUtils::split(subnet_cidr, subnet_parts, "/");
         if(subnet_parts.size() == 2) {
-            if(butil::str2endpoint(subnet_parts[0].c_str(), 0, &subnet_endpoint) == 0) {
-                if(StringUtils::is_uint32_t(subnet_parts[1])) {
-                    netbits = std::stoll(subnet_parts[1]);
-                    target_family = butil::get_endpoint_type(subnet_endpoint);
+            // If a v6 address, wrap in []
+            auto subnet_addr = subnet_parts[0].find(':') != string::npos ? '[' + subnet_parts[0] + "]" : subnet_parts[0];
+            const int retCode = butil::str2endpoint(subnet_addr.c_str(), 0, &subnet_endpoint);
+            if(retCode == 0) {
+                try {
+                    netbits = std::stoul(subnet_parts[1]);
+                    if(netbits > 0) {
+                        target_family = butil::get_endpoint_type(subnet_endpoint);
+                    }
                     LOG(INFO) << "Using subnet with address family: " << (target_family == AF_INET ? "IPv4" : "IPv6");
+                } catch (const std::exception& e) {
+                    LOG(ERROR) << "Failed to parse subnet prefix length: " << subnet_parts[1];
                 }
             }
         }
@@ -277,6 +284,7 @@ butil::EndPoint get_internal_endpoint(const std::string& subnet_cidr) {
                 }
                 
                 // Create endpoint directly from sockaddr
+                sa->sin_port = htons(peering_port);
                 struct sockaddr_storage ss;
                 memcpy(&ss, sa, sizeof(*sa));
                 if(butil::sockaddr2endpoint(&ss, sizeof(*sa), &ipv4_endpoint) == 0) {
@@ -300,6 +308,7 @@ butil::EndPoint get_internal_endpoint(const std::string& subnet_cidr) {
                 }
 
                 // Create endpoint directly from sockaddr
+                sa6->sin6_port = htons(peering_port);
                 struct sockaddr_storage ss;
                 memcpy(&ss, sa6, sizeof(*sa6));
                 if(butil::sockaddr2endpoint(&ss, sizeof(*sa6), &ipv6_endpoint) == 0) {
@@ -353,16 +362,15 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
     int ip_conv_status = 0;
 
     if(!peering_address.empty()) {
-        ip_conv_status = butil::str2endpoint(peering_address.c_str(), &peering_endpoint);
+        ip_conv_status = butil::str2endpoint(peering_address.c_str(), peering_port, &peering_endpoint);
 
         if(ip_conv_status != 0) {
             LOG(ERROR) << "Failed to parse peering address `" << peering_address << "`";
             return -1;
         }
     } else {
-        peering_endpoint = get_internal_endpoint(peering_subnet);
+        peering_endpoint = get_internal_endpoint(peering_subnet, peering_port);
     }
-    peering_endpoint.port = peering_port;
 
     // start peering server
     brpc::Server raft_server;

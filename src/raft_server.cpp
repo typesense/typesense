@@ -65,7 +65,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
             }
 
             continue;
-       }
+        }
 
         LOG(INFO) << "Nodes configuration: " << actual_nodes_config;
         break;
@@ -102,6 +102,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     node_options.disable_cli = true;
 
     // api_port is used as the node identifier
+    LOG(INFO) << "Peering endpoint: " << peering_endpoint;
     braft::Node* node = new braft::Node("default_group", braft::PeerId(peering_endpoint, api_port));
 
     std::string snapshot_dir = raft_dir + "/" + snapshot_dir_name;
@@ -383,7 +384,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
         return ;
     }
 
-    const std::string & leader_addr = node->leader_id().to_string();
+    const braft::PeerId& leader_addr = node->leader_id();
     //LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
 
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response->generator.load());
@@ -450,12 +451,32 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
     });
 }
 
-std::string ReplicationState::get_node_url_path(const std::string& node_addr, const std::string& path,
+std::string ReplicationState::get_node_url_path(const braft::PeerId& peer_id, const std::string& path,
                                                 const std::string& protocol) const {
-    std::vector<std::string> addr_parts;
-    StringUtils::split(node_addr, addr_parts, ":");
-    std::string leader_host_port = addr_parts[0] + ":" + addr_parts[2];
-    std::string url = protocol + "://" + leader_host_port + path;
+    std::string endpoint_str = butil::endpoint2str(peer_id.addr).c_str();
+    size_t last_colon = endpoint_str.rfind(':');
+    if (last_colon == std::string::npos) {
+        LOG(ERROR) << "Invalid endpoint format: " << endpoint_str;
+        return "";
+    }
+
+    // For IPv6, the IP part may contain colons and be wrapped in []
+    std::string ip_part = endpoint_str.substr(0, last_colon);
+
+    std::string url = protocol + "://";
+    url += ip_part;  // IP part (possibly with [] for IPv6)
+    url += ":";
+    url += std::to_string(peer_id.idx);
+
+    // Add path ensuring there's exactly one / between URL parts
+    if(!path.empty()) {
+        if(path[0] == '/') {
+            url += path;
+        } else {
+            url += "/" + path;
+        }
+    }
+
     return url;
 }
 
@@ -816,7 +837,7 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
         return ;
     }
 
-    const std::string & leader_addr = node->leader_id().to_string();
+    const braft::PeerId& leader_addr = node->leader_id();
     lock.unlock();
 
     const std::string protocol = api_uses_ssl ? "https" : "http";
@@ -1097,7 +1118,7 @@ void ReplicationState::do_snapshot(const std::string& nodes) {
             }
 
             const std::string protocol = api_uses_ssl ? "https" : "http";
-            std::string url = get_node_url_path(peer_addr, "/health", protocol);
+            std::string url = get_node_url_path(peer, "/health", protocol);
             std::string api_res;
             std::map<std::string, std::string> res_headers;
             long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 5*1000, true);
@@ -1137,7 +1158,7 @@ std::string ReplicationState::get_leader_url() const {
         return "";
     }
 
-    const std::string & leader_addr = node->leader_id().to_string();
+    const braft::PeerId& leader_addr = node->leader_id();
     lock.unlock();
 
     const std::string protocol = api_uses_ssl ? "https" : "http";
