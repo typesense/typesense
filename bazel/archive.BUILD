@@ -17,6 +17,7 @@ cmake(
         "ENABLE_ZLIB": "OFF",
         "ENABLE_LZ4": "OFF",
         "ENABLE_ZSTD": "OFF",
+        "ENABLE_ICONV": "OFF",
     },
     lib_source = ":all_srcs",
     out_static_libs = ["libarchive.a"],
