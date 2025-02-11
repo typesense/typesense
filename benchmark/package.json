@@ -72,6 +72,6 @@
     "strip-ansi": "^7.1.0",
     "table": "^6.9.0",
     "tar-stream": "^3.1.7",
-    "typesense": "^1.8.2"
+    "typesense": "2.0.0-15"
   }
 }
