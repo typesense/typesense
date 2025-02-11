@@ -23,6 +23,7 @@ import { DEFAULT_TYPESENSE_GIT_URL } from "@/services/git";
 import { K6Benchmarks } from "@/services/k6";
 import { TypesenseProcessManager } from "@/services/typesense-process";
 import { toErrorWithMessage } from "@/utils/error";
+import { delay } from "@/utils/execa";
 import { logger, LogLevel } from "@/utils/logger";
 import { dirName, findRoot } from "@/utils/package-info";
 import { loadConfig, parseOptions } from "@/utils/parse";
@@ -272,10 +273,6 @@ class Benchmarks {
       .map(() => {
         this.spinner.succeed(`Typesense process started for ${commitHash}`);
       });
-  }
-
-  private delay(ms: number): ResultAsync<void, ErrorWithMessage> {
-    return ResultAsync.fromPromise(new Promise((resolve) => setTimeout(resolve, ms)), toErrorWithMessage);
   }
 
   private handleResults(results: { searchResults: FormattedSearchResult[] }): ResultAsync<void, { message: string }> {
@@ -840,7 +837,7 @@ class Benchmarks {
                     // Only delay if not the last iteration
                     if (index < commitHashes.length - 1) {
                       this.spinner.start("Waiting 10 seconds before next benchmark...");
-                      return this.delay(10000).map(() => {
+                      return delay(10000).map(() => {
                         this.spinner.succeed("Delay complete");
                       });
                     }
