@@ -830,7 +830,7 @@ class Benchmarks {
                     this.spinner.succeed(`Benchmarks complete for ${commitHash}`);
 
                     for (const controller of benchmarkGroup.processManager.processes.values()) {
-                      controller.cleanup();
+                      controller.dispose();
                     }
                   })
                   .andThen(() => {
