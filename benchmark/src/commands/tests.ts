@@ -607,8 +607,8 @@ const test = new Command()
           .andThen(() => integrationTests.emptyDataDirectories())
           .andThen(() => integrationTests.conversationTest())
           .andThen(() => integrationTests.emptyDataDirectories())
-          // .andThen(() => integrationTests.snapshotTest())
-          // .andThen(() => integrationTests.emptyDataDirectories())
+          .andThen(() => integrationTests.snapshotTest())
+          .andThen(() => integrationTests.emptyDataDirectories())
           .andThen(() => integrationTests.tearDown()),
       )
       .then((result) => {
