@@ -52,6 +52,7 @@ cd /tmp/typesense-gpu-rpm-build && alien --scripts -k -r -g -v /tmp/typesense-gp
 sed -i 's#%dir "/"##' `find /tmp/typesense-gpu-rpm-build/*/*.spec -maxdepth 10 -type f`
 sed -i 's#%dir "/usr/bin/"##' `find /tmp/typesense-gpu-rpm-build/*/*.spec -maxdepth 10 -type f`
 sed -i 's/%config/%config(noreplace)/g' `find /tmp/typesense-gpu-rpm-build/*/*.spec -maxdepth 10 -type f`
+sed -i "s/^Release: 1/Release: 1${ARTIFACT_SUFFIX//-/.}/" `find /tmp/typesense-gpu-rpm-build/*/*.spec -maxdepth 10 -type f`
 
 SPEC_FILE="/tmp/typesense-gpu-rpm-build/typesense-gpu-deps-${TSV}/typesense-gpu-deps-${TSV}-1.spec"
 cd /tmp/typesense-gpu-rpm-build/typesense-gpu-deps-${TSV} && \
@@ -59,4 +60,4 @@ cd /tmp/typesense-gpu-rpm-build/typesense-gpu-deps-${TSV} && \
   $SPEC_FILE
 
 cp "/tmp/typesense-gpu-rpm-build/typesense-gpu-deps-${TSV}-${ARCH}${ARTIFACT_SUFFIX}.deb" $CURR_DIR/../bazel-bin
-cp "/tmp/typesense-gpu-rpm-build/typesense-gpu-deps-${TSV}-1.${RPM_ARCH}${ARTIFACT_SUFFIX}.rpm" $CURR_DIR/../bazel-bin
+cp "/tmp/typesense-gpu-rpm-build/typesense-gpu-deps-${TSV}-1${ARTIFACT_SUFFIX//-/.}.${RPM_ARCH}.rpm" $CURR_DIR/../bazel-bin

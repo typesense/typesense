@@ -64,6 +64,7 @@ cd /tmp/typesense-rpm-build && alien --scripts -k -r -g -v /tmp/typesense-rpm-bu
 sed -i 's#%dir "/"##' `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
 sed -i 's#%dir "/usr/bin/"##' `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
 sed -i 's/%config/%config(noreplace)/g' `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
+sed -i "s/^Release: 1/Release: 1${ARTIFACT_SUFFIX//-/.}/" `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
 
 SPEC_FILE="/tmp/typesense-rpm-build/typesense-server-${TSV}/typesense-server-${TSV}-1.spec"
 SPEC_FILE_COPY="/tmp/typesense-rpm-build/typesense-server-${TSV}/typesense-server-${TSV}-copy.spec"
@@ -95,4 +96,4 @@ cd /tmp/typesense-rpm-build/typesense-server-${TSV} && \
   $SPEC_FILE
 
 cp "/tmp/typesense-rpm-build/typesense-server-${TSV}-${ARCH}${ARTIFACT_SUFFIX}.deb" $CURR_DIR/../bazel-bin
-cp "/tmp/typesense-rpm-build/typesense-server-${TSV}-1.${RPM_ARCH}${ARTIFACT_SUFFIX}.rpm" $CURR_DIR/../bazel-bin
+cp "/tmp/typesense-rpm-build/typesense-server-${TSV}-1${ARTIFACT_SUFFIX//-/.}.${RPM_ARCH}.rpm" $CURR_DIR/../bazel-bin
