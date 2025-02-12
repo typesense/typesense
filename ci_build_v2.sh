@@ -68,7 +68,12 @@ if [[ "$@" == *"--package-binary"* ]]; then
     tar -cvzf $PROJECT_DIR/$BUILD_DIR/$RELEASE_NAME.tar.gz -C $PROJECT_DIR/$BUILD_DIR typesense-server typesense-server.md5.txt
     echo "Built binary successfully: $PROJECT_DIR/$BUILD_DIR/$RELEASE_NAME.tar.gz"
 
-    GPU_DEPS_NAME=typesense-gpu-deps-$TYPESENSE_VERSION-$OS_FAMILY-$ARCH_NAME
-    tar -cvzf $PROJECT_DIR/$BUILD_DIR/$GPU_DEPS_NAME.tar.gz -C $PROJECT_DIR/$BUILD_DIR libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so libwhisper_cuda_shared.so
-    echo "Built binary successfully: $PROJECT_DIR/$BUILD_DIR/$GPU_DEPS_NAME.tar.gz"
+    if [[ "$@" == *"--with-cuda"* ]]; then
+        GPU_DEPS_NAME=typesense-gpu-deps-$TYPESENSE_VERSION-$OS_FAMILY-$ARCH_NAME
+        if [[ "$USE_JEMALLOC_LG_PAGE16" == true ]]; then
+            GPU_DEPS_NAME="$GPU_DEPS_NAME-lg-page16"
+        fi
+        tar -cvzf "$PROJECT_DIR/$BUILD_DIR/$GPU_DEPS_NAME.tar.gz" -C "$PROJECT_DIR/$BUILD_DIR" libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so libwhisper_cuda_shared.so
+        echo "Built GPU dependencies successfully: $PROJECT_DIR/$BUILD_DIR/$GPU_DEPS_NAME.tar.gz"
+    fi
 fi
