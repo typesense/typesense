@@ -20,8 +20,10 @@ if [[ "$@" == *"--with-cuda"* ]]; then
 fi
 
 JEMALLOC_FLAGS=""
+USE_JEMALLOC_LG_PAGE16=false
 if [[ "$@" == *"--with-jemalloc-lg-page16"* ]]; then
   JEMALLOC_FLAGS="--define enable_jemalloc_lg_page16=1"
+  USE_JEMALLOC_LG_PAGE16=true
 fi
 
 # Extract jobs parameter if provided, default to 6
@@ -59,6 +61,9 @@ fi
 if [[ "$@" == *"--package-binary"* ]]; then
     OS_FAMILY=linux
     RELEASE_NAME=typesense-server-$TYPESENSE_VERSION-$OS_FAMILY-$ARCH_NAME
+    if [[ "$USE_JEMALLOC_LG_PAGE16" == true ]]; then
+        RELEASE_NAME="$RELEASE_NAME-lg-page16"
+    fi
     printf `md5sum $PROJECT_DIR/$BUILD_DIR/typesense-server | cut -b-32` > $PROJECT_DIR/$BUILD_DIR/typesense-server.md5.txt
     tar -cvzf $PROJECT_DIR/$BUILD_DIR/$RELEASE_NAME.tar.gz -C $PROJECT_DIR/$BUILD_DIR typesense-server typesense-server.md5.txt
     echo "Built binary successfully: $PROJECT_DIR/$BUILD_DIR/$RELEASE_NAME.tar.gz"
