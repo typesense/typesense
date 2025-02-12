@@ -23,6 +23,7 @@ import { DEFAULT_TYPESENSE_GIT_URL } from "@/services/git";
 import { K6Benchmarks } from "@/services/k6";
 import { TypesenseProcessManager } from "@/services/typesense-process";
 import { toErrorWithMessage } from "@/utils/error";
+import { delay } from "@/utils/execa";
 import { logger, LogLevel } from "@/utils/logger";
 import { dirName, findRoot } from "@/utils/package-info";
 import { loadConfig, parseOptions } from "@/utils/parse";
@@ -274,10 +275,6 @@ class Benchmarks {
       });
   }
 
-  private delay(ms: number): ResultAsync<void, ErrorWithMessage> {
-    return ResultAsync.fromPromise(new Promise((resolve) => setTimeout(resolve, ms)), toErrorWithMessage);
-  }
-
   private handleResults(results: { searchResults: FormattedSearchResult[] }): ResultAsync<void, { message: string }> {
     const { searchResults } = results;
 
@@ -310,11 +307,10 @@ class Benchmarks {
     });
 
     const indexDurationQuery = `
-    SELECT mean("value") AS "mean_import_duration"
-    FROM "import_duration"
-    WHERE ("commitHash" = '${this.commitHashes[0]}' OR "commitHash" = '${this.commitHashes[1]}')
-    AND time >= now() - 24h
-    GROUP BY "commitHash"
+      SELECT mean("value") AS "mean_import_duration"
+      FROM "import_duration"
+      WHERE ("commitHash" = '${this.commitHashes[0]}' OR "commitHash" = '${this.commitHashes[1]}')
+      GROUP BY "commitHash"
     `;
 
     const searchDurationQuery = `
@@ -691,7 +687,7 @@ class Benchmarks {
 
     const importPercentageChange = this.calculatePercentageChange(importDuration, importDurationNew);
 
-    const FormattedIndexResult: FormattedIndexResult = {
+    const formattedIndexResult: FormattedIndexResult = {
       metric: "Time to bulk import",
       oldValue: `${(importDuration / 1000).toFixed(5)}s`,
       newValue: `${(importDurationNew / 1000).toFixed(5)}s`,
@@ -745,6 +741,14 @@ class Benchmarks {
       });
     }
 
+    const displayIndexResults: [string, string, string, string, string] = [
+      formattedIndexResult.metric,
+      formattedIndexResult.displayVariable,
+      formattedIndexResult.oldValue,
+      formattedIndexResult.newValue,
+      formattedIndexResult.formattedPercentageChange,
+    ];
+
     // For display, use the displayVariable
     const columns: [string, string, string, string, string][] = [
       [
@@ -754,6 +758,7 @@ class Benchmarks {
         `Value for commit ${this.commitHashes[1].slice(0, 7)}`,
         "Percentage Change",
       ],
+      displayIndexResults,
       ...formatedSearchResults.map(
         (row) =>
           [row.metric, row.displayVariable, row.oldValue, row.newValue, row.formattedPercentageChange] as [
@@ -777,7 +782,7 @@ class Benchmarks {
     };
 
     logger.info(table(columns, tableConfig));
-    return okAsync({ searchResults: formatedSearchResults, indexingResults: FormattedIndexResult });
+    return okAsync({ searchResults: formatedSearchResults, indexingResults: formattedIndexResult });
   }
 
   benchmark() {
@@ -787,6 +792,7 @@ class Benchmarks {
       .andThen(() =>
         this.getComparisonResults()
           .orElse((error) => {
+            logger.warn(error.message);
             if (error.commitHash) {
               return this.performBenchmarks([error.commitHash]);
             }
@@ -824,14 +830,14 @@ class Benchmarks {
                     this.spinner.succeed(`Benchmarks complete for ${commitHash}`);
 
                     for (const controller of benchmarkGroup.processManager.processes.values()) {
-                      controller.cleanup();
+                      controller.dispose();
                     }
                   })
                   .andThen(() => {
                     // Only delay if not the last iteration
                     if (index < commitHashes.length - 1) {
                       this.spinner.start("Waiting 10 seconds before next benchmark...");
-                      return this.delay(10000).map(() => {
+                      return delay(10000).map(() => {
                         this.spinner.succeed("Delay complete");
                       });
                     }

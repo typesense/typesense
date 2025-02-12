@@ -1,6 +1,6 @@
 name: tests
 
-on: [push, pull_request_target]
+on: [push, pull_request]
 
 # Cancel previous running if a new push is made
 # Source: https://stackoverflow.com/a/72408109/123545
@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
@@ -107,7 +107,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Download Typesense Binary
         uses: actions/download-artifact@v4
@@ -135,8 +135,6 @@ jobs:
 
       - name: Run Integration Tests
         working-directory: benchmark
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           ./dist/index.js test \
             --binary $(pwd)/../typesense-server-binary/typesense-server \

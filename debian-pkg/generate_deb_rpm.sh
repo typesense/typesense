@@ -14,6 +14,11 @@ then
   exit 1
 fi
 
+if [ -z "$ARTIFACT_SUFFIX" ]
+then
+  ARTIFACT_SUFFIX=""
+fi
+
 RPM_ARCH=$ARCH
 if [ "$ARCH" == "amd64" ]; then
   RPM_ARCH="x86_64"
@@ -29,7 +34,7 @@ cp -r $CURR_DIR/typesense-server /tmp/typesense-deb-build
 
 #curl -o /tmp/typesense-server-$TSV.tar.gz https://dl.typesense.org/releases/$TSV/typesense-server-$TSV-linux-${ARCH}.tar.gz
 rm -rf /tmp/typesense-server-$TSV && mkdir /tmp/typesense-server-$TSV
-tar -xzf $CURR_DIR/../bazel-bin/typesense-server-$TSV-linux-${ARCH}.tar.gz -C /tmp/typesense-server-$TSV
+tar -xzf $CURR_DIR/../bazel-bin/typesense-server-$TSV-linux-${ARCH}${ARTIFACT_SUFFIX}.tar.gz -C /tmp/typesense-server-$TSV
 
 downloaded_hash=`md5sum /tmp/typesense-server-$TSV/typesense-server | cut -d' ' -f1`
 original_hash=`cat /tmp/typesense-server-$TSV/typesense-server.md5.txt`
@@ -48,17 +53,18 @@ sed -i "s/\$VERSION/$TSV/g" `find /tmp/typesense-deb-build -maxdepth 10 -type f`
 sed -i "s/\$ARCH/$ARCH/g" `find /tmp/typesense-deb-build -maxdepth 10 -type f`
 
 dpkg-deb -Zgzip -z6 \
-         -b /tmp/typesense-deb-build/typesense-server "/tmp/typesense-deb-build/typesense-server-${TSV}-${ARCH}.deb"
+         -b /tmp/typesense-deb-build/typesense-server "/tmp/typesense-deb-build/typesense-server-${TSV}-${ARCH}${ARTIFACT_SUFFIX}.deb"
 
 # Generate RPM
 
 rm -rf /tmp/typesense-rpm-build && mkdir /tmp/typesense-rpm-build
-cp "/tmp/typesense-deb-build/typesense-server-${TSV}-${ARCH}.deb" /tmp/typesense-rpm-build
-cd /tmp/typesense-rpm-build && alien --scripts -k -r -g -v /tmp/typesense-rpm-build/typesense-server-${TSV}-${ARCH}.deb
+cp "/tmp/typesense-deb-build/typesense-server-${TSV}-${ARCH}${ARTIFACT_SUFFIX}.deb" /tmp/typesense-rpm-build
+cd /tmp/typesense-rpm-build && alien --scripts -k -r -g -v /tmp/typesense-rpm-build/typesense-server-${TSV}-${ARCH}${ARTIFACT_SUFFIX}.deb
 
 sed -i 's#%dir "/"##' `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
 sed -i 's#%dir "/usr/bin/"##' `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
 sed -i 's/%config/%config(noreplace)/g' `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
+sed -i "s/^Release: 1/Release: 1${ARTIFACT_SUFFIX//-/.}/" `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
 
 SPEC_FILE="/tmp/typesense-rpm-build/typesense-server-${TSV}/typesense-server-${TSV}-1.spec"
 SPEC_FILE_COPY="/tmp/typesense-rpm-build/typesense-server-${TSV}/typesense-server-${TSV}-copy.spec"
@@ -89,5 +95,5 @@ cd /tmp/typesense-rpm-build/typesense-server-${TSV} && \
   rpmbuild --target=${RPM_ARCH} --buildroot /tmp/typesense-rpm-build/typesense-server-${TSV} -bb \
   $SPEC_FILE
 
-cp "/tmp/typesense-rpm-build/typesense-server-${TSV}-${ARCH}.deb" $CURR_DIR/../bazel-bin
-cp "/tmp/typesense-rpm-build/typesense-server-${TSV}-1.${RPM_ARCH}.rpm" $CURR_DIR/../bazel-bin
+cp "/tmp/typesense-rpm-build/typesense-server-${TSV}-${ARCH}${ARTIFACT_SUFFIX}.deb" $CURR_DIR/../bazel-bin
+cp "/tmp/typesense-rpm-build/typesense-server-${TSV}-1${ARTIFACT_SUFFIX//-/.}.${RPM_ARCH}.rpm" $CURR_DIR/../bazel-bin

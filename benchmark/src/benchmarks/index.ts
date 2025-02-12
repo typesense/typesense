@@ -59,6 +59,7 @@ export default function () {
       "Content-Type": "application/json",
       "X-TYPESENSE-API-KEY": __ENV.API_KEY ?? "xyz",
     },
+    timeout: 30_0000, // 5 minutes
   };
 
   const startTime = new Date().getTime();
