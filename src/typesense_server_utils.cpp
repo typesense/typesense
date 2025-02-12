@@ -451,7 +451,7 @@ int run_server(const Config & config, const std::string & version, const std::st
 
     server = new HttpServer(
         version,
-        git_commit,
+        sha,
         config.get_api_address(),
         config.get_api_port(),
         config.get_ssl_cert(),
