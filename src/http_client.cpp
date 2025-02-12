@@ -459,7 +459,7 @@ CURL *HttpClient::init_curl(const std::string& url, std::string& response, const
 
     if(!ca_cert_path.empty()) {
         curl_easy_setopt(curl, CURLOPT_CAINFO, ca_cert_path.c_str());
-    } else {
+    } else if (url.compare(0, 5, "https") == 0) {
         LOG(WARNING) << "Unable to locate system SSL certificates.";
     }
 

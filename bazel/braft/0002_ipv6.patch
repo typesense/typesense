@@ -87,3 +87,18 @@
          return 0;
      }
  
+
+--- src/braft/node.cpp
++++ src/braft/node.cpp
+@@ -486,9 +486,9 @@
+     _options = options;
+ 
+     // check _server_id
+-    if (butil::IP_ANY == _server_id.addr.ip) {
++    if (!is_endpoint_extended(_server_id.addr) && butil::IP_ANY == _server_id.addr.ip) {
+         LOG(ERROR) << "Group " << _group_id 
+-                   << " Node can't started from IP_ANY";
++                   << " Node can't be started from IP_ANY: " << _server_id;
+         return -1;
+     }
+ 

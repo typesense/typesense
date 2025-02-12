@@ -336,7 +336,8 @@ butil::EndPoint get_internal_endpoint(const std::string& subnet_cidr, uint32_t p
 
     // Return endpoint with loopback address if nothing found
     butil::EndPoint loopback;
-    butil::str2endpoint("127.0.0.1", 0, &loopback);
+    auto loopbackAddr = target_family == AF_INET6 ? "[::1]" : "127.0.0.1";
+    butil::str2endpoint(loopbackAddr, 0, &loopback);
     LOG(WARNING) << "Found no matching interfaces, using loopback address.";
     return loopback;
 }
@@ -362,10 +363,17 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
     int ip_conv_status = 0;
 
     if(!peering_address.empty()) {
-        ip_conv_status = butil::str2endpoint(peering_address.c_str(), peering_port, &peering_endpoint);
+        // If IPv6 address and not already wrapped in [], wrap it
+        std::string normalized_addr = peering_address;
+        if(peering_address.find(':') != std::string::npos &&
+           peering_address.front() != '[' && peering_address.back() != ']') {
+            normalized_addr = "[" + peering_address + "]";
+        }
+
+        ip_conv_status = butil::str2endpoint(normalized_addr.c_str(), peering_port, &peering_endpoint);
 
         if(ip_conv_status != 0) {
-            LOG(ERROR) << "Failed to parse peering address `" << peering_address << "`";
+            LOG(ERROR) << "Failed to parse peering address `" << normalized_addr << "`";
             return -1;
         }
     } else {

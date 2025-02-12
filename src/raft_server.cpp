@@ -102,7 +102,6 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     node_options.disable_cli = true;
 
     // api_port is used as the node identifier
-    LOG(INFO) << "Peering endpoint: " << peering_endpoint;
     braft::Node* node = new braft::Node("default_group", braft::PeerId(peering_endpoint, api_port));
 
     std::string snapshot_dir = raft_dir + "/" + snapshot_dir_name;
@@ -434,8 +433,8 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
             response->set_body(status, api_res);
         } else if(request->http_method == "PATCH") {
             std::string api_res;
-            route_path* rpath = nullptr;
-            bool route_found = server->get_route(request->route_hash, &rpath);
+            // route_path* rpath = nullptr;
+            // bool route_found = server->get_route(request->route_hash, &rpath);
             long status = HttpClient::patch_response(url, request->body, api_res, res_headers, 0, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
@@ -453,15 +452,15 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
 
 std::string ReplicationState::get_node_url_path(const braft::PeerId& peer_id, const std::string& path,
                                                 const std::string& protocol) const {
-    std::string endpoint_str = butil::endpoint2str(peer_id.addr).c_str();
-    size_t last_colon = endpoint_str.rfind(':');
+    const std::string endpoint_str = butil::endpoint2str(peer_id.addr).c_str();
+    const size_t last_colon = endpoint_str.rfind(':');
     if (last_colon == std::string::npos) {
         LOG(ERROR) << "Invalid endpoint format: " << endpoint_str;
         return "";
     }
 
     // For IPv6, the IP part may contain colons and be wrapped in []
-    std::string ip_part = endpoint_str.substr(0, last_colon);
+    const std::string ip_part = endpoint_str.substr(0, last_colon);
 
     std::string url = protocol + "://";
     url += ip_part;  // IP part (possibly with [] for IPv6)
@@ -651,7 +650,7 @@ int ReplicationState::init_db() {
     if(!conversation_models_init.ok()) {
         LOG(INFO) << "Failed to initialize conversation model manager: " << conversation_models_init.error();
     } else {
-        LOG(INFO) << "Loaded " << conversation_models_init.get() << "conversation model(s).";
+        LOG(INFO) << "Loaded " << conversation_models_init.get() << " conversation model(s).";
     }
 
     if(batched_indexer != nullptr) {
