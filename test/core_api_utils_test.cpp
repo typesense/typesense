@@ -2426,3 +2426,25 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
     expected_json["created_at"] = res_json["created_at"];
     ASSERT_EQ(expected_json, res_json);
 }
+
+TEST_F(CoreAPIUtilsTest, DebugEndpoint) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    bool result = get_debug(req, res);
+    ASSERT_TRUE(result);
+    ASSERT_EQ(200, res->status_code);
+
+    nlohmann::json debug_response = nlohmann::json::parse(res->body);
+
+    ASSERT_TRUE(debug_response.contains("version"));
+    ASSERT_TRUE(debug_response["version"].is_string());
+    ASSERT_FALSE(debug_response["version"].empty());
+
+    ASSERT_TRUE(debug_response.contains("sha"));
+    ASSERT_TRUE(debug_response["sha"].is_string());
+    ASSERT_FALSE(debug_response["sha"].empty());
+
+    ASSERT_TRUE(debug_response.contains("state"));
+    ASSERT_TRUE(debug_response["state"].is_number());
+}
