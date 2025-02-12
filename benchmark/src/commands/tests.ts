@@ -11,12 +11,15 @@ import type { SearchParams } from "typesense/lib/Typesense/Documents";
 
 import { Command } from "commander";
 import { err, errAsync, ok, okAsync, ResultAsync } from "neverthrow";
+import ora from "ora";
 import { z } from "zod";
 
 import { ServiceContainer } from "@/services/container";
 import { DEFAULT_TYPESENSE_GIT_URL } from "@/services/git";
+import { OpenAIProxyService } from "@/services/openai-mock";
 import { DEFAULT_IP_ADDRESS, TypesenseProcessManager } from "@/services/typesense-process";
 import { toErrorWithMessage } from "@/utils/error";
+import { delay } from "@/utils/execa";
 import { logger, LogLevel } from "@/utils/logger";
 import { dirName, findRoot } from "@/utils/package-info";
 import { parseOptions } from "@/utils/parse";
@@ -36,6 +39,10 @@ const integrationTestOptionsSchema = z.object({
   openAIKey: z.string({
     message: "OpenAI API key must be provided either through environment variable or directly",
   }),
+  numDim: z
+    .string()
+    .transform((value) => parseInt(value))
+    .pipe(z.number().min(0)),
   ip: z.string().optional(),
   snapshotPath: z.string(),
 });
@@ -51,6 +58,7 @@ interface NodeConfig {
 class IntegrationTests {
   private readonly ipAddress: string | null;
   private readonly isInCi = process.env.CI === "true";
+  private readonly openAIProxy: OpenAIProxyService;
 
   public static baseCollectionName = "base_collection";
   public static openAICollectionName = "openai_collection";
@@ -64,9 +72,12 @@ class IntegrationTests {
     public readonly typesenseProcessManager: TypesenseProcessManager,
     private readonly workingDirectory: string,
     private readonly openAIKey: string,
+    private readonly numDim: number,
     ipAddress?: string,
   ) {
     this.ipAddress = ipAddress ?? this.findDefaultNetworkAddress();
+    this.numDim = numDim;
+    this.openAIProxy = new OpenAIProxyService(spinner, workingDirectory, this.numDim);
   }
 
   private createDataDirectories(workingDirectory: string = this.workingDirectory) {
@@ -139,7 +150,23 @@ class IntegrationTests {
     );
   }
 
-  setupProcesses(): ResultAsync<TypesenseProcessController[], ErrorWithMessage> {
+  setup(): ResultAsync<void, ErrorWithMessage> {
+    return this.setupProcesses().andThen(() => {
+      this.spinner.start("Setting up OpenAI proxy");
+      this.openAIProxy.start();
+      this.spinner.succeed("OpenAI proxy set up");
+      return okAsync(undefined);
+    });
+  }
+
+  tearDown(): ResultAsync<void, ErrorWithMessage> {
+    this.spinner.start("Tearing down OpenAI proxy");
+    this.openAIProxy.stop();
+    this.spinner.succeed("OpenAI proxy torn down");
+    return okAsync(undefined);
+  }
+
+  private setupProcesses(): ResultAsync<TypesenseProcessController[], ErrorWithMessage> {
     this.spinner.start("Setting up Typesense processes");
 
     return this.writeToNodesFile()
@@ -201,7 +228,71 @@ class IntegrationTests {
       .andThen(() => this.indexConversationDocuments(process))
       .andThen(() => this.queryEachNode())
       .andThen(() => {
-        logger.success("Conversation test passed successfully");
+        logger.success("Conversation test passed successfully\n");
+        return okAsync(undefined);
+      });
+  }
+
+  conversationRotationTest(): ResultAsync<void, ErrorWithMessage> {
+    logger.warn("Running conversation models on rotation test");
+
+    const process = this.typesenseProcessManager.processes.get(8108);
+    if (!process) {
+      return errAsync({ message: `Process not found for port 8108` });
+    }
+    const processesArray = Array.from(this.typesenseProcessManager.processes.values());
+
+    return this.createBaseCollection(process)
+      .andThen(() => this.createConversationStoreCollection(process))
+      .andThen(() => this.createConversationModel(process))
+      .andThen(() => {
+        const modelRetrievalResults = processesArray.map((process) =>
+          this.typesenseProcessManager.getConversationModel(process, IntegrationTests.conversationModelName),
+        );
+
+        return ResultAsync.combine(modelRetrievalResults);
+      })
+      .map(() => {
+        this.spinner.succeed("All nodes have the model");
+      })
+      .andThen(() => {
+        this.spinner.start("Starting rotation");
+
+        return processesArray.reduce(
+          (promise: ResultAsync<void, ErrorWithMessage>, process: TypesenseProcessController) =>
+            promise.andThen(() =>
+              this.restartProcessWithVerification(process, processesArray).map(() => {
+                this.spinner.succeed(`Rotation complete for port ${process.http}`);
+              }),
+            ),
+          okAsync<void, ErrorWithMessage>(undefined),
+        );
+      })
+      .map(() => {
+        logger.success("Conversation rotation test passed successfully\n");
+      });
+  }
+
+  private restartProcessWithVerification(
+    process: TypesenseProcessController,
+    allProcesses: TypesenseProcessController[],
+  ): ResultAsync<void, ErrorWithMessage> {
+    const spinner = ora();
+    return this.typesenseProcessManager
+      .restartProcess(process)
+      .asyncAndThen(() => {
+        spinner.start(`Waiting for process ${process.http} to restart`);
+        return delay(25_000);
+      })
+      .andThen(() => {
+        spinner.text = "Retrieving results";
+        const modelRetrievalResults = allProcesses.map((p) =>
+          this.typesenseProcessManager.getConversationModel(p, IntegrationTests.conversationModelName),
+        );
+        return ResultAsync.combine(modelRetrievalResults);
+      })
+      .andThen(() => {
+        spinner.succeed("All three nodes have the model");
         return okAsync(undefined);
       });
   }
@@ -217,16 +308,20 @@ class IntegrationTests {
       conversation_model_id: IntegrationTests.conversationModelName,
     };
 
-    return ResultAsync.combine(
-      Array.from(this.typesenseProcessManager.processes.values()).map((process) => {
-        return this.typesenseProcessManager.queryCollection(process, {
-          collectionName: IntegrationTests.baseCollectionName,
-          query: params,
-        });
+    this.spinner.text = "Waiting for 15s before querying";
+
+    return delay(15_000).andThen(() =>
+      ResultAsync.combine(
+        Array.from(this.typesenseProcessManager.processes.values()).map((process) => {
+          return this.typesenseProcessManager.queryCollection(process, {
+            collectionName: IntegrationTests.baseCollectionName,
+            query: params,
+          });
+        }),
+      ).map(() => {
+        this.spinner.succeed("Every node queried successfully");
       }),
-    ).map(() => {
-      this.spinner.succeed("Every node queried successfully");
-    });
+    );
   }
 
   private createConversationModel(process: TypesenseProcessController) {
@@ -236,7 +331,6 @@ class IntegrationTests {
       id: IntegrationTests.conversationModelName,
       system_prompt:
         "You are an assistant for question-answering like Paul Graham. You can only make conversations based on the provided context. If a response cannot be formed strictly using the context, politely say you don't have knowledge about that topic. Do not answer questions that are not strictly on the topic of Paul Graham'''s essays.",
-      //@ts-expect-error - history_collection is not in the ConversationModelSchema
       history_collection: "conversation_store",
       model_name: "openai/gpt-4-turbo",
       max_bytes: 16384,
@@ -249,7 +343,8 @@ class IntegrationTests {
   }
 
   private createBaseCollection(process: TypesenseProcessController) {
-    this.spinner.start("Creating base collection");
+    const spinner = ora();
+    spinner.start("Creating base collection");
 
     const collection: CollectionCreateSchema = {
       name: IntegrationTests.baseCollectionName,
@@ -278,7 +373,7 @@ class IntegrationTests {
     };
 
     return this.typesenseProcessManager.createCollection(process, collection).map((res) => {
-      this.spinner.succeed("Base collection created");
+      spinner.succeed("Base collection created");
       return res;
     });
   }
@@ -341,7 +436,7 @@ class IntegrationTests {
     return this.saveSnapshot()
       .andThen(() => this.verifySnapshot())
       .map(() => {
-        logger.success("Snapshot test passed successfully");
+        logger.success("Snapshot test passed successfully\n");
       });
   }
 
@@ -373,36 +468,44 @@ class IntegrationTests {
     return this.typesenseProcessManager.snapshot(process);
   }
 
+  restartAllNodes() {
+    this.spinner.start("Restarting all nodes");
+    // Cleanup any existing processes to restart them
+    const cleanupResults = Array.from(this.typesenseProcessManager.processes.values()).map((process) =>
+      process.dispose().asyncAndThen(() => {
+        this.typesenseProcessManager.processes.delete(process.http);
+        return okAsync<void, ErrorWithMessage>(undefined);
+      }),
+    );
+
+    return ResultAsync.combine(cleanupResults)
+      .andThen(() => {
+        this.spinner.text = "Cleaning up before restarting processes";
+        return delay(10_000).map(() => {
+          this.spinner.succeed("Cleanup complete");
+        });
+      })
+      .andThen(() => this.startAndVerifyProcesses(Array.from(this.nodes.values())));
+  }
+
   openAIEmbeddingTest(): ResultAsync<void, ErrorWithMessage> {
     logger.warn("Running OpenAI Embedding test");
 
     return this.createOpenAIEmbeddingCollection()
       .andThen(() => ResultAsync.fromPromise(new Promise((resolve) => setTimeout(resolve, 2000)), toErrorWithMessage))
       .andThen(() => this.validateOpenAIEmbeddingCollection())
+      .andThen(() => this.restartAllNodes())
       .andThen(() => {
-        // Cleanup any existing processes to restart them
-        const cleanupResults = Array.from(this.typesenseProcessManager.processes.values()).map((process) =>
-          process.cleanup().asyncAndThen(() => okAsync<void, ErrorWithMessage>(undefined)),
-        );
-
-        return ResultAsync.combine(cleanupResults);
+        this.spinner.start("Waiting for 5s before verifying number of dimensions");
+        return delay(5_000);
       })
-      .andThen(() => {
-        this.spinner.start("Cleaning up before restarting processes");
-        return ResultAsync.fromPromise(new Promise((resolve) => setTimeout(resolve, 10000)), toErrorWithMessage).map(
-          () => {
-            this.spinner.succeed("Cleanup complete");
-          },
-        );
-      })
-      .andThen(() => this.startAndVerifyProcesses(Array.from(this.nodes.values())))
       .andThen(() => this.validateOpenAIEmbeddingCollection())
       .map(() => {
-        logger.success("OpenAI Embedding test passed successfully");
+        logger.success("OpenAI Embedding test passed successfully\n");
       });
   }
 
-  private createOpenAIEmbeddingCollection(numDim = 256) {
+  private createOpenAIEmbeddingCollection() {
     this.spinner.start("Creating OpenAI Embedding collection with custom number of  dimensions");
 
     const collection: CollectionCreateSchema = {
@@ -416,7 +519,7 @@ class IntegrationTests {
         {
           name: "embedding",
           type: "float[]",
-          num_dim: numDim,
+          num_dim: this.numDim,
           embed: {
             from: ["product_name"],
             model_config: {
@@ -439,7 +542,7 @@ class IntegrationTests {
     });
   }
 
-  private validateOpenAIEmbeddingCollection(numDim = 256) {
+  private validateOpenAIEmbeddingCollection() {
     this.spinner.start("Validating OpenAI Embedding collection");
 
     const process = this.typesenseProcessManager.processes.get(8108);
@@ -451,8 +554,8 @@ class IntegrationTests {
     return this.typesenseProcessManager
       .getCollection(process, IntegrationTests.openAICollectionName)
       .map((collection) => {
-        if (collection.fields?.find((field) => field.name === "embedding")?.num_dim !== numDim) {
-          return err({ message: `Number of dimensions is not ${numDim}` });
+        if (collection.fields?.find((field) => field.name === "embedding")?.num_dim !== this.numDim) {
+          return err({ message: `Number of dimensions is not ${this.numDim}` });
         }
 
         this.spinner.succeed("OpenAI Embedding collection validated");
@@ -480,7 +583,8 @@ const test = new Command()
   .option("-y, --yes", "Verbose output", false)
   .option("-b, --binary <path>", "Path of prebuilt-binary. Use this to skip the building process.")
   .option("--api-key <key>", "API key to use for the Typesense Process.", "xyz")
-  .option("--openAI-key <key>", "OpenAI API key. Defaults to OPENAI_API_KEY in PATH", process.env.OPENAI_API_KEY)
+  .option("--num-dim <number>", "Number of dimensions to test against OpenAI embeddings", "256")
+  .option("--openAI-key <key>", "OpenAI API key. Defaults to OPENAI_API_KEY in PATH", "oh_no_i_leaked_the_key")
   .option("--ip <ip>", "IP address to use for the Typesense Process.")
   .option("-s, --snapshot-path <path>", "Path to the snapshot file.", cwd)
   .action((options) => {
@@ -561,6 +665,7 @@ const test = new Command()
           typesenseProcessManager,
           options.workingDirectory,
           options.openAIKey,
+          options.numDim,
           options.ip,
         );
 
@@ -568,13 +673,19 @@ const test = new Command()
       })
       .andThen((integrationTests) =>
         integrationTests
-          .setupProcesses()
+          .setup()
+          .andThen(() => integrationTests.openAIEmbeddingTest())
+          .andThen(() => integrationTests.emptyDataDirectories())
+          .andThen(() => integrationTests.restartAllNodes())
+          .andThen(() => integrationTests.conversationRotationTest())
+          .andThen(() => integrationTests.emptyDataDirectories())
+          .andThen(() => integrationTests.restartAllNodes())
           .andThen(() => integrationTests.conversationTest())
           .andThen(() => integrationTests.emptyDataDirectories())
+          .andThen(() => integrationTests.restartAllNodes())
           .andThen(() => integrationTests.snapshotTest())
           .andThen(() => integrationTests.emptyDataDirectories())
-          .andThen(() => integrationTests.openAIEmbeddingTest())
-          .andThen(() => integrationTests.emptyDataDirectories()),
+          .andThen(() => integrationTests.tearDown()),
       )
       .then((result) => {
         if (result.isErr()) {
@@ -582,7 +693,7 @@ const test = new Command()
           logger.error(result.error.message);
           process.exit(1);
         }
-        logger.success("Integration tests passed successfully");
+        logger.success("Integration tests passed successfully\n");
         process.exit(0);
       });
   });
