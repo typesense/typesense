@@ -50,7 +50,7 @@
     "type-fest": "^4.31.0",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.2",
-    "vitest": "^3.0.2",
+    "vitest": "^2.1.9",
     "zod": "^3.24.1"
   },
   "dependencies": {
