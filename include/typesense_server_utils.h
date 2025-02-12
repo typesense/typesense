@@ -22,5 +22,5 @@ void init_cmdline_options(cmdline::parser& options, int argc, char **argv);
 
 int init_root_logger(Config& config, const std::string& server_version);
 
-int run_server(const Config& config, const std::string& version, const std::string& git_commit,
+int run_server(const Config& config, const std::string& version, const std::string& sha,
                 void (*master_server_routes)());

@@ -394,7 +394,7 @@ bool get_debug(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
 
     nlohmann::json result;
     result["version"] = server->get_version();
-    result["git_commit"] = server->get_git_commit();
+    result["sha"] = server->get_sha();
 
     uint64_t state = server->node_state();
     result["state"] = state;

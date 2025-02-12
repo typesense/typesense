@@ -14,13 +14,13 @@
 #include "sole.hpp"
 #include "core_api.h"
 
-HttpServer::HttpServer(const std::string & version, const std::string & git_commit,
+HttpServer::HttpServer(const std::string & version, const std::string & sha,
                        const std::string & listen_address,
                        uint32_t listen_port, const std::string & ssl_cert_path, const std::string & ssl_cert_key_path,
                        const uint64_t ssl_refresh_interval_ms, bool cors_enabled,
                        const std::set<std::string>& cors_domains, ThreadPool* thread_pool):
         SSL_REFRESH_INTERVAL_MS(ssl_refresh_interval_ms),
-        exit_loop(false), version(version), git_commit(git_commit), listen_address(listen_address), listen_port(listen_port),
+        exit_loop(false), version(version), sha(sha), listen_address(listen_address), listen_port(listen_port),
         ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path),
         cors_enabled(cors_enabled), cors_domains(cors_domains), thread_pool(thread_pool) {
     accept_ctx = new h2o_accept_ctx_t();
@@ -199,8 +199,8 @@ std::string HttpServer::get_version() {
     return version;
 }
 
-std::string HttpServer::get_git_commit() {
-    return git_commit;
+std::string HttpServer::get_sha() {
+    return sha;
 }
 
 void HttpServer::clear_timeouts(const std::vector<h2o_timer_t*> & timers, bool trigger_callback) {

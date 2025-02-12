@@ -9,8 +9,8 @@ if [ -z "$TYPESENSE_VERSION" ]; then
   TYPESENSE_VERSION="nightly"
 fi
 
-if [ -z "$TYPESENSE_GIT_COMMIT" ]; then
-  TYPESENSE_GIT_COMMIT="nightly"
+if [ -z "$TYPESENSE_SHA" ]; then
+  TYPESENSE_SHA="nightly"
 fi
 
 ARCH_NAME="amd64"
@@ -49,7 +49,7 @@ fi
 # Finally build Typesense
 bazel build --verbose_failures --jobs=$JOBS $CUDA_FLAGS $JEMALLOC_FLAGS \
   --define=TYPESENSE_VERSION=\"$TYPESENSE_VERSION\" \
-  --define=TYPESENSE_GIT_COMMIT=\"$TYPESENSE_GIT_COMMIT\" \
+  --define=TYPESENSE_SHA=\"$TYPESENSE_SHA\" \
   //:$TYPESENSE_TARGET
 
 # Copy the binary to an accessible location

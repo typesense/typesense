@@ -1,7 +1,7 @@
 build --incompatible_strict_action_env
 build --action_env=BAZEL_CXXOPTS="-std=c++17"
 build --define=TYPESENSE_VERSION=\"nightly\"
-build --define=TYPESENSE_GIT_COMMIT=\"nightly\"
+build --define=TYPESENSE_SHA=\"nightly\"
 build --cxxopt="-std=c++17"
 build --strip=never
 build --define=BRPC_WITH_GLOG=true
