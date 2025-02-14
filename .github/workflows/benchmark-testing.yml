@@ -186,6 +186,14 @@ jobs:
           compression-level: 6
           overwrite: false
 
+      - name: Upload reproduction guide
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: reproduction-guide
+          path: benchmark/reproduction-guide.md
+          if-no-files-found: ignore
+
       - name: Stop containers
         if: always()
         working-directory: benchmark
