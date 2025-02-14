@@ -21,6 +21,7 @@ import { searchScenarios } from "@/benchmarks/k6-utils";
 import { ServiceContainer } from "@/services/container";
 import { DEFAULT_TYPESENSE_GIT_URL } from "@/services/git";
 import { K6Benchmarks } from "@/services/k6";
+import { ReproductionService } from "@/services/reproduction";
 import { TypesenseProcessManager } from "@/services/typesense-process";
 import { toErrorWithMessage } from "@/utils/error";
 import { delay } from "@/utils/execa";
@@ -196,6 +197,7 @@ class Benchmarks {
   private readonly port: number;
   private readonly spinner: Ora;
   private readonly benchmarkGroupsByCommitHash: Record<string, BenchmarkGroup>;
+  private readonly reproductionService: ReproductionService;
 
   constructor(options: {
     typesenseProcessManagers: [TypesenseProcessManager, TypesenseProcessManager];
@@ -220,6 +222,7 @@ class Benchmarks {
     this.commitHashes = options.commitHashes;
     this.isInCi = Boolean(process.env.CI) || false;
     this.percentagesForFailure = options.failAtPercentage;
+    this.reproductionService = new ReproductionService();
 
     this.benchmarkGroupsByCommitHash = Object.fromEntries(
       this.commitHashes.map((hash, index) => [
@@ -291,9 +294,17 @@ class Benchmarks {
         })
         .join("\n");
 
-      return errAsync({
-        message: `Performance degradation exceeded configured thresholds:\n${failures}`,
-      });
+      return this.reproductionService
+        .generateReproductionFile({
+          failingResults: failingRows,
+          apiKey: this.apiKey,
+          commitHash: this.commitHashes[1],
+        })
+        .andThen((filePath) =>
+          errAsync({
+            message: `Performance degradation exceeded configured thresholds:\n${failures}\nSee \`${filePath}\` for more information`,
+          }),
+        );
     }
 
     return okAsync(undefined);
@@ -808,11 +819,6 @@ class Benchmarks {
 
   private performBenchmarks(commitHashes: string[]) {
     return this.createDataDirectories()
-      .andThen(() =>
-        this.services
-          .get("fs")
-          .downloadTypesenseDataset("https://dl.typesense.org/datasets/musicbrainz-1M-songs.jsonl.tar.gz"),
-      )
       .andThen(() => this.services.get("fs").downloadTypesenseDataset(K6Benchmarks.DATASET_URL))
       .andThen(() =>
         commitHashes.reduce(
