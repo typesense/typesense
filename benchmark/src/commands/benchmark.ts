@@ -45,7 +45,7 @@ interface BaseFormattedResult {
   displayVariable: string;
 }
 
-interface FormattedSearchResult extends BaseFormattedResult {
+export interface FormattedSearchResult extends BaseFormattedResult {
   scenario: ScenarioNames;
   vus: 50 | 100;
 }
