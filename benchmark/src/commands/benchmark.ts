@@ -813,6 +813,7 @@ class Benchmarks {
           .get("fs")
           .downloadTypesenseDataset("https://dl.typesense.org/datasets/musicbrainz-1M-songs.jsonl.tar.gz"),
       )
+      .andThen(() => this.services.get("fs").downloadTypesenseDataset(K6Benchmarks.DATASET_URL))
       .andThen(() =>
         commitHashes.reduce(
           (promise, commitHash, index) =>
