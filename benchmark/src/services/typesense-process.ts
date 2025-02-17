@@ -8,7 +8,6 @@ import type { Options as ExecaOptions } from "execa";
 import type { Ora } from "ora";
 import type { CollectionCreateSchema } from "typesense/lib/Typesense/Collections";
 import type { ConversationModelCreateSchema } from "typesense/lib/Typesense/ConversationModel";
-import type ConversationModels from "typesense/lib/Typesense/ConversationModels";
 import type { SearchParams } from "typesense/lib/Typesense/Documents";
 
 import { execa } from "execa";
@@ -16,6 +15,7 @@ import { errAsync, ok, okAsync, Result, ResultAsync } from "neverthrow";
 import { Client } from "typesense";
 
 import { toErrorWithMessage } from "@/utils/error";
+import { delay } from "@/utils/execa";
 import { logger, LogLevel } from "@/utils/logger";
 import { isStringifiable } from "@/utils/stringifiable";
 
@@ -28,18 +28,20 @@ export interface NodeConfig {
 }
 
 export class TypesenseProcessController extends EventEmitter {
-  process: ChildProcess;
+  process: ChildProcess | null;
   exitCode: number | null = null;
   http: number;
   private readonly apiKey: string;
   error: Error | null = null;
   client: Client;
+  node: NodeConfig;
 
-  constructor(process: ChildProcess, http: number, apiKey: string) {
+  constructor(process: ChildProcess, http: number, apiKey: string, node: NodeConfig) {
     super();
     this.http = http;
     this.process = process;
     this.apiKey = apiKey;
+    this.node = node;
 
     this.client = new Client({
       nodes: [
@@ -57,13 +59,9 @@ export class TypesenseProcessController extends EventEmitter {
 
     this.process.on("exit", (code, signal) => {
       this.exitCode = code;
-
       const logLevel = code === 0 ? "debug" : "error";
-
       logger[logLevel](`[Node ${http}] Process exited with code=${code} signal=${signal}`);
-
       this.exitCode = code;
-
       this.emit("exit", { code, http });
     });
 
@@ -72,26 +70,36 @@ export class TypesenseProcessController extends EventEmitter {
       logger.error(`[Node ${http}] Process error: ${error.message}`);
       this.emit("error", { error, http });
     });
-
-    global.process.once("exit", () => this.cleanup());
   }
 
-  public cleanup(): Result<void, ErrorWithMessage> {
+  public dispose(): Result<void, ErrorWithMessage> {
     if (!this.process || this.process.killed) {
       return ok(undefined);
     }
+
     return Result.fromThrowable(() => {
       try {
-        this.process.kill("SIGTERM");
+        this.process!.kill("SIGTERM");
+        this.process!.removeAllListeners();
+        this.removeAllListeners();
+
+        // Set up SIGKILL fallback
         setTimeout(() => {
           if (this.process && !this.process.killed) {
             this.process.kill("SIGKILL");
+            this.process.removeAllListeners();
           }
         }, 20_000);
-      } catch (error: any) {
-        // If the error is just that the process was terminated by signal, that's expected
-        if (error.signal === "SIGTERM" || error.signal === "SIGKILL") {
-          return;
+
+        // Clean up resources
+        this.process = null;
+        this.error = null;
+        this.exitCode = null;
+      } catch (error) {
+        if (error instanceof Error && "signal" in error) {
+          if (error.signal === "SIGTERM" || error.signal === "SIGKILL") {
+            return;
+          }
         }
         throw error;
       }
@@ -103,6 +111,7 @@ export class TypesenseProcessManager {
   public processes = new Map<number, TypesenseProcessController>();
   private readonly ipAddress?: string;
   private readonly snapshotPath: string;
+  private hasSetupExitHandler = false;
 
   constructor(
     private readonly spinner: Ora,
@@ -115,6 +124,26 @@ export class TypesenseProcessManager {
   ) {
     this.ipAddress = ipAddress;
     this.snapshotPath = snapshotPath ?? path.join(this.workingDirectory, "snapshots");
+    this.setupGlobalExitHandler();
+  }
+
+  private setupGlobalExitHandler() {
+    if (this.hasSetupExitHandler) return;
+
+    const handleExit = () => {
+      for (const process of this.processes.values()) {
+        process.dispose();
+      }
+    };
+
+    const currentCount = global.process.listenerCount("exit");
+    const needed = currentCount + 1;
+    if (global.process.getMaxListeners() < needed) {
+      global.process.setMaxListeners(needed);
+    }
+
+    global.process.on("exit", handleExit);
+    this.hasSetupExitHandler = true;
   }
 
   get getSnapshotPath() {
@@ -127,10 +156,24 @@ export class TypesenseProcessManager {
     2: { grpc: 9107, http: 9108 },
   } as const;
 
+  restartProcess(process: TypesenseProcessController) {
+    this.spinner.start(`Restarting Process on ${process.http}`);
+
+    return process.dispose().map(() => {
+      this.processes.delete(process.http);
+      return delay(10_000).andThen(() =>
+        this.startProcess(process.node).map((newProcess) => {
+          this.processes.set(newProcess.http, newProcess);
+          this.spinner.succeed(`Restarted Process on ${newProcess.http}`);
+        }),
+      );
+    });
+  }
+
   stopProcess(process: TypesenseProcessController) {
     this.spinner.start("Stopping Typesense process");
     return process
-      .cleanup()
+      .dispose()
       .map(() => {
         this.processes.delete(process.http);
         this.spinner.succeed("Stopped Typesense process");
@@ -204,9 +247,12 @@ export class TypesenseProcessManager {
     return ResultAsync.fromPromise(process.client.collections().create(schema), toErrorWithMessage);
   }
 
+  getConversationModel(process: TypesenseProcessController, model_id: string) {
+    return ResultAsync.fromPromise(process.client.conversations().models(model_id).retrieve(), toErrorWithMessage);
+  }
+
   createConversationModel(process: TypesenseProcessController, model: ConversationModelCreateSchema) {
-    const models = process.client.conversations().models() as unknown as ConversationModels;
-    return ResultAsync.fromPromise(models.create(model), toErrorWithMessage);
+    return ResultAsync.fromPromise(process.client.conversations().models().create(model), toErrorWithMessage);
   }
 
   initNode(dataDir: string, port: number): ResultAsync<NodeConfig, ErrorWithMessage> {
@@ -233,7 +279,7 @@ export class TypesenseProcessManager {
     node: NodeConfig,
     options?: { multiNode?: false },
   ): ResultAsync<TypesenseProcessController, ErrorWithMessage> {
-    const { grpc, http, dataDir } = node;
+    const { grpc, http } = node;
     this.spinner.start(`Starting Typesense process on node ${http}\n`);
 
     return this.fsService
@@ -253,54 +299,24 @@ export class TypesenseProcessManager {
             });
           }
 
-          const multiNodeArgs = [`--nodes`, path.join(this.workingDirectory, "nodes")];
-
-          const ipArgs = ["--peering-address", this.ipAddress];
-
-          const baseArgs = [
-            `--data-dir=${dataDir}`,
-            `--api-key=${this.apiKey}`,
-            `--api-port`,
-            `${http}`,
-            `--api-address`,
-            `0.0.0.0`,
-            `--peering-port`,
-            `${grpc}`,
-          ];
-
-          const args: string[] = [];
-
-          if (options?.multiNode !== false) {
-            args.push(...multiNodeArgs);
-          }
-
-          if (this.ipAddress) {
-            args.push(...(ipArgs as string[]));
-          }
-
-          args.push(...baseArgs);
-
+          const args = this.buildProcessArgs(node, options);
           const execaOptions: ExecaOptions = {
             cwd: this.workingDirectory,
             stdio: "pipe",
             shell: false,
             windowsHide: true,
             cleanup: true,
+            extendEnv: true,
+            env: {
+              HTTP_PROXY: "http://localhost:8443",
+              HTTPS_PROXY: "http://localhost:8443",
+            },
           };
 
           logger.debug(`[Node ${http}] Starting process with ports HTTP=${http} gRPC=${grpc}\n`);
-
           logger.debug(`[Node ${http}] Command: ${this.binaryPath} ${args.join(" ")}`);
 
           const typesenseProcess = execa(this.binaryPath, args, execaOptions);
-
-          typesenseProcess.on("error", () => {
-            this.processes.delete(http);
-          });
-
-          typesenseProcess.on("exit", () => {
-            this.processes.delete(http);
-          });
 
           typesenseProcess.stdout?.on("data", (data) => {
             const message = isStringifiable(data) ? data.toString().trim() : "Not a stringifiable object";
@@ -312,20 +328,38 @@ export class TypesenseProcessManager {
             logger.debug(`[Node ${http}] stderr: ${message}`);
           });
 
-          const typesenseInfo = new TypesenseProcessController(typesenseProcess, http, this.apiKey);
-
-          typesenseInfo.on("exit", () => {
-            this.processes.delete(http);
-          });
-
-          typesenseInfo.on("error", () => {
-            this.processes.delete(http);
-          });
+          const typesenseInfo = new TypesenseProcessController(typesenseProcess, http, this.apiKey, node);
 
           this.processes.set(http, typesenseInfo);
           this.spinner.succeed(`Started Typesense process on node ${http}`);
           return okAsync(typesenseInfo);
         }),
       );
+  }
+
+  private buildProcessArgs(node: NodeConfig, options?: { multiNode?: false }): string[] {
+    const { grpc, http, dataDir } = node;
+    const multiNodeArgs = [`--nodes`, path.join(this.workingDirectory, "nodes")];
+    const ipArgs = ["--peering-address", this.ipAddress];
+    const baseArgs = [
+      `--data-dir=${dataDir}`,
+      `--api-key=${this.apiKey}`,
+      `--api-port`,
+      `${http}`,
+      `--api-address`,
+      `0.0.0.0`,
+      `--peering-port`,
+      `${grpc}`,
+    ];
+
+    const args: string[] = [];
+    if (options?.multiNode !== false) {
+      args.push(...multiNodeArgs);
+    }
+    if (this.ipAddress) {
+      args.push(...(ipArgs as string[]));
+    }
+    args.push(...baseArgs);
+    return args;
   }
 }

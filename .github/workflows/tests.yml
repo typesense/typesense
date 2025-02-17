@@ -135,8 +135,6 @@ jobs:
 
       - name: Run Integration Tests
         working-directory: benchmark
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           ./dist/index.js test \
             --binary $(pwd)/../typesense-server-binary/typesense-server \

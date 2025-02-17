@@ -1177,6 +1177,8 @@ void TimedSnapshotClosure::Run() {
     } else {
         LOG(ERROR) << "Timed snapshot failed, error: " << status().error_str() << ", code: " << status().error_code();
     }
+
+    replication_state->set_snapshot_in_progress(false);
 }
 
 void OnDemandSnapshotClosure::Run() {
