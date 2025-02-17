@@ -157,11 +157,9 @@ std::string StemmerManager::get_normalized_word(const std::string &dictionary_na
 void StemmerManager::get_stemming_dictionaries(nlohmann::json &dictionaries) {
     std::lock_guard<std::mutex> lock(mutex);
 
-    if(!stem_dictionaries.empty()) {
-        dictionaries["dictionaries"] = nlohmann::json::array();
-        for (const auto &kv: stem_dictionaries) {
-                dictionaries["dictionaries"].push_back(kv.first);
-        }
+    dictionaries["dictionaries"] = nlohmann::json::array();
+    for (const auto &kv: stem_dictionaries) {
+        dictionaries["dictionaries"].push_back(kv.first);
     }
 }
 

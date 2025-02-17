@@ -9,11 +9,12 @@ filegroup(
 )
 
 config_setting(
-    name = "linux_arm64",
+    name = "linux_arm64_with_lg_page16",
     constraint_values = [
         "@platforms//os:linux",
         "@platforms//cpu:arm64",
     ],
+    define_values = {"enable_jemalloc_lg_page16": "1"},
 )
 
 configure_make(
@@ -27,7 +28,7 @@ configure_make(
         "//conditions:default": {},
     }),
     configure_options = select({
-        ":linux_arm64": ["--disable-cache-oblivious"],
+        ":linux_arm64_with_lg_page16": ["--with-lg-page=16", "--disable-cache-oblivious"],
         "//conditions:default": ["--disable-cache-oblivious"],
     }),
     lib_source = ":all_srcs",
