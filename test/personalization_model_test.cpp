@@ -44,22 +44,12 @@ protected:
     }
 
     std::string get_onnx_model_archive() {
-        std::string content = "This is a sample ONNX model content";
-        std::string filename = (temp_dir + "/model.onnx");
-        std::ofstream file(filename);
-        file << content;
-        file.close();
-
-        std::string archive_name = (temp_dir + "/model.tar.gz");
-        std::string command = "tar -czf " + archive_name + " -C " + temp_dir + " model.onnx";
-        system(command.c_str());
+        std::string archive_name = "test/resources/models.tar.gz";
 
         std::ifstream archive_file(archive_name, std::ios::binary);
         std::string archive_content((std::istreambuf_iterator<char>(archive_file)), std::istreambuf_iterator<char>());
 
         archive_file.close();
-        std::filesystem::remove(filename);
-        std::filesystem::remove(archive_name);
         return archive_content;
     }
 
@@ -199,7 +189,7 @@ TEST_F(PersonalizationModelTest, CreateModelFailsWithInvalidArchive) {
     auto result = PersonalizationModel::create_model(model_id, model_json, invalid_model_data);
     ASSERT_FALSE(result.ok());
     ASSERT_EQ(result.code(), 400);
-    ASSERT_EQ(result.error(), "Missing required model.onnx file in archive");
+    ASSERT_EQ(result.error(), "Missing the required model files in archive");
 }
 
 
