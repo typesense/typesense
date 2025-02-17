@@ -10,7 +10,7 @@ QueryAnalytics::QueryAnalytics(size_t k, bool enable_auto_aggregation)
 }
 
 void QueryAnalytics::add(const std::string& key, const std::string& expanded_key,
-                         const bool live_query, const std::string& user_id, uint64_t now_ts_us) {
+                         const bool live_query, const std::string& user_id, uint64_t now_ts_us, const std::string& filter_str) {
     if(live_query) {
         // live query must be aggregated first to their final form as they could be prefix queries
         if(now_ts_us == 0) {
@@ -28,27 +28,30 @@ void QueryAnalytics::add(const std::string& key, const std::string& expanded_key
             // only live queries could send expanded queries
             const std::string& actual_key = expand_query ? expanded_key : key;
             if(actual_key.size() < max_query_length) {
-                queries.emplace_back(actual_key, now_ts_us);
+                queries.emplace_back(actual_key, now_ts_us, filter_str);
             }
         }
 
         umutex.unlock();
 
     } else {
-        if(!lmutex.try_lock()) {
+        if (!lmutex.try_lock()) {
             // instead of locking we just skip incrementing keys during consolidation time
-            return ;
+            return;
         }
 
-        auto it = local_counts.find(key);
+        auto query = key;
+        if(!filter_str.empty()) {
+            query =  "-" + filter_str;
+        }
+        auto it = local_counts.find(query);
 
-        if(it != local_counts.end()) {
+        if (it != local_counts.end()) {
             it.value()++;
-        } else if(local_counts.size() < max_size && key.size() < max_query_length) {
+        } else if (local_counts.size() < max_size && query.size() < max_query_length) {
             // skip count when map has become too large (to prevent abuse)
-            local_counts.emplace(key, 1);
+            local_counts.emplace(query, 1);
         }
-
         lmutex.unlock();
     }
 }
@@ -56,12 +59,21 @@ void QueryAnalytics::add(const std::string& key, const std::string& expanded_key
 void QueryAnalytics::serialize_as_docs(std::string& docs) {
     std::shared_lock lk(lmutex);
 
-    std::string key_buffer;
+    std::string key_buffer, filter_str;
     for(auto it = local_counts.begin(); it != local_counts.end(); ++it) {
         it.key(key_buffer);
+        auto ind = key_buffer.find('-');
+        if(ind != std::string::npos) {
+            //filter string exists
+            filter_str = key_buffer.substr(ind, key_buffer.size() - ind);
+            key_buffer = key_buffer.substr(0, ind);
+        }
         nlohmann::json doc;
         doc["id"] = std::to_string(StringUtils::hash_wy(key_buffer.c_str(), key_buffer.size()));
         doc["q"] = key_buffer;
+        if(!filter_str.empty()) {
+            doc["filter_by"] = filter_str;
+        }
         doc["$operations"]["increment"]["count"] = it.value();
         docs += doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore) + "\n";
     }
@@ -113,7 +125,7 @@ void QueryAnalytics::compact_user_queries(uint64_t now_ts_us) {
     }
 }
 
-std::unordered_map<std::string, std::vector<QueryAnalytics::QWithTimestamp>> QueryAnalytics::get_user_prefix_queries() {
+std::unordered_map<std::string, std::vector<QueryAnalytics::QWithTimestampFilter>> QueryAnalytics::get_user_prefix_queries() {
     std::unique_lock lk(umutex);
     return user_prefix_queries;
 }

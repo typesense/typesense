@@ -9,11 +9,13 @@
 
 class QueryAnalytics {
 public:
-    struct QWithTimestamp {
+    struct QWithTimestampFilter {
         std::string query;
         uint64_t timestamp;
+        std::string filter_by_str;
 
-        QWithTimestamp(const std::string& query, uint64_t timestamp) : query(query), timestamp(timestamp) {}
+        QWithTimestampFilter(const std::string& query, uint64_t timestamp, const std::string& filter_str="")
+            : query(query), timestamp(timestamp), filter_by_str(filter_str) {}
     };
 
     static const size_t QUERY_FINALIZATION_INTERVAL_MICROS = 4 * 1000 * 1000;
@@ -30,7 +32,7 @@ private:
     tsl::htrie_map<char, uint32_t> local_counts;
     std::shared_mutex lmutex;
 
-    std::unordered_map<std::string, std::vector<QWithTimestamp>> user_prefix_queries;
+    std::unordered_map<std::string, std::vector<QWithTimestampFilter>> user_prefix_queries;
     std::shared_mutex umutex;
 
 public:
@@ -38,7 +40,8 @@ public:
     QueryAnalytics(size_t k, bool enable_auto_aggregation = true);
 
     void add(const std::string& value, const std::string& expanded_key,
-             const bool live_query, const std::string& user_id, uint64_t now_ts_us = 0);
+             const bool live_query, const std::string& user_id, uint64_t now_ts_us = 0,
+             const std::string& filter_str = "");
 
     void compact_user_queries(uint64_t now_ts_us);
 
@@ -48,7 +51,7 @@ public:
 
     size_t get_k();
 
-    std::unordered_map<std::string, std::vector<QWithTimestamp>> get_user_prefix_queries();
+    std::unordered_map<std::string, std::vector<QWithTimestampFilter>> get_user_prefix_queries();
 
     tsl::htrie_map<char, uint32_t> get_local_counts();
 

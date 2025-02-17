@@ -171,6 +171,61 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithExpandedQuery) {
     ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
 }
 
+TEST_F(AnalyticsManagerTest, AddSuggestionWithFilterQuery) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Cool trousers";
+    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
+
+    // create a collection to store suggestions
+    nlohmann::json suggestions_schema = R"({
+        "name": "top_queries",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "filter_by", "type" : "string"},
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    nlohmann::json analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "expand_query": true,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    analyticsManager.add_suggestion("titles", "c", "cool", true, "1", "Nike*");
+
+    auto popularQueries = analyticsManager.get_popular_queries();
+    auto userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
+    ASSERT_EQ(1, userQueries.size());
+    ASSERT_EQ("cool", userQueries[0].query);
+    ASSERT_EQ("Nike*", userQueries[0].filter_by_str);
+
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
+}
+
 TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
     nlohmann::json titles_schema = R"({
             "name": "titles",

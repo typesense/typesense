@@ -1300,10 +1300,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                 const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
                         result["request_params"]["first_q"].get<std::string>());
                 AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query, expanded_query,
-                                                                true, req_params["x-typesense-user-id"]);
+                                                                true, req_params["x-typesense-user-id"], args.filter_query);
             } else {
                 AnalyticsManager::get_instance().add_nohits_query(orig_coll_name, analytics_query,
-                                                                  true, req_params["x-typesense-user-id"]);
+                                                                  true, req_params["x-typesense-user-id"], args.filter_query);
             }
         }
     }

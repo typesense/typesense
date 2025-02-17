@@ -371,7 +371,7 @@ Option<bool> AnalyticsManager::remove_index(const std::string &name) {
 
 void AnalyticsManager::add_suggestion(const std::string &query_collection,
                                       const std::string& query, const std::string& expanded_query,
-                                      const bool live_query, const std::string& user_id) {
+                                      const bool live_query, const std::string& user_id, const std::string& filter_query) {
     // look up suggestion collections for the query collection
     std::unique_lock lock(mutex);
     const auto& suggestion_collections_it = query_collection_mapping.find(query_collection);
@@ -379,7 +379,7 @@ void AnalyticsManager::add_suggestion(const std::string &query_collection,
         for(const auto& suggestion_collection: suggestion_collections_it->second) {
             const auto& popular_queries_it = popular_queries.find(suggestion_collection);
             if(popular_queries_it != popular_queries.end() && popular_queries_it->second->is_auto_aggregation_enabled()) {
-                popular_queries_it->second->add(query, expanded_query, live_query, user_id);
+                popular_queries_it->second->add(query, expanded_query, live_query, user_id, 0, filter_query);
             }
         }
     }
@@ -523,7 +523,7 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
 }
 
 void AnalyticsManager::add_nohits_query(const std::string &query_collection, const std::string &query,
-                                        bool live_query, const std::string &user_id) {
+                                        bool live_query, const std::string &user_id, const std::string& filter_query) {
     // look up suggestion collections for the query collection
     std::unique_lock lock(mutex);
     const auto& suggestion_collections_it = query_collection_mapping.find(query_collection);
