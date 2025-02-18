@@ -17,7 +17,7 @@ import { z } from "zod";
 import { ServiceContainer } from "@/services/container";
 import { DEFAULT_TYPESENSE_GIT_URL } from "@/services/git";
 import { OpenAIProxyService } from "@/services/openai-mock";
-import { DEFAULT_IP_ADDRESS, TypesenseProcessManager } from "@/services/typesense-process";
+import { TypesenseProcessManager } from "@/services/typesense-process";
 import { toErrorWithMessage } from "@/utils/error";
 import { delay } from "@/utils/execa";
 import { logger, LogLevel } from "@/utils/logger";
@@ -57,7 +57,6 @@ interface NodeConfig {
 
 class IntegrationTests {
   private readonly ipAddress: string | null;
-  private readonly isInCi = process.env.CI === "true";
   private readonly openAIProxy: OpenAIProxyService;
 
   public static baseCollectionName = "base_collection";
@@ -73,9 +72,9 @@ class IntegrationTests {
     private readonly workingDirectory: string,
     private readonly openAIKey: string,
     private readonly numDim: number,
-    ipAddress?: string,
+    ipAddress: string,
   ) {
-    this.ipAddress = ipAddress ?? this.findDefaultNetworkAddress();
+    this.ipAddress = ipAddress;
     this.numDim = numDim;
     this.openAIProxy = new OpenAIProxyService(spinner, workingDirectory, this.numDim);
   }
@@ -92,19 +91,6 @@ class IntegrationTests {
     });
   }
 
-  private findDefaultNetworkAddress(): string | null {
-    const interfaces = networkInterfaces();
-
-    if (!this.isInCi) {
-      return DEFAULT_IP_ADDRESS;
-    }
-
-    return (
-      Object.values(interfaces)
-        .flatMap((interfaceInfo) => interfaceInfo ?? [])
-        .find((info) => info.family === "IPv4" && info.address.startsWith("10.1.0."))?.address ?? null
-    );
-  }
   private mapNodesToDirectories(dataDirs: [string, string, string]): Result<NodeConfig[], ErrorWithMessage> {
     const nodes: NodeConfig[] = [];
 
@@ -563,6 +549,21 @@ class IntegrationTests {
   }
 }
 
+function findDefaultNetworkAddress(): string {
+  const interfaces = networkInterfaces();
+
+  const ipFromInterfaces = Object.values(interfaces)
+    .flatMap((interfaceInfo) => interfaceInfo ?? [])
+    .find((info) => !info.internal)?.address;
+
+  if (!ipFromInterfaces) {
+    console.log("Interfaces:", interfaces);
+    throw new Error("No non-internal address found, which is required for tests!");
+  }
+
+  return ipFromInterfaces;
+}
+
 const test = new Command()
   .name("test")
   .description("Run the integration tests")
@@ -650,6 +651,8 @@ const test = new Command()
       })
       .andThen((options) => {
         logger.debug("Starting Typesense process");
+        const ip = options.ip ?? findDefaultNetworkAddress();
+        logger.debug("Using address:", ip);
         const typesenseProcessManager = new TypesenseProcessManager(
           spinner,
           options.binary,
@@ -657,7 +660,7 @@ const test = new Command()
           options.workingDirectory,
           services.get("fs"),
           options.snapshotPath,
-          options.ip,
+          ip,
         );
         const integrationTests = new IntegrationTests(
           services,
@@ -666,7 +669,7 @@ const test = new Command()
           options.workingDirectory,
           options.openAIKey,
           options.numDim,
-          options.ip,
+          ip,
         );
 
         return ok(integrationTests);
