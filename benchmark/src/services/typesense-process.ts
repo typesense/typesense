@@ -54,7 +54,8 @@ export class TypesenseProcessController extends EventEmitter {
       logLevel: logger.getLevel() === LogLevel.DEBUG ? "debug" : "info",
       apiKey: this.apiKey,
       connectionTimeoutSeconds: 100,
-      retryIntervalSeconds: 5,
+      retryIntervalSeconds: 10,
+      numRetries: 6,
     });
 
     this.process.on("exit", (code, signal) => {
