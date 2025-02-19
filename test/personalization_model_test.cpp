@@ -236,7 +236,7 @@ TEST_F(PersonalizationModelTest, EmbedRecommendations) {
     }
 
     std::vector<int64_t> user_mask(8, 1);
-    embedding_res_t embedding = model.embed_recommendation_vectors(input_vector, user_mask);
+    embedding_res_t embedding = model.embed_recommendations(input_vector, user_mask);
     ASSERT_TRUE(embedding.success);
     ASSERT_FLOAT_EQ(embedding.embedding[0], -0.10328025f);
     ASSERT_FLOAT_EQ(embedding.embedding[1], -0.10312808f);

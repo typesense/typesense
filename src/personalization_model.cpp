@@ -27,6 +27,38 @@ PersonalizationModel::PersonalizationModel(const std::string& model_id)
     recommendation_model_path_ = get_model_subdir(model_id) + "/recommendation_model.onnx";
     user_model_path_ = get_model_subdir(model_id) + "/user_model.onnx";
     item_model_path_ = get_model_subdir(model_id) + "/item_model.onnx";
+    prompt_path_ = get_model_subdir(model_id) + "/prompts.json";
+    vocab_path_ = get_model_subdir(model_id) + "/vocab.txt";
+    nlohmann::json prompt_json;
+    try {
+        std::ifstream prompt_file(prompt_path_);
+        if (!prompt_file.is_open()) {
+            LOG(ERROR) << "Could not open prompt file: " + prompt_path_;
+            return;
+        }
+        
+        std::stringstream buffer;
+        buffer << prompt_file.rdbuf();
+        std::string json_str = buffer.str();
+        
+        if (json_str.empty()) {
+            LOG(ERROR) << "Prompt file is empty";
+            return;
+        }
+        
+        prompt_json = nlohmann::json::parse(json_str);
+        
+        if (!prompt_json.contains("q") || !prompt_json["q"].is_string() ||
+            !prompt_json.contains("d") || !prompt_json["d"].is_string()) {
+            LOG(ERROR) << "Prompt file missing required string fields 'q' and 'd'";
+            return;
+        }
+    } catch (const std::exception& e) {
+        LOG(ERROR) << "Failed to parse prompt file: " << e.what();
+    }
+    query_prompt_ = prompt_json["q"].get<std::string>();
+    item_prompt_ = prompt_json["d"].get<std::string>();
+    tokenizer_ = std::make_unique<BertTokenizerWrapper>(vocab_path_);
     initialize_session();
 }
 
@@ -97,6 +129,16 @@ Option<nlohmann::json> PersonalizationModel::create_model(const std::string& mod
     std::string item_onnx_path = model_path + "/item_model.onnx";   
     if (!std::filesystem::exists(onnx_path) || !std::filesystem::exists(user_onnx_path) || !std::filesystem::exists(item_onnx_path)) {
         return Option<nlohmann::json>(400, "Missing the required model files in archive");
+    }
+
+    std::string tokenzier_path = model_path + "/vocab.txt";
+    if (!std::filesystem::exists(tokenzier_path)) {
+        return Option<nlohmann::json>(400, "Missing the required vocab.txt file in archive");
+    }
+
+    std::string prompt_path = model_path + "/prompts.json";
+    if (!std::filesystem::exists(prompt_path)) {
+        return Option<nlohmann::json>(400, "Missing the required prompts.json file in archive");
     }
 
     // Load model temporarily to get dimensions and check if the model is loadable
@@ -240,7 +282,7 @@ void PersonalizationModel::initialize_session() {
     output_dims_ = output_shape[output_shape.size() - 1];
 }
 
-embedding_res_t PersonalizationModel::embed_recommendation_vectors(const std::vector<std::vector<float>>& input_vector, const std::vector<int64_t>& user_mask) {
+embedding_res_t PersonalizationModel::embed_recommendations(const std::vector<std::vector<float>>& input_vector, const std::vector<int64_t>& user_mask) {
     std::unique_lock<std::mutex> lock(recommendation_mutex_);
     lock.unlock();
 
@@ -283,6 +325,7 @@ embedding_res_t PersonalizationModel::embed_recommendation_vectors(const std::ve
         return embedding_res_t(500, error);
     }
 }
+
 std::vector<embedding_res_t> PersonalizationModel::batch_embed_recommendation_vectors(const std::vector<std::vector<std::vector<float>>>& input_vectors, const std::vector<std::vector<int64_t>>& user_masks) {
     std::unique_lock<std::mutex> lock(recommendation_mutex_);
     lock.unlock();
@@ -335,6 +378,15 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_recommendation_ve
         return std::vector<embedding_res_t>(input_vectors.size(), embedding_res_t(500, error));
     }
 }
+
+embedding_res_t PersonalizationModel::embed_user(const std::vector<std::string>& features) {
+    nlohmann::json error = {
+        {"message", "Not implemented"},
+        {"error", "Embedding user features is not implemented"}
+    };
+    return embedding_res_t(500, error);
+}
+
 
 Option<bool> PersonalizationModel::validate_model_io() {
     try {
