@@ -274,7 +274,7 @@ TEST_F(PersonalizationModelTest, BatchEmbedRecommendations) {
     }
 
     std::vector user_mask(2, std::vector<int64_t>(8, 1));
-    std::vector<embedding_res_t> embeddings = model.batch_embed_recommendation_vectors(input_vector, user_mask);
+    std::vector<embedding_res_t> embeddings = model.batch_embed_recommendations(input_vector, user_mask);
     ASSERT_EQ(embeddings.size(), 2);
     ASSERT_TRUE(embeddings[0].success);
     ASSERT_FLOAT_EQ(embeddings[0].embedding[0], -0.10328025f);
@@ -315,4 +315,37 @@ TEST_F(PersonalizationModelTest, EmbedUsers) {
     ASSERT_FLOAT_EQ(embedding.embedding[2], -0.091164835f);
     ASSERT_FLOAT_EQ(embedding.embedding[3], -0.076299265f);
     ASSERT_FLOAT_EQ(embedding.embedding[255], 0.092341594f);
+}
+
+TEST_F(PersonalizationModelTest, BatchEmbedUsers) {
+    std::string model_id = "test-model";
+    nlohmann::json model_json = {
+        {"id", model_id},
+        {"name", "ts/tyrec-1"},
+        {"collection", "companies"},
+        {"type", "recommendation"}
+    };
+    std::string model_data = get_onnx_model_archive();
+    auto result = PersonalizationModel::create_model(model_id, model_json, model_data);
+    ASSERT_TRUE(result.ok());
+    std::string model_path = PersonalizationModel::get_model_subdir(model_id);
+    ASSERT_TRUE(std::filesystem::exists(model_path));
+    PersonalizationModel model(model_id);
+    std::vector<std::vector<std::string>> input_vector(2, std::vector<std::string>(4    , "Hello world"));
+    std::vector<embedding_res_t> embeddings = model.batch_embed_users(input_vector);
+    ASSERT_EQ(embeddings.size(), 2);
+    ASSERT_TRUE(embeddings[0].success);
+    ASSERT_EQ(embeddings[0].embedding.size(), 256);
+    ASSERT_FLOAT_EQ(embeddings[0].embedding[0], 0.0054538441f);
+    ASSERT_FLOAT_EQ(embeddings[0].embedding[1], 0.044301841f);
+    ASSERT_FLOAT_EQ(embeddings[0].embedding[2], -0.091164835f);
+    ASSERT_FLOAT_EQ(embeddings[0].embedding[3], -0.076299265f);
+    ASSERT_FLOAT_EQ(embeddings[0].embedding[255], 0.092341594f);
+    ASSERT_TRUE(embeddings[1].success);
+    ASSERT_EQ(embeddings[1].embedding.size(), 256);
+    ASSERT_FLOAT_EQ(embeddings[1].embedding[0], 0.0054538441f);
+    ASSERT_FLOAT_EQ(embeddings[1].embedding[1], 0.044301841f);
+    ASSERT_FLOAT_EQ(embeddings[1].embedding[2], -0.091164835f);
+    ASSERT_FLOAT_EQ(embeddings[1].embedding[3], -0.076299265f);
+    ASSERT_FLOAT_EQ(embeddings[1].embedding[255], 0.092341594f);
 }

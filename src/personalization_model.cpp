@@ -326,7 +326,7 @@ embedding_res_t PersonalizationModel::embed_recommendations(const std::vector<st
     }
 }
 
-std::vector<embedding_res_t> PersonalizationModel::batch_embed_recommendation_vectors(const std::vector<std::vector<std::vector<float>>>& input_vectors, const std::vector<std::vector<int64_t>>& user_masks) {
+std::vector<embedding_res_t> PersonalizationModel::batch_embed_recommendations(const std::vector<std::vector<std::vector<float>>>& input_vectors, const std::vector<std::vector<int64_t>>& user_masks) {
     std::unique_lock<std::mutex> lock(recommendation_mutex_);
     lock.unlock();
 
@@ -409,9 +409,6 @@ embedding_res_t PersonalizationModel::embed_user(const std::vector<std::string>&
                 attention_mask_flatten.push_back(mask);
             }
         }
-
-        std::cout << "encoded_inputs.input_ids.size(): " << encoded_inputs.input_ids.size() << " " << encoded_inputs.input_ids[0].size() << std::endl;
-        std::cout << "encoded_inputs.attention_mask.size(): " << encoded_inputs.attention_mask.size() << " " << encoded_inputs.attention_mask[0].size() << std::endl;
         
         input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, input_ids_flatten.data(), input_ids_flatten.size(), input_shapes[0].data(), input_shapes[0].size()));
         input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask_flatten.data(), attention_mask_flatten.size(), input_shapes[1].data(), input_shapes[1].size()));
@@ -437,6 +434,70 @@ embedding_res_t PersonalizationModel::embed_user(const std::vector<std::string>&
         return embedding_res_t(500, error);
     }
 }
+
+std::vector<embedding_res_t> PersonalizationModel::batch_embed_users(const std::vector<std::vector<std::string>>& features) {
+    std::unique_lock<std::mutex> lock(user_mutex_);
+    lock.unlock();
+
+    std::vector<batch_encoded_input_t> encoded_inputs;
+    for(auto& feature : features) {
+        encoded_inputs.push_back(encode_features(feature));
+    }
+
+    try {
+        Ort::AllocatorWithDefaultOptions allocator;
+        Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+        std::vector<Ort::Value> input_tensors;
+        std::vector<std::vector<int64_t>> input_shapes;
+        std::vector<const char*> input_node_names = {"input_ids", "attention_mask"};
+
+        input_shapes.push_back({static_cast<int64_t>(encoded_inputs.size()), static_cast<int64_t>(encoded_inputs[0].input_ids.size()), static_cast<int64_t>(encoded_inputs[0].input_ids[0].size())});
+        input_shapes.push_back({static_cast<int64_t>(encoded_inputs.size()), static_cast<int64_t>(encoded_inputs[0].attention_mask.size()), static_cast<int64_t>(encoded_inputs[0].attention_mask[0].size())});
+
+        std::vector<int64_t> input_ids_flatten;
+        std::vector<int64_t> attention_mask_flatten;
+        
+        for(auto& batch : encoded_inputs) {
+            for(auto& input_ids : batch.input_ids) {
+                for(auto& id : input_ids) {
+                    input_ids_flatten.push_back(id);
+                }
+            }
+            for(auto& attention_mask : batch.attention_mask) {
+                for(auto& mask : attention_mask) {
+                    attention_mask_flatten.push_back(mask);
+                }
+            }
+        }
+        
+        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, input_ids_flatten.data(), input_ids_flatten.size(), input_shapes[0].data(), input_shapes[0].size()));
+        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask_flatten.data(), attention_mask_flatten.size(), input_shapes[1].data(), input_shapes[1].size()));
+
+        auto output_node_name = user_session_->GetOutputNameAllocated(0, allocator);
+        std::vector<const char*> output_node_names = {output_node_name.get()};
+        
+        lock.lock();
+        auto output_tensors = user_session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
+        lock.unlock();
+
+        float* output_data = output_tensors[0].GetTensorMutableData<float>();
+        auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
+        std::vector<embedding_res_t> embeddings;
+        for (size_t i = 0; i < shape[0]; i++) {
+            std::vector<float> embedding;
+            embedding.assign(output_data + (i * output_dims_), output_data + ((i + 1) * output_dims_));
+            embeddings.push_back(embedding_res_t(embedding));
+        }
+        return embeddings;
+    } catch (const Ort::Exception& e) {
+        nlohmann::json error = {
+            {"message", "ONNX runtime error"},
+            {"error", e.what()}
+        };
+        return std::vector<embedding_res_t>(encoded_inputs.size(), embedding_res_t(500, error));
+    }
+}
+
 
 batch_encoded_input_t PersonalizationModel::encode_features(const std::vector<std::string>& features) {
     batch_encoded_input_t encoded_inputs;
