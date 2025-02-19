@@ -270,8 +270,8 @@ void PersonalizationModel::initialize_session() {
 
     env_ = std::make_shared<Ort::Env>();
     recommendation_session_ = std::make_shared<Ort::Session>(*env_, recommendation_model_path_.c_str(), recommendation_session_options);
-    user_recommendation_session_ = std::make_shared<Ort::Session>(*env_, user_model_path_.c_str(), recommendation_session_options);
-    item_recommendation_session_ = std::make_shared<Ort::Session>(*env_, item_model_path_.c_str(), recommendation_session_options);
+    user_session_ = std::make_shared<Ort::Session>(*env_, user_model_path_.c_str(), recommendation_session_options);
+    item_session_ = std::make_shared<Ort::Session>(*env_, item_model_path_.c_str(), recommendation_session_options);
 
     // Initialize input and output dimensions
     Ort::AllocatorWithDefaultOptions allocator;
@@ -380,13 +380,93 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_recommendation_ve
 }
 
 embedding_res_t PersonalizationModel::embed_user(const std::vector<std::string>& features) {
-    nlohmann::json error = {
-        {"message", "Not implemented"},
-        {"error", "Embedding user features is not implemented"}
-    };
-    return embedding_res_t(500, error);
+    std::unique_lock<std::mutex> lock(user_mutex_);
+    lock.unlock();
+
+    batch_encoded_input_t encoded_inputs = encode_features(features);
+
+    try {
+        Ort::AllocatorWithDefaultOptions allocator;
+        Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+        std::vector<Ort::Value> input_tensors;
+        std::vector<std::vector<int64_t>> input_shapes;
+        std::vector<const char*> input_node_names = {"input_ids", "attention_mask"};
+
+        input_shapes.push_back({1, static_cast<int64_t>(encoded_inputs.input_ids.size()), static_cast<int64_t>(encoded_inputs.input_ids[0].size())});
+        input_shapes.push_back({1, static_cast<int64_t>(encoded_inputs.attention_mask.size()), static_cast<int64_t>(encoded_inputs.attention_mask[0].size())});
+
+        std::vector<int64_t> input_ids_flatten;
+        std::vector<int64_t> attention_mask_flatten;
+
+        for(auto& input_ids : encoded_inputs.input_ids) {
+            for(auto& id : input_ids) {
+                input_ids_flatten.push_back(id);
+            }
+        }
+
+        for(auto& attention_mask : encoded_inputs.attention_mask) {
+            for(auto& mask : attention_mask) {
+                attention_mask_flatten.push_back(mask);
+            }
+        }
+
+        std::cout << "encoded_inputs.input_ids.size(): " << encoded_inputs.input_ids.size() << " " << encoded_inputs.input_ids[0].size() << std::endl;
+        std::cout << "encoded_inputs.attention_mask.size(): " << encoded_inputs.attention_mask.size() << " " << encoded_inputs.attention_mask[0].size() << std::endl;
+        
+        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, input_ids_flatten.data(), input_ids_flatten.size(), input_shapes[0].data(), input_shapes[0].size()));
+        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask_flatten.data(), attention_mask_flatten.size(), input_shapes[1].data(), input_shapes[1].size()));
+
+        auto output_node_name = user_session_->GetOutputNameAllocated(0, allocator);
+        std::vector<const char*> output_node_names = {output_node_name.get()};
+        
+        lock.lock();
+        auto output_tensors = user_session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
+        lock.unlock();
+
+        float* output_data = output_tensors[0].GetTensorMutableData<float>();
+        auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
+        std::vector<float> embedding;
+        embedding.assign(output_data, output_data + output_dims_);
+        return embedding_res_t(embedding);
+        
+    } catch (const Ort::Exception& e) {
+        nlohmann::json error = {
+            {"message", "ONNX runtime error"},
+            {"error", e.what()}
+        };
+        return embedding_res_t(500, error);
+    }
 }
 
+batch_encoded_input_t PersonalizationModel::encode_features(const std::vector<std::string>& features) {
+    batch_encoded_input_t encoded_inputs;
+    for(auto& feature : features) {
+        auto encoded_input = tokenizer_->Encode(feature);
+        encoded_inputs.input_ids.push_back(encoded_input.input_ids);
+        encoded_inputs.attention_mask.push_back(encoded_input.attention_mask);
+        encoded_inputs.token_type_ids.push_back(encoded_input.token_type_ids);
+    }
+    // Pad inputs
+    size_t max_input_len = 0;
+    for(auto& input_ids : encoded_inputs.input_ids) {
+        if(input_ids.size() > max_input_len) {
+            max_input_len = input_ids.size();
+        }
+    }
+
+    for(auto& input_ids : encoded_inputs.input_ids) {
+        input_ids.resize(max_input_len, 0);
+    }
+
+    for(auto& attention_mask : encoded_inputs.attention_mask) {
+        attention_mask.resize(max_input_len, 0);
+    }
+
+    for(auto& token_type_ids : encoded_inputs.token_type_ids) {
+        token_type_ids.resize(max_input_len, 0);
+    }
+    return encoded_inputs;
+}
 
 Option<bool> PersonalizationModel::validate_model_io() {
     try {
@@ -411,7 +491,7 @@ Option<bool> PersonalizationModel::validate_model_io() {
         }
 
         // Validate user input tensor
-        auto user_input_type_info = user_recommendation_session_->GetInputTypeInfo(0);
+        auto user_input_type_info = user_session_->GetInputTypeInfo(0);
         auto user_input_tensor_info = user_input_type_info.GetTensorTypeAndShapeInfo();
         auto user_input_shape = user_input_tensor_info.GetShape();
 
@@ -420,7 +500,7 @@ Option<bool> PersonalizationModel::validate_model_io() {
         }
 
         // Validate user output tensor
-        auto user_output_type_info = user_recommendation_session_->GetOutputTypeInfo(0);
+        auto user_output_type_info = user_session_->GetOutputTypeInfo(0);
         auto user_output_tensor_info = user_output_type_info.GetTensorTypeAndShapeInfo();
         auto user_output_shape = user_output_tensor_info.GetShape();
 
@@ -429,7 +509,7 @@ Option<bool> PersonalizationModel::validate_model_io() {
         }
 
         // Validate item input tensor
-        auto item_input_type_info = item_recommendation_session_->GetInputTypeInfo(0);
+        auto item_input_type_info = user_session_->GetInputTypeInfo(0);
         auto item_input_tensor_info = item_input_type_info.GetTensorTypeAndShapeInfo();
         auto item_input_shape = item_input_tensor_info.GetShape();
 
@@ -438,7 +518,7 @@ Option<bool> PersonalizationModel::validate_model_io() {
         }
         
         // Validate item output tensor
-        auto item_output_type_info = item_recommendation_session_->GetOutputTypeInfo(0);
+        auto item_output_type_info = item_session_->GetOutputTypeInfo(0);
         auto item_output_tensor_info = item_output_type_info.GetTensorTypeAndShapeInfo();
         auto item_output_shape = item_output_tensor_info.GetShape();
 

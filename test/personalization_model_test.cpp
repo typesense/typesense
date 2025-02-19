@@ -291,3 +291,28 @@ TEST_F(PersonalizationModelTest, BatchEmbedRecommendations) {
     ASSERT_FLOAT_EQ(embeddings[1].embedding[255], -0.050552275f);
     ASSERT_EQ(embeddings[1].embedding.size(), 256);
 }
+
+TEST_F(PersonalizationModelTest, EmbedUsers) {
+    std::string model_id = "test-model";
+    nlohmann::json model_json = {
+        {"id", model_id},
+        {"name", "ts/tyrec-1"},
+        {"collection", "companies"},
+        {"type", "recommendation"}
+    };
+    std::string model_data = get_onnx_model_archive();
+    auto result = PersonalizationModel::create_model(model_id, model_json, model_data);
+    ASSERT_TRUE(result.ok());
+    std::string model_path = PersonalizationModel::get_model_subdir(model_id);
+    ASSERT_TRUE(std::filesystem::exists(model_path));
+    PersonalizationModel model(model_id);
+    std::vector<std::string> input_vector(4, "Hello world");
+    embedding_res_t embedding = model.embed_user(input_vector);
+    ASSERT_TRUE(embedding.success);
+    ASSERT_EQ(embedding.embedding.size(), 256);
+    ASSERT_FLOAT_EQ(embedding.embedding[0], 0.0054538441f);
+    ASSERT_FLOAT_EQ(embedding.embedding[1], 0.044301841f);
+    ASSERT_FLOAT_EQ(embedding.embedding[2], -0.091164835f);
+    ASSERT_FLOAT_EQ(embedding.embedding[3], -0.076299265f);
+    ASSERT_FLOAT_EQ(embedding.embedding[255], 0.092341594f);
+}

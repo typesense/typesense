@@ -30,6 +30,7 @@ public:
     embedding_res_t embed_recommendations(const std::vector<std::vector<float>>& input_vector, const std::vector<int64_t>& user_mask);
     embedding_res_t embed_user(const std::vector<std::string>& features);
     std::vector<embedding_res_t> batch_embed_recommendation_vectors(const std::vector<std::vector<std::vector<float>>>& input_vectors, const std::vector<std::vector<int64_t>>& user_masks);
+    batch_encoded_input_t encode_features(const std::vector<std::string>& features);
     Option<bool> validate_model_io();
 
 private:
@@ -41,9 +42,11 @@ private:
     size_t output_dims_;
     std::shared_ptr<Ort::Env> env_;
     std::shared_ptr<Ort::Session> recommendation_session_;
-    std::shared_ptr<Ort::Session> user_recommendation_session_;
-    std::shared_ptr<Ort::Session> item_recommendation_session_;
+    std::shared_ptr<Ort::Session> user_session_;
+    std::shared_ptr<Ort::Session> item_session_;
     std::mutex recommendation_mutex_;
+    std::mutex user_mutex_;
+    std::mutex item_mutex_;
     std::string query_prompt_;
     std::string item_prompt_;
     std::string vocab_path_;
