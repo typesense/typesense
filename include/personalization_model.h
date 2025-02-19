@@ -28,7 +28,7 @@ public:
     size_t get_input_dims() const { return input_dims_; }
     size_t get_output_dims() const { return output_dims_; }
     embedding_res_t embed_recommendation_vectors(const std::vector<std::vector<float>>& input_vector, const std::vector<int64_t>& user_mask);
-    std::vector<embedding_res_t> batch_embed_recommendation_vectors(const std::vector<std::vector<std::vector<float>>>& input_vectors, const std::vector<std::vector<uint64_t>>& user_masks);
+    std::vector<embedding_res_t> batch_embed_recommendation_vectors(const std::vector<std::vector<std::vector<float>>>& input_vectors, const std::vector<std::vector<int64_t>>& user_masks);
     Option<bool> validate_model_io();
 
 private:
