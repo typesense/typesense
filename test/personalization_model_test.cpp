@@ -209,3 +209,34 @@ TEST_F(PersonalizationModelTest, UpdateModel) {
     ASSERT_TRUE(update_result.ok());
     ASSERT_TRUE(std::filesystem::exists(model_path));
 }
+
+TEST_F(PersonalizationModelTest, EmbedRecommendations) {
+    std::string model_id = "test-model";
+    nlohmann::json model_json = {
+        {"id", model_id},
+        {"name", "ts/tyrec-1"},
+        {"collection", "companies"},
+        {"type", "recommendation"}
+    };
+    std::string model_data = get_onnx_model_archive();
+    auto result = PersonalizationModel::create_model(model_id, model_json, model_data);
+    ASSERT_TRUE(result.ok());
+    std::string model_path = PersonalizationModel::get_model_subdir(model_id);
+    ASSERT_TRUE(std::filesystem::exists(model_path));
+    PersonalizationModel model(model_id);
+    std::vector<std::vector<float>> input_vector(8, std::vector<float>(256));
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> dis(0.2f, 0.8f);
+
+    for (auto& vec : input_vector) {
+        for (float& val : vec) {
+            val = 1.0f;
+        }
+    }
+
+    std::vector<int64_t> user_mask(8, 1);
+    embedding_res_t embedding = model.embed_recommendation_vectors(input_vector, user_mask);
+    ASSERT_TRUE(embedding.success);
+    ASSERT_FLOAT_EQ(embedding.embedding[0], -0.10328025f);
+}

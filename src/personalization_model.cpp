@@ -207,7 +207,7 @@ Option<bool> PersonalizationModel::delete_model(const std::string& model_id) {
 }
 
 void PersonalizationModel::initialize_session() {
-    Ort::SessionOptions session_options;
+    Ort::SessionOptions recommendation_session_options;
     auto providers = Ort::GetAvailableProviders();
     for(auto& provider : providers) {
         if(provider == "CUDAExecutionProvider") {
@@ -219,61 +219,61 @@ void PersonalizationModel::initialize_session() {
             dlclose(handle);
 
             OrtCUDAProviderOptions cuda_options;
-            session_options.AppendExecutionProvider_CUDA(cuda_options);
+            recommendation_session_options.AppendExecutionProvider_CUDA(cuda_options);
         }
     }
 
-    session_options.EnableOrtCustomOps();
+    recommendation_session_options.EnableOrtCustomOps();
     LOG(INFO) << "Loading personalization model from: " << recommendation_model_path_;
 
     env_ = std::make_shared<Ort::Env>();
-    session_ = std::make_shared<Ort::Session>(*env_, recommendation_model_path_.c_str(), session_options);
-    user_session_ = std::make_shared<Ort::Session>(*env_, user_model_path_.c_str(), session_options);
-    item_session_ = std::make_shared<Ort::Session>(*env_, item_model_path_.c_str(), session_options);
+    recommendation_session_ = std::make_shared<Ort::Session>(*env_, recommendation_model_path_.c_str(), recommendation_session_options);
+    user_recommendation_session_ = std::make_shared<Ort::Session>(*env_, user_model_path_.c_str(), recommendation_session_options);
+    item_recommendation_session_ = std::make_shared<Ort::Session>(*env_, item_model_path_.c_str(), recommendation_session_options);
 
     // Initialize input and output dimensions
     Ort::AllocatorWithDefaultOptions allocator;
-    auto input_shape = session_->GetInputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
-    auto output_shape = session_->GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
+    auto input_shape = recommendation_session_->GetInputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
+    auto output_shape = recommendation_session_->GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
 
     input_dims_ = input_shape[input_shape.size() - 1];
     output_dims_ = output_shape[output_shape.size() - 1];
 }
 
-embedding_res_t PersonalizationModel::embed_vector(const std::vector<float>& input_vector) {
-    if (input_vector.size() != input_dims_) {
-        nlohmann::json error = {
-            {"message", "Input vector dimension mismatch"},
-            {"expected", input_dims_},
-            {"got", input_vector.size()}
-        };
-        return embedding_res_t(400, error);
-    }
-
-    std::unique_lock<std::mutex> lock(mutex_);
+embedding_res_t PersonalizationModel::embed_recommendation_vectors(const std::vector<std::vector<float>>& input_vector, const std::vector<int64_t>& user_mask) {
+    std::unique_lock<std::mutex> lock(recommendation_mutex_);
+    lock.unlock();
 
     try {
-        Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
-            OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
-
-        std::vector<int64_t> input_shape = {1, static_cast<int64_t>(input_dims_)};
-
-        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-            memory_info, const_cast<float*>(input_vector.data()), input_vector.size(),
-            input_shape.data(), input_shape.size());
-
         Ort::AllocatorWithDefaultOptions allocator;
-        auto input_name = session_->GetInputNameAllocated(0, allocator);
-        auto output_name = session_->GetOutputNameAllocated(0, allocator);
-        const char* input_names[] = {input_name.get()};
-        const char* output_names[] = {output_name.get()};
+        Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+        std::vector<Ort::Value> input_tensors;
+        std::vector<std::vector<int64_t>> input_shapes;
+        std::vector<const char*> input_node_names = {"user_embeddings", "user_mask"};
 
-        auto output_tensors = session_->Run(
-            Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
+        input_shapes.push_back({1, static_cast<int64_t>(input_vector.size()), static_cast<int64_t>(input_vector[0].size())});
+        input_shapes.push_back({1, static_cast<int64_t>(user_mask.size())});
 
-        // Get results
+        std::vector<float> flattened_input;
+        flattened_input.reserve(input_vector.size() * input_vector[0].size());
+        for (const auto& vec : input_vector) {
+            flattened_input.insert(flattened_input.end(), vec.begin(), vec.end());
+        }
+        std::vector<int64_t> user_mask_vector(user_mask.begin(), user_mask.end());
+        input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, flattened_input.data(), flattened_input.size(), input_shapes[0].data(), input_shapes[0].size()));
+        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, user_mask_vector.data(), user_mask_vector.size(), input_shapes[1].data(), input_shapes[1].size()));
+        auto output_node_name = recommendation_session_->GetOutputNameAllocated(0, allocator);
+        std::vector<const char*> output_node_names = {output_node_name.get()};
+
+        lock.lock();
+        auto output_tensors = recommendation_session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
+        lock.unlock();
+
         float* output_data = output_tensors[0].GetTensorMutableData<float>();
-        std::vector<float> embedding(output_data, output_data + output_dims_);
+        auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
+        std::cout << "Output shape: " << shape[0] << " " << shape[1] << std::endl;
+        std::vector<float> embedding;
+        embedding.assign(output_data, output_data + output_dims_);
         return embedding_res_t(embedding);
 
     } catch (const Ort::Exception& e) {
@@ -284,89 +284,105 @@ embedding_res_t PersonalizationModel::embed_vector(const std::vector<float>& inp
         return embedding_res_t(500, error);
     }
 }
-
-std::vector<embedding_res_t> PersonalizationModel::batch_embed_vectors(
-    const std::vector<std::vector<float>>& input_vectors) {
-
-    if (input_vectors.empty()) {
-        return {};
-    }
-
-    std::vector<embedding_res_t> results;
-    results.reserve(input_vectors.size());
-
-    for (const auto& vec : input_vectors) {
-        if (vec.size() != input_dims_) {
-            nlohmann::json error = {
-                {"message", "Input vector dimension mismatch"},
-                {"expected", input_dims_},
-                {"got", vec.size()}
-            };
-            results.push_back(embedding_res_t(400, error));
-            return results;
-        }
-    }
-
-    std::unique_lock<std::mutex> lock(mutex_);
-
-    try {
-        // Flatten input vectors
-        std::vector<float> flat_input;
-        flat_input.reserve(input_vectors.size() * input_dims_);
-        for (const auto& vec : input_vectors) {
-            flat_input.insert(flat_input.end(), vec.begin(), vec.end());
-        }
-
-        Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
-            OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
-
-        std::vector<int64_t> input_shape = {
-            static_cast<int64_t>(input_vectors.size()),
-            static_cast<int64_t>(input_dims_)
-        };
-
-        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-            memory_info, flat_input.data(), flat_input.size(),
-            input_shape.data(), input_shape.size());
-
-        Ort::AllocatorWithDefaultOptions allocator;
-        auto input_name = session_->GetInputNameAllocated(0, allocator);
-        auto output_name = session_->GetOutputNameAllocated(0, allocator);
-        const char* input_names[] = {input_name.get()};
-        const char* output_names[] = {output_name.get()};
-
-        auto output_tensors = session_->Run(
-            Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
-
-        // Get results and reshape
-        float* output_data = output_tensors[0].GetTensorMutableData<float>();
-
-        for (size_t i = 0; i < input_vectors.size(); i++) {
-            std::vector<float> embedding(
-                output_data + (i * output_dims_),
-                output_data + ((i + 1) * output_dims_)
-            );
-            results.push_back(embedding_res_t(embedding));
-        }
-
-        return results;
-
-    } catch (const Ort::Exception& e) {
-        nlohmann::json error = {
-            {"message", "ONNX runtime error"},
-            {"error", e.what()}
-        };
-        results.push_back(embedding_res_t(500, error));
-        return results;
-    }
+std::vector<embedding_res_t> PersonalizationModel::batch_embed_recommendation_vectors(const std::vector<std::vector<std::vector<float>>>& input_vectors, const std::vector<std::vector<uint64_t>>& user_masks) {
+    nlohmann::json error = {
+        {"message", "not implemented"}
+    };
+    return std::vector<embedding_res_t>(input_vectors.size(), embedding_res_t(400, error));
 }
+
+// std::vector<embedding_res_t> PersonalizationModel::batch_embed_recommendation_vectors(
+//     const std::vector<std::vector<std::vector<float>>>& input_vectors,
+//     const std::vector<std::vector<uint64_t>>& user_masks) {
+//
+//     if (input_vectors.empty()) {
+//         return {};
+//     }
+//
+//     if (input_vectors.size() != user_masks.size()) {
+//         std::vector<embedding_res_t> results;
+//         nlohmann::json error = {
+//             {"message", "Input vectors and user masks size mismatch"},
+//             {"input_vectors_size", input_vectors.size()},
+//             {"user_masks_size", user_masks.size()}
+//         };
+//         results.push_back(embedding_res_t(400, error));
+//         return results;
+//     }
+//
+//     std::vector<embedding_res_t> results;
+//     results.reserve(input_vectors.size());
+//
+//     // Validate input dimensions
+//     for (size_t i = 0; i < input_vectors.size(); i++) {
+//         for (const auto& vec : input_vectors[i]) {
+//             if (vec.size() != input_dims_) {
+//                 nlohmann::json error = {
+//                     {"message", "Input vector dimension mismatch"},
+//                     {"expected", input_dims_},
+//                     {"got", vec.size()}
+//                 };
+//                 results.push_back(embedding_res_t(400, error));
+//                 return results;
+//             }
+//         }
+//     }
+//
+//     std::unique_lock<std::mutex> lock(recommendation_mutex_);
+//
+//     try {
+//         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
+//             OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+//
+//         for (size_t i = 0; i < input_vectors.size(); i++) {
+//             std::vector<int64_t> input_shape = {1, static_cast<int64_t>(input_dims_)};
+//
+//             Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+//                 memory_info, const_cast<float*>(input_vectors[i][0].data()), input_vectors[i][0].size(),
+//                 input_shape.data(), input_shape.size());
+//
+//             Ort::Value user_mask_tensor = Ort::Value::CreateTensor<uint64_t>(
+//                 memory_info, const_cast<uint64_t*>(user_masks[i].data()), user_masks[i].size(),
+//                 input_shape.data(), input_shape.size());
+//
+//             Ort::AllocatorWithDefaultOptions allocator;
+//             auto input_name = recommendation_session_->GetInputNameAllocated(0, allocator);
+//             auto mask_name = recommendation_session_->GetInputNameAllocated(1, allocator);
+//             auto output_name = recommendation_session_->GetOutputNameAllocated(0, allocator);
+//             const char* input_names[] = {input_name.get(), mask_name.get()};
+//             const char* output_names[] = {output_name.get()};
+//
+//             Ort::Value input_tensors[] = {input_tensor, user_mask_tensor};
+//             auto output_tensors = recommendation_session_->Run(
+//                 Ort::RunOptions{nullptr}, input_names, input_tensors, 2, output_names, 1);
+//
+//             float* output_data = output_tensors[0].GetTensorMutableData<float>();
+//             std::vector<std::vector<float>> embeddings;
+//             embeddings.resize(input_vectors[i].size());
+//             for (size_t j = 0; j < input_vectors[i].size(); j++) {
+//                 embeddings[j].assign(output_data + (j * output_dims_), output_data + ((j + 1) * output_dims_));
+//             }
+//             results.push_back(embedding_res_t(embeddings));
+//         }
+//
+//         return results;
+//
+//     } catch (const Ort::Exception& e) {
+//         nlohmann::json error = {
+//             {"message", "ONNX runtime error"},
+//             {"error", e.what()}
+//         };
+//         results.push_back(embedding_res_t(500, error));
+//         return results;
+//     }
+// }
 
 Option<bool> PersonalizationModel::validate_model_io() {
     try {
         Ort::AllocatorWithDefaultOptions allocator;
 
         // Validate input tensor
-        auto input_type_info = session_->GetInputTypeInfo(0);
+        auto input_type_info = recommendation_session_->GetInputTypeInfo(0);
         auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
         auto input_shape = input_tensor_info.GetShape();
 
@@ -375,7 +391,7 @@ Option<bool> PersonalizationModel::validate_model_io() {
         }
 
         // Validate output tensor
-        auto output_type_info = session_->GetOutputTypeInfo(0);
+        auto output_type_info = recommendation_session_->GetOutputTypeInfo(0);
         auto output_tensor_info = output_type_info.GetTensorTypeAndShapeInfo();
         auto output_shape = output_tensor_info.GetShape();
 
@@ -384,7 +400,7 @@ Option<bool> PersonalizationModel::validate_model_io() {
         }
 
         // Validate user input tensor
-        auto user_input_type_info = user_session_->GetInputTypeInfo(0);
+        auto user_input_type_info = user_recommendation_session_->GetInputTypeInfo(0);
         auto user_input_tensor_info = user_input_type_info.GetTensorTypeAndShapeInfo();
         auto user_input_shape = user_input_tensor_info.GetShape();
 
@@ -393,7 +409,7 @@ Option<bool> PersonalizationModel::validate_model_io() {
         }
 
         // Validate user output tensor
-        auto user_output_type_info = user_session_->GetOutputTypeInfo(0);
+        auto user_output_type_info = user_recommendation_session_->GetOutputTypeInfo(0);
         auto user_output_tensor_info = user_output_type_info.GetTensorTypeAndShapeInfo();
         auto user_output_shape = user_output_tensor_info.GetShape();
 
@@ -402,7 +418,7 @@ Option<bool> PersonalizationModel::validate_model_io() {
         }
 
         // Validate item input tensor
-        auto item_input_type_info = item_session_->GetInputTypeInfo(0);
+        auto item_input_type_info = item_recommendation_session_->GetInputTypeInfo(0);
         auto item_input_tensor_info = item_input_type_info.GetTensorTypeAndShapeInfo();
         auto item_input_shape = item_input_tensor_info.GetShape();
 
@@ -411,7 +427,7 @@ Option<bool> PersonalizationModel::validate_model_io() {
         }
         
         // Validate item output tensor
-        auto item_output_type_info = item_session_->GetOutputTypeInfo(0);
+        auto item_output_type_info = item_recommendation_session_->GetOutputTypeInfo(0);
         auto item_output_tensor_info = item_output_type_info.GetTensorTypeAndShapeInfo();
         auto item_output_shape = item_output_tensor_info.GetShape();
 
