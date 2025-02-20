@@ -22,6 +22,8 @@ fi
 RPM_ARCH=$ARCH
 if [ "$ARCH" == "amd64" ]; then
   RPM_ARCH="x86_64"
+elif [ "$ARCH" == "arm64" ]; then
+  RPM_ARCH="aarch64"
 fi
 
 set -ex
