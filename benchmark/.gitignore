@@ -4,3 +4,4 @@ dist
 node_modules
 binaries
 .env
+reproduction-guide.md
