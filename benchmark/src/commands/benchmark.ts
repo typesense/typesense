@@ -280,34 +280,35 @@ class Benchmarks {
 
   private handleResults(results: { searchResults: FormattedSearchResult[] }): ResultAsync<void, { message: string }> {
     const { searchResults } = results;
-
-    const failingRows = searchResults.filter((row) => {
+    const failingBenchmarks = searchResults.filter((row) => {
       const threshold = this.percentagesForFailure[row.scenario][`${row.vus}vu`];
       return row.percentageChange > threshold;
     });
+    const passingBenchmarks = searchResults.filter((row) => !failingBenchmarks.includes(row));
 
-    if (failingRows.length > 0) {
-      const failures = failingRows
-        .map((row) => {
-          const threshold = this.percentagesForFailure[row.scenario][`${row.vus}vu`];
-          return `${row.metric} for ${row.displayVariable || `${row.scenario} (${row.vus}vu)`} changed by ${row.formattedPercentageChange} (threshold: ${threshold}%)`;
-        })
-        .join("\n");
+    const baseParams = {
+      passingBenchmarks,
+      failingBenchmarks,
+      apiKey: this.apiKey,
+    };
+    const params = failingBenchmarks.length > 0 ? { ...baseParams, commitHash: this.commitHashes[1] } : baseParams;
 
-      return this.reproductionService
-        .generateReproductionFile({
-          failingResults: failingRows,
-          apiKey: this.apiKey,
-          commitHash: this.commitHashes[1],
-        })
-        .andThen((filePath) =>
-          errAsync({
-            message: `Performance degradation exceeded configured thresholds:\n${failures}\nSee \`${filePath}\` for more information`,
-          }),
-        );
-    }
+    return this.reproductionService.generateReproductionFile(params).andThen((filePath) => {
+      if (failingBenchmarks.length > 0) {
+        const failures = failingBenchmarks
+          .map((row) => {
+            const threshold = this.percentagesForFailure[row.scenario][`${row.vus}vu`];
+            return `${row.metric} for ${row.displayVariable || `${row.scenario} (${row.vus}vu)`} changed by ${row.formattedPercentageChange} (threshold: ${threshold}%)`;
+          })
+          .join("\n");
 
-    return okAsync(undefined);
+        return errAsync({
+          message: `Performance degradation exceeded configured thresholds:\n${failures}\nSee \`${filePath}\` for more information`,
+        });
+      }
+
+      return okAsync(undefined);
+    });
   }
 
   private getComparisonResults(): ResultAsync<BenchmarkResults, { message: string; commitHash?: string }> {
