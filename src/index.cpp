@@ -3756,6 +3756,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 // Reciprocal rank fusion
                 // Score is  sum of (1 / rank_of_document) * WEIGHT from each list (text match and vector search)
                 auto size = (group_limit != 0) ? kvs.size() : topster->size;
+                int64_t text_rank = 0;
+                int64_t last_text_match_score = INT64_MAX;
                 for(uint32_t i = 0; i < size; i++) {
                     auto result = (group_limit != 0) ? kvs[i] : topster->getKV(i);
                     if(result->match_score_index < 0 || result->match_score_index > 2) {
@@ -3764,7 +3766,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     // (1 / rank_of_document) * WEIGHT)
 
                     result->text_match_score = result->scores[result->match_score_index];
-                    result->scores[result->match_score_index] = float_to_int64_t((1.0 / (i + 1)) * TEXT_MATCH_WEIGHT);
+                    if(result->text_match_score < last_text_match_score) {
+                        ++text_rank;
+                    }
+                    last_text_match_score = result->text_match_score;
+                    result->scores[result->match_score_index] = float_to_int64_t((1.0 / (text_rank)) * TEXT_MATCH_WEIGHT);
                 }
 
                 std::vector<uint32_t> vec_search_ids;  // list of IDs found only in vector search
