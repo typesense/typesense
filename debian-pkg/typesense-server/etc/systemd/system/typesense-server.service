@@ -5,7 +5,7 @@ Requires=network.target remote-fs.target
 After=network.target remote-fs.target
 
 [Service]
-ExecStart=/usr/bin/typesense-server --config=/etc/typesense/typesense-server.ini
+ExecStart=/usr/bin/typesense-server --config=/etc/typesense/typesense.ini
 Restart=on-failure
 LimitNOFILE=64000
 LimitMEMLOCK=infinity
