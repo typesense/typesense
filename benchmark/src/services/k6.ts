@@ -3,6 +3,7 @@ import type { TypesenseProcessManager } from "@/services/typesense-process";
 import type { ErrorWithMessage } from "@/utils/error";
 import type { IDockerComposeResult } from "docker-compose";
 import type { Ora } from "ora";
+import type { CollectionCreateSchema } from "typesense/lib/Typesense/Collections";
 
 import { run } from "docker-compose";
 import { errAsync, okAsync, ResultAsync } from "neverthrow";
@@ -42,7 +43,24 @@ interface LoadTestConfig {
 export class K6Benchmarks {
   private readonly config: LoadTestConfig;
   private readonly isInCi: boolean;
-  private static readonly COLLECTION_NAME = "songs";
+  public static readonly COLLECTION_NAME = "songs";
+  public static readonly DATASET_URL = "https://dl.typesense.org/datasets/musicbrainz-1M-songs.jsonl.tar.gz";
+  public static readonly COLLECTION_SCHEMA: CollectionCreateSchema = {
+    name: K6Benchmarks.COLLECTION_NAME,
+    fields: [
+      { name: "album_name", type: "string" },
+      { name: "country", type: "string", facet: true },
+      { name: "genres", type: "string[]", facet: true },
+      { name: "primary_artist_name", type: "string", facet: true },
+      { name: "release_date", type: "int64" },
+      { name: "release_decade", type: "string", facet: true },
+      { name: "release_group_types", type: "string[]", facet: true },
+      { name: "title", type: "string" },
+      { name: "track_id", type: "string" },
+      { name: "urls", type: "object[]", optional: true },
+    ],
+    enable_nested_fields: true,
+  };
   public static readonly REQUIRED_SERVICES = ["grafana", "influxdb"];
 
   constructor(config: LoadTestConfig) {
@@ -178,26 +196,9 @@ export class K6Benchmarks {
       });
     }
 
-    return this.config.typesenseProcessManager
-      .createCollection(process, {
-        name: K6Benchmarks.COLLECTION_NAME,
-        fields: [
-          { name: "album_name", type: "string" },
-          { name: "country", type: "string", facet: true },
-          { name: "genres", type: "string[]", facet: true },
-          { name: "primary_artist_name", type: "string", facet: true },
-          { name: "release_date", type: "int64" },
-          { name: "release_decade", type: "string", facet: true },
-          { name: "release_group_types", type: "string[]", facet: true },
-          { name: "title", type: "string" },
-          { name: "track_id", type: "string" },
-          { name: "urls", type: "object[]", optional: true },
-        ],
-        enable_nested_fields: true,
-      })
-      .map(() => {
-        this.config.spinner.succeed("Benchmark collection created");
-      });
+    return this.config.typesenseProcessManager.createCollection(process, K6Benchmarks.COLLECTION_SCHEMA).map(() => {
+      this.config.spinner.succeed("Benchmark collection created");
+    });
   }
 
   private getSearchBenchmarkPath(): ResultAsync<string, ErrorWithMessage> {
