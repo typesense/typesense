@@ -2269,6 +2269,21 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"].get<std::string>());
 
+    auto customers_coll = collectionManager.get_collection_unsafe("Customers");
+    customers_coll->remove("0");
+    customers_coll->remove("2");
+    // product_a has no references now. `get_filter_ids` should still include reference of product_b in the result.
+    filter_result_t filter_result;
+    collectionManager.get_collection_unsafe("Products")->get_filter_ids("id:* || $Customers(id:*)", filter_result);
+    ASSERT_NE(nullptr, filter_result.coll_to_references);
+    ASSERT_EQ(2, filter_result.count);
+    ASSERT_EQ(0, filter_result.docs[0]);
+    ASSERT_TRUE(filter_result.coll_to_references[0].empty());
+
+    ASSERT_EQ(1, filter_result.docs[1]);
+    ASSERT_EQ(1, filter_result.coll_to_references[1].count("Customers"));
+    ASSERT_EQ(2, filter_result.coll_to_references[1]["Customers"].count); // Doc 1 and 3 reference product_b.
+
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
 }
