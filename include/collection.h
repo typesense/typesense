@@ -169,6 +169,14 @@ struct collection_search_args_t {
 
     static constexpr auto VALIDATE_FIELD_NAMES = "validate_field_names";
 
+    static constexpr auto PERSONALIZATION_USER_ID = "personalization_user_id";
+    static constexpr auto PERSONALIZATION_MODEL_ID = "personalization_model_id";
+    static constexpr auto PERSONALIZATION_TYPE = "personalization_type";
+    static constexpr auto PERSONALIZATION_USER_FIELD = "personalization_user_field";
+    static constexpr auto PERSONALIZATION_ITEM_FIELD = "personalization_item_field";
+    static constexpr auto PERSONALIZATION_EVENT_NAME = "personalization_event_name";
+    static constexpr auto PERSONALIZATION_N_EVENTS = "personalization_n_events";
+
     std::string raw_query;
     std::vector<std::string> search_fields;
     std::string filter_query;
@@ -243,6 +251,13 @@ struct collection_search_args_t {
     bool rerank_hybrid_matches;
     bool enable_analytics;
     bool validate_field_names;
+    std::string personalization_user_id;
+    std::string personalization_model_id;
+    std::string personalization_type;
+    std::string personalization_user_field;
+    std::string personalization_item_field;
+    std::string personalization_event_name;
+    size_t personalization_n_events;
 
     std::vector<std::vector<KV*>> result_group_kvs{};
 
@@ -272,7 +287,10 @@ struct collection_search_args_t {
                              std::string override_tags, std::string voice_query, bool enable_typos_for_numerical_tokens,
                              bool enable_synonyms, bool synonym_prefix, size_t synonym_num_typos, bool enable_lazy_filter,
                              bool enable_typos_for_alpha_numerical_tokens, size_t max_filter_by_candidates,
-                             bool rerank_hybrid_matches, bool enable_analytics, bool validate_field_names) :
+                             bool rerank_hybrid_matches, bool enable_analytics, bool validate_field_names,
+                             std::string personalization_user_id, std::string personalization_model_id,
+                             std::string personalization_type, std::string personalization_user_field,
+                             std::string personalization_item_field, std::string personalization_event_name, size_t personalization_n_events) :
             raw_query(std::move(raw_query)), search_fields(std::move(search_fields)), filter_query(std::move(filter_query)),
             facet_fields(std::move(facet_fields)), sort_fields(std::move(sort_fields)),
             num_typos(std::move(num_typos)), per_page(per_page), page(page), token_order(token_order),
@@ -299,7 +317,10 @@ struct collection_search_args_t {
             override_tags(std::move(override_tags)), voice_query(std::move(voice_query)), enable_typos_for_numerical_tokens(enable_typos_for_numerical_tokens),
             enable_synonyms(enable_synonyms), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos), enable_lazy_filter(enable_lazy_filter),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens), max_filter_by_candidates(max_filter_by_candidates),
-            rerank_hybrid_matches(rerank_hybrid_matches), enable_analytics(enable_analytics), validate_field_names(validate_field_names) {}
+            rerank_hybrid_matches(rerank_hybrid_matches), enable_analytics(enable_analytics), validate_field_names(validate_field_names),
+            personalization_user_id(personalization_user_id), personalization_model_id(personalization_model_id),
+            personalization_type(personalization_type), personalization_user_field(personalization_user_field),
+            personalization_item_field(personalization_item_field), personalization_event_name(personalization_event_name), personalization_n_events(personalization_n_events) {}
 
     collection_search_args_t() = default;
 
@@ -631,6 +652,16 @@ private:
                                                  const size_t remote_embedding_num_tries,
                                                  size_t& per_page) const;
 
+    Option<bool> parse_and_validate_personalization_query(const std::string& personalization_user_id,
+                                                          const std::string& personalization_model_id,
+                                                          const std::string& personalization_type,
+                                                          const std::string& personalization_user_field,
+                                                          const std::string& personalization_item_field,
+                                                          const size_t& personalization_n_events,
+                                                          const std::string& personalization_event_name,
+                                                          vector_query_t& vector_query,
+                                                          bool& is_wildcard_query) const;
+
     Option<bool> init_index_search_args_with_lock(collection_search_args_t& coll_args,
                                                   std::unique_ptr<search_args>& index_args,
                                                   std::string& query,
@@ -918,7 +949,14 @@ public:
                                   const size_t& max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES,
                                   bool rerank_hybrid_matches = false,
                                   bool validate_field_names = true,
-                                  bool enable_analytics = true) const;
+                                  bool enable_analytics = true,
+                                  std::string personalization_user_id = "",
+                                  std::string personalization_model_id = "",
+                                  std::string personalization_type = "",
+                                  std::string personalization_user_field = "",
+                                  std::string personalization_item_field = "",
+                                  std::string personalization_event_name = "",
+                                  size_t personalization_n_events = 0) const;
 
     static Option<bool> do_union(const std::vector<uint32_t>& collection_ids,
                                  std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,

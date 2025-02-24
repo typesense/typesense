@@ -46,6 +46,7 @@ Option<nlohmann::json> PersonalizationModelManager::add_model(nlohmann::json& mo
     } catch (const std::exception& e) {
         LOG(ERROR) << "Error creating model embedder for model: " << model_id << ", error: " << e.what();
         return Option<nlohmann::json>(500, std::string("Error creating model embedder: ") + e.what());
+        models.erase(model_id);
     }
 
     return Option<nlohmann::json>(model_json);

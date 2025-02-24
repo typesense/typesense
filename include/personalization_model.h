@@ -25,8 +25,7 @@ public:
     static Option<nlohmann::json> update_model(const std::string& model_id, const nlohmann::json& model_json, const std::string model_data);
     static Option<bool> delete_model(const std::string& model_id);
 
-    size_t get_input_dims() const { return input_dims_; }
-    size_t get_output_dims() const { return output_dims_; }
+    size_t get_num_dims() const { return num_dims_; }
     embedding_res_t embed_recommendations(const std::vector<std::vector<float>>& input_vector, const std::vector<int64_t>& user_mask);
     embedding_res_t embed_user(const std::vector<std::string>& features);
     embedding_res_t embed_item(const std::vector<std::string>& features);
@@ -41,8 +40,7 @@ private:
     std::string user_model_path_;
     std::string item_model_path_;
     std::string model_id_;
-    size_t input_dims_;
-    size_t output_dims_;
+    size_t num_dims_;
     std::shared_ptr<Ort::Env> env_;
     std::shared_ptr<Ort::Session> recommendation_session_;
     std::shared_ptr<Ort::Session> user_session_;
