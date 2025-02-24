@@ -21,6 +21,7 @@ import { searchScenarios } from "@/benchmarks/k6-utils";
 import { ServiceContainer } from "@/services/container";
 import { DEFAULT_TYPESENSE_GIT_URL } from "@/services/git";
 import { K6Benchmarks } from "@/services/k6";
+import { ReproductionService } from "@/services/reproduction";
 import { TypesenseProcessManager } from "@/services/typesense-process";
 import { toErrorWithMessage } from "@/utils/error";
 import { delay } from "@/utils/execa";
@@ -45,7 +46,7 @@ interface BaseFormattedResult {
   displayVariable: string;
 }
 
-interface FormattedSearchResult extends BaseFormattedResult {
+export interface FormattedSearchResult extends BaseFormattedResult {
   scenario: ScenarioNames;
   vus: 50 | 100;
 }
@@ -196,6 +197,7 @@ class Benchmarks {
   private readonly port: number;
   private readonly spinner: Ora;
   private readonly benchmarkGroupsByCommitHash: Record<string, BenchmarkGroup>;
+  private readonly reproductionService: ReproductionService;
 
   constructor(options: {
     typesenseProcessManagers: [TypesenseProcessManager, TypesenseProcessManager];
@@ -220,6 +222,7 @@ class Benchmarks {
     this.commitHashes = options.commitHashes;
     this.isInCi = Boolean(process.env.CI) || false;
     this.percentagesForFailure = options.failAtPercentage;
+    this.reproductionService = new ReproductionService();
 
     this.benchmarkGroupsByCommitHash = Object.fromEntries(
       this.commitHashes.map((hash, index) => [
@@ -277,26 +280,35 @@ class Benchmarks {
 
   private handleResults(results: { searchResults: FormattedSearchResult[] }): ResultAsync<void, { message: string }> {
     const { searchResults } = results;
-
-    const failingRows = searchResults.filter((row) => {
+    const failingBenchmarks = searchResults.filter((row) => {
       const threshold = this.percentagesForFailure[row.scenario][`${row.vus}vu`];
       return row.percentageChange > threshold;
     });
+    const passingBenchmarks = searchResults.filter((row) => !failingBenchmarks.includes(row));
 
-    if (failingRows.length > 0) {
-      const failures = failingRows
-        .map((row) => {
-          const threshold = this.percentagesForFailure[row.scenario][`${row.vus}vu`];
-          return `${row.metric} for ${row.displayVariable || `${row.scenario} (${row.vus}vu)`} changed by ${row.formattedPercentageChange} (threshold: ${threshold}%)`;
-        })
-        .join("\n");
+    const baseParams = {
+      passingBenchmarks,
+      failingBenchmarks,
+      apiKey: this.apiKey,
+    };
+    const params = failingBenchmarks.length > 0 ? { ...baseParams, commitHash: this.commitHashes[1] } : baseParams;
 
-      return errAsync({
-        message: `Performance degradation exceeded configured thresholds:\n${failures}`,
-      });
-    }
+    return this.reproductionService.generateReproductionFile(params).andThen((filePath) => {
+      if (failingBenchmarks.length > 0) {
+        const failures = failingBenchmarks
+          .map((row) => {
+            const threshold = this.percentagesForFailure[row.scenario][`${row.vus}vu`];
+            return `${row.metric} for ${row.displayVariable || `${row.scenario} (${row.vus}vu)`} changed by ${row.formattedPercentageChange} (threshold: ${threshold}%)`;
+          })
+          .join("\n");
 
-    return okAsync(undefined);
+        return errAsync({
+          message: `Performance degradation exceeded configured thresholds:\n${failures}\nSee \`${filePath}\` for more information`,
+        });
+      }
+
+      return okAsync(undefined);
+    });
   }
 
   private getComparisonResults(): ResultAsync<BenchmarkResults, { message: string; commitHash?: string }> {
@@ -808,11 +820,7 @@ class Benchmarks {
 
   private performBenchmarks(commitHashes: string[]) {
     return this.createDataDirectories()
-      .andThen(() =>
-        this.services
-          .get("fs")
-          .downloadTypesenseDataset("https://dl.typesense.org/datasets/musicbrainz-1M-songs.jsonl.tar.gz"),
-      )
+      .andThen(() => this.services.get("fs").downloadTypesenseDataset(K6Benchmarks.DATASET_URL))
       .andThen(() =>
         commitHashes.reduce(
           (promise, commitHash, index) =>

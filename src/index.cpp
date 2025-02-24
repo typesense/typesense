@@ -1845,7 +1845,7 @@ Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root
         return Option(true);
     }
 
-    if (filter_result_iterator.reference.empty()) {
+    if (!filter_result_iterator.result_has_references()) {
         filter_result.count = filter_result_iterator.to_filter_id_array(filter_result.docs);
         return Option(true);
     }

@@ -1095,6 +1095,79 @@ TEST_F(CoreAPIUtilsTest, ExportWithJoin) {
     ASSERT_EQ(140, doc["Customers"][1]["product_price"]);
 }
 
+TEST_F(CoreAPIUtilsTest, ExportWithJoinHavingNoReferences) {
+    auto schema_json =
+            R"({
+                "name": "redemption_codes",
+                "fields": [
+                    {"name": "code", "type": "string"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    schema_json =
+            R"({
+                "name": "transactions",
+                "fields": [
+                    {"name": "redemption_code", "type": "string", "reference": "redemption_codes.code", "optional": true},
+                    {"name": "amount", "type": "int64"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "redemption_code": "1234",
+                "amount": 100
+            })"_json,
+            R"({
+                "amount": 200
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        // The first document is going to fail with the error:
+        // Reference document having `code:= `1234`` not found in the collection `redemption_codes`.
+        // ASSERT_TRUE(add_op.ok());
+    }
+    documents = {
+            R"({
+                "code": "1234"
+            })"_json,
+            R"({
+                "code": "5678"
+            })"_json
+    };
+    auto redemption_codes = collectionManager.get_collection_unsafe("redemption_codes");
+    for (auto const &json: documents) {
+        auto add_op = redemption_codes->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "redemption_codes";
+    req->params["q"] = "*";
+    req->params["filter_by"] = "id:* || $transactions(id:*)";
+    get_export_documents(req, res);
+    std::vector<std::string> res_strs;
+    StringUtils::split(res->body, res_strs, "\n");
+    auto doc = nlohmann::json::parse(res_strs[0]);
+    ASSERT_EQ(2, doc.size());
+    ASSERT_EQ("1234", doc["code"]);
+    doc = nlohmann::json::parse(res_strs[1]);
+    ASSERT_EQ(2, doc.size());
+    ASSERT_EQ("5678", doc["code"]);
+    delete dynamic_cast<export_state_t*>(req->data);
+    req->data = nullptr;
+    res->body.clear();
+}
+
 TEST_F(CoreAPIUtilsTest, TestParseAPIKeyIPFromMetadata) {
     // format <length of api key>:<api key><ip address>
     std::string valid_metadata = "4:abcd127.0.0.1";
