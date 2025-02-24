@@ -150,6 +150,53 @@ std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_end
     }
 }
 
+std::string ReplicationState::hostname2ipstr(const std::string& hostname) {
+    if(hostname.size() > 64) {
+        LOG(ERROR) << "Host name is too long (must be < 64 characters): " << hostname;
+        return "";
+    }
+
+    // Check if this is already an IPv6 address by looking for []
+    if(hostname.find('[') == 0) {
+        return hostname;
+    }
+
+    struct addrinfo hints, *result;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;     // Allow both IPv4 and IPv6
+    hints.ai_socktype = SOCK_STREAM; // TCP
+
+    int status = getaddrinfo(hostname.c_str(), nullptr, &hints, &result);
+    if (status != 0) {
+        LOG(ERROR) << "Unable to resolve host: " << hostname << ", error: " << gai_strerror(status);
+        return hostname; // Return original hostname on error
+    }
+
+    char ip_str[INET6_ADDRSTRLEN];
+    std::string resolved_ip;
+
+    // Get the first resolved address
+    if (result->ai_family == AF_INET) {
+        // IPv4
+        struct sockaddr_in *addr = (struct sockaddr_in *)result->ai_addr;
+        inet_ntop(AF_INET, &(addr->sin_addr), ip_str, INET_ADDRSTRLEN);
+        resolved_ip = ip_str;
+    } else if (result->ai_family == AF_INET6) {
+        // IPv6
+        struct sockaddr_in6 *addr = (struct sockaddr_in6 *)result->ai_addr;
+        inet_ntop(AF_INET6, &(addr->sin6_addr), ip_str, INET6_ADDRSTRLEN);
+        resolved_ip = std::string("[") + ip_str + "]";
+    }
+
+    freeaddrinfo(result);
+
+    if(resolved_ip.empty()) {
+        return hostname; // Return original hostname if resolution didn't produce a valid IP
+    }
+
+    return resolved_ip;
+}
+
 std::string ReplicationState::resolve_node_hosts(const string& nodes_config) {
     std::vector<std::string> final_nodes_vec;
     std::vector<std::string> node_strings;
@@ -171,41 +218,12 @@ std::string ReplicationState::resolve_node_hosts(const string& nodes_config) {
             continue;
         }
 
-        if(node_parts[0].size() > 64) {
-            LOG(ERROR) << "Host name is too long (must be < 64 characters): " << node_parts[0];
+        std::string resolved_ip = hostname2ipstr(node_parts[0]);
+        if(resolved_ip.empty()) {
             final_nodes_vec.emplace_back("");
             continue;
         }
 
-        struct addrinfo hints, *result;
-        memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_UNSPEC;     // Allow both IPv4 and IPv6
-        hints.ai_socktype = SOCK_STREAM; // TCP
-
-        int status = getaddrinfo(node_parts[0].c_str(), nullptr, &hints, &result);
-        if (status != 0) {
-            LOG(ERROR) << "Unable to resolve host: " << node_parts[0] << ", error: " << gai_strerror(status);
-            final_nodes_vec.push_back(node_parts[0] + ":" + node_parts[1] + ":" + node_parts[2]);
-            continue;
-        }
-
-        char ip_str[INET6_ADDRSTRLEN];
-        std::string resolved_ip;
-
-        // Get the first resolved address
-        if (result->ai_family == AF_INET) {
-            // IPv4
-            struct sockaddr_in *addr = (struct sockaddr_in *)result->ai_addr;
-            inet_ntop(AF_INET, &(addr->sin_addr), ip_str, INET_ADDRSTRLEN);
-            resolved_ip = ip_str;
-        } else if (result->ai_family == AF_INET6) {
-            // IPv6
-            struct sockaddr_in6 *addr = (struct sockaddr_in6 *)result->ai_addr;
-            inet_ntop(AF_INET6, &(addr->sin6_addr), ip_str, INET6_ADDRSTRLEN);
-            resolved_ip = std::string("[") + ip_str + "]";
-        }
-
-        freeaddrinfo(result);
         final_nodes_vec.push_back((!resolved_ip.empty() ? resolved_ip : node_parts[0])
             + ":" + node_parts[1] + ":" + node_parts[2]);
     }
@@ -433,8 +451,6 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
             response->set_body(status, api_res);
         } else if(request->http_method == "PATCH") {
             std::string api_res;
-            // route_path* rpath = nullptr;
-            // bool route_found = server->get_route(request->route_hash, &rpath);
             long status = HttpClient::patch_response(url, request->body, api_res, res_headers, 0, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);

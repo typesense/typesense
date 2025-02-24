@@ -8,6 +8,21 @@ namespace {
                                  const std::string& ipv6_version) {
         return result == ipv4_version || result == ipv6_version;
     }
+
+    bool is_ipv4(const std::string& str) {
+        struct sockaddr_in sa;
+        return inet_pton(AF_INET, str.c_str(), &(sa.sin_addr)) != 0;
+    }
+
+    bool is_ipv6_with_brackets(const std::string& str) {
+        if (str.length() < 2 || str[0] != '[' || str[str.length() - 1] != ']') {
+            return false;
+        }
+
+        std::string ipv6 = str.substr(1, str.length() - 2); // Remove [ and ]
+        struct sockaddr_in6 sa;
+        return inet_pton(AF_INET6, ipv6.c_str(), &(sa.sin6_addr)) != 0;
+    }
 }
 
 TEST(RaftServerTest, ResolveNodesConfigWithHostNames) {
@@ -61,5 +76,49 @@ TEST(RaftServerTest, ResolveNodesConfigWithIPv6) {
     if (!ipv6_result.empty()) {
         EXPECT_TRUE(ipv6_result.find('[') == 0);  // Should start with '[' for IPv6
         EXPECT_TRUE(ipv6_result.find("]:8107:8108") != std::string::npos);
+    }
+}
+
+TEST(Hostname2IPStrTest, IPAddresses) {
+    // Test IPv4 addresses - should return unchanged
+    ASSERT_EQ("127.0.0.1", ReplicationState::hostname2ipstr("127.0.0.1"));
+    ASSERT_EQ("192.168.1.1", ReplicationState::hostname2ipstr("192.168.1.1"));
+
+    // Test IPv6 addresses - should return unchanged if already in brackets
+    ASSERT_EQ("[::1]", ReplicationState::hostname2ipstr("[::1]"));
+    ASSERT_EQ("[2001:db8::1]", ReplicationState::hostname2ipstr("[2001:db8::1]"));
+}
+
+TEST(Hostname2IPStrTest, Localhost) {
+    std::string result = ReplicationState::hostname2ipstr("localhost");
+
+    // Should resolve to either 127.0.0.1 or [::1]
+    ASSERT_TRUE(result == "127.0.0.1" || result == "[::1]")
+        << "localhost resolved to: " << result;
+}
+
+TEST(Hostname2IPStrTest, InvalidHostnames) {
+    // Test hostname that's too long (>64 chars)
+    std::string long_hostname(65, 'a');
+    ASSERT_EQ("", ReplicationState::hostname2ipstr(long_hostname));
+
+    // Test non-existent hostname - implementation returns original hostname
+    ASSERT_EQ("non.existent.hostname.local",
+              ReplicationState::hostname2ipstr("non.existent.hostname.local"));
+}
+
+TEST(Hostname2IPStrTest, PublicHostnames) {
+    // Test IPv6-only hostname resolution
+    std::string ipv6_result = ReplicationState::hostname2ipstr("ipv6.test-ipv6.com");
+    if (!ipv6_result.empty() && ipv6_result != "ipv6.test-ipv6.com") {
+        EXPECT_TRUE(is_ipv6_with_brackets(ipv6_result))
+            << "ipv6.test-ipv6.com did not resolve to IPv6: " << ipv6_result;
+    }
+
+    // Test IPv4-only hostname resolution
+    std::string ipv4_result = ReplicationState::hostname2ipstr("ipv4.test-ipv6.com");
+    if (!ipv4_result.empty() && ipv4_result != "ipv4.test-ipv6.com") {
+        EXPECT_TRUE(is_ipv4(ipv4_result))
+            << "ipv4.test-ipv6.com did not resolve to IPv4: " << ipv4_result;
     }
 }

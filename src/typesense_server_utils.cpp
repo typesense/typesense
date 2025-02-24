@@ -337,7 +337,7 @@ butil::EndPoint get_internal_endpoint(const std::string& subnet_cidr, uint32_t p
     // Return endpoint with loopback address if nothing found
     butil::EndPoint loopback;
     auto loopbackAddr = target_family == AF_INET6 ? "[::1]" : "127.0.0.1";
-    butil::str2endpoint(loopbackAddr, 0, &loopback);
+    butil::str2endpoint(loopbackAddr, peering_port, &loopback);
     LOG(WARNING) << "Found no matching interfaces, using loopback address.";
     return loopback;
 }

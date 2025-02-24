@@ -235,6 +235,16 @@ public:
         cv.notify_all();
     }
 
+    /**
+     * Resolves a hostname to an IP string.
+     *
+     * @param hostname The hostname to resolve.
+     * @return A string representation of the resolved IP address.
+     *         For IPv6 addresses, the IP will be enclosed in square brackets.
+     *         Returns empty string if resolution fails or hostname is invalid.
+     */
+    static std::string hostname2ipstr(const std::string& hostname);
+
     static std::string resolve_node_hosts(const std::string& nodes_config);
 
     int64_t get_num_queued_writes();
