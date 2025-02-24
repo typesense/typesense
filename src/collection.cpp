@@ -7742,7 +7742,7 @@ Option<bool> Collection::parse_and_validate_personalization_query(const std::str
     auto mean_embedding = embedding_op.embedding;
 
     vector_query.values = mean_embedding;
-    vector_query.field_name = personalization_user_field; 
+    vector_query.field_name = personalization_item_field;
                                                               
     return Option<bool>(true);
 }
