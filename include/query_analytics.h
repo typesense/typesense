@@ -34,10 +34,11 @@ private:
 
     std::unordered_map<std::string, std::vector<QWithTimestampFilter>> user_prefix_queries;
     std::shared_mutex umutex;
+    bool filter_by_analytics = false;
 
 public:
 
-    QueryAnalytics(size_t k, bool enable_auto_aggregation = true);
+    QueryAnalytics(size_t k, bool enable_auto_aggregation = true, bool filterby_analytics = false);
 
     void add(const std::string& value, const std::string& expanded_key,
              const bool live_query, const std::string& user_id, uint64_t now_ts_us = 0,

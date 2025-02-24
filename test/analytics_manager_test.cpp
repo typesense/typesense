@@ -187,10 +187,10 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithFilterQuery) {
 
     // create a collection to store suggestions
     nlohmann::json suggestions_schema = R"({
-        "name": "top_queries",
+        "name": "top_queries2",
         "fields": [
           {"name": "q", "type": "string" },
-          {"name": "filter_by", "type" : "string"},
+          {"name": "filter_by", "type" : "string", "index": false},
           {"name": "count", "type": "int32" }
         ]
       })"_json;
@@ -207,7 +207,7 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithFilterQuery) {
                 "collections": ["titles"]
             },
             "destination": {
-                "collection": "top_queries"
+                "collection": "top_queries2"
             }
         }
     })"_json;
@@ -218,10 +218,50 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithFilterQuery) {
     analyticsManager.add_suggestion("titles", "c", "cool", true, "1", "Nike*");
 
     auto popularQueries = analyticsManager.get_popular_queries();
-    auto userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
+    auto userQueries = popularQueries["top_queries2"]->get_user_prefix_queries()["1"];
     ASSERT_EQ(1, userQueries.size());
     ASSERT_EQ("cool", userQueries[0].query);
     ASSERT_EQ("Nike*", userQueries[0].filter_by_str);
+
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
+
+    //Now create another collection without adding filter_by field
+    suggestions_schema = R"({
+        "name": "top_queries",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "expand_query": true,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    // add query with filter
+    analyticsManager.add_suggestion("titles", "c", "cool", true, "1", "Nike*");
+
+    popularQueries = analyticsManager.get_popular_queries();
+    userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
+    ASSERT_EQ(1, userQueries.size());
+    ASSERT_EQ("cool", userQueries[0].query);
+    ASSERT_TRUE(userQueries[0].filter_by_str.empty()); // as filter_by field is not added, filters won't be saved even though passed with query
 
     ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
 }
