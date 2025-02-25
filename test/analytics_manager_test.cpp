@@ -203,6 +203,7 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithFilterQuery) {
         "params": {
             "limit": 100,
             "expand_query": true,
+            "enable_filter_analytics": true,
             "source": {
                 "collections": ["titles"]
             },
@@ -225,7 +226,7 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithFilterQuery) {
 
     ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
 
-    //Now create another collection without adding filter_by field
+    //Now create another collection without adding enable_filter_analytics flag
     suggestions_schema = R"({
         "name": "top_queries",
         "fields": [

@@ -43,7 +43,7 @@ void QueryAnalytics::add(const std::string& key, const std::string& expanded_key
 
         auto query = key;
         if(!filter_str.empty()) {
-            query =  "-" + filter_str;
+            query =  query + "-" + filter_str;
         }
         auto it = local_counts.find(query);
 

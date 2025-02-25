@@ -181,7 +181,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
         }
     }
 
-    bool filter_by_analytics = (coll != nullptr && coll->contains_field("filter_by"));
+    bool filter_by_analytics = (params.contains("enable_filter_analytics") && params["enable_filter_analytics"] == true);
 
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
         QueryAnalytics* popularQueries = new QueryAnalytics(limit, enable_auto_aggregation, filter_by_analytics);
