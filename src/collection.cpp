@@ -2788,11 +2788,11 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             size_t block_len = num_buckets > 0 ? (max_kvs_bucketed / num_buckets) : bucket_size;
             size_t i = 0;
             while(i < max_kvs_bucketed) {
-                int64_t anchor_score = raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index];
                 size_t j = 0;
                 while(j < block_len && i+j < max_kvs_bucketed) {
                     result_scores[raw_result_kvs[i+j][0]->key] = raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index];
-                    raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index] = anchor_score;
+                    // use the bucket sequence as the sorting order (descending)
+                    raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index] = -i;
                     j++;
                 }
 
