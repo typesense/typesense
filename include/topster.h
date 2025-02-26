@@ -8,7 +8,7 @@
 #include <field.h>
 #include <count_min_sketch.h>
 #include "filter_result_iterator.h"
-#include "hll/distinct_counter.h"
+#include "loglogbeta.h"
 
 struct group_found_params_t {
     int8_t sort_index = -1;
@@ -240,7 +240,8 @@ struct Topster {
 
     // For estimating the count of groups identified by `distinct_key`.
     bool should_count_distinct;
-    hyperloglog_hip::distinct_counter<5> hyperloglog_counter = hyperloglog_hip::distinct_counter<5>(12);
+    std::unique_ptr<LogLogBeta> loglog_counter;
+    size_t aggregate_counter = 0;
 
     // For estimating the size of each group in the first pass of group_by. We'll have the exact size of each group in
     // the second pass.
@@ -272,6 +273,10 @@ struct Topster {
         }
 
         should_group_count = is_group_by_first_pass && group_found_params.sort_index > -1;
+
+        if (is_group_by_first_pass && should_count_distinct) {
+            loglog_counter.reset(new LogLogBeta());
+        }
     }
 
     ~Topster() {
@@ -325,7 +330,7 @@ struct Topster {
 
         if(!is_group_by_second_pass && less_than_min_heap) {
             if (is_group_by_first_pass && should_count_distinct) {
-                hyperloglog_counter.insert(get_distinct_key(kv));
+                loglog_counter->add(std::to_string(get_distinct_key(kv)));
             }
             // for non-distinct or first group_by pass, if incoming value is smaller than min-heap ignore
             return 0;
@@ -386,7 +391,7 @@ struct Topster {
                 map.erase(is_group_by_first_pass ? get_distinct_key(kvs[heap_op_index]) : get_key(kvs[heap_op_index]));
             } else {  // not duplicate
                 if (is_group_by_first_pass && should_count_distinct) {
-                    hyperloglog_counter.insert(key);
+                    loglog_counter->add(std::to_string(key));
                 }
 
                 if(size < MAX_SIZE) {
@@ -469,7 +474,15 @@ struct Topster {
     }
 
     size_t getGroupsCount() {
-        return hyperloglog_counter.count();
+        return std::max(aggregate_counter, loglog_counter != nullptr ? loglog_counter->cardinality() : 0);
+    }
+
+    void mergeGroupsCount(Topster& topster) {
+        if (loglog_counter == nullptr) {
+            loglog_counter = std::move(topster.loglog_counter);
+            return;
+        }
+        loglog_counter->merge(*topster.loglog_counter.get());
     }
 };
 

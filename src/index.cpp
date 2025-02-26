@@ -1722,6 +1722,8 @@ void Index::aggregate_topster(Topster<KV>* agg_topster, Topster<KV>* index_topst
         for(const auto& map_kv: index_topster->map) {
             agg_topster->add(map_kv.second);
         }
+
+        agg_topster->mergeGroupsCount(*index_topster);
     }
 }
 
@@ -6277,7 +6279,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
         searched_queries.push_back({});
 
-        topsters[thread_id] = new Topster<KV>(topster->MAX_SIZE, topster->distinct, is_group_by_first_pass, false,
+        topsters[thread_id] = new Topster<KV>(topster->MAX_SIZE, topster->distinct, is_group_by_first_pass, true,
                                               topster->group_found_params);
         auto& compute_sort_score_status = compute_sort_score_statuses[thread_id] = nullptr;
         missing_value_ids[thread_id] = new std::set<uint32_t>();
@@ -6366,6 +6368,8 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
     search_cutoff = parent_search_cutoff || timed_out_before_processing ||
                         filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
+    // loglog_counter for intermediate topsters has already been initialized.
+    topster->should_count_distinct = false;
     for(size_t thread_id = 0; thread_id < num_processed; thread_id++) {
         if (compute_sort_score_statuses[thread_id] != nullptr) {
             auto& status = compute_sort_score_statuses[thread_id];

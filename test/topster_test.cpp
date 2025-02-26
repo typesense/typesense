@@ -259,5 +259,5 @@ TEST(TopsterTest, DistinctIntValues) {
     }
 
     ASSERT_TRUE(dist_topster_first_pass.group_kv_map.empty());
-    ASSERT_EQ(10, dist_topster_first_pass.hyperloglog_counter.count());
+    ASSERT_EQ(10, dist_topster_first_pass.loglog_counter->cardinality());
 }
