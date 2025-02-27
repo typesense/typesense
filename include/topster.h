@@ -4,9 +4,10 @@
 #include <climits>
 #include <cstdio>
 #include <algorithm>
+#include <memory>
 #include <unordered_map>
-#include <field.h>
-#include <count_min_sketch.h>
+#include "field.h"
+#include "count_min_sketch.h"
 #include "filter_result_iterator.h"
 #include "loglogbeta.h"
 
@@ -233,30 +234,28 @@ struct Topster {
 
     std::unordered_map<uint64_t, T*> map;
 
-    bool is_group_by_first_pass;
     size_t distinct;
     spp::sparse_hash_set<uint64_t> group_doc_seq_ids;
     spp::sparse_hash_map<uint64_t, Topster<T, get_key, get_distinct_key, is_greater, is_smaller>*> group_kv_map;
 
     // For estimating the count of groups identified by `distinct_key`.
-    bool should_count_distinct;
+    bool is_group_by_first_pass;
     std::unique_ptr<LogLogBeta> loglog_counter;
     size_t aggregate_counter = 0;
 
     // For estimating the size of each group in the first pass of group_by. We'll have the exact size of each group in
-    // the second pass.
+    // the second pass. Only required when `sort_by: _group_found` is mentioned.
     bool should_group_count;
     group_found_params_t group_found_params;
-    CountMinSketch count_min = CountMinSketch(0.005, 0.01);
+    std::unique_ptr<CountMinSketch> count_min;
 
-    explicit Topster(size_t capacity): Topster(capacity, 0, false, false) {
+    explicit Topster(size_t capacity): Topster(capacity, 0, false) {
     }
 
-    explicit Topster(size_t capacity, size_t distinct, bool is_group_by_first_pass, bool should_count_distinct,
+    explicit Topster(size_t capacity, size_t distinct, bool is_group_by_first_pass,
                      const group_found_params_t& group_found_params = {}) :
                         MAX_SIZE(capacity), size(0), distinct(distinct),
                         is_group_by_first_pass(is_group_by_first_pass),
-                        should_count_distinct(should_count_distinct),
                         group_found_params(group_found_params) {
         // we allocate data first to get a memory block whose indices are then assigned to `kvs`
         // we use separate **kvs for easier pointer swaps
@@ -272,10 +271,13 @@ struct Topster {
             kvs[i] = &data[i];
         }
 
-        should_group_count = is_group_by_first_pass && group_found_params.sort_index > -1;
+        if (is_group_by_first_pass) {
+            loglog_counter = std::make_unique<LogLogBeta>();
+        }
 
-        if (is_group_by_first_pass && should_count_distinct) {
-            loglog_counter.reset(new LogLogBeta());
+        should_group_count = is_group_by_first_pass && group_found_params.sort_index > -1;
+        if (should_group_count) {
+            count_min = std::make_unique<CountMinSketch>(0.005, 0.01);
         }
     }
 
@@ -310,10 +312,10 @@ struct Topster {
 
         if (should_group_count) {
             const auto& key = get_distinct_key(kv);
-            count_min.update(key, get_group_found_value(kv, group_found_params));
+            count_min->update(key, get_group_found_value(kv, group_found_params));
 
             group_found_params_t const& params = {group_found_params.sort_index, group_found_params.sort_order,
-                                                        count_min.estimate(key)};
+                                                        count_min->estimate(key)};
             set_group_found_value(kv, params);
 
             const auto& found_it = map.find(key);
@@ -329,7 +331,7 @@ struct Topster {
         const bool& is_group_by_second_pass = distinct && !is_group_by_first_pass;
 
         if(!is_group_by_second_pass && less_than_min_heap) {
-            if (is_group_by_first_pass && should_count_distinct) {
+            if (is_group_by_first_pass) {
                 loglog_counter->add(std::to_string(get_distinct_key(kv)));
             }
             // for non-distinct or first group_by pass, if incoming value is smaller than min-heap ignore
@@ -352,8 +354,7 @@ struct Topster {
             if(kvs_it != group_kv_map.end()) {
                 kvs_it->second->add(kv);
             } else {
-                auto g_topster = new Topster<T, get_key, get_distinct_key, is_greater, is_smaller>(distinct, 0, false,
-                                                                                                   false);
+                auto g_topster = new Topster<T, get_key, get_distinct_key, is_greater, is_smaller>(distinct, 0, false);
                 g_topster->add(kv);
                 group_kv_map.insert({kv->distinct_key, g_topster});
             }
@@ -390,7 +391,7 @@ struct Topster {
                 heap_op_index = existing_kv->array_index;
                 map.erase(is_group_by_first_pass ? get_distinct_key(kvs[heap_op_index]) : get_key(kvs[heap_op_index]));
             } else {  // not duplicate
-                if (is_group_by_first_pass && should_count_distinct) {
+                if (is_group_by_first_pass) {
                     loglog_counter->add(std::to_string(key));
                 }
 

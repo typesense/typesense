@@ -1,14 +1,15 @@
+#pragma once
+
+#include <cmath>
+#include <ctime>
+#include <cstdint>
+
 /**
     Daniel Alabi
     Count-Min Sketch Implementation based on paper by
     Muthukrishnan and Cormode, 2004
     Source: https://github.com/alabid/countminsketch
 **/
-
-#include <cmath>
-#include <ctime>
-#include <cstdint>
-
 class CountMinSketch {
 private:
     uint32_t w, d;

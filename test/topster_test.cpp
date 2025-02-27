@@ -179,7 +179,7 @@ TEST(TopsterTest, MaxFloatValues) {
 }
 
 TEST(TopsterTest, DistinctIntValues) {
-    Topster<KV> dist_topster(5, 2, false, false);
+    Topster<KV> dist_topster(5, 2, false);
 
     struct {
         uint16_t query_index;
@@ -236,7 +236,7 @@ TEST(TopsterTest, DistinctIntValues) {
         }
     }
 
-    Topster<KV> dist_topster_first_pass(7, 2, true, true);
+    Topster<KV> dist_topster_first_pass(7, 2, true);
 
     for(int i = 0; i < 14; i++) {
         int64_t scores[3];

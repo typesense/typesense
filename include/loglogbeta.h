@@ -11,6 +11,7 @@
 #include <algorithm>
 
 // ---------------------------
+// Adapted from: https://github.com/seiflotfy/loglogbeta
 // The LogLogBeta Sketch Class
 // ---------------------------
 class LogLogBeta {
@@ -95,7 +96,6 @@ public:
 
     /**
      * Add a byte sequence (e.g., string) by hashing it first, then calling addHash().
-     * Here, we use std::hash<std::string> for demonstration. Substitute your own hash if desired.
      */
     void add(const std::string& value) {
         uint64_t h = StringUtils::hash_wy(value.c_str(), value.size());

@@ -3373,8 +3373,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         topster_size = std::min<size_t>(topster_size, num_seq_ids());
     }
     topster_size = std::max((size_t)1, topster_size);  // needs to be atleast 1 since scoring is mandatory
-    topster = new Topster<KV>(topster_size, group_limit, is_group_by_first_pass, true, group_found_params);
-    curated_topster = new Topster<KV>(topster_size, group_limit, is_group_by_first_pass, false);
+    topster = new Topster<KV>(topster_size, group_limit, is_group_by_first_pass, group_found_params);
+    curated_topster = new Topster<KV>(topster_size, group_limit, is_group_by_first_pass, group_found_params);
 
     std::set<uint32_t> curated_ids;
     std::map<size_t, std::map<size_t, uint32_t>> included_ids_map;  // outer pos => inner pos => list of IDs
@@ -6233,6 +6233,15 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                                     const std::vector<size_t>& geopoint_indices,
                                     const bool& is_group_by_first_pass,
                                     std::set<uint32_t>& group_by_missing_value_ids) const {
+    const group_found_params_t group_found_params = topster->group_found_params;
+    const size_t topster_size = topster->MAX_SIZE;
+    const size_t distinct = topster->distinct;
+    if (is_group_by_first_pass) {
+        // loglog_counter for the intermediate topsters will be initialized, we only need to merge their sketches in
+        // `Index::aggregate_topster`.
+        delete topster;
+        topster = new Topster<KV>(topster_size, 0, false, group_found_params);
+    }
 
     filter_result_iterator->compute_iterators();
     auto const& approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
@@ -6279,8 +6288,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
         searched_queries.push_back({});
 
-        topsters[thread_id] = new Topster<KV>(topster->MAX_SIZE, topster->distinct, is_group_by_first_pass, true,
-                                              topster->group_found_params);
+        topsters[thread_id] = new Topster<KV>(topster_size, distinct, is_group_by_first_pass, group_found_params);
         auto& compute_sort_score_status = compute_sort_score_statuses[thread_id] = nullptr;
         missing_value_ids[thread_id] = new std::set<uint32_t>();
 
@@ -6368,8 +6376,6 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
     search_cutoff = parent_search_cutoff || timed_out_before_processing ||
                         filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
-    // loglog_counter for intermediate topsters has already been initialized.
-    topster->should_count_distinct = false;
     for(size_t thread_id = 0; thread_id < num_processed; thread_id++) {
         if (compute_sort_score_statuses[thread_id] != nullptr) {
             auto& status = compute_sort_score_statuses[thread_id];
