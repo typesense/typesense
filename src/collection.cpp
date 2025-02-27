@@ -7972,7 +7972,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     std::string personalization_user_field;
     std::string personalization_item_field;
     std::string personalization_event_name;
-    size_t personalization_n_events;
+    size_t personalization_n_events = 0;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
             {MIN_LEN_1TYPO, &min_len_1typo},
