@@ -171,11 +171,12 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithExpandedQuery) {
     ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
 }
 
-TEST_F(AnalyticsManagerTest, AddSuggestionWithFilterQuery) {
+TEST_F(AnalyticsManagerTest, MetaFieldsAnalyticsTest) {
     nlohmann::json titles_schema = R"({
             "name": "titles",
             "fields": [
-                {"name": "title", "type": "string"}
+                {"name": "title", "type": "string"},
+                {"name": "size", "type": "int32"}
             ]
         })"_json;
 
@@ -183,6 +184,7 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithFilterQuery) {
 
     nlohmann::json doc;
     doc["title"] = "Cool trousers";
+    doc["size"] = 40;
     ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
 
     // create a collection to store suggestions
@@ -190,7 +192,8 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithFilterQuery) {
         "name": "top_queries2",
         "fields": [
           {"name": "q", "type": "string" },
-          {"name": "filter_by", "type" : "string", "index": false},
+          {"name": "filter_by", "type" : "string"},
+          {"name": "analytics_tags", "type" : "string[]"},
           {"name": "count", "type": "int32" }
         ]
       })"_json;
@@ -203,7 +206,7 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithFilterQuery) {
         "params": {
             "limit": 100,
             "expand_query": true,
-            "enable_filter_analytics": true,
+            "meta_fields": ["filter_by", "analytics_tags"],
             "source": {
                 "collections": ["titles"]
             },
@@ -216,38 +219,35 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithFilterQuery) {
     auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_TRUE(create_op.ok());
 
-    analyticsManager.add_suggestion("titles", "c", "cool", true, "1", "Nike*");
+    auto query = "c+filter_by-size:=40+analytics_tags-Bandra";
+    auto expanded_query = "cool+filter_by-size:=40+analytics_tags-Bandra";
+    analyticsManager.add_suggestion("titles", query, expanded_query, true, "1");
 
     auto popularQueries = analyticsManager.get_popular_queries();
-    auto userQueries = popularQueries["top_queries2"]->get_user_prefix_queries()["1"];
-    ASSERT_EQ(1, userQueries.size());
-    ASSERT_EQ("cool", userQueries[0].query);
-    ASSERT_EQ("Nike*", userQueries[0].filter_by_str);
+    popularQueries["top_queries2"]->compact_user_queries(0);
+    std::string payload;
+    popularQueries["top_queries2"]->serialize_as_docs(payload);
+    auto result = nlohmann::json::parse(payload);
+
+    ASSERT_EQ("cool", result["q"]);
+    ASSERT_EQ("size:=40", result["filter_by"]);
+    ASSERT_EQ("Bandra",result["analytics_tags"][0]);
 
     ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
 
-    //Now create another collection without adding enable_filter_analytics flag
-    suggestions_schema = R"({
-        "name": "top_queries",
-        "fields": [
-          {"name": "q", "type": "string" },
-          {"name": "count", "type": "int32" }
-        ]
-      })"_json;
-
-    suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
-
+    //only adding tags in meta_fields with nohits_queries
     analytics_rule = R"({
-        "name": "top_search_queries",
-        "type": "popular_queries",
+        "name": "top_search_queries2",
+        "type": "nohits_queries",
         "params": {
             "limit": 100,
             "expand_query": true,
+            "meta_fields": ["analytics_tags"],
             "source": {
                 "collections": ["titles"]
             },
             "destination": {
-                "collection": "top_queries"
+                "collection": "top_queries2"
             }
         }
     })"_json;
@@ -255,16 +255,21 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithFilterQuery) {
     create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_TRUE(create_op.ok());
 
-    // add query with filter
-    analyticsManager.add_suggestion("titles", "c", "cool", true, "1", "Nike*");
+    query = "b+analytics_tags-Bandra,Colaba";
+    analyticsManager.add_nohits_query("titles", query, true, "1");
 
-    popularQueries = analyticsManager.get_popular_queries();
-    userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
-    ASSERT_EQ(1, userQueries.size());
-    ASSERT_EQ("cool", userQueries[0].query);
-    ASSERT_TRUE(userQueries[0].filter_by_str.empty()); // as filter_by field is not added, filters won't be saved even though passed with query
+    auto nohitsQueries = analyticsManager.get_nohits_queries();
+    nohitsQueries["top_queries2"]->compact_user_queries(0);
+    payload.clear();
+    nohitsQueries["top_queries2"]->serialize_as_docs(payload);
+    result = nlohmann::json::parse(payload);
 
-    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
+    ASSERT_EQ("b", result["q"]);
+    ASSERT_EQ("Bandra",result["analytics_tags"][0]);
+    ASSERT_EQ("Colaba",result["analytics_tags"][1]);
+    ASSERT_FALSE(result.contains("filter_by"));
+
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries2").ok());
 }
 
 TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {

@@ -4,13 +4,13 @@
 #include <mutex>
 #include "string_utils.h"
 
-QueryAnalytics::QueryAnalytics(size_t k, bool enable_auto_aggregation, bool filterby_anlaytics)
-                : k(k), max_size(k * 2), auto_aggregation_enabled(enable_auto_aggregation), filter_by_analytics(filterby_anlaytics) {
+QueryAnalytics::QueryAnalytics(size_t k, bool enable_auto_aggregation, bool meta_field_analytics)
+                : k(k), max_size(k * 2), auto_aggregation_enabled(enable_auto_aggregation), meta_fields_analytics(meta_field_analytics) {
 
 }
 
 void QueryAnalytics::add(const std::string& key, const std::string& expanded_key,
-                         const bool live_query, const std::string& user_id, uint64_t now_ts_us, const std::string& filter_str) {
+                         const bool live_query, const std::string& user_id, uint64_t now_ts_us) {
     if(live_query) {
         // live query must be aggregated first to their final form as they could be prefix queries
         if(now_ts_us == 0) {
@@ -27,9 +27,8 @@ void QueryAnalytics::add(const std::string& key, const std::string& expanded_key
         if(queries.size() < 100) {
             // only live queries could send expanded queries
             const std::string& actual_key = expand_query ? expanded_key : key;
-            std::string filter_by_str = filter_by_analytics ? filter_str : "";
             if(actual_key.size() < max_query_length) {
-                queries.emplace_back(actual_key, now_ts_us, filter_by_str);
+                queries.emplace_back(actual_key, now_ts_us);
             }
         }
 
@@ -42,9 +41,6 @@ void QueryAnalytics::add(const std::string& key, const std::string& expanded_key
         }
 
         auto query = key;
-        if(!filter_str.empty()) {
-            query =  query + "-" + filter_str;
-        }
         auto it = local_counts.find(query);
 
         if (it != local_counts.end()) {
@@ -61,23 +57,39 @@ void QueryAnalytics::serialize_as_docs(std::string& docs) {
     std::shared_lock lk(lmutex);
 
     std::string key_buffer;
+    nlohmann::json doc;
     for(auto it = local_counts.begin(); it != local_counts.end(); ++it) {
-        nlohmann::json doc;
+        std::vector<std::string> results;
 
         it.key(key_buffer);
-        if(filter_by_analytics) {
-            std::string filter_str;
-            auto ind = key_buffer.find('-');
-            if (ind != std::string::npos) {
-                //filter string exists
-                filter_str = key_buffer.substr(ind + 1, key_buffer.size() - ind);
-                key_buffer = key_buffer.substr(0, ind);
+        //sample string : Nike+filter=Air+tags=Colaba,Bandra
+        StringUtils::split(key_buffer, results, "+");
+        if(meta_fields_analytics) {
+            if (results.size() > 1) { //meta fields are supplied
+                for(auto i = 1; i < results.size(); ++i) {
+                    std::vector<std::string> parts;
+                    StringUtils::split(results[i], parts, "-");
+                    if(parts.size() == 2) {
+                        if(parts[0] == "analytics_tags") {
+                            doc[parts[0]] = nlohmann::json::array();
+                            std::vector<std::string> parts2;
+                            StringUtils::split(parts[1], parts2, ",");
+
+                            for(const auto& part : parts2) {
+                                doc[parts[0]].push_back(part);
+                            }
+                        } else if(parts[0] == "filter_by") {
+                            doc[parts[0]] = parts[1];
+                        }
+                    } else {
+                        LOG(ERROR) << "QueryAnalytics : Failed to parse meta_fields.";
+                    }
+                }
             }
-            doc["filter_by"] = filter_str;
         }
 
         doc["id"] = std::to_string(StringUtils::hash_wy(key_buffer.c_str(), key_buffer.size()));
-        doc["q"] = key_buffer;
+        doc["q"] = results[0];
         doc["$operations"]["increment"]["count"] = it.value();
         docs += doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore) + "\n";
     }
@@ -112,7 +124,7 @@ void QueryAnalytics::compact_user_queries(uint64_t now_ts_us) {
                                    (queries[i + 1].timestamp - queries[i].timestamp);
 
             if(diff_micros > QUERY_FINALIZATION_INTERVAL_MICROS) {
-                add(queries[i].query, queries[i].query, false, "", queries[i].timestamp, queries[i].filter_by_str);
+                add(queries[i].query, queries[i].query, false, "", queries[i].timestamp);
                 last_consolidated_index = i;
             }
         }

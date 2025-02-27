@@ -199,7 +199,7 @@ public:
 
     void add_suggestion(const std::string& query_collection,
                         const std::string& query, const std::string& expanded_query,
-                        bool live_query, const std::string& user_id, const std::string& filter_query = "");
+                        bool live_query, const std::string& user_id);
 
     void stop();
 
@@ -219,8 +219,7 @@ public:
     std::unordered_map<std::string, counter_event_t> get_popular_clicks();
 
     void add_nohits_query(const std::string& query_collection,
-                          const std::string& query, bool live_query, const std::string& user_id,
-                          const std::string& filter_query="");
+                          const std::string& query, bool live_query, const std::string& user_id);
 
     std::unordered_map<std::string, QueryAnalytics*> get_nohits_queries();
 

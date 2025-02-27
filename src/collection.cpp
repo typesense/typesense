@@ -2653,7 +2653,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           const size_t& max_filter_by_candidates,
                                           bool rerank_hybrid_matches,
                                           bool validate_field_names,
-                                          bool enable_analytics) const {
+                                          bool enable_analytics,
+                                          std::string analytics_tags) const {
     std::shared_lock lock(mutex);
 
     auto args = collection_search_args_t(query, search_fields, filter_query,
@@ -2682,7 +2683,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          override_tags_str, voice_query, enable_typos_for_numerical_tokens,
                                          enable_synonyms, synonym_prefix, synonym_num_typos, enable_lazy_filter,
                                          enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
-                                         rerank_hybrid_matches, enable_analytics, validate_field_names);
+                                         rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags);
     return search(args);
 }
 
@@ -7731,6 +7732,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     size_t page = 0;
     size_t offset = 0;
     token_ordering token_order = NOT_SET;
+    std::string analytics_tags;
 
     std::vector<std::string> facet_return_parent;
 
@@ -7845,6 +7847,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {CONVERSATION_MODEL_ID, &conversation_model_id},
             {VOICE_QUERY, &voice_query},
             {FACET_STRATEGY, &facet_strategy},
+            {TAGS, &analytics_tags},
     };
 
     std::unordered_map<std::string, bool*> bool_values = {
@@ -8048,7 +8051,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     override_tags, voice_query, enable_typos_for_numerical_tokens,
                                     enable_synonyms, synonym_prefix, synonym_num_typos, enable_lazy_filter,
                                     enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
-                                    rerank_hybrid_matches, enable_analytics, validate_field_names);
+                                    rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags);
     return Option<bool>(true);
 }
 

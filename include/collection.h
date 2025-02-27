@@ -75,6 +75,7 @@ struct collection_search_args_t {
     static constexpr auto QUERY_BY = "query_by";
     static constexpr auto QUERY_BY_WEIGHTS = "query_by_weights";
     static constexpr auto SORT_BY = "sort_by";
+    static constexpr auto TAGS = "analytics_tags";
 
     static constexpr auto FACET_BY = "facet_by";
     static constexpr auto FACET_QUERY = "facet_query";
@@ -243,6 +244,7 @@ struct collection_search_args_t {
     bool rerank_hybrid_matches;
     bool enable_analytics;
     bool validate_field_names;
+    std::string analytics_tags;
 
     std::vector<std::vector<KV*>> result_group_kvs{};
 
@@ -272,7 +274,8 @@ struct collection_search_args_t {
                              std::string override_tags, std::string voice_query, bool enable_typos_for_numerical_tokens,
                              bool enable_synonyms, bool synonym_prefix, size_t synonym_num_typos, bool enable_lazy_filter,
                              bool enable_typos_for_alpha_numerical_tokens, size_t max_filter_by_candidates,
-                             bool rerank_hybrid_matches, bool enable_analytics, bool validate_field_names) :
+                             bool rerank_hybrid_matches, bool enable_analytics, bool validate_field_names,
+                             std::string analytics_tag) :
             raw_query(std::move(raw_query)), search_fields(std::move(search_fields)), filter_query(std::move(filter_query)),
             facet_fields(std::move(facet_fields)), sort_fields(std::move(sort_fields)),
             num_typos(std::move(num_typos)), per_page(per_page), page(page), token_order(token_order),
@@ -299,7 +302,8 @@ struct collection_search_args_t {
             override_tags(std::move(override_tags)), voice_query(std::move(voice_query)), enable_typos_for_numerical_tokens(enable_typos_for_numerical_tokens),
             enable_synonyms(enable_synonyms), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos), enable_lazy_filter(enable_lazy_filter),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens), max_filter_by_candidates(max_filter_by_candidates),
-            rerank_hybrid_matches(rerank_hybrid_matches), enable_analytics(enable_analytics), validate_field_names(validate_field_names) {}
+            rerank_hybrid_matches(rerank_hybrid_matches), enable_analytics(enable_analytics), validate_field_names(validate_field_names),
+            analytics_tags(analytics_tag) {}
 
     collection_search_args_t() = default;
 
@@ -918,7 +922,8 @@ public:
                                   const size_t& max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES,
                                   bool rerank_hybrid_matches = false,
                                   bool validate_field_names = true,
-                                  bool enable_analytics = true) const;
+                                  bool enable_analytics = true,
+                                  std::string analytics_tags="") const;
 
     static Option<bool> do_union(const std::vector<uint32_t>& collection_ids,
                                  std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,

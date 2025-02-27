@@ -12,10 +12,9 @@ public:
     struct QWithTimestampFilter {
         std::string query;
         uint64_t timestamp;
-        std::string filter_by_str;
 
-        QWithTimestampFilter(const std::string& query, uint64_t timestamp, const std::string& filter_str="")
-            : query(query), timestamp(timestamp), filter_by_str(filter_str) {}
+        QWithTimestampFilter(const std::string& query, uint64_t timestamp)
+            : query(query), timestamp(timestamp) {}
     };
 
     static const size_t QUERY_FINALIZATION_INTERVAL_MICROS = 4 * 1000 * 1000;
@@ -34,15 +33,14 @@ private:
 
     std::unordered_map<std::string, std::vector<QWithTimestampFilter>> user_prefix_queries;
     std::shared_mutex umutex;
-    bool filter_by_analytics = false;
+    bool meta_fields_analytics = false;
 
 public:
 
-    QueryAnalytics(size_t k, bool enable_auto_aggregation = true, bool filterby_analytics = false);
+    QueryAnalytics(size_t k, bool enable_auto_aggregation = true, bool meta_field_analytics = false);
 
     void add(const std::string& value, const std::string& expanded_key,
-             const bool live_query, const std::string& user_id, uint64_t now_ts_us = 0,
-             const std::string& filter_str = "");
+             const bool live_query, const std::string& user_id, uint64_t now_ts_us = 0);
 
     void compact_user_queries(uint64_t now_ts_us);
 
