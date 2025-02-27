@@ -1670,6 +1670,25 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         req->params[BATCH_SIZE] = "1000000000"; // 1 Billion
     }
 
+    deletion_state_t* deletion_state = nullptr;
+    nlohmann::json response;
+
+    if(req->params.count(TRUNCATE) != 0 && req->params[TRUNCATE] == "true") {
+        auto op = collection->remove_all_docs();
+
+        if (!op.ok()) {
+            res->set(op.code(), op.error());
+        } else {
+            response["num_deleted"] = op.get();
+            res->body = response.dump();
+        }
+
+        req->last_chunk_aggregate = true;
+        res->final = true;
+        stream_response(req, res);
+        return true;
+    }
+
     if(req->params.count(FILTER_BY) == 0) {
         req->last_chunk_aggregate = true;
         res->final = true;
@@ -1702,77 +1721,56 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         simple_filter_query = req->params[FILTER_BY];
     }
 
-    deletion_state_t* deletion_state = nullptr;
-    nlohmann::json response;
+    if (req->data == nullptr) {
+        deletion_state = new deletion_state_t{};
+        // destruction of data is managed by req destructor
+        req->data = deletion_state;
 
-
-    if(req->params.count(TRUNCATE) != 0 && req->params[TRUNCATE] == "true") {
-        auto op = collection->remove_all_docs();
-
-        if (!op.ok()) {
-            res->set(op.code(), op.error());
-        } else {
-            response["num_deleted"] = op.get();
-            res->body = response.dump();
+        bool validate_field_names = true;
+        if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
+            validate_field_names = false;
         }
 
+        filter_result_t filter_result;
+        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false,
+                                                        validate_field_names);
+
+        if (!filter_ids_op.ok()) {
+            res->set(filter_ids_op.code(), filter_ids_op.error());
+            req->last_chunk_aggregate = true;
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+
+        deletion_state->index_ids.emplace_back(filter_result.count, filter_result.docs);
+        filter_result.docs = nullptr;
+
+        for (size_t i = 0; i < deletion_state->index_ids.size(); i++) {
+            deletion_state->offsets.push_back(0);
+        }
+        deletion_state->collection = collection.get();
+        deletion_state->num_removed = 0;
+    } else {
+        deletion_state = dynamic_cast<deletion_state_t *>(req->data);
+    }
+
+    bool done = true;
+    Option<bool> remove_op = stateful_remove_docs(deletion_state, DELETE_BATCH_SIZE, done);
+
+    if (!remove_op.ok()) {
+        res->set(remove_op.code(), remove_op.error());
         req->last_chunk_aggregate = true;
         res->final = true;
     } else {
-        if (req->data == nullptr) {
-            deletion_state = new deletion_state_t{};
-            // destruction of data is managed by req destructor
-            req->data = deletion_state;
-
-            bool validate_field_names = true;
-            if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
-                validate_field_names = false;
-            }
-
-            filter_result_t filter_result;
-            auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false,
-                                                            validate_field_names);
-
-            if (!filter_ids_op.ok()) {
-                res->set(filter_ids_op.code(), filter_ids_op.error());
-                req->last_chunk_aggregate = true;
-                res->final = true;
-                stream_response(req, res);
-                return false;
-            }
-
-            deletion_state->index_ids.emplace_back(filter_result.count, filter_result.docs);
-            filter_result.docs = nullptr;
-
-            for (size_t i = 0; i < deletion_state->index_ids.size(); i++) {
-                deletion_state->offsets.push_back(0);
-            }
-            deletion_state->collection = collection.get();
-            deletion_state->num_removed = 0;
+        if (!done) {
+            req->last_chunk_aggregate = false;
+            res->final = false;
         } else {
-            deletion_state = dynamic_cast<deletion_state_t *>(req->data);
-        }
-
-        bool done = true;
-        Option<bool> remove_op = stateful_remove_docs(deletion_state, DELETE_BATCH_SIZE, done);
-
-        //LOG(INFO) << "Deletion batch size: " << DELETE_BATCH_SIZE << ", done: " << done;
-
-        if (!remove_op.ok()) {
-            res->set(remove_op.code(), remove_op.error());
+            response["num_deleted"] = deletion_state->num_removed;
             req->last_chunk_aggregate = true;
+            res->body = response.dump();
             res->final = true;
-        } else {
-            if (!done) {
-                req->last_chunk_aggregate = false;
-                res->final = false;
-            } else {
-                response["num_deleted"] = deletion_state->num_removed;
-
-                req->last_chunk_aggregate = true;
-                res->body = response.dump();
-                res->final = true;
-            }
         }
     }
 
