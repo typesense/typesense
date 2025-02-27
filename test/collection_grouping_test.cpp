@@ -461,8 +461,7 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
                                   "", 10,
                                   {}, {}, {"colors"}, 2).get();
 
-    // Actual found value is 9, but we are only approximating it using loglogbeta algorithm.
-    ASSERT_EQ(10, res["found_docs"].get<size_t>());
+    ASSERT_EQ(9, res["found_docs"].get<size_t>());
     ASSERT_EQ(4, res["found"].get<size_t>());
     ASSERT_EQ(4, res["grouped_hits"].size());
 
@@ -926,7 +925,7 @@ TEST_F(CollectionGroupingTest, SortingMoreThanMaxTopsterSize) {
     auto res = coll3->search("*", {}, "", {"brand"}, sort_fields, {0}, 100, 2, FREQUENCY,
                                    {false}, Index::DROP_TOKENS_THRESHOLD,
                                    spp::sparse_hash_set<std::string>(),
-                                   spp::sparse_hash_set<std::string>({"*"}), 10, "", 30, 5,
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                    "", 10,
                                    {}, {}, {"size"}, 2).get();
 
@@ -1238,8 +1237,7 @@ TEST_F(CollectionGroupingTest, GroupByMultipleFacetFieldsWithPinning) {
                                   "", 10,
                                   {"3:1,4:2"}, {}, {"size"}, 2).get();
 
-    // Actual found value is 5, but we are only approximating it using loglogbeta algorithm.
-    ASSERT_EQ(6, res["found_docs"].get<size_t>());
+    ASSERT_EQ(5, res["found_docs"].get<size_t>());
     ASSERT_EQ(3, res["found"].get<size_t>());
     ASSERT_EQ(3, res["grouped_hits"].size());
 

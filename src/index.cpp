@@ -2625,7 +2625,7 @@ Option<bool> Index::run_search(search_args* search_params) {
         }
 
         // for grouping found_count reflects how many groups were found for the query.
-        search_params->found_count = search_params->topster->getGroupsCount();
+        search_params->found_count = search_params->topster->getGroupsCount() + search_params->curated_topster->size;
         search_params->found_docs = search_params->all_result_ids_len;
 
         delete search_params->topster;
@@ -2689,10 +2689,10 @@ Option<bool> Index::run_search(search_args* search_params) {
     );
 
     if (search_params->group_limit) {
-        // Since hyperloglog_counter returns an approximate count of the number of distinct group_by values, sometimes,
-        // the count can be less than the size of `raw_result_kvs`.
-        search_params->found_count = std::max(search_params->found_count, search_params->raw_result_kvs.size()) +
-                                        search_params->override_result_kvs.size();
+        // Doing std::max since in case of group_by, loglog_counter returns an approximate count of the number of distinct
+        // group_by values in the first pass and sometimes the count can be less than the size of returned result.
+        search_params->found_count = std::max(search_params->found_count,
+                                              search_params->raw_result_kvs.size() + search_params->override_result_kvs.size());
     } else {
         search_params->found_count = search_params->all_result_ids_len;
     }
@@ -3374,7 +3374,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
     topster_size = std::max((size_t)1, topster_size);  // needs to be atleast 1 since scoring is mandatory
     topster = new Topster<KV>(topster_size, group_limit, is_group_by_first_pass, group_found_params);
-    curated_topster = new Topster<KV>(topster_size, group_limit, is_group_by_first_pass, group_found_params);
+    curated_topster = new Topster<KV>(topster_size, group_limit, false);
 
     std::set<uint32_t> curated_ids;
     std::map<size_t, std::map<size_t, uint32_t>> included_ids_map;  // outer pos => inner pos => list of IDs
