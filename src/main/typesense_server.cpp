@@ -88,6 +88,7 @@ void master_server_routes() {
     server->post("/stemming/dictionaries/import", post_import_stemming_dictionary, true, true);
     server->get("/stemming/dictionaries", get_stemming_dictionaries);
     server->get("/stemming/dictionaries/:id", get_stemming_dictionary);
+    server->del("/stemming/dictionaries/:id", del_stemming_dictionary);
 
     // meta
     server->get("/metrics.json", get_metrics_json);
