@@ -2746,17 +2746,10 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
     const auto& max_facet_values = coll_args.max_facet_values;
     const auto& facet_return_parent = coll_args.facet_return_parent;
     const auto& voice_query = coll_args.voice_query;
+    const auto& total = search_params->found_count;
 
     auto& raw_result_kvs = search_params->raw_result_kvs;
     auto& override_result_kvs = search_params->override_result_kvs;
-
-    size_t total = 0;
-    // for grouping we have to aggregate group set sizes to a count value
-    if(group_limit) {
-        total = search_params->groups_processed.size() + override_result_kvs.size();
-    } else {
-        total = search_params->all_result_ids_len;
-    }
 
     if(search_cutoff && total == 0) {
         // this can happen if other requests stopped this request from being processed
@@ -2789,11 +2782,11 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             size_t block_len = num_buckets > 0 ? (max_kvs_bucketed / num_buckets) : bucket_size;
             size_t i = 0;
             while(i < max_kvs_bucketed) {
-                int64_t anchor_score = raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index];
                 size_t j = 0;
                 while(j < block_len && i+j < max_kvs_bucketed) {
                     result_scores[raw_result_kvs[i+j][0]->key] = raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index];
-                    raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index] = anchor_score;
+                    // use the bucket sequence as the sorting order (descending)
+                    raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index] = -i;
                     j++;
                 }
 
@@ -2898,7 +2891,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
     nlohmann::json result = nlohmann::json::object();
     result["found"] = total;
     if(group_limit != 0) {
-        result["found_docs"] = search_params->all_result_ids_len;
+        result["found_docs"] = search_params->found_docs;
     }
 
     if(exclude_fields.count("out_of") == 0) {
@@ -7426,6 +7419,23 @@ void Collection::add_referenced_in(const std::string& collection_name, const std
     referenced_in.emplace(collection_name, field_name);
     if (is_async) {
         async_referenced_ins[referenced_field_name].emplace(collection_name, field_name);
+    }
+}
+
+void Collection::remove_referenced_in(const std::string& collection_name, const std::string& field_name,
+                                      const bool& is_async, const std::string& referenced_field_name) {
+    std::shared_lock lock(mutex);
+
+    auto it = search_schema.find(referenced_field_name);
+    if (referenced_field_name != "id" && it == search_schema.end()) {
+        LOG(ERROR) << "Field `" << referenced_field_name << "` not found in the collection `" << name <<
+                   "` which is referenced in `" << collection_name << "." << field_name + "`.";
+        return;
+    }
+
+    referenced_in.erase(collection_name);
+    if (is_async) {
+        async_referenced_ins[referenced_field_name].erase(reference_pair_t(collection_name, field_name));
     }
 }
 

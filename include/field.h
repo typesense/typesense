@@ -517,6 +517,7 @@ struct sort_random_t {
         rng = other.rng;
         distrib = other.distrib;
         is_enabled = other.is_enabled;
+        return *this;
     }
 
     void initialize(uint32_t seed) {

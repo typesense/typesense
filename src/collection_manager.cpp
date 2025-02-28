@@ -777,6 +777,23 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
 
     s_lock.unlock();
 
+    // Remove the record of other collections being referenced in this collection.
+    auto reference_fields = collection->get_reference_fields();
+    for (const auto& item: reference_fields) {
+        const auto& reference_info = item.second;
+        const auto& field_name = item.first;
+        const auto& ref_coll_name = reference_info.collection;
+
+        auto& cm = CollectionManager::get_instance();
+        auto ref_coll = cm.get_collection(ref_coll_name);
+        if (ref_coll == nullptr) {
+            LOG(ERROR) << "Referenced collection `" + ref_coll_name + "` not found.";
+            continue;
+        }
+
+        ref_coll->remove_referenced_in(actual_coll_name, field_name, reference_info.is_async, reference_info.field);
+    }
+
     std::unique_lock u_lock(mutex);
     collections.erase(actual_coll_name);
     collection_id_names.erase(collection->get_collection_id());
