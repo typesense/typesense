@@ -1739,6 +1739,20 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
         ASSERT_EQ("2", doc["genres"][1]);
         ASSERT_EQ(2, doc["genres_sequence_id"][1]);
     }
+
+    // Deleting referencing collection shouldn't affect any operation of the referenced collection.
+    collectionManager.drop_collection("Customers");
+    auto products_coll = collectionManager.get_collection_unsafe("Products");
+
+    doc_json = R"({
+                    "product_id": "product_e",
+                    "product_name": "ice cream",
+                    "product_description": "refreshing.",
+                    "rating": "5"
+                })"_json;
+    add_doc_op = products_coll->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+    products_coll->add(doc_json.dump());
 }
 
 TEST_F(CollectionJoinTest, UpdateDocumentHavingReferenceField) {

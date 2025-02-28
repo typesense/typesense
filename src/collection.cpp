@@ -7428,6 +7428,23 @@ void Collection::add_referenced_in(const std::string& collection_name, const std
     }
 }
 
+void Collection::remove_referenced_in(const std::string& collection_name, const std::string& field_name,
+                                      const bool& is_async, const std::string& referenced_field_name) {
+    std::shared_lock lock(mutex);
+
+    auto it = search_schema.find(referenced_field_name);
+    if (referenced_field_name != "id" && it == search_schema.end()) {
+        LOG(ERROR) << "Field `" << referenced_field_name << "` not found in the collection `" << name <<
+                   "` which is referenced in `" << collection_name << "." << field_name + "`.";
+        return;
+    }
+
+    referenced_in.erase(collection_name);
+    if (is_async) {
+        async_referenced_ins[referenced_field_name].erase(reference_pair_t(collection_name, field_name));
+    }
+}
+
 Option<std::string> Collection::get_referenced_in_field_with_lock(const std::string& collection_name) const {
     std::shared_lock lock(mutex);
     return get_referenced_in_field(collection_name);
