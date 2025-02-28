@@ -7674,7 +7674,13 @@ Option<bool> Collection::parse_and_validate_personalization_query(const std::str
     auto personalization_model = personalization_model_op.get();
 
     std::vector<std::string> user_events;
-    AnalyticsManager::get_instance().get_last_N_events(personalization_user_id, personalization_event_name, personalization_n_events, user_events);
+    AnalyticsManager::get_instance().get_last_N_events(
+        personalization_user_id, 
+        get_name(),
+        personalization_event_name, 
+        personalization_n_events, 
+        user_events
+    );
     if(user_events.empty()) {
         return Option<bool>(400, "No events found for the user.");
     }
