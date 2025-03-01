@@ -660,6 +660,7 @@ private:
                                                           const size_t& personalization_n_events,
                                                           const std::string& personalization_event_name,
                                                           vector_query_t& vector_query,
+                                                          std::string& filter_query,
                                                           bool& is_wildcard_query) const;
 
     Option<bool> init_index_search_args_with_lock(collection_search_args_t& coll_args,

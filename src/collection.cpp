@@ -1894,7 +1894,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                 const uint32_t& union_search_index) const {
     const std::string raw_query = coll_args.raw_query;
     const std::vector<std::string>& raw_search_fields = coll_args.search_fields;
-    const std::string& filter_query = coll_args.filter_query;
+    std::string& filter_query = coll_args.filter_query;
     const std::vector<std::string>& facet_fields = coll_args.facet_fields;
     const std::vector<sort_by>& sort_fields = coll_args.sort_fields;
     const std::vector<uint32_t>& num_typos = coll_args.num_typos;
@@ -2025,7 +2025,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
         auto personalization_op = parse_and_validate_personalization_query(personalization_user_id, personalization_model_id, personalization_type,
                                                                            personalization_user_field, personalization_item_field, personalization_n_events,
-                                                                           personalization_event_name, vector_query, is_wildcard_query);
+                                                                           personalization_event_name, vector_query, filter_query, is_wildcard_query);
         if(!personalization_op.ok()) {
             return personalization_op;
         }
@@ -7634,6 +7634,7 @@ Option<bool> Collection::parse_and_validate_personalization_query(const std::str
                                                                   const size_t& personalization_n_events,
                                                                   const std::string& personalization_event_name,
                                                                   vector_query_t& vector_query,
+                                                                  std::string& filter_query,
                                                                   bool& is_wildcard_query) const {
     if(!is_wildcard_query) {
         return Option<bool>(400, "Personalization is not allowed when query is used. It should be only `*` or empty.");
@@ -7690,10 +7691,14 @@ Option<bool> Collection::parse_and_validate_personalization_query(const std::str
         nlohmann::json event_json;
         try {
             event_json = nlohmann::json::parse(event);
-            std::cout << event_json.dump() << std::endl;
         } catch (const std::exception& e) {
             return Option<bool>(400, "Invalid event format: " + std::string(e.what()));
         }
+
+        if (event_json.count("doc_ids") > 0) {
+            return Option<bool>(400, "Try using an event only with doc_id instead of doc_ids");
+        }
+
         doc_ids.push_back(event_json["doc_id"]);
     }
 
@@ -7749,7 +7754,18 @@ Option<bool> Collection::parse_and_validate_personalization_query(const std::str
 
     vector_query.values = mean_embedding;
     vector_query.field_name = personalization_item_field;
-                                                              
+    if (filter_query.empty()) {
+        filter_query = "id:!=[";
+    } else {
+        filter_query += " && id:!=[";
+    }
+    for (size_t i = 0; i < doc_ids.size(); i++) {
+        filter_query += doc_ids[i];
+        if (i < doc_ids.size() - 1) {
+            filter_query += ",";
+        }
+    }
+    filter_query += "]";                                      
     return Option<bool>(true);
 }
 
