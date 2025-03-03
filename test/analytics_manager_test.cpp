@@ -193,7 +193,7 @@ TEST_F(AnalyticsManagerTest, MetaFieldsAnalyticsTest) {
         "fields": [
           {"name": "q", "type": "string" },
           {"name": "filter_by", "type" : "string"},
-          {"name": "analytics_tags", "type" : "string[]"},
+          {"name": "analytics_tag", "type" : "string"},
           {"name": "count", "type": "int32" }
         ]
       })"_json;
@@ -206,7 +206,7 @@ TEST_F(AnalyticsManagerTest, MetaFieldsAnalyticsTest) {
         "params": {
             "limit": 100,
             "expand_query": true,
-            "meta_fields": ["filter_by", "analytics_tags"],
+            "meta_fields": ["filter_by", "analytics_tag"],
             "source": {
                 "collections": ["titles"]
             },
@@ -219,9 +219,7 @@ TEST_F(AnalyticsManagerTest, MetaFieldsAnalyticsTest) {
     auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_TRUE(create_op.ok());
 
-    auto query = "c+filter_by-size:=40+analytics_tags-Bandra";
-    auto expanded_query = "cool+filter_by-size:=40+analytics_tags-Bandra";
-    analyticsManager.add_suggestion("titles", query, expanded_query, true, "1");
+    analyticsManager.add_suggestion("titles", "c", "cool", true, "1", "size:=40", "Bandra");
 
     auto popularQueries = analyticsManager.get_popular_queries();
     popularQueries["top_queries2"]->compact_user_queries(0);
@@ -231,7 +229,7 @@ TEST_F(AnalyticsManagerTest, MetaFieldsAnalyticsTest) {
 
     ASSERT_EQ("cool", result["q"]);
     ASSERT_EQ("size:=40", result["filter_by"]);
-    ASSERT_EQ("Bandra",result["analytics_tags"][0]);
+    ASSERT_EQ("Bandra",result["analytics_tag"]);
 
     ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
 
@@ -242,7 +240,7 @@ TEST_F(AnalyticsManagerTest, MetaFieldsAnalyticsTest) {
         "params": {
             "limit": 100,
             "expand_query": true,
-            "meta_fields": ["analytics_tags"],
+            "meta_fields": ["analytics_tag"],
             "source": {
                 "collections": ["titles"]
             },
@@ -255,8 +253,7 @@ TEST_F(AnalyticsManagerTest, MetaFieldsAnalyticsTest) {
     create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_TRUE(create_op.ok());
 
-    query = "b+analytics_tags-Bandra,Colaba";
-    analyticsManager.add_nohits_query("titles", query, true, "1");
+    analyticsManager.add_nohits_query("titles", "b", true, "1", "", "Colaba");
 
     auto nohitsQueries = analyticsManager.get_nohits_queries();
     nohitsQueries["top_queries2"]->compact_user_queries(0);
@@ -265,8 +262,7 @@ TEST_F(AnalyticsManagerTest, MetaFieldsAnalyticsTest) {
     result = nlohmann::json::parse(payload);
 
     ASSERT_EQ("b", result["q"]);
-    ASSERT_EQ("Bandra",result["analytics_tags"][0]);
-    ASSERT_EQ("Colaba",result["analytics_tags"][1]);
+    ASSERT_EQ("Colaba",result["analytics_tag"]);
     ASSERT_FALSE(result.contains("filter_by"));
 
     ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries2").ok());
@@ -2367,8 +2363,9 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
     auto popularQueries = analyticsManager.get_popular_queries();
     auto localCounts = popularQueries["top_queries"]->get_local_counts();
     ASSERT_EQ(1, localCounts.size());
-    ASSERT_EQ(1, localCounts.count("coo"));
-    ASSERT_EQ(1, localCounts["coo"]);
+    QueryAnalytics::analytics_meta_t query_meta("coo");
+    ASSERT_EQ(1, localCounts.count(query_meta));
+    ASSERT_EQ(1, localCounts[query_meta]);
 
     // add another query which is more popular
     event_data["q"] = "buzzfoo";
@@ -2384,10 +2381,12 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
     popularQueries = analyticsManager.get_popular_queries();
     localCounts = popularQueries["top_queries"]->get_local_counts();
     ASSERT_EQ(2, localCounts.size());
-    ASSERT_EQ(1, localCounts.count("coo"));
-    ASSERT_EQ(1, localCounts["coo"]);
-    ASSERT_EQ(1, localCounts.count("buzzfoo"));
-    ASSERT_EQ(3, localCounts["buzzfoo"]);
+    query_meta.query = "coo";
+    ASSERT_EQ(1, localCounts.count(query_meta));
+    ASSERT_EQ(1, localCounts[query_meta]);
+    query_meta.query = "buzzfoo";
+    ASSERT_EQ(1, localCounts.count(query_meta));
+    ASSERT_EQ(3, localCounts[query_meta]);
 
     //try with nohits analytic rule
     analytics_rule = R"({
@@ -2415,8 +2414,9 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
     localCounts = noresults_queries["top_queries"]->get_local_counts();
 
     ASSERT_EQ(1, localCounts.size());
-    ASSERT_EQ(1, localCounts.count("foobar"));
-    ASSERT_EQ(1, localCounts["foobar"]);
+    query_meta.query = "foobar";
+    ASSERT_EQ(1, localCounts.count(query_meta));
+    ASSERT_EQ(1, localCounts[query_meta]);
 
     //try creating event with same name
     suggestions_schema = R"({
@@ -2511,8 +2511,9 @@ TEST_F(AnalyticsManagerTest, EventsOnlySearchTest) {
     popularQueries = analyticsManager.get_popular_queries();
     auto localCounts = popularQueries["top_queries"]->get_local_counts();
     ASSERT_EQ(1, localCounts.size());
-    ASSERT_EQ(1, localCounts.count("coo"));
-    ASSERT_EQ(1, localCounts["coo"]);
+    QueryAnalytics::analytics_meta_t query_meta("coo");
+    ASSERT_EQ(1, localCounts.count(query_meta));
+    ASSERT_EQ(1, localCounts[query_meta]);
 
     //try with nohits analytic rule
     analytics_rule = R"({
@@ -2550,8 +2551,9 @@ TEST_F(AnalyticsManagerTest, EventsOnlySearchTest) {
     localCounts = noresults_queries["top_queries"]->get_local_counts();
 
     ASSERT_EQ(1, localCounts.size());
-    ASSERT_EQ(1, localCounts.count("foobar"));
-    ASSERT_EQ(1, localCounts["foobar"]);
+    query_meta.query = "foobar";
+    ASSERT_EQ(1, localCounts.count(query_meta));
+    ASSERT_EQ(1, localCounts[query_meta]);
 }
 
 TEST_F(AnalyticsManagerTest, GetEvents) {

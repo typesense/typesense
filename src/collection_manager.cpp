@@ -1312,25 +1312,18 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(Config::get_instance().get_enable_search_analytics()) {
         if(args.enable_analytics && result.contains("found")) {
-            std::string filter_string, tags_string;
-            if(!args.filter_query.empty()) {
-                filter_string = ("+filter_by-" + args.filter_query);
-            }
-
-            if(!args.analytics_tags.empty()) {
-                tags_string = ("+analytics_tags-" + args.analytics_tags);
-            }
-
-            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(args.raw_query) + filter_string + tags_string;
+            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(args.raw_query);
 
             if(result["found"].get<size_t>() != 0) {
                 const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
-                        result["request_params"]["first_q"].get<std::string>()) + filter_string + tags_string;
+                        result["request_params"]["first_q"].get<std::string>());
                 AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query, expanded_query,
-                                                                true, req_params["x-typesense-user-id"]);
+                                                                true, req_params["x-typesense-user-id"],
+                                                                args.filter_query, args.analytics_tag);
             } else {
                 AnalyticsManager::get_instance().add_nohits_query(orig_coll_name, analytics_query,
-                                                                  true, req_params["x-typesense-user-id"]);
+                                                                  true, req_params["x-typesense-user-id"],
+                                                                  args.filter_query, args.analytics_tag);
             }
         }
     }

@@ -75,7 +75,7 @@ struct collection_search_args_t {
     static constexpr auto QUERY_BY = "query_by";
     static constexpr auto QUERY_BY_WEIGHTS = "query_by_weights";
     static constexpr auto SORT_BY = "sort_by";
-    static constexpr auto TAGS = "analytics_tags";
+    static constexpr auto TAGS = "analytics_tag";
 
     static constexpr auto FACET_BY = "facet_by";
     static constexpr auto FACET_QUERY = "facet_query";
@@ -244,7 +244,7 @@ struct collection_search_args_t {
     bool rerank_hybrid_matches;
     bool enable_analytics;
     bool validate_field_names;
-    std::string analytics_tags;
+    std::string analytics_tag;
 
     std::vector<std::vector<KV*>> result_group_kvs{};
 
@@ -303,7 +303,7 @@ struct collection_search_args_t {
             enable_synonyms(enable_synonyms), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos), enable_lazy_filter(enable_lazy_filter),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens), max_filter_by_candidates(max_filter_by_candidates),
             rerank_hybrid_matches(rerank_hybrid_matches), enable_analytics(enable_analytics), validate_field_names(validate_field_names),
-            analytics_tags(analytics_tag) {}
+            analytics_tag(analytics_tag) {}
 
     collection_search_args_t() = default;
 
