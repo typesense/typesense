@@ -200,3 +200,35 @@ std::shared_ptr<PersonalizationModel> PersonalizationModelManager::get_model_emb
     // If model is not already loaded, return nullptr
     return nullptr;
 }
+
+Option<bool> PersonalizationModelManager::validate_personalization_model(const nlohmann::json& model_config, size_t& num_dim) {
+    if (model_config["personalization_type"] != "recommendation") {
+        return Option<bool>(400, "Invalid personalization model type");
+    }
+
+    if (model_config["model_name"] != "ts/tyrec-1") {
+        return Option<bool>(400, "Invalid model name");
+    }
+
+    if (!model_config["personalization_model_id"].is_string()) {
+        return Option<bool>(400, "personalization_model_id must be a string");
+    }
+
+    if (!model_config["personalization_embedding_type"].is_string()) {
+        return Option<bool>(400, "personalization_embedding_type must be a string");
+    }
+
+    if (model_config["personalization_embedding_type"] != "user" && model_config["personalization_embedding_type"] != "item") {
+        return Option<bool>(400, "Invalid personalization_embedding_type");
+    }
+
+    auto get_model_op = get_model(model_config["personalization_model_id"].get<std::string>());
+    if (!get_model_op.ok()) {
+        return Option<bool>(400, "Invalid model id");
+    }
+
+    auto model = get_model_op.get();
+    num_dim = model["num_dims"].get<size_t>();
+
+    return Option<bool>(true);
+}

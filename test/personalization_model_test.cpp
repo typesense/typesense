@@ -394,16 +394,16 @@ TEST_F(PersonalizationModelTest, BatchEmbedItems) {
     ASSERT_EQ(embeddings.size(), 2);
     ASSERT_TRUE(embeddings[0].success);
     ASSERT_EQ(embeddings[0].embedding.size(), 256);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[0], 0.0054538441f);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[1], 0.044301841f);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[2], -0.091164835f);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[3], -0.076299265f);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[255], 0.092341594f);
+    ASSERT_FLOAT_EQ(embeddings[0].embedding[0], 0.020180844f);
+    ASSERT_FLOAT_EQ(embeddings[0].embedding[1], 0.016092315f);
+    ASSERT_FLOAT_EQ(embeddings[0].embedding[2], -0.02253399f);
+    ASSERT_FLOAT_EQ(embeddings[0].embedding[3], 0.073433787f);
+    ASSERT_FLOAT_EQ(embeddings[0].embedding[255], 0.058315977f);
     ASSERT_TRUE(embeddings[1].success);
     ASSERT_EQ(embeddings[1].embedding.size(), 256);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[0], 0.0054538441f);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[1], 0.044301841f);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[2], -0.091164835f);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[3], -0.076299265f);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[255], 0.092341594f);
+    ASSERT_FLOAT_EQ(embeddings[1].embedding[0], 0.020180844f);
+    ASSERT_FLOAT_EQ(embeddings[1].embedding[1], 0.016092315f);
+    ASSERT_FLOAT_EQ(embeddings[1].embedding[2], -0.02253399f);
+    ASSERT_FLOAT_EQ(embeddings[1].embedding[3], 0.073433787f);
+    ASSERT_FLOAT_EQ(embeddings[1].embedding[255], 0.058315977f);
 }

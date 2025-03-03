@@ -7515,9 +7515,11 @@ void Collection::remove_embedding_field(const std::string& field_name) {
     }
 
     const auto& del_field = embedding_fields[field_name];
-    const auto& model_name = del_field.embed[fields::model_config]["model_name"].get<std::string>(); 
+    const auto& model_name = del_field.embed[fields::model_config][fields::model_name].get<std::string>();
     embedding_fields.erase(field_name);
-    CollectionManager::get_instance().process_embedding_field_delete(model_name);
+    if (del_field.embed[fields::model_config].contains(fields::personalization_type) != 0) {
+        CollectionManager::get_instance().process_embedding_field_delete(model_name);
+    }
 }
 
 tsl::htrie_map<char, field> Collection::get_embedding_fields_unsafe() {
