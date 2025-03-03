@@ -1087,6 +1087,9 @@ public:
     void add_referenced_in(const std::string& collection_name, const std::string& field_name,
                                    const bool& is_async, const std::string& referenced_field_name);
 
+    void remove_referenced_in(const std::string& collection_name, const std::string& field_name,
+                              const bool& is_async, const std::string& referenced_field_name);
+
     Option<std::string> get_referenced_in_field_with_lock(const std::string& collection_name) const;
 
     Option<bool> get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,

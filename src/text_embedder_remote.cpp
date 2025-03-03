@@ -477,6 +477,20 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, siz
 
     auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name_without_namespace), req_body.dump(), res, res_headers, headers);
 
+    if(res_code == 401) {
+        auto refresh_op = generate_access_token(refresh_token, client_id, client_secret);
+        if(!refresh_op.ok()) {
+            nlohmann::json embedding_res = nlohmann::json::object();
+            embedding_res["error"] = refresh_op.error();
+            return Option<bool>(400, "Invalid client_id, client_secret or refresh_token in `embed.model config'.");
+        }
+        access_token = refresh_op.get();
+        // retry
+        headers["Authorization"] = "Bearer " + access_token;
+        res.clear();
+        res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name_without_namespace), req_body.dump(), res, res_headers, headers);
+    }
+
     if(res_code != 200) {
         nlohmann::json json_res;
         try {
@@ -542,6 +556,7 @@ embedding_res_t GCPEmbedder::Embed(const std::string& text, const size_t remote_
             access_token = refresh_op.get();
             // retry
             headers["Authorization"] = "Bearer " + access_token;
+            res.clear();
             res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
         }
     }
@@ -600,6 +615,7 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
             access_token = refresh_op.get();
             // retry
             headers["Authorization"] = "Bearer " + access_token;
+            res.clear();
             res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
         }
     }

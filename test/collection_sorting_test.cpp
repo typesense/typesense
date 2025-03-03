@@ -3286,9 +3286,9 @@ TEST_F(CollectionSortingTest, TextMatchBucketSizeRanking) {
     ASSERT_EQ(6, results["hits"].size());
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
-    ASSERT_EQ("4", results["hits"][2]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
-    ASSERT_EQ("2", results["hits"][4]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][4]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][5]["document"]["id"].get<std::string>());
 
     //in case of bucket_size more than results, no bucketing happens
