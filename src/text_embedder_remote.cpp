@@ -438,8 +438,8 @@ std::string GoogleEmbedder::get_model_key(const nlohmann::json& model_config) {
 
 
 GCPEmbedder::GCPEmbedder(const std::string& project_id, const std::string& model_name, const std::string& access_token, 
-                         const std::string& refresh_token, const std::string& client_id, const std::string& client_secret) : 
-        project_id(project_id), access_token(access_token), refresh_token(refresh_token), client_id(client_id), client_secret(client_secret) {
+                         const std::string& refresh_token, const std::string& client_id, const std::string& client_secret, const bool has_custom_dims, const size_t num_dims) :
+        project_id(project_id), access_token(access_token), refresh_token(refresh_token), client_id(client_id), client_secret(client_secret), has_custom_dims(has_custom_dims), num_dims(num_dims) {
     
     this->model_name = EmbedderManager::get_model_name_without_namespace(model_name);
 }
@@ -474,6 +474,11 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, siz
     nlohmann::json instance;
     instance["content"] = "typesense";
     req_body["instances"].push_back(instance);
+    if(num_dims > 0) {
+        nlohmann::json dimensions;
+        dimensions["outputDimensionality"] = num_dims;
+        req_body["parameters"] = dimensions;
+    }
 
     auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name_without_namespace), req_body.dump(), res, res_headers, headers);
 
@@ -535,6 +540,11 @@ embedding_res_t GCPEmbedder::Embed(const std::string& text, const size_t remote_
     nlohmann::json instance;
     instance["content"] = text;
     req_body["instances"].push_back(instance);
+    if(has_custom_dims) {
+        nlohmann::json dimensions;
+        dimensions["outputDimensionality"] = num_dims;
+        req_body["parameters"] = dimensions;
+    }
     std::unordered_map<std::string, std::string> headers;
     headers["Authorization"] = "Bearer " + access_token;
     headers["Content-Type"] = "application/json";
@@ -591,6 +601,11 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
         nlohmann::json instance;
         instance["content"] = input;
         req_body["instances"].push_back(instance);
+    }
+    if(has_custom_dims) {
+        nlohmann::json dimensions;
+        dimensions["outputDimensionality"] = num_dims;
+        req_body["parameters"] = dimensions;
     }
     std::unordered_map<std::string, std::string> headers;
     headers["Authorization"] = "Bearer " + access_token;

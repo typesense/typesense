@@ -85,7 +85,7 @@ TextEmbedder::TextEmbedder(const nlohmann::json& model_config, size_t num_dims, 
         auto client_id = model_config["client_id"].get<std::string>();
         auto client_secret = model_config["client_secret"].get<std::string>();
 
-        remote_embedder_ = std::make_unique<GCPEmbedder>(project_id, model_name, access_token, refresh_token, client_id, client_secret);
+        remote_embedder_ = std::make_unique<GCPEmbedder>(project_id, model_name, access_token, refresh_token, client_id, client_secret, has_custom_dims, num_dims);
     } else if(model_namespace == "azure") {
         auto azure_url = model_config["url"].get<std::string>();
         auto api_key = model_config["api_key"].get<std::string>();
@@ -352,6 +352,11 @@ Option<bool> TextEmbedder::validate() {
 
     Ort::AllocatorWithDefaultOptions allocator;
     auto input_ids_name = session_->GetInputNameAllocated(0, allocator);
+    auto input_count = session_->GetInputCount();
+    for(size_t i = 0; i < input_count; i++) {
+        auto name = session_->GetInputNameAllocated(i, allocator);
+        LOG(INFO) << "Input tensor name: " << name.get();
+    }
     if (std::strcmp(input_ids_name.get(), "input_ids") != 0) {
         LOG(ERROR) << "Invalid model: input_ids tensor not found";
         return Option<bool>(400, "Invalid model: input_ids tensor not found");

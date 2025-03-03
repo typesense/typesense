@@ -44,7 +44,9 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
             return op;
         }
     } else if(model_namespace == "gcp") {
+        auto num_dims_before = num_dims;
         auto op = GCPEmbedder::is_model_valid(model_config, num_dims);
+        has_custom_dims = num_dims_before == num_dims;
         if(!op.ok()) {
             return op;
         }

@@ -135,7 +135,8 @@ class GCPEmbedder : public RemoteEmbedder {
         std::string client_id;
         std::string client_secret;
         std::string model_name;
-
+        bool has_custom_dims;
+        size_t num_dims;
         inline static const std::string GCP_EMBEDDING_BASE_URL = "https://us-central1-aiplatform.googleapis.com/v1/projects/";
         inline static const std::string GCP_EMBEDDING_PATH = "/locations/us-central1/publishers/google/models/";
         inline static const std::string GCP_EMBEDDING_PREDICT = ":predict";
@@ -146,7 +147,7 @@ class GCPEmbedder : public RemoteEmbedder {
         }
     public: 
         GCPEmbedder(const std::string& project_id, const std::string& model_name, const std::string& access_token, 
-                    const std::string& refresh_token, const std::string& client_id, const std::string& client_secret);
+                    const std::string& refresh_token, const std::string& client_id, const std::string& client_secret, const bool has_custom_dims = false, const size_t num_dims = 0);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims);
         embedding_res_t Embed(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) override;
         std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
