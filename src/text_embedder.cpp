@@ -352,11 +352,6 @@ Option<bool> TextEmbedder::validate() {
 
     Ort::AllocatorWithDefaultOptions allocator;
     auto input_ids_name = session_->GetInputNameAllocated(0, allocator);
-    auto input_count = session_->GetInputCount();
-    for(size_t i = 0; i < input_count; i++) {
-        auto name = session_->GetInputNameAllocated(i, allocator);
-        LOG(INFO) << "Input tensor name: " << name.get();
-    }
     if (std::strcmp(input_ids_name.get(), "input_ids") != 0) {
         LOG(ERROR) << "Invalid model: input_ids tensor not found";
         return Option<bool>(400, "Invalid model: input_ids tensor not found");
