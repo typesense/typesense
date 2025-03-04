@@ -2934,6 +2934,24 @@ bool post_import_stemming_dictionary(const std::shared_ptr<http_req>& req, const
     if(req->last_chunk_aggregate) {
         //LOG(INFO) << "req->last_chunk_aggregate is true";
         req->body = "";
+    } else if(!json_lines.empty()) {
+        // check if req->body had complete last record
+        bool complete_document;
+
+        try {
+            nlohmann::json document = nlohmann::json::parse(json_lines.back());
+            complete_document = document.is_object();
+        } catch(const std::exception& e) {
+            complete_document = false;
+        }
+
+        if(!complete_document) {
+            // eject partial record
+            req->body = json_lines.back();
+            json_lines.pop_back();
+        } else {
+            req->body = "";
+        }
     }
 
     // When only one partial record arrives as a chunk, an empty body is pushed to response stream
