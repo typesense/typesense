@@ -46,8 +46,9 @@ class OpenAIConversationModel : public ConversationModel {
         // prevent instantiation
         OpenAIConversationModel() = delete;
     private:
-        static constexpr char* OPENAI_LIST_MODELS = "https://api.openai.com/v1/models";
-        static constexpr char* OPENAI_CHAT_COMPLETION = "https://api.openai.com/v1/chat/completions";
+        static constexpr char* OPENAI_URL = "https://api.openai.com";
+        static constexpr char* OPENAI_LIST_MODELS = "/v1/models";
+        static constexpr char* OPENAI_CHAT_COMPLETION = "/v1/chat/completions";
         static const inline std::string DATA_STR = "<Data>\n";
         static const inline std::string QUESTION_STR = "\n\n<Question>\n";
         static const inline std::string ANSWER_STR = "\n\n<Answer>";

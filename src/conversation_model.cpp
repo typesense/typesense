@@ -138,13 +138,24 @@ Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model
     if(!model_config["api_key"].is_string()) {
         return Option<bool>(400, "API key is not a string");
     }
+
+    std::string openai_url = OPENAI_URL;
+    if(model_config.count("openai_url") != 0) {
+        if(!model_config["openai_url"].is_string()) {
+            return Option<bool>(400, "OpenAI URL is not a string");
+        }
+        openai_url = model_config["openai_url"].get<std::string>();
+        if(!openai_url.empty() && openai_url.back() == '/') {
+            openai_url.pop_back();
+        }
+    }
     
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Authorization"] = "Bearer " + model_config["api_key"].get<std::string>();
     headers["Content-Type"] = "application/json";
     std::string res;
-    auto res_code = RemoteEmbedder::call_remote_api("GET", OPENAI_LIST_MODELS, "", res, res_headers, headers);
+    auto res_code = RemoteEmbedder::call_remote_api("GET", openai_url + OPENAI_LIST_MODELS, "", res, res_headers, headers);
 
     if(res_code == 408) {
         return Option<bool>(408, "OpenAI API timeout.");
@@ -192,7 +203,7 @@ Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model
     ])"_json;
 
     std::string chat_res;
-    res_code = RemoteEmbedder::call_remote_api("POST", OPENAI_CHAT_COMPLETION, req_body.dump(), chat_res, res_headers, headers);
+    res_code = RemoteEmbedder::call_remote_api("POST", openai_url + OPENAI_CHAT_COMPLETION, req_body.dump(), chat_res, res_headers, headers);
 
     if(res_code == 408) {
         return Option<bool>(408, "OpenAI API timeout.");
@@ -239,8 +250,19 @@ Option<std::string> OpenAIConversationModel::get_answer(const std::string& conte
     message["content"] = DATA_STR + context + QUESTION_STR + prompt + ANSWER_STR;
     req_body["messages"].push_back(message);
 
+    std::string openai_url = OPENAI_URL;
+    if(model_config.count("openai_url") != 0) {
+        if(!model_config["openai_url"].is_string()) {
+            return Option<std::string>(400, "OpenAI URL is not a string");
+        }
+        openai_url = model_config["openai_url"].get<std::string>();
+        if(!openai_url.empty() && openai_url.back() == '/') {
+            openai_url.pop_back();
+        }
+    }
+
     std::string res;
-    auto res_code = RemoteEmbedder::call_remote_api("POST", OPENAI_CHAT_COMPLETION, req_body.dump(), res, res_headers, headers);
+    auto res_code = RemoteEmbedder::call_remote_api("POST", openai_url + OPENAI_CHAT_COMPLETION, req_body.dump(), res, res_headers, headers);
 
     if(res_code == 408) {
         throw Option<std::string>(400, "OpenAI API timeout.");
@@ -324,7 +346,18 @@ Option<std::string> OpenAIConversationModel::get_standalone_question(const nlohm
 
     req_body["messages"].push_back(message);
 
-    auto res_code = RemoteEmbedder::call_remote_api("POST", OPENAI_CHAT_COMPLETION, req_body.dump(), res, res_headers, headers);
+    std::string openai_url = OPENAI_URL;
+    if(model_config.count("openai_url") != 0) {
+        if(!model_config["openai_url"].is_string()) {
+            return Option<std::string>(400, "OpenAI URL is not a string");
+        }
+        openai_url = model_config["openai_url"].get<std::string>();
+        if(!openai_url.empty() && openai_url.back() == '/') {
+            openai_url.pop_back();
+        }
+    }
+
+    auto res_code = RemoteEmbedder::call_remote_api("POST", openai_url + OPENAI_CHAT_COMPLETION, req_body.dump(), res, res_headers, headers);
 
     if(res_code == 408) {
         return Option<std::string>(400, "OpenAI API timeout.");
