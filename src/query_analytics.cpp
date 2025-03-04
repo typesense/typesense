@@ -4,8 +4,8 @@
 #include <mutex>
 #include "string_utils.h"
 
-QueryAnalytics::QueryAnalytics(size_t k, bool enable_auto_aggregation, bool meta_field_analytics)
-                : k(k), max_size(k * 2), auto_aggregation_enabled(enable_auto_aggregation), meta_fields_analytics(meta_field_analytics) {
+QueryAnalytics::QueryAnalytics(size_t k, bool enable_auto_aggregation, const std::set<std::string>& meta_field_analytics)
+                : k(k), max_size(k * 2), auto_aggregation_enabled(enable_auto_aggregation), meta_fields(meta_field_analytics) {
 
 }
 
@@ -58,17 +58,13 @@ void QueryAnalytics::serialize_as_docs(std::string& docs) {
     std::shared_lock lk(lmutex);
 
     nlohmann::json doc;
-    for(auto it = local_counts.begin(); it != local_counts.end(); ++it) {
-        std::vector<std::string> results;
+    for (auto it = local_counts.begin(); it != local_counts.end(); ++it) {
+        if (meta_fields.find("filter_by") != meta_fields.end() && !it->first.filter_str.empty()) {
+            doc["filter_by"] = it->first.filter_str;
+        }
 
-        if(meta_fields_analytics) {
-            if(!it->first.filter_str.empty()) {
-                doc["filter_by"] = it->first.filter_str;
-            }
-
-            if(!it->first.tag_str.empty()) {
-                doc["analytics_tag"] = it->first.tag_str;
-            }
+        if (meta_fields.find("analytics_tag") != meta_fields.end() && !it->first.tag_str.empty()) {
+            doc["analytics_tag"] = it->first.tag_str;
         }
 
         doc["id"] = std::to_string(StringUtils::hash_wy(it->first.query.c_str(), it->first.query.size()));

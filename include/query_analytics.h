@@ -6,6 +6,7 @@
 #include <json.hpp>
 #include <atomic>
 #include <shared_mutex>
+#include <set>
 
 class QueryAnalytics {
 public:
@@ -46,11 +47,11 @@ private:
 
     std::unordered_map<std::string, std::vector<analytics_meta_t>> user_prefix_queries;
     std::shared_mutex umutex;
-    bool meta_fields_analytics = false;
+    std::set<std::string> meta_fields;
 
 public:
 
-    QueryAnalytics(size_t k, bool enable_auto_aggregation = true, bool meta_field_analytics = false);
+    QueryAnalytics(size_t k, bool enable_auto_aggregation = true, const std::set<std::string>& meta_fields = {});
 
     void add(const std::string& value, const std::string& expanded_key,
              const bool live_query, const std::string& user_id, uint64_t now_ts_us = 0, const std::string& filter = "",

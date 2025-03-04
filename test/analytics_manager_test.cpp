@@ -266,6 +266,40 @@ TEST_F(AnalyticsManagerTest, MetaFieldsAnalyticsTest) {
     ASSERT_FALSE(result.contains("filter_by"));
 
     ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries2").ok());
+
+    // only populate the meta fields specified in analytics rule
+    analytics_rule = R"({
+        "name": "top_search_queries3",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "expand_query": true,
+            "meta_fields": ["analytics_tag"],
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries2"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    analyticsManager.add_suggestion("titles", "c", "cool", true, "1", "size:=40", "Bandra");
+
+    popularQueries = analyticsManager.get_popular_queries();
+    popularQueries["top_queries2"]->compact_user_queries(0);
+    payload.clear();
+    popularQueries["top_queries2"]->serialize_as_docs(payload);
+    result = nlohmann::json::parse(payload);
+
+    ASSERT_EQ("cool", result["q"]);
+    ASSERT_FALSE(result.contains("filter_by"));
+    ASSERT_EQ("Bandra",result["analytics_tag"]);
+
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries3").ok());
 }
 
 TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {

@@ -181,23 +181,22 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
         }
     }
 
-    bool enable_meta_fields_analytics = false;
+    std::set<std::string> allowed_meta_fields;
     if(params.contains("meta_fields") && params["meta_fields"].is_array()) {
         //validate meta fields
         for(const auto& field : params["meta_fields"]) {
             if(field == "filter_by" || field == "analytics_tag") {
-                enable_meta_fields_analytics = true;
-                break;
+                allowed_meta_fields.insert(field);
             }
         }
     }
 
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
-        QueryAnalytics* popularQueries = new QueryAnalytics(limit, enable_auto_aggregation, enable_meta_fields_analytics);
+        QueryAnalytics* popularQueries = new QueryAnalytics(limit, enable_auto_aggregation, allowed_meta_fields);
         popularQueries->set_expand_query(suggestion_config.expand_query);
         popular_queries.emplace(destination_collection, popularQueries);
     } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
-        QueryAnalytics* noresultsQueries = new QueryAnalytics(limit, enable_auto_aggregation, enable_meta_fields_analytics);
+        QueryAnalytics* noresultsQueries = new QueryAnalytics(limit, enable_auto_aggregation, allowed_meta_fields);
         nohits_queries.emplace(destination_collection, noresultsQueries);
     }
 
