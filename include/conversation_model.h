@@ -52,6 +52,7 @@ class OpenAIConversationModel : public ConversationModel {
         static const inline std::string DATA_STR = "<Data>\n";
         static const inline std::string QUESTION_STR = "\n\n<Question>\n";
         static const inline std::string ANSWER_STR = "\n\n<Answer>";
+        static Option<std::string> get_openai_url(const nlohmann::json& model_config);
 };
 
 class CFConversationModel : public ConversationModel {

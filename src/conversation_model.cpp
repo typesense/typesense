@@ -130,6 +130,21 @@ Option<size_t> ConversationModel::get_minimum_required_bytes(const nlohmann::jso
     return Option<size_t>(400, "Model namespace " + model_namespace + " is not supported.");
 }
 
+Option<std::string> OpenAIConversationModel::get_openai_url(const nlohmann::json& model_config) {
+    std::string openai_url = OPENAI_URL;
+    if(model_config.count("openai_url") != 0) {
+        if(!model_config["openai_url"].is_string()) {
+            return Option<std::string>(400, "Property `openai_url` is not a string.");
+        }
+        openai_url = model_config["openai_url"].get<std::string>();
+        if(!openai_url.empty() && openai_url.back() == '/') {
+            openai_url.pop_back();
+        }
+    }
+
+    return Option<std::string>(openai_url);
+}
+
 Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model_config) {
     if(model_config.count("api_key") == 0) {
         return Option<bool>(400, "API key is not provided");
@@ -139,16 +154,11 @@ Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model
         return Option<bool>(400, "API key is not a string");
     }
 
-    std::string openai_url = OPENAI_URL;
-    if(model_config.count("openai_url") != 0) {
-        if(!model_config["openai_url"].is_string()) {
-            return Option<bool>(400, "OpenAI URL is not a string");
-        }
-        openai_url = model_config["openai_url"].get<std::string>();
-        if(!openai_url.empty() && openai_url.back() == '/') {
-            openai_url.pop_back();
-        }
+    auto openai_url_op = get_openai_url(model_config);
+    if(!openai_url_op.ok()) {
+        return Option<bool>(openai_url_op.code(), openai_url_op.error());
     }
+    const std::string openai_url = openai_url_op.get();
     
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
@@ -250,16 +260,11 @@ Option<std::string> OpenAIConversationModel::get_answer(const std::string& conte
     message["content"] = DATA_STR + context + QUESTION_STR + prompt + ANSWER_STR;
     req_body["messages"].push_back(message);
 
-    std::string openai_url = OPENAI_URL;
-    if(model_config.count("openai_url") != 0) {
-        if(!model_config["openai_url"].is_string()) {
-            return Option<std::string>(400, "OpenAI URL is not a string");
-        }
-        openai_url = model_config["openai_url"].get<std::string>();
-        if(!openai_url.empty() && openai_url.back() == '/') {
-            openai_url.pop_back();
-        }
+    auto openai_url_op = get_openai_url(model_config);
+    if(!openai_url_op.ok()) {
+        return Option<std::string>(openai_url_op.code(), openai_url_op.error());
     }
+    const std::string openai_url = openai_url_op.get();
 
     std::string res;
     auto res_code = RemoteEmbedder::call_remote_api("POST", openai_url + OPENAI_CHAT_COMPLETION, req_body.dump(), res, res_headers, headers);
@@ -346,16 +351,11 @@ Option<std::string> OpenAIConversationModel::get_standalone_question(const nlohm
 
     req_body["messages"].push_back(message);
 
-    std::string openai_url = OPENAI_URL;
-    if(model_config.count("openai_url") != 0) {
-        if(!model_config["openai_url"].is_string()) {
-            return Option<std::string>(400, "OpenAI URL is not a string");
-        }
-        openai_url = model_config["openai_url"].get<std::string>();
-        if(!openai_url.empty() && openai_url.back() == '/') {
-            openai_url.pop_back();
-        }
+    auto openai_url_op = get_openai_url(model_config);
+    if(!openai_url_op.ok()) {
+        return Option<std::string>(openai_url_op.code(), openai_url_op.error());
     }
+    const std::string openai_url = openai_url_op.get();
 
     auto res_code = RemoteEmbedder::call_remote_api("POST", openai_url + OPENAI_CHAT_COMPLETION, req_body.dump(), res, res_headers, headers);
 
