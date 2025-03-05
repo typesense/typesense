@@ -85,7 +85,7 @@ TextEmbedder::TextEmbedder(const nlohmann::json& model_config, size_t num_dims, 
         auto client_id = model_config["client_id"].get<std::string>();
         auto client_secret = model_config["client_secret"].get<std::string>();
 
-        remote_embedder_ = std::make_unique<GCPEmbedder>(project_id, model_name, access_token, refresh_token, client_id, client_secret);
+        remote_embedder_ = std::make_unique<GCPEmbedder>(project_id, model_name, access_token, refresh_token, client_id, client_secret, has_custom_dims, num_dims);
     } else if(model_namespace == "azure") {
         auto azure_url = model_config["url"].get<std::string>();
         auto api_key = model_config["api_key"].get<std::string>();
