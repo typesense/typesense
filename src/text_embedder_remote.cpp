@@ -79,7 +79,7 @@ OpenAIEmbedder::OpenAIEmbedder(const std::string& openai_model_path, const std::
     }
 }
 
-Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims) {
+Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims) {
     auto validate_properties = validate_string_properties(model_config, {"model_name", "api_key"});
     
     if (!validate_properties.ok()) {
@@ -105,7 +105,7 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(model_name);
     req_body["model"] = model_name_without_namespace;
 
-    if(num_dims > 0) {
+    if(has_custom_dims) {
         req_body["dimensions"] = num_dims;
     }
 
@@ -306,7 +306,7 @@ GoogleEmbedder::GoogleEmbedder(const std::string& google_api_key) : google_api_k
 
 }
 
-Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims) {
+Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims) {
     auto validate_properties = validate_string_properties(model_config, {"model_name", "api_key"});
     
     if (!validate_properties.ok()) {
@@ -444,7 +444,7 @@ GCPEmbedder::GCPEmbedder(const std::string& project_id, const std::string& model
     this->model_name = EmbedderManager::get_model_name_without_namespace(model_name);
 }
 
-Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims)  {
+Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims)  {
     auto validate_properties = validate_string_properties(model_config, {"model_name", "project_id", "access_token", "refresh_token", "client_id", "client_secret"});
 
     if (!validate_properties.ok()) {
@@ -474,7 +474,7 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, siz
     nlohmann::json instance;
     instance["content"] = "typesense";
     req_body["instances"].push_back(instance);
-    if(num_dims > 0) {
+    if(has_custom_dims) {
         nlohmann::json dimensions;
         dimensions["outputDimensionality"] = num_dims;
         req_body["parameters"] = dimensions;
@@ -748,7 +748,7 @@ AzureEmbedder::AzureEmbedder(const std::string& azure_url, const std::string& ap
     azure_url(azure_url), api_key(api_key), num_dims(num_dims), has_custom_dims(has_custom_dims) {
 }
 
-Option<bool> AzureEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims) {
+Option<bool> AzureEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims) {
     auto validate_properties = validate_string_properties(model_config, {"model_name", "api_key", "url"});
     
     if (!validate_properties.ok()) {
@@ -771,7 +771,7 @@ Option<bool> AzureEmbedder::is_model_valid(const nlohmann::json& model_config, s
     nlohmann::json req_body;
     req_body["input"] = "typesense";
 
-    if(num_dims > 0) {
+    if(has_custom_dims) {
         req_body["dimensions"] = num_dims;
     }
 

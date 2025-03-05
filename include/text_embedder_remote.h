@@ -52,7 +52,7 @@ class AzureEmbedder : public RemoteEmbedder {
 
     public:
         AzureEmbedder(const std::string& azure_url, const std::string& api_key, const size_t num_dims, const bool has_custom_dims);
-        static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims);
+        static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims);
         embedding_res_t Embed(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) override;
         std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
@@ -88,7 +88,7 @@ class OpenAIEmbedder : public RemoteEmbedder {
         static nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body, const std::string& url);
     public:
         OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key, const size_t num_dims, const bool has_custom_dims, const std::string& openai_url);
-        static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims);
+        static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims);
         embedding_res_t Embed(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) override;
         std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
@@ -112,7 +112,7 @@ class GoogleEmbedder : public RemoteEmbedder {
         std::string google_api_key;
     public:
         GoogleEmbedder(const std::string& google_api_key);
-        static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims);
+        static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims);
         embedding_res_t Embed(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) override;
         std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
@@ -148,7 +148,7 @@ class GCPEmbedder : public RemoteEmbedder {
     public: 
         GCPEmbedder(const std::string& project_id, const std::string& model_name, const std::string& access_token, 
                     const std::string& refresh_token, const std::string& client_id, const std::string& client_secret, const bool has_custom_dims = false, const size_t num_dims = 0);
-        static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims);
+        static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims);
         embedding_res_t Embed(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) override;
         std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
