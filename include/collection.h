@@ -75,6 +75,7 @@ struct collection_search_args_t {
     static constexpr auto QUERY_BY = "query_by";
     static constexpr auto QUERY_BY_WEIGHTS = "query_by_weights";
     static constexpr auto SORT_BY = "sort_by";
+    static constexpr auto TAGS = "analytics_tag";
 
     static constexpr auto FACET_BY = "facet_by";
     static constexpr auto FACET_QUERY = "facet_query";
@@ -251,6 +252,7 @@ struct collection_search_args_t {
     bool rerank_hybrid_matches;
     bool enable_analytics;
     bool validate_field_names;
+    std::string analytics_tag;
     std::string personalization_user_id;
     std::string personalization_model_id;
     std::string personalization_type;
@@ -288,6 +290,7 @@ struct collection_search_args_t {
                              bool enable_synonyms, bool synonym_prefix, size_t synonym_num_typos, bool enable_lazy_filter,
                              bool enable_typos_for_alpha_numerical_tokens, size_t max_filter_by_candidates,
                              bool rerank_hybrid_matches, bool enable_analytics, bool validate_field_names,
+                             std::string analytics_tag,
                              std::string personalization_user_id, std::string personalization_model_id,
                              std::string personalization_type, std::string personalization_user_field,
                              std::string personalization_item_field, std::string personalization_event_name, size_t personalization_n_events) :
@@ -318,6 +321,7 @@ struct collection_search_args_t {
             enable_synonyms(enable_synonyms), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos), enable_lazy_filter(enable_lazy_filter),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens), max_filter_by_candidates(max_filter_by_candidates),
             rerank_hybrid_matches(rerank_hybrid_matches), enable_analytics(enable_analytics), validate_field_names(validate_field_names),
+            analytics_tag(analytics_tag),
             personalization_user_id(personalization_user_id), personalization_model_id(personalization_model_id),
             personalization_type(personalization_type), personalization_user_field(personalization_user_field),
             personalization_item_field(personalization_item_field), personalization_event_name(personalization_event_name), personalization_n_events(personalization_n_events) {}
@@ -951,6 +955,7 @@ public:
                                   bool rerank_hybrid_matches = false,
                                   bool validate_field_names = true,
                                   bool enable_analytics = true,
+                                  std::string analytics_tags="",
                                   std::string personalization_user_id = "",
                                   std::string personalization_model_id = "",
                                   std::string personalization_type = "",
