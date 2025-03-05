@@ -1313,14 +1313,17 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     if(Config::get_instance().get_enable_search_analytics()) {
         if(args.enable_analytics && result.contains("found")) {
             std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(args.raw_query);
+
             if(result["found"].get<size_t>() != 0) {
                 const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
                         result["request_params"]["first_q"].get<std::string>());
                 AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query, expanded_query,
-                                                                true, req_params["x-typesense-user-id"]);
+                                                                true, req_params["x-typesense-user-id"],
+                                                                args.filter_query, args.analytics_tag);
             } else {
                 AnalyticsManager::get_instance().add_nohits_query(orig_coll_name, analytics_query,
-                                                                  true, req_params["x-typesense-user-id"]);
+                                                                  true, req_params["x-typesense-user-id"],
+                                                                  args.filter_query, args.analytics_tag);
             }
         }
     }
