@@ -76,8 +76,14 @@ export const BenchmarkConfigSchema = z
       .record(
         KeySchema,
         z.object({
-          "50vu": z.number().min(0).max(100),
-          "100vu": z.number().min(0).max(100),
+          "50vu": z.object({
+            percentage: z.number().min(0).max(100),
+            milliseconds: z.number().min(0),
+          }),
+          "100vu": z.object({
+            percentage: z.number().min(0).max(100),
+            milliseconds: z.number().min(0),
+          }),
         }),
       )
       .refine((obj): obj is Required<typeof obj> => KeySchema.options.every((key) => obj[key] != null)),
@@ -89,40 +95,94 @@ type BenchmarkConfig = z.infer<typeof BenchmarkConfigSchema>;
 export const defaultConfig: BenchmarkConfig = {
   failureThresholds: {
     filter_complex: {
-      "100vu": 50,
-      "50vu": 50,
+      "100vu": {
+        milliseconds: 1500,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 1500,
+        percentage: 50,
+      },
     },
     filter_simple: {
-      "100vu": 50,
-      "50vu": 50,
+      "100vu": {
+        milliseconds: 200,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 200,
+        percentage: 50,
+      },
     },
     group: {
-      "100vu": 50,
-      "50vu": 50,
+      "100vu": {
+        milliseconds: 6000,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 6000,
+        percentage: 50,
+      },
     },
     just_q: {
-      "100vu": 50,
-      "50vu": 50,
+      "100vu": {
+        milliseconds: 7,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 7,
+        percentage: 50,
+      },
     },
     q_star: {
-      "100vu": 50,
-      "50vu": 50,
+      "100vu": {
+        milliseconds: 5,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 5,
+        percentage: 50,
+      },
     },
     sort_eval_condition: {
-      "100vu": 50,
-      "50vu": 50,
+      "100vu": {
+        milliseconds: 750,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 750,
+        percentage: 50,
+      },
     },
     sort_eval_score: {
-      "100vu": 50,
-      "50vu": 50,
+      "100vu": {
+        milliseconds: 800,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 800,
+        percentage: 50,
+      },
     },
     sort_simple: {
-      "100vu": 50,
-      "50vu": 50,
+      "100vu": {
+        milliseconds: 600,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 600,
+        percentage: 50,
+      },
     },
     facet: {
-      "100vu": 50,
-      "50vu": 50,
+      "100vu": {
+        milliseconds: 1500,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 1500,
+        percentage: 50,
+      },
     },
   },
 };
@@ -282,7 +342,7 @@ class Benchmarks {
     const { searchResults } = results;
     const failingBenchmarks = searchResults.filter((row) => {
       const threshold = this.percentagesForFailure[row.scenario][`${row.vus}vu`];
-      return row.percentageChange > threshold;
+      return row.percentageChange > threshold.percentage && row.newValue > row.oldValue + threshold.milliseconds;
     });
     const passingBenchmarks = searchResults.filter((row) => !failingBenchmarks.includes(row));
 
@@ -298,7 +358,7 @@ class Benchmarks {
         const failures = failingBenchmarks
           .map((row) => {
             const threshold = this.percentagesForFailure[row.scenario][`${row.vus}vu`];
-            return `${row.metric} for ${row.displayVariable || `${row.scenario} (${row.vus}vu)`} changed by ${row.formattedPercentageChange} (threshold: ${threshold}%)`;
+            return `${row.metric} for ${row.displayVariable || `${row.scenario} (${row.vus}vu)`} changed by ${row.formattedPercentageChange} (threshold: ${threshold.percentage}%) or exceeded the time threshold of ${threshold.milliseconds}ms`;
           })
           .join("\n");
 
