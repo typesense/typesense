@@ -212,5 +212,5 @@ int main(int argc, char **argv) {
 
     init_api(config.get_cache_num_entries());
 
-    return run_server(config, TYPESENSE_VERSION, &master_server_routes);
+    return run_server(config, TYPESENSE_VERSION, TYPESENSE_SHA, &master_server_routes);
 }

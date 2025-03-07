@@ -14,7 +14,7 @@ cd /build/typesense
 
 if [ "$TYPESENSE_TARGET" = "typesense-test" ]; then
     # Run the tests
-    bazel test --cache_test_results=no --test_output=all //:typesense-test
+    bazel test --cache_test_results=no --test_output=errors --test_summary=detailed //:typesense-test
 else
     # Forward signals to the child process
     trap 'kill -TERM $child' TERM INT
