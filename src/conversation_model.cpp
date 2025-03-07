@@ -916,14 +916,39 @@ void CFConversationModel::async_res_write_callback(std::string& response, const 
     if(async_conversations.find(req) == async_conversations.end()) {
         return;
     }
-    
-    nlohmann::json obj = nlohmann::json::parse(response);
-    std::string message = obj["response"].get<std::string>();
-    nlohmann::json res_obj;
-    res_obj["message"] = message;
-    res_obj["conversation_id"] = async_conversations[req].conversation_id;
-    response = res_obj.dump(0);
-    async_conversations[req].response += message;
+
+    try {
+        bool found_done = false;
+        std::string parsed_response;
+        std::regex data_regex("data: (.*?)\\n\\n");
+        auto begin = std::sregex_iterator(response.begin(), response.end(), data_regex);
+        auto end = std::sregex_iterator();
+        for (std::sregex_iterator i = begin; i != end; ++i) {
+            std::string substr_line = i->str().substr(6, i->str().size() - 8);
+            if(substr_line.find("[DONE]") != std::string::npos) {
+                found_done = true;  
+                break;
+            }
+            nlohmann::json json_line;
+            json_line = nlohmann::json::parse(substr_line);
+            if(json_line.count("choices") == 0 || json_line["choices"][0].count("delta") == 0 || json_line["choices"][0]["delta"].count("content") == 0) {
+                continue;
+            }
+            parsed_response += json_line["response"].get<std::string>();
+        }
+
+        async_conversations[req].response += parsed_response;
+        nlohmann::json json_res;
+        json_res["message"] = parsed_response;
+        json_res["conversation_id"] = async_conversations[req].conversation_id;
+        response = "data: " + json_res.dump(-1) + "\n\n";
+        if(found_done) {
+            response += "data: [DONE]\n\n";
+        }
+    } catch (const std::exception& e) {
+        LOG(ERROR) << e.what();
+        LOG(ERROR) << "Response: " << response;
+    }
 }
 
 bool CFConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
@@ -1297,14 +1322,39 @@ void vLLMConversationModel::async_res_write_callback(std::string& response, cons
     if(async_conversations.find(req) == async_conversations.end()) {
         return;
     }
-    
-    nlohmann::json obj = nlohmann::json::parse(response);
-    std::string message = obj["choices"][0]["delta"]["content"].get<std::string>();
-    nlohmann::json res_obj;
-    res_obj["message"] = message;
-    res_obj["conversation_id"] = async_conversations[req].conversation_id;
-    response = res_obj.dump(0);
-    async_conversations[req].response += message;
+
+    try {
+        bool found_done = false;
+        std::string parsed_response;
+        std::regex data_regex("data: (.*?)\\n\\n");
+        auto begin = std::sregex_iterator(response.begin(), response.end(), data_regex);
+        auto end = std::sregex_iterator();
+        for (std::sregex_iterator i = begin; i != end; ++i) {
+            std::string substr_line = i->str().substr(6, i->str().size() - 8);
+            if(substr_line.find("[DONE]") != std::string::npos) {
+                found_done = true;  
+                break;
+            }
+            nlohmann::json json_line;
+            json_line = nlohmann::json::parse(substr_line);
+            if(json_line.count("choices") == 0 || json_line["choices"][0].count("delta") == 0 || json_line["choices"][0]["delta"].count("content") == 0) {
+                continue;
+            }
+            parsed_response += json_line["choices"][0]["delta"]["content"].get<std::string>();
+        }
+
+        async_conversations[req].response += parsed_response;
+        nlohmann::json json_res;
+        json_res["message"] = parsed_response;
+        json_res["conversation_id"] = async_conversations[req].conversation_id;
+        response = "data: " + json_res.dump(-1) + "\n\n";
+        if(found_done) {
+            response += "data: [DONE]\n\n";
+        }
+    } catch (const std::exception& e) {
+        LOG(ERROR) << e.what();
+        LOG(ERROR) << "Response: " << response;
+    }
 }
 
 bool vLLMConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
