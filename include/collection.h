@@ -919,7 +919,6 @@ public:
                                   const bool conversation = false,
                                   const std::string& conversation_model_id = "",
                                   std::string conversation_id = "",
-                                  bool conversation_stream = false,
                                   const std::string& override_tags_str = "",
                                   const std::string& voice_query = "",
                                   bool enable_typos_for_numerical_tokens = true,
@@ -934,7 +933,8 @@ public:
                                   bool enable_analytics = true,
                                   std::string analytics_tags="",
                                   std::shared_ptr<http_req> req = nullptr,
-                                  std::shared_ptr<http_res> res = nullptr) const;
+                                  std::shared_ptr<http_res> res = nullptr,
+                                  bool conversation_stream = false) const;
 
     static Option<bool> do_union(const std::vector<uint32_t>& collection_ids,
                                  std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,

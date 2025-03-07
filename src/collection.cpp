@@ -2643,7 +2643,6 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           const bool conversation,
                                           const std::string& conversation_model_id,
                                           std::string conversation_id,
-                                          bool conversation_stream,
                                           const std::string& override_tags_str,
                                           const std::string& voice_query,
                                           bool enable_typos_for_numerical_tokens,
@@ -2658,7 +2657,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           bool enable_analytics,
                                           std::string analytics_tags,
                                           std::shared_ptr<http_req> req,
-                                          std::shared_ptr<http_res> res) const {
+                                          std::shared_ptr<http_res> res,
+                                          bool conversation_stream) const {
     std::shared_lock lock(mutex);
 
     auto args = collection_search_args_t(query, search_fields, filter_query,
