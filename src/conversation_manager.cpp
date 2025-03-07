@@ -5,7 +5,7 @@
 #include "core_api.h"
 #include "conversation_model.h"
 
-Option<std::string> ConversationManager::add_conversation(const nlohmann::json& conversation, const nlohmann::json& model, const std::string& id) {
+Option<std::string> ConversationManager::add_conversation(const nlohmann::json& conversation, const nlohmann::json& model, const std::string& id, const bool check_if_exists) {
     std::unique_lock lock(conversations_mutex);
     if(!conversation.is_array()) {
         return Option<std::string>(400, "Conversation is not an array");
@@ -20,7 +20,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
     }
     auto collection = collection_op.get();
 
-    if(!id.empty()) {
+    if(!id.empty() && check_if_exists) {
         auto conversation_exists = check_conversation_exists(id, collection);
         if(!conversation_exists.ok()) {
             return Option<std::string>(conversation_exists.code(), conversation_exists.error());
@@ -114,6 +114,7 @@ Option<nlohmann::json> ConversationManager::get_conversation(const std::string& 
     auto search_res_json = search_res.get();
     total = search_res_json["found"].get<uint32_t>();
     if(total == 0) {
+        LOG(INFO) << "Conversation not found";
         return Option<nlohmann::json>(404, "Conversation not found");
     }
 

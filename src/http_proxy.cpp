@@ -4,8 +4,9 @@
 
 using namespace std::chrono_literals;
 
-HttpProxy::HttpProxy() : cache(30s){
+HttpProxy::HttpProxy() : cache(30s), sse_cache(30s) {
 }
+
 
 
 http_proxy_res_t HttpProxy::call(const std::string& url, const std::string& method,
@@ -99,4 +100,83 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
     }
 
     return res;
+}
+
+size_t HttpProxy::sse_write_callback(char* buffer, size_t size, size_t nmemb, void* context) {
+
+    sse_proxy_context_t* sse_context = static_cast<sse_proxy_context_t*>(context);
+    auto res = sse_context->res;
+    auto req = sse_context->req;
+    auto key = sse_context->key;
+
+    if(!res->is_alive) {
+        // underlying request is dead or this is a raft log playback
+        return 0;
+    }
+
+    res->wait();
+
+    size_t res_size = size * nmemb;
+    std::string res_str = std::string(buffer, res_size);
+    auto& sse_cache = get_instance().sse_cache;
+    if(sse_cache.contains(key)){
+        sse_cache[key].emplace_back(res_str);
+    } else {
+        sse_cache.insert(key, std::vector<std::string>{res_str});
+    }
+    res->final = false;
+    res->set_200(res_str);
+
+    LOG(INFO) << "sse_write_callback: " << res_str;
+
+    auto req_res = new async_req_res_t(req, res, true);
+    server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+
+    return res_size;
+}
+size_t HttpProxy::sse_write_done_callback(void* context, curl_socket_t item) {
+    sse_proxy_context_t* sse_context = static_cast<sse_proxy_context_t*>(context);
+    auto res = sse_context->res;
+    auto req = sse_context->req;
+    auto key = sse_context->key;
+
+    if(!res->is_alive) {
+        // underlying request is dead or this is a raft log playback
+        return 0;
+    }
+
+    res->wait();
+    res->final = true;
+    res->body = "";
+
+    auto req_res = new async_req_res_t(req, res, true);
+    server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+
+    return 0;
+}
+
+
+bool HttpProxy::call_sse(const std::string& url, const std::string& method,
+                        const std::string& req_body, const std::unordered_map<std::string, std::string>& req_headers,
+                        const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res,
+                        const size_t timeout_ms) {
+    if(method != "POST") {
+        res->status_code = 400;
+        res->body = "{\"message\": \"SSE only supports POST method.\"}";
+        res->final = true;
+        server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, new async_req_res_t(req, res, true));
+        return false;
+    }
+    HttpClient& client = HttpClient::get_instance();
+
+    uint64_t key = StringUtils::hash_wy(url.c_str(), url.size());
+    key = StringUtils::hash_combine(key, StringUtils::hash_wy(method.c_str(), method.size()));
+    key = StringUtils::hash_combine(key, StringUtils::hash_wy(req_body.c_str(), req_body.size()));
+
+    res->status_code =  client.post_response_sse(url, req_body, req_headers, timeout_ms, req, res, server);
+    if(res->status_code != 200){
+        return false;
+    }
+    
+    return true;
 }

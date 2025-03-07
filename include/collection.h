@@ -147,6 +147,7 @@ struct collection_search_args_t {
     static constexpr auto CONVERSATION_ID = "conversation_id";
     static constexpr auto SYSTEM_PROMPT = "system_prompt";
     static constexpr auto CONVERSATION_MODEL_ID = "conversation_model_id";
+    static constexpr auto CONVERSATION_STREAM = "conversation_stream";
 
     static constexpr auto DROP_TOKENS_MODE = "drop_tokens_mode";
     static constexpr auto PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
@@ -169,6 +170,7 @@ struct collection_search_args_t {
     static constexpr auto RERANK_HYBRID_MATCHES = "rerank_hybrid_matches";
 
     static constexpr auto VALIDATE_FIELD_NAMES = "validate_field_names";
+
 
     std::string raw_query;
     std::vector<std::string> search_fields;
@@ -232,6 +234,7 @@ struct collection_search_args_t {
     bool conversation;
     std::string conversation_model_id;
     std::string conversation_id;
+    bool conversation_stream;
     std::string override_tags;
     std::string voice_query;
     bool enable_typos_for_numerical_tokens;
@@ -245,6 +248,9 @@ struct collection_search_args_t {
     bool enable_analytics;
     bool validate_field_names;
     std::string analytics_tag;
+    
+    std::shared_ptr<http_req> req;
+    std::shared_ptr<http_res> res;
 
     std::vector<std::vector<KV*>> result_group_kvs{};
 
@@ -270,12 +276,12 @@ struct collection_search_args_t {
                              std::string stopwords_set, std::vector<std::string> facet_return_parent,
                              std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec,
                              std::string drop_tokens_mode_str, bool prioritize_num_matching_fields, bool group_missing_values,
-                             bool conversation, std::string conversation_model_id, std::string conversation_id,
+                             bool conversation, std::string conversation_model_id, std::string conversation_id, bool conversation_stream,
                              std::string override_tags, std::string voice_query, bool enable_typos_for_numerical_tokens,
                              bool enable_synonyms, bool synonym_prefix, size_t synonym_num_typos, bool enable_lazy_filter,
                              bool enable_typos_for_alpha_numerical_tokens, size_t max_filter_by_candidates,
                              bool rerank_hybrid_matches, bool enable_analytics, bool validate_field_names,
-                             std::string analytics_tag) :
+                             std::string analytics_tag, std::shared_ptr<http_req> req, std::shared_ptr<http_res> res):
             raw_query(std::move(raw_query)), search_fields(std::move(search_fields)), filter_query(std::move(filter_query)),
             facet_fields(std::move(facet_fields)), sort_fields(std::move(sort_fields)),
             num_typos(std::move(num_typos)), per_page(per_page), page(page), token_order(token_order),
@@ -298,12 +304,12 @@ struct collection_search_args_t {
             stopwords_set(std::move(stopwords_set)), facet_return_parent(std::move(facet_return_parent)),
             ref_include_exclude_fields_vec(std::move(ref_include_exclude_fields_vec)),
             drop_tokens_mode_str(std::move(drop_tokens_mode_str)), prioritize_num_matching_fields(prioritize_num_matching_fields), group_missing_values(group_missing_values),
-            conversation(conversation), conversation_model_id(std::move(conversation_model_id)), conversation_id(std::move(conversation_id)),
+            conversation(conversation), conversation_model_id(std::move(conversation_model_id)), conversation_id(std::move(conversation_id)), conversation_stream(conversation_stream),
             override_tags(std::move(override_tags)), voice_query(std::move(voice_query)), enable_typos_for_numerical_tokens(enable_typos_for_numerical_tokens),
             enable_synonyms(enable_synonyms), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos), enable_lazy_filter(enable_lazy_filter),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens), max_filter_by_candidates(max_filter_by_candidates),
             rerank_hybrid_matches(rerank_hybrid_matches), enable_analytics(enable_analytics), validate_field_names(validate_field_names),
-            analytics_tag(analytics_tag) {}
+            analytics_tag(analytics_tag), req(std::move(req)), res(std::move(res)) {}
 
     collection_search_args_t() = default;
 
@@ -311,7 +317,9 @@ struct collection_search_args_t {
                              const uint32_t& coll_num_documents,
                              const std::string& stopwords_set,
                              const uint64_t& start_ts,
-                             collection_search_args_t& args);
+                             collection_search_args_t& args,
+                             std::shared_ptr<http_req> req = nullptr,
+                             std::shared_ptr<http_res> res = nullptr);
 };
 
 class Collection {
@@ -911,6 +919,7 @@ public:
                                   const bool conversation = false,
                                   const std::string& conversation_model_id = "",
                                   std::string conversation_id = "",
+                                  bool conversation_stream = false,
                                   const std::string& override_tags_str = "",
                                   const std::string& voice_query = "",
                                   bool enable_typos_for_numerical_tokens = true,
@@ -923,7 +932,9 @@ public:
                                   bool rerank_hybrid_matches = false,
                                   bool validate_field_names = true,
                                   bool enable_analytics = true,
-                                  std::string analytics_tags="") const;
+                                  std::string analytics_tags="",
+                                  std::shared_ptr<http_req> req = nullptr,
+                                  std::shared_ptr<http_res> res = nullptr) const;
 
     static Option<bool> do_union(const std::vector<uint32_t>& collection_ids,
                                  std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,

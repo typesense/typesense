@@ -25,6 +25,7 @@
 #include "conversation_model_manager.h"
 #include "field.h"
 #include "join.h"
+#include "sole.hpp"
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
@@ -2642,6 +2643,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           const bool conversation,
                                           const std::string& conversation_model_id,
                                           std::string conversation_id,
+                                          bool conversation_stream,
                                           const std::string& override_tags_str,
                                           const std::string& voice_query,
                                           bool enable_typos_for_numerical_tokens,
@@ -2654,7 +2656,9 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           bool rerank_hybrid_matches,
                                           bool validate_field_names,
                                           bool enable_analytics,
-                                          std::string analytics_tags) const {
+                                          std::string analytics_tags,
+                                          std::shared_ptr<http_req> req,
+                                          std::shared_ptr<http_res> res) const {
     std::shared_lock lock(mutex);
 
     auto args = collection_search_args_t(query, search_fields, filter_query,
@@ -2679,11 +2683,11 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          stopwords_set, facet_return_parent,
                                          ref_include_exclude_fields_vec,
                                          drop_tokens_mode, prioritize_num_matching_fields, group_missing_values,
-                                         conversation, conversation_model_id, conversation_id,
+                                         conversation, conversation_model_id, conversation_id, conversation_stream,
                                          override_tags_str, voice_query, enable_typos_for_numerical_tokens,
                                          enable_synonyms, synonym_prefix, synonym_num_typos, enable_lazy_filter,
                                          enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
-                                         rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags);
+                                         rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags, req, res);
     return search(args);
 }
 
@@ -2742,11 +2746,15 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
     const auto& field_query_tokens = search_params->field_query_tokens;
     const auto& vector_query_str = coll_args.vector_query;
     const auto& conversation_model_id = coll_args.conversation_model_id;
-    const auto& conversation_id = coll_args.conversation_id;
+    const auto& conversation_stream = coll_args.conversation_stream;
     const auto& max_facet_values = coll_args.max_facet_values;
     const auto& facet_return_parent = coll_args.facet_return_parent;
     const auto& voice_query = coll_args.voice_query;
     const auto& total = search_params->found_count;
+
+    auto& req = coll_args.req;
+    auto& res = coll_args.res;
+    auto& conversation_id = coll_args.conversation_id;
 
     auto& raw_result_kvs = search_params->raw_result_kvs;
     auto& override_result_kvs = search_params->override_result_kvs;
@@ -3066,8 +3074,19 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             }
         }
 
-        
-        auto qa_op = ConversationModel::get_answer(docs_array.dump(0), conversation_standalone_query, conversation_model);
+        Option<std::string> qa_op("");
+        bool conversation_id_created_in_advance = false;
+
+        if(!conversation_stream) {
+            qa_op = ConversationModel::get_answer(docs_array.dump(0), conversation_standalone_query, conversation_model);
+        } else {
+            // create a new conversation_id in advance for streaming
+            if(conversation_id.empty()) {
+                conversation_id = sole::uuid4().str();
+                conversation_id_created_in_advance = true;
+            }
+            qa_op = ConversationModel::get_answer_stream(docs_array.dump(0), conversation_standalone_query, conversation_model, req, res, conversation_id);
+        }
         if(!qa_op.ok()) {
             return Option<nlohmann::json>(qa_op.code(), qa_op.error());
         }
@@ -3076,7 +3095,8 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             result["conversation"]["conversation_id"] = conversation_id;
         }
 
-        auto conversation_history_op = ConversationManager::get_instance().get_full_conversation(raw_query, qa_op.get(), conversation_model, conversation_id);
+        // do not send conversation id as param if streaming, because it is just created in advance for streaming
+        auto conversation_history_op = ConversationManager::get_instance().get_full_conversation(raw_query, qa_op.get(), conversation_model, conversation_id_created_in_advance ? "" : conversation_id);
         if(!conversation_history_op.ok()) {
             return Option<nlohmann::json>(conversation_history_op.code(), conversation_history_op.error());
         }
@@ -3088,7 +3108,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
         }
         auto new_conversation = new_conversation_op.get();
         
-        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation, conversation_model, conversation_id);
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation, conversation_model, conversation_id, !conversation_id_created_in_advance);
         if(!add_conversation_op.ok()) {
             return Option<nlohmann::json>(add_conversation_op.code(), add_conversation_op.error());
         }
@@ -7717,7 +7737,11 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                             const uint32_t& coll_num_documents,
                                             const std::string& stopwords_set,
                                             const uint64_t& start_ts,
-                                            collection_search_args_t& args) {
+                                            collection_search_args_t& args,
+                                            std::shared_ptr<http_req> req,
+                                            std::shared_ptr<http_res> res) {
+    args.req = req;
+    args.res = res;
     // check presence of mandatory params here
 
     if(req_params.count(QUERY) == 0 && req_params.count(VOICE_QUERY) == 0) {
@@ -7804,6 +7828,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     bool conversation = false;
     std::string conversation_id;
     std::string conversation_model_id;
+    bool conversation_stream = false;
 
     std::string drop_tokens_mode_str = "right_to_left";
     bool prioritize_num_matching_fields = true;
@@ -7868,6 +7893,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {ENABLE_OVERRIDES, &enable_overrides},
             {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
             {CONVERSATION, &conversation},
+            {CONVERSATION_STREAM, &conversation_stream},
             {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
             {GROUP_MISSING_VALUES, &group_missing_values},
             {ENABLE_TYPOS_FOR_NUMERICAL_TOKENS, &enable_typos_for_numerical_tokens},
@@ -8057,11 +8083,11 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     stopwords_set, facet_return_parent,
                                     ref_include_exclude_fields_vec,
                                     drop_tokens_mode_str, prioritize_num_matching_fields, group_missing_values,
-                                    conversation, conversation_model_id, conversation_id,
+                                    conversation, conversation_model_id, conversation_id, conversation_stream,
                                     override_tags, voice_query, enable_typos_for_numerical_tokens,
                                     enable_synonyms, synonym_prefix, synonym_num_typos, enable_lazy_filter,
                                     enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
-                                    rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags);
+                                    rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags, req, res);
     return Option<bool>(true);
 }
 
