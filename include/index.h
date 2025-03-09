@@ -1095,7 +1095,7 @@ public:
                                      const std::vector<size_t>& geopoint_indices, uint32_t seq_id,
                                      const std::map<basic_string<char>, reference_filter_result_t>& references,
                                      std::vector<uint32_t>& filter_indexes, int64_t max_field_match_score,
-                                     int64_t* scores, int64_t& match_score_index, bool& should_skip,
+                                     int64_t* scores, int64_t& match_score_index,
                                      float vector_distance = 0) const;
 
     void process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
