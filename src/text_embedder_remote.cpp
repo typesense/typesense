@@ -70,12 +70,20 @@ const std::string RemoteEmbedder::get_model_key(const nlohmann::json& model_conf
     }
 }
 
-OpenAIEmbedder::OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key, const size_t num_dims, const bool has_custom_dims, const std::string& openai_url) : api_key(api_key), openai_model_path(openai_model_path), 
-                                                                                                                                                                                     num_dims(num_dims), has_custom_dims(has_custom_dims){
-    if(openai_url.empty()) {
+OpenAIEmbedder::OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key, const size_t num_dims, 
+                            const bool has_custom_dims, const nlohmann::json& model_config) : api_key(api_key), openai_model_path(openai_model_path), 
+                                                                                                                         num_dims(num_dims), has_custom_dims(has_custom_dims){
+
+    if(model_config.count("url") == 0) {
         this->openai_url = "https://api.openai.com";
     } else {
-        this->openai_url = openai_url;
+        this->openai_url = model_config["url"].get<std::string>();
+    }
+
+    if(model_config.count("path") == 0) {
+        this->openai_create_embedding_suffix = OPENAI_CREATE_EMBEDDING;
+    } else {
+        this->openai_create_embedding_suffix = model_config["path"].get<std::string>();
     }
 }
 
@@ -87,6 +95,7 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     }
 
     const std::string openai_url = model_config.count("url") > 0 ? model_config["url"].get<std::string>() : "https://api.openai.com";
+    const std::string openai_path = model_config.count("path") > 0 ? model_config["path"].get<std::string>() : OPENAI_CREATE_EMBEDDING;
     auto model_name = model_config["model_name"].get<std::string>();
     auto api_key = model_config["api_key"].get<std::string>();
 
@@ -111,7 +120,7 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
 
     std::string embedding_res;
     headers["Content-Type"] = "application/json";
-    auto res_code = call_remote_api("POST", get_openai_create_embedding_url(openai_url), req_body.dump(), embedding_res, res_headers, headers);  
+    auto res_code = call_remote_api("POST", get_openai_create_embedding_url(openai_url, openai_path), req_body.dump(), embedding_res, res_headers, headers);  
 
 
     if(res_code == 408) {
@@ -142,7 +151,7 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
 
 embedding_res_t OpenAIEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
     std::shared_lock<std::shared_mutex> lock(mutex);
-    return Embed(get_openai_create_embedding_url(openai_url), text, remote_embedder_timeout_ms, remote_embedding_num_tries, api_key, num_dims, has_custom_dims, openai_model_path.substr(7), OpenAIEmbedderType::OPENAI);
+    return Embed(get_openai_create_embedding_url(openai_url,openai_create_embedding_suffix), text, remote_embedder_timeout_ms, remote_embedding_num_tries, api_key, num_dims, has_custom_dims, openai_model_path.substr(7), OpenAIEmbedderType::OPENAI);
 }
 
 embedding_res_t OpenAIEmbedder::Embed(const std::string url, const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries, 
@@ -192,7 +201,7 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::
         return outputs;
     }
 
-    return batch_embed(get_openai_create_embedding_url(openai_url), inputs, remote_embedding_timeout_ms, 
+    return batch_embed(get_openai_create_embedding_url(openai_url, openai_create_embedding_suffix), inputs, remote_embedding_timeout_ms, 
                        remote_embedding_num_tries, api_key, num_dims, has_custom_dims, openai_model_path.substr(7), 
                        OpenAIEmbedderType::OPENAI);
 }
@@ -295,7 +304,7 @@ nlohmann::json OpenAIEmbedder::get_error_json(const nlohmann::json& req_body, lo
 }
 
 nlohmann::json OpenAIEmbedder::get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) {
-    return get_error_json(req_body, res_code, res_body, get_openai_create_embedding_url(openai_url));
+    return get_error_json(req_body, res_code, res_body, get_openai_create_embedding_url(openai_url, openai_create_embedding_suffix));
 }
 
 std::string OpenAIEmbedder::get_model_key(const nlohmann::json& model_config) {
