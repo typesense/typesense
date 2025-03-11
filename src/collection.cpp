@@ -7516,9 +7516,10 @@ void Collection::remove_embedding_field(const std::string& field_name) {
     }
 
     const auto& del_field = embedding_fields[field_name];
+    bool is_personalization_field = del_field.embed[fields::model_config].count(fields::personalization_type) != 0;
     const auto& model_name = del_field.embed[fields::model_config][fields::model_name].get<std::string>();
     embedding_fields.erase(field_name);
-    if (del_field.embed[fields::model_config].contains(fields::personalization_type) != 0) {
+    if (!is_personalization_field) {
         CollectionManager::get_instance().process_embedding_field_delete(model_name);
     }
 }

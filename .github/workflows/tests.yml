@@ -74,6 +74,9 @@ jobs:
       - name: Build Typesense
         run: bazel build //:typesense-server
 
+      - name: Setup artifacts for tests
+        run: curl https://dl.typesense.org/tyrec/tyrec-1-models.tar.gz > ./test/resources/models.tar.gz
+
       - name: Run tests
         run: bazel test --cache_test_results=no --test_output=all //:typesense-test
 

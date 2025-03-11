@@ -938,6 +938,22 @@ void AnalyticsManager::get_last_N_events(const std::string& userid, const std::s
         for (size_t i = 0; i < all_events.size() && i < N; i++) {
             values.push_back(all_events[i].second);
         }
+        // Deduplicate events based on timestamp and user_id
+        std::unordered_set<std::string> seen_events;
+        std::vector<std::string> deduped_values;
+        deduped_values.reserve(values.size());
+
+        for (const auto& event_str : values) {
+            auto event_json = nlohmann::json::parse(event_str);
+            std::string dedup_key = std::to_string(event_json["timestamp"].get<uint64_t>()) + 
+                                    event_json["user_id"].get<std::string>();
+            
+            if (seen_events.insert(dedup_key).second) {
+                deduped_values.push_back(event_str);
+            }
+        }
+
+        values = std::move(deduped_values);
     }
 }
 

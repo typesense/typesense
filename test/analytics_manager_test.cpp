@@ -797,9 +797,11 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     })"_json;
 
     create_op = analyticsManager.create_rule(analytics_rule, true, true);
-    ASSERT_TRUE(create_op.ok());
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Log type can only be used for a single collection.", create_op.error());
 
-    event9 = R"({
+    // This test can be present when multiple source collections are allowed log type events.
+    /* event9 = R"({
         "type": "click",
         "name": "CP",
         "data": {
@@ -809,19 +811,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     })"_json;
     req->body = event9.dump();
     ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"Multiple source collections. 'collection' should be specified\"}", res->body);
-
-    event9 = R"({
-        "type": "click",
-        "name": "CP",
-        "data": {
-            "doc_id": "12",
-            "user_id": "11",
-            "collection": "titles"
-        }
-    })"_json;
-    req->body = event9.dump();
-    ASSERT_TRUE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"Multiple source collections. 'collection' should be specified\"}", res->body); */
 
     // Test doc_ids validation
     nlohmann::json event_doc_ids = R"({
