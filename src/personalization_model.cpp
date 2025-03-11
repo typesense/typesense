@@ -1,6 +1,5 @@
 #include "personalization_model.h"
 #include "text_embedder_remote.h"
-#include "collection_manager.h"
 #include "archive_utils.h"
 #include <iostream>
 #include <filesystem>
@@ -72,9 +71,6 @@ Option<bool> PersonalizationModel::validate_model(const nlohmann::json& model_js
     if (!model_json.contains("name") || !model_json["name"].is_string()) {
         return Option<bool>(400, "Missing or invalid 'name' field.");
     }
-    if (!model_json.contains("collection") || !model_json["collection"].is_string()) {
-        return Option<bool>(400, "Missing or invalid 'collection' field.");
-    }
     const std::string& name = model_json["name"].get<std::string>();
     size_t slash_pos = name.find('/');
 
@@ -107,12 +103,6 @@ Option<bool> PersonalizationModel::validate_model(const nlohmann::json& model_js
         return Option<bool>(400, "Invalid model name for type. Use 'tyrec-1' for recommendation and 'tyrec-2' for search.");
     }
 
-    auto& collection_manager = CollectionManager::get_instance();
-    const std::string& collection_name = model_json["collection"].get<std::string>();
-
-    if (collection_manager.get_collection(collection_name) == nullptr) {
-        return Option<bool>(404, "Collection '" + collection_name + "' not found.");
-    }
     return Option<bool>(true);
 }
 

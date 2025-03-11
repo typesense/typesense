@@ -656,17 +656,6 @@ private:
                                                  const size_t remote_embedding_num_tries,
                                                  size_t& per_page) const;
 
-    Option<bool> parse_and_validate_personalization_query(const std::string& personalization_user_id,
-                                                          const std::string& personalization_model_id,
-                                                          const std::string& personalization_type,
-                                                          const std::string& personalization_user_field,
-                                                          const std::string& personalization_item_field,
-                                                          const size_t& personalization_n_events,
-                                                          const std::string& personalization_event_name,
-                                                          vector_query_t& vector_query,
-                                                          std::string& filter_query,
-                                                          bool& is_wildcard_query) const;
-
     Option<bool> init_index_search_args_with_lock(collection_search_args_t& coll_args,
                                                   std::unique_ptr<search_args>& index_args,
                                                   std::string& query,
@@ -963,6 +952,17 @@ public:
                                   std::string personalization_item_field = "",
                                   std::string personalization_event_name = "",
                                   size_t personalization_n_events = 0) const;
+
+    Option<bool> parse_and_validate_personalization_query(const std::string& personalization_user_id,
+                                                          const std::string& personalization_model_id,
+                                                          const std::string& personalization_type,
+                                                          const std::string& personalization_user_field,
+                                                          const std::string& personalization_item_field,
+                                                          const size_t& personalization_n_events,
+                                                          const std::string& personalization_event_name,
+                                                          vector_query_t& vector_query,
+                                                          std::string& filter_query,
+                                                          bool& is_wildcard_query) const;
 
     static Option<bool> do_union(const std::vector<uint32_t>& collection_ids,
                                  std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,

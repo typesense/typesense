@@ -7689,6 +7689,10 @@ Option<bool> Collection::parse_and_validate_personalization_query(const std::str
     auto personalization_model = personalization_model_op.get();
 
     std::vector<std::string> user_events;
+    auto check_event_op = AnalyticsManager::get_instance().is_event_exists(personalization_event_name);
+    if (!check_event_op.ok()) {
+        return Option<bool>(400, "Analytics event not found");
+    }
     AnalyticsManager::get_instance().get_last_N_events(
         personalization_user_id, 
         get_name(),

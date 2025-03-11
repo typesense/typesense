@@ -230,6 +230,8 @@ public:
 
     void get_last_N_events(const std::string& userid, const std::string& collection_name, const std::string& event_name, uint32_t N, std::vector<std::string>& values);
 
+    Option<bool> is_event_exists(const std::string& event_name);
+
     Option<nlohmann::json> get_events(uint32_t N);
 
 #ifdef TEST_BUILD

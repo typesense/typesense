@@ -973,6 +973,13 @@ Option<nlohmann::json> AnalyticsManager::get_events(uint32_t N) {
     return Option<nlohmann::json>(response);
 }
 
+Option<bool> AnalyticsManager::is_event_exists(const std::string& event_name) {
+    if (event_collection_map.find(event_name) != event_collection_map.end()) {
+        return Option<bool>(true);
+    }
+    return Option<bool>(404, "Event does not exist");
+}
+
 void event_t::to_json(nlohmann::json& obj, const std::string& coll) const {
     obj["query"] = query;
     obj["type"] = event_type;
