@@ -70,13 +70,14 @@ class OpenAIEmbedder : public RemoteEmbedder {
     private: 
         std::string api_key;
         std::string openai_model_path;
+        std::string openai_create_embedding_suffix;
         static constexpr char* OPENAI_CREATE_EMBEDDING = "v1/embeddings";
         bool has_custom_dims;
         size_t num_dims;
         std::string openai_url = "https://api.openai.com";
 
-        static std::string get_openai_create_embedding_url(const std::string& openai_url) {
-            return openai_url.back() == '/' ? openai_url + OPENAI_CREATE_EMBEDDING : openai_url + "/" + OPENAI_CREATE_EMBEDDING;
+        static std::string get_openai_create_embedding_url(const std::string& openai_url, const std::string& openai_create_embedding_suffix = "") {
+            return openai_url.back() == '/' ? openai_url + OPENAI_CREATE_EMBEDDING : openai_url + "/" + openai_create_embedding_suffix;
         }
         friend class AzureEmbedder;
         enum OpenAIEmbedderType {
@@ -87,7 +88,7 @@ class OpenAIEmbedder : public RemoteEmbedder {
         static embedding_res_t Embed(const std::string url, const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries, const std::string& api_key, const size_t num_dims, const bool has_custom_dims, const std::string& model_name, const OpenAIEmbedderType embedder_type);
         static nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body, const std::string& url);
     public:
-        OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key, const size_t num_dims, const bool has_custom_dims, const std::string& openai_url);
+        OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key, const size_t num_dims, const bool has_custom_dims, const nlohmann::json& model_config);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims);
         embedding_res_t Embed(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) override;
         std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
