@@ -1264,9 +1264,7 @@ void update_app_metrics(const uint64_t& timeMillis) {
 Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
                                           nlohmann::json& embedded_params,
                                           std::string& results_json_str,
-                                          uint64_t start_ts,
-                                          std::shared_ptr<http_req> req,
-                                          std::shared_ptr<http_res> res) {
+                                          uint64_t start_ts) {
 
     auto begin = std::chrono::high_resolution_clock::now();
 
@@ -1297,7 +1295,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     collection_search_args_t args;
     auto init_op = collection_search_args_t::init(req_params, collection->get_num_documents(), stopwords_set, start_ts,
-                                                  args, req, res);
+                                                  args);
     if (!init_op.ok()) {
         return init_op;
     }

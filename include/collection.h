@@ -147,7 +147,6 @@ struct collection_search_args_t {
     static constexpr auto CONVERSATION_ID = "conversation_id";
     static constexpr auto SYSTEM_PROMPT = "system_prompt";
     static constexpr auto CONVERSATION_MODEL_ID = "conversation_model_id";
-    static constexpr auto CONVERSATION_STREAM = "conversation_stream";
 
     static constexpr auto DROP_TOKENS_MODE = "drop_tokens_mode";
     static constexpr auto PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
@@ -241,7 +240,6 @@ struct collection_search_args_t {
     bool conversation;
     std::string conversation_model_id;
     std::string conversation_id;
-    bool conversation_stream;
     std::string override_tags;
     std::string voice_query;
     bool enable_typos_for_numerical_tokens;
@@ -287,7 +285,7 @@ struct collection_search_args_t {
                              std::string stopwords_set, std::vector<std::string> facet_return_parent,
                              std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec,
                              std::string drop_tokens_mode_str, bool prioritize_num_matching_fields, bool group_missing_values,
-                             bool conversation, std::string conversation_model_id, std::string conversation_id, bool conversation_stream,
+                             bool conversation, std::string conversation_model_id, std::string conversation_id,
                              std::string override_tags, std::string voice_query, bool enable_typos_for_numerical_tokens,
                              bool enable_synonyms, bool synonym_prefix, size_t synonym_num_typos, bool enable_lazy_filter,
                              bool enable_typos_for_alpha_numerical_tokens, size_t max_filter_by_candidates,
@@ -318,7 +316,7 @@ struct collection_search_args_t {
             stopwords_set(std::move(stopwords_set)), facet_return_parent(std::move(facet_return_parent)),
             ref_include_exclude_fields_vec(std::move(ref_include_exclude_fields_vec)),
             drop_tokens_mode_str(std::move(drop_tokens_mode_str)), prioritize_num_matching_fields(prioritize_num_matching_fields), group_missing_values(group_missing_values),
-            conversation(conversation), conversation_model_id(std::move(conversation_model_id)), conversation_id(std::move(conversation_id)), conversation_stream(conversation_stream),
+            conversation(conversation), conversation_model_id(std::move(conversation_model_id)), conversation_id(std::move(conversation_id)),
             override_tags(std::move(override_tags)), voice_query(std::move(voice_query)), enable_typos_for_numerical_tokens(enable_typos_for_numerical_tokens),
             enable_synonyms(enable_synonyms), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos), enable_lazy_filter(enable_lazy_filter),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens), max_filter_by_candidates(max_filter_by_candidates),
@@ -334,9 +332,7 @@ struct collection_search_args_t {
                              const uint32_t& coll_num_documents,
                              const std::string& stopwords_set,
                              const uint64_t& start_ts,
-                             collection_search_args_t& args,
-                             std::shared_ptr<http_req> req = nullptr,
-                             std::shared_ptr<http_res> res = nullptr);
+                             collection_search_args_t& args);
 };
 
 class Collection {

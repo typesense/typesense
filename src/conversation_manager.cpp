@@ -114,7 +114,6 @@ Option<nlohmann::json> ConversationManager::get_conversation(const std::string& 
     auto search_res_json = search_res.get();
     total = search_res_json["found"].get<uint32_t>();
     if(total == 0) {
-        LOG(INFO) << "Conversation not found";
         return Option<nlohmann::json>(404, "Conversation not found");
     }
 

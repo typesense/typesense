@@ -2679,7 +2679,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          stopwords_set, facet_return_parent,
                                          ref_include_exclude_fields_vec,
                                          drop_tokens_mode, prioritize_num_matching_fields, group_missing_values,
-                                         conversation, conversation_model_id, conversation_id, conversation_stream,
+                                         conversation, conversation_model_id, conversation_id,
                                          override_tags_str, voice_query, enable_typos_for_numerical_tokens,
                                          enable_synonyms, synonym_prefix, synonym_num_typos, enable_lazy_filter,
                                          enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
@@ -2745,7 +2745,6 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
     const auto& field_query_tokens = search_params->field_query_tokens;
     const auto& vector_query_str = coll_args.vector_query;
     const auto& conversation_model_id = coll_args.conversation_model_id;
-    const auto& conversation_stream = coll_args.conversation_stream;
     const auto& max_facet_values = coll_args.max_facet_values;
     const auto& facet_return_parent = coll_args.facet_return_parent;
     const auto& voice_query = coll_args.voice_query;
@@ -2757,8 +2756,6 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
     const auto& personalization_item_field = coll_args.personalization_item_field;
     const auto& personalization_n_events = coll_args.personalization_n_events;
 
-    auto& req = coll_args.req;
-    auto& res = coll_args.res;
     auto& conversation_id = coll_args.conversation_id;
 
     auto& raw_result_kvs = search_params->raw_result_kvs;
@@ -7804,11 +7801,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                             const uint32_t& coll_num_documents,
                                             const std::string& stopwords_set,
                                             const uint64_t& start_ts,
-                                            collection_search_args_t& args,
-                                            std::shared_ptr<http_req> req,
-                                            std::shared_ptr<http_res> res) {
-    args.req = req;
-    args.res = res;
+                                            collection_search_args_t& args) {
     // check presence of mandatory params here
 
     if(req_params.count(QUERY) == 0 && req_params.count(VOICE_QUERY) == 0) {
@@ -7895,7 +7888,6 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     bool conversation = false;
     std::string conversation_id;
     std::string conversation_model_id;
-    bool conversation_stream = false;
 
     std::string drop_tokens_mode_str = "right_to_left";
     bool prioritize_num_matching_fields = true;
@@ -7976,7 +7968,6 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {ENABLE_OVERRIDES, &enable_overrides},
             {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
             {CONVERSATION, &conversation},
-            {CONVERSATION_STREAM, &conversation_stream},
             {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
             {GROUP_MISSING_VALUES, &group_missing_values},
             {ENABLE_TYPOS_FOR_NUMERICAL_TOKENS, &enable_typos_for_numerical_tokens},
@@ -8166,7 +8157,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     stopwords_set, facet_return_parent,
                                     ref_include_exclude_fields_vec,
                                     drop_tokens_mode_str, prioritize_num_matching_fields, group_missing_values,
-                                    conversation, conversation_model_id, conversation_id, conversation_stream,
+                                    conversation, conversation_model_id, conversation_id,
                                     override_tags, voice_query, enable_typos_for_numerical_tokens,
                                     enable_synonyms, synonym_prefix, synonym_num_typos, enable_lazy_filter,
                                     enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,

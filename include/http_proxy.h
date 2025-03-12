@@ -21,11 +21,6 @@ struct http_proxy_res_t {
     }
 };
 
-struct sse_proxy_context_t {
-    uint64_t key;
-    std::shared_ptr<http_req> req;
-    std::shared_ptr<http_res> res;
-};
 
 
 class HttpProxy {
