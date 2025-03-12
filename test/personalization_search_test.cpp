@@ -25,13 +25,13 @@ protected:
         system(("rm -rf " + temp_dir + " && mkdir -p " + temp_dir).c_str());
 
         // Setup model directory
-        std::string test_dir = "/tmp/typesense_test/models";
+        std::string test_dir = "/tmp/typesense_test/personalization_search_test/models";
         system(("rm -rf " + test_dir + " && mkdir -p " + test_dir).c_str());
         EmbedderManager::set_model_dir(test_dir);
 
         // Create test collection
-        std::string state_dir_path = "/tmp/typesense_test/personalization_search_test";
-        std::string analytics_dir_path = "/tmp/typesense_test/analytics";
+        std::string state_dir_path = "/tmp/typesense_test/personalization_search_test/personalization_search_test";
+        std::string analytics_dir_path = "/tmp/typesense_test/personalization_search_test/analytics";
         Config::get_instance().set_data_dir(state_dir_path);
 
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
@@ -119,6 +119,7 @@ protected:
         // Add events to the event name
         nlohmann::json event1 = R"({
             "type": "click",
+
             "name": "test_event",
             "data": {
                 "doc_id": "0",
@@ -146,6 +147,7 @@ protected:
         std::string test_dir = "/tmp/typesense_test";
         system(("rm -rf " + test_dir).c_str());
         collectionManager.dispose();
+        PersonalizationModelManager::dispose();
         delete store;
     }
 };

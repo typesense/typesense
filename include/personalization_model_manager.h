@@ -24,6 +24,7 @@ public:
     static Option<int> init(Store* store);
     static std::shared_ptr<PersonalizationModel> get_model_embedder(const std::string& model_id);
     static Option<bool> validate_personalization_model(const nlohmann::json& model_config, size_t& num_dim);
+    static void dispose();
 
 private:
     static inline std::unordered_map<std::string, nlohmann::json> models;

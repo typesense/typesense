@@ -7662,9 +7662,6 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                         value.push_back(value_str);
                     }
                 }
-                for(auto& val : value) {
-                    LOG(INFO) << val;
-                }
                 values_to_embed_personalization.push_back(std::make_pair(record, value));
             } else {
                 std::string value = indexing_prefix;

@@ -253,7 +253,6 @@ void PersonalizationModel::initialize_session() {
     }
 
     recommendation_session_options.EnableOrtCustomOps();
-    LOG(INFO) << "Loading personalization model from: " << recommendation_model_path_;
 
     env_ = std::make_shared<Ort::Env>();
     recommendation_session_ = std::make_shared<Ort::Session>(*env_, recommendation_model_path_.c_str(), recommendation_session_options);

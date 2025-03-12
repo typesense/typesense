@@ -20,7 +20,7 @@ protected:
         system(("rm -rf " + temp_dir + " && mkdir -p " + temp_dir).c_str());
 
         // Setup model directory
-        std::string test_dir = "/tmp/typesense_test/models";
+        std::string test_dir = "/tmp/typesense_test/personalization_auto_embedding_test/models";
         system(("rm -rf " + test_dir + " && mkdir -p " + test_dir).c_str());
         EmbedderManager::set_model_dir(test_dir);
 
@@ -39,6 +39,7 @@ protected:
         std::string test_dir = "/tmp/typesense_test";
         system(("rm -rf " + test_dir).c_str());
         collectionManager.dispose();
+        PersonalizationModelManager::dispose();
         delete store;
     }
 };

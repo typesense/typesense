@@ -232,3 +232,14 @@ Option<bool> PersonalizationModelManager::validate_personalization_model(const n
 
     return Option<bool>(true);
 }
+
+void PersonalizationModelManager::dispose() {
+    std::unique_lock lock(models_mutex);
+    models.clear();
+    for (auto& [model_id, model] : model_embedders) {
+        model.reset();
+        model_embedders[model_id] = nullptr;
+    }
+    model_embedders.clear();
+    store->close();
+}
