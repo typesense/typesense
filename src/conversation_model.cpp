@@ -550,7 +550,7 @@ Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string
         proxy_req_body["body"] = req_body.dump();
         proxy_req_body["headers"] = headers;
         std::unordered_map<std::string, std::string> header_;
-        header_["x-typesense-api-key"] = "aaa";
+        header_["x-typesense-api-key"] = HttpClient::get_api_key();
 
         auto status = HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
     } else {
@@ -740,11 +740,13 @@ Option<std::string> CFConversationModel::get_answer_stream(const std::string& co
         auto proxy_url = raft_server->get_leader_url() + "proxy_sse";
         nlohmann::json proxy_req_body;
         proxy_req_body["method"] = "POST";
-        proxy_req_body["url"] = proxy_url;
-        proxy_req_body["body"] = req_body;
+        proxy_req_body["url"] = url;
+        proxy_req_body["body"] = req_body.dump();
         proxy_req_body["headers"] = headers;
+        std::unordered_map<std::string, std::string> header_;
+        header_["x-typesense-api-key"] = HttpClient::get_api_key();
 
-        HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), {}, HttpProxy::default_timeout_ms, req, res, server);
+        HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
     } else {
         HttpClient::get_instance().post_response_sse(url, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
     }
@@ -931,7 +933,7 @@ void CFConversationModel::async_res_write_callback(std::string& response, const 
             }
             nlohmann::json json_line;
             json_line = nlohmann::json::parse(substr_line);
-            if(json_line.count("choices") == 0 || json_line["choices"][0].count("delta") == 0 || json_line["choices"][0]["delta"].count("content") == 0) {
+            if(json_line.count("response") == 0) {
                 continue;
             }
             parsed_response += json_line["response"].get<std::string>();
@@ -1162,11 +1164,13 @@ Option<std::string> vLLMConversationModel::get_answer_stream(const std::string& 
         auto proxy_url = raft_server->get_leader_url() + "proxy_sse";
         nlohmann::json proxy_req_body;
         proxy_req_body["method"] = "POST";
-        proxy_req_body["url"] = proxy_url;
-        proxy_req_body["body"] = req_body;
+        proxy_req_body["url"] = get_chat_completion_url(vllm_url);
+        proxy_req_body["body"] = req_body.dump();
         proxy_req_body["headers"] = headers;
+        std::unordered_map<std::string, std::string> header_;
+        header_["x-typesense-api-key"] = HttpClient::get_api_key();
 
-        HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), {}, HttpProxy::default_timeout_ms, req, res, server);
+        HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
     } else {
         HttpClient::get_instance().post_response_sse(get_chat_completion_url(vllm_url), req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
     }

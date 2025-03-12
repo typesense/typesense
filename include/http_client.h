@@ -98,4 +98,8 @@ public:
                                bool send_ts_api_header = false);
 
     static void extract_response_headers(CURL* curl, std::map<std::string, std::string> &res_headers);
+
+    static inline std::string get_api_key() {
+        return api_key;
+    }
 };

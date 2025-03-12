@@ -555,9 +555,194 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         return false;
     }
 
+    bool conversation = false;
+    std::string conversation_id = "";
+    std::string conversation_model_id = "";
+    bool conversation_stream = false;
+    std::string query = req->params["q"];
+    std::string raw_query = query;
+
+    if(req->params.find("conversation") != req->params.end() && req->params["conversation"] == "true") {
+        conversation = true;
+    }
+
+    if(req->params.find("conversation_stream") != req->params.end() && req->params["conversation_stream"] == "true") {
+        conversation_stream = true;
+    }
+
+    if(req->params.find("conversation_id") != req->params.end()) {
+        conversation_id = req->params["conversation_id"];
+    }
+
+    if(req->params.find("conversation_model_id") != req->params.end()) {
+        conversation_model_id = req->params["conversation_model_id"];
+    }
+
+    if(conversation) {
+        if(conversation_model_id.empty()) {
+            res->set(400, "Conversation is enabled but no conversation model ID is provided.");
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+
+        auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
+
+        if(!conversation_model_op.ok()) {
+            res->set(400, conversation_model_op.error());
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+    }
+
+
+    if(!conversation_id.empty()) {
+        auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
+        if(!conversation) {
+            res->set_400("Conversation ID provided but conversation is not enabled for this collection.");
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+
+        auto conversation_history_op = ConversationManager::get_instance().get_conversation(conversation_id, conversation_model_op.get());
+        if(!conversation_history_op.ok()) {
+            res->set_400(conversation_history_op.error());
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+
+        auto conversation_history = conversation_history_op.get();
+
+        auto standalone_question_op = ConversationModel::get_standalone_question(conversation_history, raw_query, conversation_model_op.get());
+        if(!standalone_question_op.ok()) {
+            res->set_400(standalone_question_op.error());
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+        query = standalone_question_op.get();
+        req->params["q"] = query;
+    }
+
     std::string results_json_str;
     Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0],
                                                           results_json_str, req->conn_ts, req, res);
+    if(conversation) {
+        nlohmann::json results_json = nlohmann::json::parse(results_json_str);
+        results_json["conversation"] = nlohmann::json::object();
+        results_json["conversation"]["query"] = query;
+
+        nlohmann::json docs_array = nlohmann::json::array();
+
+        if(results_json.count("hits") != 0 && results_json["hits"].is_array()) {
+            docs_array = results_json["hits"];
+        }
+
+        auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
+        auto min_required_bytes_op = ConversationModel::get_minimum_required_bytes(conversation_model);
+        if(!min_required_bytes_op.ok()) {
+            res->status_code = min_required_bytes_op.code();
+            res->body = min_required_bytes_op.error();
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+        auto min_required_bytes = min_required_bytes_op.get();
+        if(conversation_model["max_bytes"].get<size_t>() < min_required_bytes + query.size()) { 
+            res->set_400("`max_bytes` of the conversation model is less than the minimum required bytes(" + std::to_string(min_required_bytes) + ").");
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+        // remove document with lowest score until total tokens is less than MAX_TOKENS
+        while(docs_array.dump(0).size() > conversation_model["max_bytes"].get<size_t>() - min_required_bytes - query.size()) {
+            try {
+                if(docs_array.empty()) {
+                    break;
+                }
+                docs_array.erase(docs_array.size() - 1);
+            } catch(...) {
+                //return Option<nlohmann::json>(400, "Failed to remove document from search results.");
+                res->set_400("Failed to remove document from search results.");
+                res->final = true;
+                stream_response(req, res);
+                return false;
+            }
+        }
+
+        Option<std::string> qa_op("");
+        bool conversation_id_created_in_advance = false;
+
+        if(!conversation_stream) {
+            qa_op = ConversationModel::get_answer(docs_array.dump(0), query, conversation_model);
+        } else {
+            // create a new conversation_id in advance for streaming
+            if(conversation_id.empty()) {
+                conversation_id = sole::uuid4().str();
+                conversation_id_created_in_advance = true;
+            }
+            qa_op = ConversationModel::get_answer_stream(docs_array.dump(0), query, conversation_model, req, res, conversation_id);
+        }
+        if(!qa_op.ok()) {
+            res->status_code = qa_op.code();
+            res->body = qa_op.error();
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+        results_json["conversation"]["answer"] = qa_op.get();
+        std::vector<std::string> exclude_fields;
+        StringUtils::split(req->params["exclude_fields"], exclude_fields, ",");
+        bool exclude_conversation_history = std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
+        if(exclude_conversation_history) {
+            results_json["conversation"]["conversation_id"] = conversation_id;
+        }
+
+        // do not send conversation id as param if streaming, because it is just created in advance for streaming
+        auto conversation_history_op = ConversationManager::get_instance().get_full_conversation(raw_query, qa_op.get(), conversation_model, conversation_id_created_in_advance ? "" : conversation_id);
+        if(!conversation_history_op.ok()) {
+            res->status_code = conversation_history_op.code();
+            res->body = conversation_history_op.error();
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+        auto conversation_history = conversation_history_op.get();
+
+        auto new_conversation_op = ConversationManager::get_last_n_messages(conversation_history["conversation"], 2);
+        if(!new_conversation_op.ok()) {
+            res->status_code = new_conversation_op.code();
+            res->body = new_conversation_op.error();
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+        auto new_conversation = new_conversation_op.get();
+        
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation, conversation_model, conversation_id, !conversation_id_created_in_advance);
+        if(!add_conversation_op.ok()) {
+            res->status_code = add_conversation_op.code();
+            res->body = add_conversation_op.error();
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+
+
+        if(!exclude_conversation_history) {
+            results_json["conversation"]["conversation_history"] = conversation_history;
+        }
+        results_json["conversation"]["conversation_id"] = add_conversation_op.get();
+
+        results_json["request_params"]["q"] = raw_query;
+        results_json["request_params"]["first_q"] = raw_query;
+
+        results_json_str = results_json.dump();
+
+    }
 
     if(!search_op.ok()) {
         res->set(search_op.code(), search_op.error());
@@ -571,7 +756,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
     
     // if the response is an event stream, we need to add the data: prefix
-    if(res->content_type_header.find("event-stream") != std::string::npos) {
+    if(conversation_stream) {
         results_json_str = "data: " + results_json_str + "\n\n";
     }
     res->set_200(results_json_str);
@@ -945,11 +1130,15 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         Option<std::string> answer_op("");
         std::string conversation_id = conversation_history ? orig_req_params["conversation_id"] : "";
+        bool conversation_id_created_in_advance = false;
         if(!conversation_stream) {
             answer_op = ConversationModel::get_answer(result_docs.dump(0), prompt, conversation_model);
         } else {
             // create conversation id in advance for streaming
-            conversation_id = sole::uuid4().str();
+            if(conversation_id.empty()) {
+                conversation_id = sole::uuid4().str();
+                conversation_id_created_in_advance = true;
+            }
             answer_op = ConversationModel::get_answer_stream(result_docs.dump(0), prompt, conversation_model, req, res, conversation_id);
         }
 
@@ -965,7 +1154,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         response["conversation"]["answer"] = answer_op.get();
         
         // do not send conversation id as param if streaming, because it is just created in advance for streaming
-        auto conversation_history_op = ConversationManager::get_instance().get_full_conversation(common_query, answer_op.get(), conversation_model, conversation_stream ? "" : conversation_id);
+        auto conversation_history_op = ConversationManager::get_instance().get_full_conversation(common_query, answer_op.get(), conversation_model, conversation_id_created_in_advance ? "" : conversation_id);
         if(!conversation_history_op.ok()) {
             res->set_400(conversation_history_op.error());
             res->final = true;
@@ -988,7 +1177,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
         auto new_conversation = new_conversation_op.get();
 
-        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation, conversation_model, conversation_id, !conversation_stream);
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation, conversation_model, conversation_id, !conversation_id_created_in_advance);
         if(!add_conversation_op.ok()) {
             res->set_400(add_conversation_op.error());
             res->final = true;
