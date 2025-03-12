@@ -14,7 +14,7 @@ protected:
     void SetUp() override {
         temp_dir = (std::filesystem::temp_directory_path() / "personalization_model_manager_test").string();
         system(("rm -rf " + temp_dir + " && mkdir -p " + temp_dir).c_str());
-        std::string test_dir = "/tmp/typesense_test/models";
+        std::string test_dir = "/tmp/typesense_test/personalization_model_manager_test/models";
         system(("rm -rf " + test_dir + " && mkdir -p " + test_dir).c_str());
         EmbedderManager::set_model_dir(test_dir);
 
@@ -41,6 +41,7 @@ protected:
         std::string test_dir = "/tmp/typesense_test";
         system(("rm -rf " + test_dir).c_str());
         collectionManager.dispose();
+        PersonalizationModelManager::dispose();
         delete store;
     }
 
@@ -54,22 +55,12 @@ protected:
     }
 
     std::string get_onnx_model_archive() {
-        std::string content = "This is a sample ONNX model content";
-        std::string filename = (temp_dir + "/model.onnx");
-        std::ofstream file(filename);
-        file << content;
-        file.close();
-
-        std::string archive_name = (temp_dir + "/model.tar.gz");
-        std::string command = "tar -czf " + archive_name + " -C " + temp_dir + " model.onnx";
-        system(command.c_str());
+        std::string archive_name = "test/resources/models.tar.gz";
 
         std::ifstream archive_file(archive_name, std::ios::binary);
         std::string archive_content((std::istreambuf_iterator<char>(archive_file)), std::istreambuf_iterator<char>());
 
         archive_file.close();
-        std::filesystem::remove(filename);
-        std::filesystem::remove(archive_name);
         return archive_content;
     }
 };
@@ -84,6 +75,9 @@ TEST_F(PersonalizationModelManagerTest, AddModelSuccess) {
 
 TEST_F(PersonalizationModelManagerTest, AddModelDuplicate) {
     nlohmann::json model = create_valid_model("test_id");
+    std::string model_data = get_onnx_model_archive();
+    auto result = PersonalizationModelManager::add_model(model, "test_id", true, model_data);
+    ASSERT_TRUE(result.ok());
     auto result1 = PersonalizationModelManager::add_model(model, "test_id", true);
     ASSERT_FALSE(result1.ok());
     ASSERT_EQ(result1.code(), 409);
@@ -91,6 +85,10 @@ TEST_F(PersonalizationModelManagerTest, AddModelDuplicate) {
 }
 
 TEST_F(PersonalizationModelManagerTest, GetModelSuccess) {
+    nlohmann::json model = create_valid_model("test_id");
+    std::string model_data = get_onnx_model_archive();
+    auto result = PersonalizationModelManager::add_model(model, "test_id", true, model_data);
+    ASSERT_TRUE(result.ok());
     auto get_result = PersonalizationModelManager::get_model("test_id");
     ASSERT_TRUE(get_result.ok());
     ASSERT_EQ(get_result.get()["id"], "test_id");
@@ -104,6 +102,10 @@ TEST_F(PersonalizationModelManagerTest, GetModelNotFound) {
 }
 
 TEST_F(PersonalizationModelManagerTest, DeleteModelSuccess) {
+    nlohmann::json model = create_valid_model("test_id");
+    std::string model_data = get_onnx_model_archive();
+    auto result = PersonalizationModelManager::add_model(model, "test_id", true, model_data);
+    ASSERT_TRUE(result.ok());
     auto delete_result = PersonalizationModelManager::delete_model("test_id");
     ASSERT_TRUE(delete_result.ok());
     ASSERT_EQ(delete_result.get()["id"], "test_id");
@@ -161,6 +163,10 @@ TEST_F(PersonalizationModelManagerTest, UpdateModelNotFound) {
 }
 
 TEST_F(PersonalizationModelManagerTest, UpdateModelInvalidData) {
+    nlohmann::json model = create_valid_model("test_id");
+    std::string model_data = get_onnx_model_archive();
+    auto result = PersonalizationModelManager::add_model(model, "test_id", true, model_data);
+    ASSERT_TRUE(result.ok());
     nlohmann::json update;
     update["name"] = "invalid/name";
     auto update_result = PersonalizationModelManager::update_model("test_id", update, "");

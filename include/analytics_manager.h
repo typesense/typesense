@@ -87,8 +87,8 @@ struct event_cache_t {
 
 class AnalyticsManager {
 private:
-    mutable std::mutex mutex;
-    std::condition_variable cv;
+    mutable std::shared_mutex mutex;
+    std::condition_variable_any cv;
     const size_t QUERY_COMPACTION_INTERVAL_S = 30;
 
     std::atomic<bool> quit = false;
@@ -228,7 +228,9 @@ public:
 
     bool write_to_db(const nlohmann::json& payload);
 
-    void get_last_N_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values);
+    void get_last_N_events(const std::string& userid, const std::string& collection_name, const std::string& event_name, uint32_t N, std::vector<std::string>& values);
+
+    Option<bool> is_event_exists(const std::string& event_name);
 
     Option<nlohmann::json> get_events(uint32_t N);
 

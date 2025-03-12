@@ -64,6 +64,7 @@ namespace fields {
     static const std::string async_reference = "async_reference";
     static const std::string embed = "embed";
     static const std::string from = "from";
+    static const std::string mapping = "mapping";
     static const std::string model_name = "model_name";
     static const std::string range_index = "range_index";
     static const std::string stem = "stem";
@@ -77,6 +78,7 @@ namespace fields {
     static const std::string query_prefix = "query_prefix";
     static const std::string api_key = "api_key";
     static const std::string model_config = "model_config";
+    static const std::string personalization_type = "personalization_type";
 
     static const std::string reference_helper_fields = ".ref";
     static const std::string REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";

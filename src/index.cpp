@@ -19,6 +19,7 @@
 #include "logger.h"
 #include "validator.h"
 #include <collection_manager.h>
+#include "personalization_model_manager.h"
 
 #define RETURN_CIRCUIT_BREAKER if((std::chrono::duration_cast<std::chrono::microseconds>( \
                   std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) { \
@@ -7614,6 +7615,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                                const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     for(const auto& field : embedding_fields) {
         std::vector<std::pair<index_record*, std::string>> values_to_embed_text, values_to_embed_image;
+        std::vector<std::pair<index_record*, std::vector<std::string>>> values_to_embed_personalization;
         auto indexing_prefix = EmbedderManager::get_instance().get_indexing_prefix(field.embed[fields::model_config]);
         for(auto& record : records) {
             if(!record->indexed.ok()) {
@@ -7635,36 +7637,63 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 continue;
             }
 
-            std::string value = indexing_prefix;
             const auto& embed_from = field.embed[fields::from].get<std::vector<std::string>>();
-            for(const auto& field_name : embed_from) {
-                auto field_it = search_schema.find(field_name);
-                auto doc_field_it = document->find(field_name);
-                if(doc_field_it == document->end()) {
+            if (field.embed[fields::model_config].count(fields::personalization_type) > 0) {
+                const auto& embed_mapping = field.embed[fields::mapping].get<std::vector<std::string>>();
+                std::vector<std::string> value;
+                for (size_t i = 0; i < embed_from.size(); i++) {
+                    const auto& field_name = embed_from[i];
+                    auto field_it = search_schema.find(field_name);
+                    const auto& mapping = embed_mapping[i];
+                    auto doc_field_it = document->find(field_name);
+                    if(doc_field_it == document->end()) {
                         continue;
-                }
-                if(field_it.value().type == field_types::IMAGE) {
-                    values_to_embed_image.push_back(std::make_pair(record, doc_field_it->get<std::string>()));
-                    continue;
-                }
-                if(field_it.value().type == field_types::STRING) {
-                    value += doc_field_it->get<std::string>() + " ";
-                } else if(field_it.value().type == field_types::STRING_ARRAY) {
-                    for(const auto& val : *(doc_field_it)) {
-                        value += val.get<std::string>() + " ";
+                    }
+                    if(field_it.value().type == field_types::STRING) {
+                        value.push_back(mapping + ": " + doc_field_it->get<std::string>());
+                    } else if(field_it.value().type == field_types::STRING_ARRAY) {
+                        std::string value_str = mapping + ": ";
+                        for(auto it = doc_field_it->begin(); it != doc_field_it->end(); ++it) {
+                            value_str += it->get<std::string>();
+                            if(std::next(it) != doc_field_it->end()) {
+                                value_str += ", ";
+                            }
+                        }
+                        value.push_back(value_str);
                     }
                 }
-            }
-            if(value != indexing_prefix) {
-               values_to_embed_text.push_back(std::make_pair(record, value));
+                values_to_embed_personalization.push_back(std::make_pair(record, value));
+            } else {
+                std::string value = indexing_prefix;
+                for(const auto& field_name : embed_from) {
+                    auto field_it = search_schema.find(field_name);
+                    auto doc_field_it = document->find(field_name);
+                    if(doc_field_it == document->end()) {
+                            continue;
+                    }
+                    if(field_it.value().type == field_types::IMAGE) {
+                        values_to_embed_image.push_back(std::make_pair(record, doc_field_it->get<std::string>()));
+                        continue;
+                    }
+                    if(field_it.value().type == field_types::STRING) {
+                        value += doc_field_it->get<std::string>() + " ";
+                    } else if(field_it.value().type == field_types::STRING_ARRAY) {
+                        for(const auto& val : *(doc_field_it)) {
+                            value += val.get<std::string>() + " ";
+                        }
+                    }
+                }
+                if(value != indexing_prefix) {
+                    values_to_embed_text.push_back(std::make_pair(record, value));
+                }
             }
         }
 
-        if(values_to_embed_text.empty() && values_to_embed_image.empty()) {
+        if(values_to_embed_text.empty() && values_to_embed_image.empty() && values_to_embed_personalization.empty()) {
             continue;
         }
 
-        std::vector<embedding_res_t> embeddings_text, embeddings_image;
+        std::vector<embedding_res_t> embeddings_text, embeddings_image, embeddings_personalization;
 
         // sort texts by length
         if(!values_to_embed_text.empty()) {
@@ -7676,12 +7705,16 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
         }
         
         // get vector of values
+        std::vector<std::vector<std::string>> values_personalization;
         std::vector<std::string> values_text, values_image;
         for(auto& record : values_to_embed_text) {
             values_text.push_back(record.second);
         }
         for(auto& record : values_to_embed_image) {
             values_image.push_back(record.second);
+        }
+        for(auto& record : values_to_embed_personalization) {
+            values_personalization.push_back(record.second);
         }
 
         EmbedderManager& embedder_manager = EmbedderManager::get_instance();
@@ -7709,7 +7742,24 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                                                             remote_embedding_num_tries);
         }
 
-        process_embed_results(values_to_embed_text, embeddings_text, values_to_embed_image, embeddings_image, field);
+        if(!values_personalization.empty()) {
+            const auto& model_id = field.embed[fields::model_config]["personalization_model_id"].get<std::string>();
+            auto embedder = PersonalizationModelManager::get_model_embedder(model_id);
+            if(embedder == nullptr) {
+                LOG(ERROR) << "Model not found: " << field.embed[fields::model_config];
+                return;
+            }
+            if (field.embed[fields::model_config]["personalization_embedding_type"].get<std::string>() == "user") {
+                embeddings_personalization = embedder->batch_embed_users(values_personalization);
+            } else if (field.embed[fields::model_config]["personalization_embedding_type"].get<std::string>() == "item") {
+                embeddings_personalization = embedder->batch_embed_items(values_personalization);
+            } else {
+                LOG(ERROR) << "Invalid personalization embedding type: " << field.embed[fields::model_config]["personalization_embedding_type"].get<std::string>();
+                return;
+            }
+        }
+
+        process_embed_results(values_to_embed_text, embeddings_text, values_to_embed_image, embeddings_image, values_to_embed_personalization, embeddings_personalization, field);
     }
 }
 
@@ -7717,6 +7767,8 @@ void Index::process_embed_results(const std::vector<std::pair<index_record*, std
                                   const std::vector<embedding_res_t>& embeddings_text,
                                   const std::vector<std::pair<index_record*, std::string>>& values_to_embed_image,
                                   const std::vector<embedding_res_t>& embeddings_image,
+                                  const std::vector<std::pair<index_record*, std::vector<std::string>>>& values_to_embed_personalization,
+                                  const std::vector<embedding_res_t>& embeddings_personalization,
                                   const field& the_field) {
     std::unordered_map<index_record*, std::vector<embedding_res_t>> index_records_to_embeddings;
     for(size_t i = 0; i < values_to_embed_text.size(); i++) {
@@ -7737,7 +7789,16 @@ void Index::process_embed_results(const std::vector<std::pair<index_record*, std
         index_records_to_embeddings[values_to_embed_image[i].first].push_back(embeddings_image[i]);
     }
 
-    // get average embeddings for each record
+    for(size_t i = 0; i < values_to_embed_personalization.size(); i++) {
+        if(!embeddings_personalization[i].success) {
+            values_to_embed_personalization[i].first->embedding_res = embeddings_personalization[i].error;
+            values_to_embed_personalization[i].first->index_failure(embeddings_personalization[i].status_code, "");
+            continue;
+        }
+        index_records_to_embeddings[values_to_embed_personalization[i].first].push_back(embeddings_personalization[i]);
+    }
+
+    // get average embeddings for each record (except personalization)
     for(auto& record: index_records_to_embeddings) {
         if(!record.first->indexed.ok()) {
             continue;

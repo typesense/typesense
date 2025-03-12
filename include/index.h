@@ -625,6 +625,8 @@ private:
                                       const std::vector<embedding_res_t>& embeddings_text,
                                       const std::vector<std::pair<index_record*, std::string>>& values_to_embed_image,
                                       const std::vector<embedding_res_t>& embeddings_image,
+                                      const std::vector<std::pair<index_record*, std::vector<std::string>>>& values_to_embed_personalization,
+                                      const std::vector<embedding_res_t>& embeddings_personalization,
                                       const field& the_field);
 
     void update_async_references(const std::string& collection_name, const field& afield,

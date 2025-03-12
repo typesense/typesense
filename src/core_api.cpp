@@ -3235,14 +3235,13 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
 bool post_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
     
-    if (!req->params.count("name") || !req->params.count("collection") || !req->params.count("type")) {
-        res->set_400("Missing required parameters 'name', 'collection' and 'type'.");
+    if (!req->params.count("name") || !req->params.count("type")) {
+        res->set_400("Missing required parameters 'name' and 'type'.");
         return false;
     }
 
     req_json = {
         {"name", req->params["name"]},
-        {"collection", req->params["collection"]},
         {"type", req->params["type"]}
     };
 
