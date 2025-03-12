@@ -797,9 +797,11 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     })"_json;
 
     create_op = analyticsManager.create_rule(analytics_rule, true, true);
-    ASSERT_TRUE(create_op.ok());
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Log type can only be used for a single collection.", create_op.error());
 
-    event9 = R"({
+    // This test can be present when multiple source collections are allowed log type events.
+    /* event9 = R"({
         "type": "click",
         "name": "CP",
         "data": {
@@ -809,19 +811,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     })"_json;
     req->body = event9.dump();
     ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"Multiple source collections. 'collection' should be specified\"}", res->body);
-
-    event9 = R"({
-        "type": "click",
-        "name": "CP",
-        "data": {
-            "doc_id": "12",
-            "user_id": "11",
-            "collection": "titles"
-        }
-    })"_json;
-    req->body = event9.dump();
-    ASSERT_TRUE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"Multiple source collections. 'collection' should be specified\"}", res->body); */
 
     // Test doc_ids validation
     nlohmann::json event_doc_ids = R"({
@@ -957,7 +947,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     std::vector<std::string> values;
-    analyticsManager.get_last_N_events("13", "*", 5, values);
+    analyticsManager.get_last_N_events("13", "titles", "*", 5, values);
     ASSERT_EQ(1, values.size());
 
     auto parsed_json = nlohmann::json::parse(values[0]);
@@ -996,7 +986,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     values.clear();
-    analyticsManager.get_last_N_events("13", "*", 5, values);
+    analyticsManager.get_last_N_events("13", "titles", "*", 5, values);
     ASSERT_EQ(2, values.size());
 
     parsed_json = nlohmann::json::parse(values[0]);
@@ -1821,7 +1811,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     std::vector<std::string> values;
-    analyticsManager.get_last_N_events("11", "*", 5, values);
+    analyticsManager.get_last_N_events("11", "books", "*", 5, values);
     ASSERT_EQ(1, values.size());
 
     auto parsed_json = nlohmann::json::parse(values[0]);
@@ -1899,7 +1889,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     values.clear();
-    analyticsManager.get_last_N_events("11", "*", 5, values);
+    analyticsManager.get_last_N_events("11", "books", "*", 5, values);
     ASSERT_EQ(2, values.size());
 
     parsed_json = nlohmann::json::parse(values[0]);
@@ -1917,7 +1907,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_EQ("shorts", parsed_json["query"]);
 
     values.clear();
-    analyticsManager.get_last_N_events("13", "*", 5, values);
+    analyticsManager.get_last_N_events("13", "books", "*", 5, values);
     ASSERT_EQ(1, values.size());
 
     parsed_json = nlohmann::json::parse(values[0]);
@@ -2140,7 +2130,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //basic test
     std::vector<std::string> values;
-    analyticsManager.get_last_N_events("13", "*", 5, values);
+    analyticsManager.get_last_N_events("13", "titles", "*", 5, values);
     ASSERT_EQ(5, values.size());
 
     nlohmann::json parsed_json;
@@ -2152,7 +2142,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //fetch events for middle user
     values.clear();
-    analyticsManager.get_last_N_events("14", "*", 5, values);
+    analyticsManager.get_last_N_events("14", "titles", "*", 5, values);
     ASSERT_EQ(5, values.size());
 
     start_index = 6;
@@ -2163,7 +2153,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //fetch more events than stored in db
     values.clear();
-    analyticsManager.get_last_N_events("15", "*", 8, values);
+    analyticsManager.get_last_N_events("15", "titles", "*", 8, values);
     ASSERT_EQ(5, values.size());
 
     start_index = 4;
@@ -2175,7 +2165,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //fetch events for non-existing user
     values.clear();
-    analyticsManager.get_last_N_events("16", "*", 8, values);
+    analyticsManager.get_last_N_events("16", "titles", "*", 8, values);
     ASSERT_EQ(0, values.size());
 
     //get specific event type or user
@@ -2207,7 +2197,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //get last 5 visit events for user_id 14
     values.clear();
-    analyticsManager.get_last_N_events("14", "AV", 5, values);
+    analyticsManager.get_last_N_events("14", "titles", "AV", 5, values);
     ASSERT_EQ(5, values.size());
     for(int i = 0; i < 5; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);
@@ -2217,7 +2207,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //get last 5 click events for user_id 14
     values.clear();
-    analyticsManager.get_last_N_events("14", "AB", 5, values);
+    analyticsManager.get_last_N_events("14", "titles", "AB", 5, values);
     ASSERT_EQ(5, values.size());
     for(int i = 0; i < 5; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);
@@ -2250,7 +2240,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     values.clear();
-    analyticsManager.get_last_N_events("14", "AB", 10, values);
+    analyticsManager.get_last_N_events("14", "titles", "AB", 10, values);
     ASSERT_EQ(10, values.size());
     for(int i = 0; i < 10; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);
@@ -2285,7 +2275,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     values.clear();
-    analyticsManager.get_last_N_events("14_U1", "AB", 10, values);
+    analyticsManager.get_last_N_events("14_U1", "titles", "AB", 10, values);
     ASSERT_EQ(5, values.size());
     for(int i = 0; i < 5; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);

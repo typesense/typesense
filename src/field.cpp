@@ -2,6 +2,7 @@
 #include "field.h"
 #include "magic_enum.hpp"
 #include "embedder_manager.h"
+#include "personalization_model_manager.h"
 #include <stack>
 #include <collection_manager.h>
 #include <regex>
@@ -774,6 +775,9 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
                                                   field& the_field) {
     const std::string err_msg = "Property `" + fields::embed + "." + fields::from +
                                     "` can only refer to string, string array or image (for supported models) fields.";
+    const std::string mapping_err_msg = "Property `" + fields::embed + "." + fields::from +
+                                    "` can only refer to string or string array fields when mapping is provided.";
+    bool found_mapping = field_json[fields::embed].contains(fields::mapping);
 
     bool found_image_field = false;
     for(auto& field_name : field_json[fields::embed][fields::from].get<std::vector<std::string>>()) {
@@ -789,19 +793,43 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
                 return Option<bool>(400, err_msg);
             } else if (embed_field2->type != field_types::STRING && embed_field2->type != field_types::STRING_ARRAY && embed_field2->type != field_types::IMAGE) {
                 return Option<bool>(400, err_msg);
+            } else if (embed_field2->type != field_types::STRING && embed_field2->type != field_types::STRING_ARRAY && found_mapping) {
+                return Option<bool>(400, mapping_err_msg);
             }
         } else if((*embed_field)[fields::type] != field_types::STRING &&
                   (*embed_field)[fields::type] != field_types::STRING_ARRAY &&
                     (*embed_field)[fields::type] != field_types::IMAGE) {
             return Option<bool>(400, err_msg);
+        } else if ((*embed_field)[fields::type] != field_types::STRING && (*embed_field)[fields::type] != field_types::STRING_ARRAY && found_mapping) {
+            return Option<bool>(400, mapping_err_msg);
+        }
+    }
+
+    if (field_json[fields::embed].contains(fields::mapping)) {
+        if (!field_json[fields::embed][fields::mapping].is_array() || 
+            !std::all_of(field_json[fields::embed][fields::mapping].begin(), field_json[fields::embed][fields::mapping].end(), 
+                        [](const nlohmann::json& j) { return j.is_string(); }) ||
+            field_json[fields::embed][fields::mapping].size() != field_json[fields::embed][fields::from].size()) {
+            return Option<bool>(400, "Field mapping must be a string array with same size as embed.from array");
         }
     }
 
     const auto& model_config = field_json[fields::embed][fields::model_config];
     size_t num_dim = field_json[fields::num_dim].get<size_t>();
-    auto res = EmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
-    if(!res.ok()) {
-        return Option<bool>(res.code(), res.error());
+    if (model_config.contains(fields::personalization_type)) {
+        if (model_config[fields::personalization_type] == "recommendation") {
+            auto res = PersonalizationModelManager::validate_personalization_model(model_config, num_dim);
+            if(!res.ok()) {
+                return Option<bool>(res.code(), res.error());
+            }
+        } else {
+            return Option<bool>(400, "Invalid personalization type.");
+        }
+    } else {
+        auto res = EmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+        if(!res.ok()) {
+            return Option<bool>(res.code(), res.error());
+        }
     }
     
     LOG(INFO) << "Model init done.";

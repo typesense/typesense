@@ -108,6 +108,16 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
         return Option<bool>(400, "Bad or missing events.");
     }
 
+    /* This is a guard rail for get_last_N_events when getting events from analytics_store
+     * Because, the rocksdb (analytics_store) key structure doesn't have collection name in it.
+     * So, we need to make sure that the rule is only applied to a single collection.
+     */
+    if(payload["type"] == LOG_TYPE) {
+        if(params["source"]["collections"].size() != 1) {
+            return Option<bool>(400, "Log type can only be used for a single collection.");
+        }
+    }
+
     if(payload["type"] != LOG_TYPE) {
         if(!params.contains("destination") || !params["destination"].is_object()) {
             return Option<bool>(400, "Bad or missing destination.");
@@ -855,19 +865,96 @@ bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
     return true;
 }
 
-void AnalyticsManager::get_last_N_events(const std::string& userid, const std::string& event_name, uint32_t N,
+void AnalyticsManager::get_last_N_events(const std::string& userid, const std::string& collection_name, const std::string& event_name, uint32_t N,
                                             std::vector<std::string>& values) {
+    std::shared_lock lock(mutex);
     std::string user_id = userid;
-
-    //erase any '%' in userid
     user_id.erase(std::remove(user_id.begin(), user_id.end(), '%'), user_id.end());
-
+    std::vector<std::pair<uint64_t, std::string>> memory_events;
+    for (const auto& events_collection_it : query_collection_events) {
+        if (collection_name != "*" && events_collection_it.first != collection_name) {
+            continue;
+        }
+        
+        for (const auto& event : events_collection_it.second) {
+            if ((event_name == "*" || event.name == event_name) && 
+                (event.user_id == user_id)) {
+                nlohmann::json event_json;
+                event.to_json(event_json, events_collection_it.first);
+                memory_events.emplace_back(event.timestamp, event_json.dump());
+            }
+        }
+    }
+    
+    std::sort(memory_events.begin(), memory_events.end(), 
+              [](const auto& a, const auto& b) { return a.first > b.first; });
+    values.clear();
+    for (const auto& event_pair : memory_events) {
+        values.push_back(event_pair.second);
+    }
+    
+    if (values.size() >= N) {
+        if (values.size() > N) {
+            values.resize(N);
+        }
+        return;
+    }
+    
+    
     auto userid_prefix = user_id + "%";
     if(event_name != "*") {
         userid_prefix += event_name;
     }
+    uint32_t remaining_needed = N - values.size();    
+    std::vector<std::string> db_values;
+    analytics_store->get_last_N_values(userid_prefix, remaining_needed, db_values);
+    
+    if (!db_values.empty()) {
+        std::vector<std::pair<uint64_t, std::string>> all_events;
+        
+        for (const auto& event_str : values) {
+            auto event_json = nlohmann::json::parse(event_str);
+            uint64_t timestamp = event_json["timestamp"];
+            all_events.emplace_back(timestamp, event_str);
+        }
+        
+        for (const auto& event_str : db_values) {
+            try {
+                auto event_json = nlohmann::json::parse(event_str);
+                uint64_t timestamp = event_json["timestamp"];
+                all_events.emplace_back(timestamp, event_str);
+            } catch (const std::exception& e) {
+                LOG(ERROR) << "Error parsing event JSON: " << e.what();
+                // Skip invalid events
+            }
+        }
+        
+        std::sort(all_events.begin(), all_events.end(), 
+                  [](const auto& a, const auto& b) { return a.first > b.first; });
+        
+        values.clear();
+        values.reserve(std::min(all_events.size(), static_cast<size_t>(N)));
+        
+        for (size_t i = 0; i < all_events.size() && i < N; i++) {
+            values.push_back(all_events[i].second);
+        }
+        // Deduplicate events based on timestamp and user_id
+        std::unordered_set<std::string> seen_events;
+        std::vector<std::string> deduped_values;
+        deduped_values.reserve(values.size());
 
-    analytics_store->get_last_N_values(userid_prefix, N, values);
+        for (const auto& event_str : values) {
+            auto event_json = nlohmann::json::parse(event_str);
+            std::string dedup_key = std::to_string(event_json["timestamp"].get<uint64_t>()) + 
+                                    event_json["user_id"].get<std::string>();
+            
+            if (seen_events.insert(dedup_key).second) {
+                deduped_values.push_back(event_str);
+            }
+        }
+
+        values = std::move(deduped_values);
+    }
 }
 
 Option<nlohmann::json> AnalyticsManager::get_events(uint32_t N) {
@@ -884,6 +971,13 @@ Option<nlohmann::json> AnalyticsManager::get_events(uint32_t N) {
         response["events"].push_back(nlohmann::json::parse(event));
     }
     return Option<nlohmann::json>(response);
+}
+
+Option<bool> AnalyticsManager::is_event_exists(const std::string& event_name) {
+    if (event_collection_map.find(event_name) != event_collection_map.end()) {
+        return Option<bool>(true);
+    }
+    return Option<bool>(404, "Event does not exist");
 }
 
 void event_t::to_json(nlohmann::json& obj, const std::string& coll) const {
