@@ -14,6 +14,10 @@ Option<bool> EmbedderManager::validate_and_init_model(const nlohmann::json& mode
         LOG(INFO) << "Validating and initializing remote model: " << model_name;
         return validate_and_init_remote_model(model_config, num_dims);
     } else {
+        if (model_config.count("personalization_type") > 0) {
+            LOG(INFO) << "Skipping initialization for personalization model: " << model_name;
+            return Option<bool>(true);
+        }
         LOG(INFO) << "Validating and initializing local model: " << model_name;
         auto op = validate_and_init_local_model(model_config, num_dims);
         if(op.ok()) {

@@ -7723,9 +7723,9 @@ Option<bool> Collection::parse_and_validate_personalization_query(const std::str
     std::vector<std::vector<float>> user_embeddings;
     for (const auto& doc_id : doc_ids) {
         std::vector<float> embedding;
-        Option<uint32_t> id_op = doc_id_to_seq_id(doc_id);
+        Option id_op = doc_id_to_seq_id(doc_id);
         if(!id_op.ok()) {
-            return Option<bool>(400, "Document id referenced in the event is not found.");
+            continue;
         }
 
         nlohmann::json document;
