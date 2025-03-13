@@ -578,6 +578,10 @@ struct sort_by {
     uint32_t text_match_buckets;
     uint32_t text_match_bucket_size;
 
+    uint32_t vector_search_buckets;
+    uint32_t vector_search_bucket_size;
+
+
     // geo related fields
     int64_t geopoint;
     uint32_t exclude_radius;
