@@ -1422,6 +1422,26 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 sort_field_std.random_sort.initialize(seed);
                 sort_field_std.name = actual_field_name;
                 sort_field_std.type = sort_by::random_order;
+            } else if(actual_field_name == sort_field_const::vector_distance) {
+                std::vector<std::string> match_parts;
+                const std::string& match_config = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
+                StringUtils::split(match_config, match_parts, ":");
+                if(match_parts.size() != 2 || (match_parts[0] != "buckets" && match_parts[0] != "bucket_size")) {
+                    return Option<bool>(400, "Invalid sorting parameter passed for _vector_distance.");
+                }
+
+                if(!StringUtils::is_uint32_t(match_parts[1])) {
+                    return Option<bool>(400, "Invalid value passed for _vector_distance `buckets` or `bucket_size` configuration.");
+                }
+
+                sort_field_std.name = actual_field_name;
+                sort_field_std.type = sort_by::vector_search;
+
+                if(match_parts[0] == "buckets") {
+                    sort_field_std.vector_search_buckets = std::stoll(match_parts[1]);
+                } else if(match_parts[0] == "bucket_size") {
+                    sort_field_std.vector_search_bucket_size = std::stoll(match_parts[1]);
+                }
             } else {
                 if(field_it == search_schema.end()) {
                     std::string error = "Could not find a field named `" + actual_field_name + "` in the schema for sorting.";
@@ -2820,7 +2840,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             spp::sparse_hash_map<uint64_t, int64_t> result_scores;
 
             // only first `max_kvs_bucketed` elements are bucketed to prevent pagination issues past 250 records
-            size_t block_len = num_buckets > 0 ? (max_kvs_bucketed / num_buckets) : bucket_size;
+            size_t block_len = num_buckets > 0 ? ceil((double(max_kvs_bucketed) / (double)(num_buckets))) : bucket_size;
             size_t i = 0;
             while(i < max_kvs_bucketed) {
                 size_t j = 0;
@@ -2845,6 +2865,54 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             }
         }
     }
+
+    int vector_distance_index = -1;
+    for(size_t i = 0; i < sort_fields_std.size(); i++) {
+        if(sort_fields_std[i].name == sort_field_const::vector_distance && (sort_fields_std[i].vector_search_buckets > 0 ||
+            sort_fields_std[i].vector_search_bucket_size > 0)) {
+            vector_distance_index = i;
+            break;
+        }
+    }
+
+    if(vector_distance_index >= 0 && (sort_fields_std[vector_distance_index].vector_search_buckets > 0
+        || sort_fields_std[vector_distance_index].vector_search_bucket_size > 0)) {
+
+        size_t num_buckets = sort_fields_std[vector_distance_index].vector_search_buckets;
+        size_t bucket_size = sort_fields_std[vector_distance_index].vector_search_bucket_size;
+
+        const size_t max_kvs_bucketed = std::min<size_t>(Index::DEFAULT_TOPSTER_SIZE, raw_result_kvs.size());
+
+        if((num_buckets > 0 && max_kvs_bucketed >= num_buckets) || (bucket_size > 0 && max_kvs_bucketed >= bucket_size)) {
+            spp::sparse_hash_map<uint64_t, int64_t> result_scores;
+
+            // only first `max_kvs_bucketed` elements are bucketed to prevent pagination issues past 250 records
+            size_t block_len = num_buckets > 0 ? ceil((double(max_kvs_bucketed) / (double)(num_buckets))) : bucket_size;
+            size_t i = 0;
+            while(i < max_kvs_bucketed) {
+                size_t j = 0;
+                while(j < block_len && i+j < max_kvs_bucketed) {
+                    result_scores[raw_result_kvs[i+j][0]->key] = raw_result_kvs[i+j][0]->scores[vector_distance_index];
+                    // use the bucket sequence as the sorting order (descending)
+                    raw_result_kvs[i+j][0]->scores[vector_distance_index] = -i;
+                    j++;
+                }
+
+                i += j;
+            }
+
+            // sort again based on bucketed match score
+            std::partial_sort(raw_result_kvs.begin(), raw_result_kvs.begin() + max_kvs_bucketed, raw_result_kvs.end(),
+                              KV::is_greater_kv_group);
+
+            // restore original scores
+            for(i = 0; i < max_kvs_bucketed; i++) {
+                raw_result_kvs[i][0]->scores[vector_distance_index] =
+                        result_scores[raw_result_kvs[i][0]->key];
+            }
+        }
+    }
+
 
     std::vector<std::vector<KV*>> result_group_kvs;
     size_t override_kv_index = 0;
