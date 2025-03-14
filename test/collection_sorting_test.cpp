@@ -3589,3 +3589,57 @@ TEST_F(CollectionSortingTest, VectorSearchBucketSizeRanking) {
     ASSERT_EQ("4", results["hits"][4]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][5]["document"]["id"].get<std::string>());
 }
+
+TEST_F(CollectionSortingTest, VectorSearchBucketRankingTwoBuckets) {
+    nlohmann::json schema = nlohmann::json::parse(R"({
+        "name": "test",
+        "fields": [
+            {"name": "points", "type": "int32"},
+            {"name": "vec", "type": "float[]", "num_dim": 3}
+        ],
+        "default_sorting_field": "points"
+    })");
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["points"] = 200;
+    doc1["vec"] = {0.8, 0.6, 0.0};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["points"] = 300;
+    doc2["vec"] = {0.3, 0.4, 0.5};
+    
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["points"] = 500;
+    doc3["vec"] = {0.2, 0.1, 0.9};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    sort_fields = {
+    sort_by("_vector_distance(buckets: 2)", "ASC"),
+    sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "vec:([0.85, 0.5, 0.1])").get();
+
+    // when there are more buckets than results, no bucketing will happen
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}

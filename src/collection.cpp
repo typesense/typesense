@@ -2840,7 +2840,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             spp::sparse_hash_map<uint64_t, int64_t> result_scores;
 
             // only first `max_kvs_bucketed` elements are bucketed to prevent pagination issues past 250 records
-            size_t block_len = num_buckets > 0 ? (max_kvs_bucketed / num_buckets) : bucket_size;
+            size_t block_len = num_buckets > 0 ? ceil((double(max_kvs_bucketed) / (double)(num_buckets))) : bucket_size;
             size_t i = 0;
             while(i < max_kvs_bucketed) {
                 size_t j = 0;
@@ -2887,7 +2887,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             spp::sparse_hash_map<uint64_t, int64_t> result_scores;
 
             // only first `max_kvs_bucketed` elements are bucketed to prevent pagination issues past 250 records
-            size_t block_len = num_buckets > 0 ? (max_kvs_bucketed / num_buckets) : bucket_size;
+            size_t block_len = num_buckets > 0 ? ceil((double(max_kvs_bucketed) / (double)(num_buckets))) : bucket_size;
             size_t i = 0;
             while(i < max_kvs_bucketed) {
                 size_t j = 0;
