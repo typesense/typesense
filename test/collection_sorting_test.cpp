@@ -3333,3 +3333,142 @@ TEST_F(CollectionSortingTest, TextMatchBucketSizeRanking) {
     ASSERT_EQ("4", results["hits"][4]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][5]["document"]["id"].get<std::string>());
 }
+
+
+TEST_F(CollectionSortingTest, VectorSearchBucketRanking) {
+    nlohmann::json schema = nlohmann::json::parse(R"({
+        "name": "test",
+        "fields": [
+            {"name": "points", "type": "int32"},
+            {"name": "vec", "type": "float[]", "num_dim": 3}
+        ],
+        "default_sorting_field": "points"
+    })");
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["points"] = 100;
+    doc1["vec"] = {0.8, 0.6, 0.0};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["points"] = 200;
+    doc2["vec"] = {0.2, 0.1, 0.9};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    sort_fields = {
+    sort_by("_vector_distance(buckets: 10)", "ASC"),
+    sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "vec:([0.85, 0.5, 0.1])").get();
+
+
+
+    // when there are more buckets than results, no bucketing will happen
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // bucketing by 1 makes the text match score the same
+    sort_fields = {
+    sort_by("_vector_distance(buckets: 1)", "ASC"),
+    sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.85, 0.5, 0.1])").get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    float score1 = results["hits"][0]["vector_distance"].get<float>();
+    float score2 = results["hits"][1]["vector_distance"].get<float>();
+    ASSERT_TRUE(score1 > score2);
+
+    // bucketing by 0 produces original text match
+    sort_fields = {
+    sort_by("_vector_distance(buckets: 0)", "ASC"),
+    sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.85, 0.5, 0.1])").get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // don't allow bad parameter name
+    sort_fields[0] = sort_by("_vector_distance(foobar: 0)", "ASC");
+
+    auto res_op = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "vec:([0.85, 0.5, 0.1])");
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid sorting parameter passed for _vector_distance.", res_op.error());
+
+    // handle bad syntax
+    sort_fields[0] = sort_by("_vector_distance(foobar:", "ASC");
+    res_op = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.85, 0.5, 0.1])");
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Could not find a field named `_vector_distance(foobar:` in the schema for sorting.", res_op.error());
+
+    // handle bad value
+    sort_fields[0] = sort_by("_vector_distance(buckets: x)", "ASC");
+    res_op = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.85, 0.5, 0.1])");
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid value passed for _vector_distance `buckets` or `bucket_size` configuration.", res_op.error());
+
+    // handle negative value
+    sort_fields[0] = sort_by("_vector_distance(buckets: -1)", "ASC");
+    res_op = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.85, 0.5, 0.1])");
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid value passed for _vector_distance `buckets` or `bucket_size` configuration.", res_op.error());
+
+    collectionManager.drop_collection("coll1");
+}

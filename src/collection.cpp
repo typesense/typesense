@@ -2878,8 +2878,8 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
     if(vector_distance_index >= 0 && (sort_fields_std[vector_distance_index].vector_search_buckets > 0
         || sort_fields_std[vector_distance_index].vector_search_bucket_size > 0)) {
 
-        size_t num_buckets = sort_fields_std[match_score_index].vector_search_buckets;
-        size_t bucket_size = sort_fields_std[match_score_index].vector_search_bucket_size;
+        size_t num_buckets = sort_fields_std[vector_distance_index].vector_search_buckets;
+        size_t bucket_size = sort_fields_std[vector_distance_index].vector_search_bucket_size;
 
         const size_t max_kvs_bucketed = std::min<size_t>(Index::DEFAULT_TOPSTER_SIZE, raw_result_kvs.size());
 

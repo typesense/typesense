@@ -635,6 +635,8 @@ struct sort_by {
         order = other.order;
         text_match_buckets = other.text_match_buckets;
         text_match_bucket_size = other.text_match_bucket_size;
+        vector_search_buckets = other.vector_search_buckets;
+        vector_search_bucket_size = other.vector_search_bucket_size;
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;
@@ -657,12 +659,14 @@ struct sort_by {
         if (&other == this) {
             return *this;
         }
-
+        LOG(INFO) << "Assignment operator called";
         name = other.name;
         eval_expressions = other.eval_expressions;
         order = other.order;
         text_match_buckets = other.text_match_buckets;
         text_match_bucket_size = other.text_match_bucket_size;
+        vector_search_buckets = other.vector_search_buckets;
+        vector_search_bucket_size = other.vector_search_bucket_size;
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;
