@@ -578,8 +578,8 @@ struct sort_by {
     uint32_t text_match_buckets;
     uint32_t text_match_bucket_size;
 
-    uint32_t vector_search_buckets;
-    uint32_t vector_search_bucket_size;
+    uint32_t vector_search_buckets = 0;
+    uint32_t vector_search_bucket_size = 0;
 
 
     // geo related fields
@@ -659,7 +659,6 @@ struct sort_by {
         if (&other == this) {
             return *this;
         }
-        LOG(INFO) << "Assignment operator called";
         name = other.name;
         eval_expressions = other.eval_expressions;
         order = other.order;
