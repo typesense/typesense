@@ -5,6 +5,7 @@
 #include "stackprinter.h"
 #include "backward.hpp"
 #include "butil/at_exit.h"
+#include "text_embedder_remote.h"
 
 #ifndef ASAN_BUILD
 extern "C" {
@@ -211,8 +212,6 @@ int main(int argc, char **argv) {
     signal(SIGTERM, catch_interrupt);
 
     init_api(config.get_cache_num_entries());
-
-    RemoteEmbedder::set_cache_capacity(config.get_embedding_cache_num_entries());
 
     return run_server(config, TYPESENSE_VERSION, &master_server_routes);
 }

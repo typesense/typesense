@@ -50,8 +50,8 @@ class RemoteEmbedder {
         static Option<bool> validate_string_properties(const nlohmann::json& model_config, const std::vector<std::string>& properties);
         static inline ReplicationState* raft_server = nullptr;
         std::shared_mutex mutex;
-        static inline LRU::Cache<std::string, embedding_res_t> cache = LRU::Cache<std::string, embedding_res_t>(100);
     public:
+        static inline LRU::Cache<std::string, embedding_res_t> cache = LRU::Cache<std::string, embedding_res_t>(100);
         static long call_remote_api(const std::string& method, const std::string& url, const std::string& req_body, std::string& res_body, std::map<std::string, std::string>& res_headers, std::unordered_map<std::string, std::string>& req_headers);
         virtual nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) = 0;
         virtual embedding_res_t Embed(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) = 0;
@@ -63,10 +63,6 @@ class RemoteEmbedder {
         }
         virtual ~RemoteEmbedder() = default;
         virtual bool update_api_key(const std::string& api_key) = 0;
-
-        static inline set_cache_capacity(size_t capacity) {
-            cache.capacity(capacity);
-        }
 };
 
 class AzureEmbedder : public RemoteEmbedder {

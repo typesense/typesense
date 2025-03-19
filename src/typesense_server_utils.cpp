@@ -444,6 +444,8 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     AnalyticsManager::get_instance().init(&store, analytics_store, analytics_minute_rate_limit);
 
+    RemoteEmbedder::cache.capacity(config.get_embedding_cache_num_entries());
+
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
     httpClient.init(config.get_api_key());
