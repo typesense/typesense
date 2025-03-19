@@ -105,6 +105,7 @@ protected:
         this->num_collections_parallel_load = 0;  // will be set dynamically if not overridden
         this->num_documents_parallel_load = 1000;
         this->cache_num_entries = 1000;
+        this->embedding_cache_num_entries = 100;
         this->thread_pool_size = 0; // will be set dynamically if not overridden
         this->ssl_refresh_interval_seconds = 8 * 60 * 60;
         this->enable_access_logging = false;
