@@ -76,6 +76,20 @@ Option<bool> Config::update_config(const nlohmann::json& req_json) {
         found_config = true;
     }
 
+    if(req_json.count("embedding-cache-num-entries") != 0) {
+        if(!req_json["embedding-cache-num-entries"].is_number_integer()) {
+            return Option<bool>(400, "Configuration `embedding-cache-num-entries` must be an integer.");
+        }
+
+        int embedding_cache_entries_num = req_json["embedding-cache-num-entries"].get<int>();
+        if(embedding_cache_entries_num <= 0) {
+            return Option<bool>(400, "Configuration `embedding-cache-num-entries` must be a positive integer.");
+        }
+
+        set_embedding_cache_num_entries(embedding_cache_entries_num);
+        found_config = true;
+    }
+
     if(req_json.count("skip-writes") != 0) {
         if(!req_json["skip-writes"].is_boolean()) {
             return Option<bool>(400, ("Configuration `skip-writes` must be a boolean."));
@@ -210,6 +224,10 @@ void Config::load_config_env() {
 
     if(!get_env("TYPESENSE_CACHE_NUM_ENTRIES").empty()) {
         this->cache_num_entries = std::stoi(get_env("TYPESENSE_CACHE_NUM_ENTRIES"));
+    }
+
+    if(!get_env("TYPESENSE_EMBEDDING_CACHE_NUM_ENTRIES").empty()) {
+        this->embedding_cache_num_entries = std::stoi(get_env("TYPESENSE_EMBEDDING_CACHE_NUM_ENTRIES"));
     }
 
     if(!get_env("TYPESENSE_ANALYTICS_FLUSH_INTERVAL").empty()) {
@@ -421,6 +439,10 @@ void Config::load_config_file(cmdline::parser& options) {
         this->cache_num_entries = (int) reader.GetInteger("server", "cache-num-entries", 1000);
     }
 
+    if(reader.Exists("server", "embedding-cache-num-entries")) {
+        this->embedding_cache_num_entries = (int) reader.GetInteger("server", "embedding-cache-num-entries", 100);
+    }
+
     if(reader.Exists("server", "analytics-flush-interval")) {
         this->analytics_flush_interval = (int) reader.GetInteger("server", "analytics-flush-interval", 3600);
     }
@@ -613,6 +635,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("cache-num-entries")) {
         this->cache_num_entries = options.get<uint32_t>("cache-num-entries");
+    }
+
+    if(options.exist("embedding-cache-num-entries")) {
+        this->embedding_cache_num_entries = options.get<uint32_t>("embedding-cache-num-entries");
     }
 
     if(options.exist("analytics-flush-interval")) {

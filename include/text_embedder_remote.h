@@ -6,7 +6,7 @@
 #include "http_client.h"
 #include "raft_server.h"
 #include "option.h"
-
+#include "lru/lru.hpp"
 
 
 struct embedding_res_t {
@@ -20,6 +20,27 @@ struct embedding_res_t {
     embedding_res_t(const std::vector<float>& embedding) : embedding(embedding), success(true) {}
 
     embedding_res_t(int status_code, const nlohmann::json& error) : error(error), success(false), status_code(status_code) {}
+
+    bool operator!=(const embedding_res_t& other) const {
+        return !(*this == other);
+    }
+
+    bool operator==(const embedding_res_t& other) const {
+        if(success != other.success) {
+            return false;
+        }
+        
+        if(embedding.size() != other.embedding.size()) {
+            return false;
+        }
+
+        for(size_t i = 0; i < embedding.size(); i++) {
+            if(embedding[i] != other.embedding[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
 };
 
 
@@ -29,6 +50,7 @@ class RemoteEmbedder {
         static Option<bool> validate_string_properties(const nlohmann::json& model_config, const std::vector<std::string>& properties);
         static inline ReplicationState* raft_server = nullptr;
         std::shared_mutex mutex;
+        static inline LRU::Cache<std::string, embedding_res_t> cache = LRU::Cache<std::string, embedding_res_t>(100);
     public:
         static long call_remote_api(const std::string& method, const std::string& url, const std::string& req_body, std::string& res_body, std::map<std::string, std::string>& res_headers, std::unordered_map<std::string, std::string>& req_headers);
         virtual nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) = 0;
@@ -42,6 +64,9 @@ class RemoteEmbedder {
         virtual ~RemoteEmbedder() = default;
         virtual bool update_api_key(const std::string& api_key) = 0;
 
+        static inline set_cache_capacity(size_t capacity) {
+            cache.capacity(capacity);
+        }
 };
 
 class AzureEmbedder : public RemoteEmbedder {

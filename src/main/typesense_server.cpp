@@ -212,5 +212,7 @@ int main(int argc, char **argv) {
 
     init_api(config.get_cache_num_entries());
 
+    RemoteEmbedder::set_cache_capacity(config.get_embedding_cache_num_entries());
+
     return run_server(config, TYPESENSE_VERSION, &master_server_routes);
 }
