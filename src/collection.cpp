@@ -1317,7 +1317,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                         }
 
                         std::string embed_query = embedder_manager.get_query_prefix(vector_field_it.value().embed[fields::model_config]) + q;
-                        auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
+                        auto embedding_op = embedder->embed_query(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
 
                         if(!embedding_op.success) {
                             if(embedding_op.error.contains("error")) {
@@ -1372,7 +1372,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     }
 
                     std::string embed_query = embedder_manager.get_query_prefix(vector_field_it.value().embed[fields::model_config]) + query;
-                    auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
+                    auto embedding_op = embedder->embed_query(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
 
                     if(!embedding_op.success) {
                         if(embedding_op.error.contains("error")) {
@@ -2203,7 +2203,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                 }
 
                 std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + query;
-                auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
+                auto embedding_op = embedder->embed_query(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
                 if(!embedding_op.success) {
                     if(embedding_op.error.contains("error")) {
                         return Option<bool>(400, embedding_op.error["error"].get<std::string>());
@@ -7652,7 +7652,7 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
             }
 
             std::string embed_query = embedder_manager.get_query_prefix(vector_field_it.value().embed[fields::model_config]) + q;
-            auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
+            auto embedding_op = embedder->embed_query(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
 
             if(!embedding_op.success) {
                 if(embedding_op.error.contains("error")) {

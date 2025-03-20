@@ -7728,7 +7728,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 LOG(ERROR) << "Error: " << error_msg;
                 return;
             }
-            embeddings_image = embedder_op.get()->batch_embed(values_image);
+            embeddings_image = embedder_op.get()->embed_documents(values_image);
         }
 
         if(!values_text.empty()) {
@@ -7738,7 +7738,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 LOG(ERROR) << "Error: " << embedder_op.error();
                 return;
             }
-            embeddings_text = embedder_op.get()->batch_embed(values_text, remote_embedding_batch_size, remote_embedding_timeout_ms,
+            embeddings_text = embedder_op.get()->embed_documents(values_text, remote_embedding_batch_size, remote_embedding_timeout_ms,
                                                             remote_embedding_num_tries);
         }
 

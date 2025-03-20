@@ -1395,7 +1395,7 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
         "model_name": "ts/e5-small"
     })"_json;
 
-    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("butter");
+    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->embed_query("butter");
     
     std::string vec_string = "[";
     for(size_t i = 0; i < query_embedding.embedding.size(); i++) {

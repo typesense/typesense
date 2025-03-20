@@ -4444,7 +4444,7 @@ TEST_F(JoinIncludeExcludeFieldsTest, IntegrationWithOtherFeatures) {
     nlohmann::json model_config = R"({
         "model_name": "ts/e5-small"
     })"_json;
-    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("natural products");
+    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->embed_query("natural products");
     std::string vec_string = "[";
     for (auto const& i : query_embedding.embedding) {
         vec_string += std::to_string(i);
@@ -6763,7 +6763,7 @@ TEST_F(JoinSortTest, ErrorHandling) {
     nlohmann::json model_config = R"({
         "model_name": "ts/e5-small"
     })"_json;
-    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("natural products");
+    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->embed_query("natural products");
     std::string vec_string = "[";
     for (auto const& i : query_embedding.embedding) {
         vec_string += std::to_string(i);
@@ -7345,7 +7345,7 @@ TEST_F(JoinSortTest, IntegrationWithOtherFeatures) {
     nlohmann::json model_config = R"({
         "model_name": "ts/e5-small"
     })"_json;
-    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("natural products");
+    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->embed_query("natural products");
     std::string vec_string = "[";
     for (auto const& i : query_embedding.embedding) {
         vec_string += std::to_string(i);
