@@ -187,7 +187,7 @@ embedding_res_t OpenAIEmbedder::Embed(const std::string url, const std::string& 
     }
     try {
         embedding_res_t embedding_res = embedding_res_t(nlohmann::json::parse(res)["data"][0]["embedding"].get<std::vector<float>>());
-        RemoteEmbedder::cache[cache_key] = embedding_res;
+        RemoteEmbedder::cache.insert(cache_key, embedding_res);
         return embedding_res;
     } catch (const std::exception& e) {
         return embedding_res_t(500, get_error_json(req_body, res_code, res, url));
@@ -217,19 +217,7 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::string url, 
                                                          const OpenAIEmbedderType embedder_type) {
     nlohmann::json req_body;
     std::unordered_map<std::string, std::string> headers;
-
-    std::vector<std::pair<std::string, uint64_t>> existing_inputs;
-    std::vector<std::pair<std::string, uint64_t>> new_inputs;
-
-    for(size_t i = 0; i < inputs.size(); i++) {
-        std::string cache_key = inputs[i] + model_name;
-        if(RemoteEmbedder::cache.find(cache_key) != RemoteEmbedder::cache.end()) {
-            existing_inputs.push_back(std::make_pair(cache_key, i));
-        } else {
-            new_inputs.push_back(std::make_pair(inputs[i], i));
-        }
-    }
-    req_body["input"] = new_inputs;
+    req_body["input"] = inputs;
     if(has_custom_dims) {
         req_body["dimensions"] = num_dims;
     }
@@ -239,7 +227,7 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::string url, 
     } else if(embedder_type == OpenAIEmbedderType::AZURE_OPENAI) {
         headers["api-key"] = api_key;
     }
-    
+
     headers["Content-Type"] = "application/json";
     headers["timeout_ms"] = std::to_string(remote_embedding_timeout_ms);
     headers["num_try"] = std::to_string(remote_embedding_num_tries);
@@ -247,47 +235,45 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::string url, 
     std::string res;
     auto res_code = call_remote_api("POST", url, req_body.dump(), res, res_headers, headers);
 
-    std::vector<embedding_res_t> outputs(inputs.size());
-    for(auto& input : existing_inputs) {
-        outputs[input.second] = RemoteEmbedder::cache[input.first];
-    }
-
     if(res_code != 200) {
+        std::vector<embedding_res_t> outputs;
         nlohmann::json embedding_res = get_error_json(req_body, res_code, res, url);
-        for(size_t i = 0; i < new_inputs.size(); i++) {
-            embedding_res["request"]["body"]["input"][0] = new_inputs[i];
-            outputs[new_inputs[i].second] = embedding_res_t(500, embedding_res);
+        for(size_t i = 0; i < inputs.size(); i++) {
+            embedding_res["request"]["body"]["input"][0] = inputs[i];
+            outputs.push_back(embedding_res_t(res_code, embedding_res));
         }
         return outputs;
     }
 
     nlohmann::json res_json;
+
     try {
         res_json = nlohmann::json::parse(res);
     } catch (const std::exception& e) {
         nlohmann::json embedding_res = get_error_json(req_body, res_code, res, url);
-        for(size_t i = 0; i < new_inputs.size(); i++) {
-            embedding_res["request"]["body"]["input"][0] = new_inputs[i];
-            outputs[new_inputs[i].second] = embedding_res_t(500, embedding_res);
+        std::vector<embedding_res_t> outputs;
+        for(size_t i = 0; i < inputs.size(); i++) {
+            embedding_res["request"]["body"]["input"][0] = inputs[i];
+            outputs.push_back(embedding_res_t(500, embedding_res));
         }
         return outputs;
     }
 
     if(res_json.count("data") == 0 || !res_json["data"].is_array() || res_json["data"].size() != inputs.size()) {
-        for(size_t i = 0; i < new_inputs.size(); i++) {
-            outputs[new_inputs[i].second] = embedding_res_t(500, "Got malformed response from OpenAI API.");
+        std::vector<embedding_res_t> outputs;
+        for(size_t i = 0; i < inputs.size(); i++) {
+            outputs.push_back(embedding_res_t(500, "Got malformed response from OpenAI API."));
         }
         return outputs;
     }
 
-    for(size_t i = 0;i < res_json["data"].size(); i++) {
-        auto& data = res_json["data"][i];
+    std::vector<embedding_res_t> outputs;
+    for(auto& data : res_json["data"]) {
         if(data.count("embedding") == 0 || !data["embedding"].is_array() || data["embedding"].size() == 0) {
-            outputs[new_inputs[i].second] = embedding_res_t(500, "Got malformed response from OpenAI API.");
+            outputs.push_back(embedding_res_t(500, "Got malformed response from OpenAI API."));
             continue;
         }
-        outputs[new_inputs[i].second] = embedding_res_t(data["embedding"].get<std::vector<float>>());
-        RemoteEmbedder::cache[new_inputs[i].first] = outputs[new_inputs[i].second];
+        outputs.push_back(embedding_res_t(data["embedding"].get<std::vector<float>>()));
     }
 
     return outputs;
@@ -413,7 +399,7 @@ embedding_res_t GoogleEmbedder::Embed(const std::string& text, const size_t remo
 
     try {
         auto res_obj = embedding_res_t(nlohmann::json::parse(res)["embedding"]["value"].get<std::vector<float>>());
-        RemoteEmbedder::cache[cache_key] = res_obj;
+        RemoteEmbedder::cache.insert(cache_key, res_obj);
         return res_obj;
     } catch (const std::exception& e) {
         return embedding_res_t(500, get_error_json(req_body, res_code, res));
@@ -423,40 +409,21 @@ embedding_res_t GoogleEmbedder::Embed(const std::string& text, const size_t remo
 
 std::vector<embedding_res_t> GoogleEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size,
                                                          const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
-    std::vector<embedding_res_t> outputs(inputs.size());
-
-    std::vector<std::pair<std::string, uint64_t>> existing_inputs;
-    std::vector<std::pair<std::string, uint64_t>> new_inputs;
-
-    for(size_t i = 0; i < inputs.size(); i++) {
-        std::string cache_key = inputs[i] + SUPPORTED_MODEL;
-        if(RemoteEmbedder::cache.find(cache_key) != RemoteEmbedder::cache.end()) {
-            existing_inputs.push_back(std::make_pair(cache_key, i));
-        } else {
-            new_inputs.push_back(std::make_pair(inputs[i], i));
-        }
-    }
-
-    for(auto& input : existing_inputs) {
-        outputs[input.second] = RemoteEmbedder::cache[input.first];
-    }
-
+    std::vector<embedding_res_t> outputs;
     bool timeout_prev = false;
-    for(size_t i = 0; i < new_inputs.size(); i++) {
-        auto& input = new_inputs[i].first;
+    for(auto& input : inputs) {
         auto res = Embed(input, remote_embedding_timeout_ms, remote_embedding_num_tries);
         if(res.status_code == 408) {
             if(timeout_prev) {
                 // fail whole batch if two consecutive timeouts,
                 nlohmann::json req_body;
                 req_body["text"] = input;
-               return std::vector<embedding_res_t>(inputs.size(), embedding_res_t(408, get_error_json(req_body, 408, "")));
+                return std::vector<embedding_res_t>(inputs.size(), embedding_res_t(408, get_error_json(req_body, 408, "")));
             }
             timeout_prev = true;
         }
         timeout_prev = false;
-        outputs[new_inputs[i].second] = res;
-        RemoteEmbedder::cache[input + SUPPORTED_MODEL] = res;
+        outputs.push_back(res);
     }
 
     return outputs;
@@ -640,7 +607,7 @@ embedding_res_t GCPEmbedder::Embed(const std::string& text, const size_t remote_
         return embedding_res_t(500, get_error_json(req_body, res_code, res));
     }
     auto res_obj = embedding_res_t(res_json["predictions"][0]["embeddings"]["values"].get<std::vector<float>>());
-    RemoteEmbedder::cache[cache_key] = res_obj;
+    RemoteEmbedder::cache.insert(cache_key, res_obj);
     return res_obj;
 }
 
@@ -656,22 +623,9 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
         }
         return res;
     }
-
-    std::vector<std::pair<std::string, uint64_t>> existing_inputs;
-    std::vector<std::pair<std::string, uint64_t>> new_inputs;
-
-    for(size_t i = 0; i < inputs.size(); i++) {
-        std::string cache_key = inputs[i] + model_name;
-        if(RemoteEmbedder::cache.find(cache_key) != RemoteEmbedder::cache.end()) {
-            existing_inputs.push_back(std::make_pair(cache_key, i));
-        } else {
-            new_inputs.push_back(std::make_pair(inputs[i], i));
-        }
-    }
-
     nlohmann::json req_body;
     req_body["instances"] = nlohmann::json::array();
-    for(const auto& input : new_inputs) {
+    for(const auto& input : inputs) {
         nlohmann::json instance;
         instance["content"] = input;
         req_body["instances"].push_back(instance);
@@ -689,22 +643,15 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
     std::map<std::string, std::string> res_headers;
     std::string res;
     auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
-
-    std::vector<embedding_res_t> outputs(inputs.size());
-
-    for(auto& input : existing_inputs) {
-        outputs[input.second] = RemoteEmbedder::cache[input.first];
-    }
-
     if(res_code != 200) {
         if(res_code == 401) {
             auto refresh_op = generate_access_token(refresh_token, client_id, client_secret);
             if(!refresh_op.ok()) {
                 nlohmann::json embedding_res = nlohmann::json::object();
                 embedding_res["error"] = refresh_op.error();
-                
-                for(size_t i = 0; i < new_inputs.size(); i++) {
-                    outputs[new_inputs[i].second] = embedding_res_t(refresh_op.code(), embedding_res);
+                std::vector<embedding_res_t> outputs;
+                for(size_t i = 0; i < inputs.size(); i++) {
+                    outputs.push_back(embedding_res_t(refresh_op.code(), embedding_res));
                 }
                 return outputs;
             }
@@ -718,8 +665,9 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
 
     if(res_code != 200) {
         auto embedding_res = get_error_json(req_body, res_code, res);
+        std::vector<embedding_res_t> outputs;
         for(size_t i = 0; i < inputs.size(); i++) {
-            outputs[new_inputs[i].second] = embedding_res_t(res_code, embedding_res);
+            outputs.push_back(embedding_res_t(res_code, embedding_res));
         }
         return outputs;
     }
@@ -728,27 +676,28 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
         res_json = nlohmann::json::parse(res);
     } catch (const std::exception& e) {
         nlohmann::json embedding_res = get_error_json(req_body, res_code, res);
-        for(size_t i = 0; i < new_inputs.size(); i++) {
-            outputs[new_inputs[i].second] = embedding_res_t(400, embedding_res);
+        std::vector<embedding_res_t> outputs;
+        for(size_t i = 0; i < inputs.size(); i++) {
+            outputs.push_back(embedding_res_t(400, embedding_res));
         }
         return outputs;
     }
+    std::vector<embedding_res_t> outputs;
 
     if(res_json.count("predictions") == 0 || !res_json["predictions"].is_array() || res_json["predictions"].size() != inputs.size()) {
-        for(size_t i = 0; i < new_inputs.size(); i++) {
-            outputs[new_inputs[i].second] = embedding_res_t(500, "Got malformed response from GCP API.");
+        std::vector<embedding_res_t> outputs;
+        for(size_t i = 0; i < inputs.size(); i++) {
+            outputs.push_back(embedding_res_t(500, "Got malformed response from GCP API."));
         }
         return outputs;
     }
 
-    for(size_t i = 0; i < res_json["predictions"].size(); i++) {
-        auto& prediction = res_json["predictions"][i];
+    for(const auto& prediction : res_json["predictions"]) {
         if(prediction.count("embeddings") == 0 || !prediction["embeddings"].is_object() || prediction["embeddings"].count("values") == 0 || !prediction["embeddings"]["values"].is_array() || prediction["embeddings"]["values"].size() == 0) {
-            outputs[new_inputs[i].second] = embedding_res_t(500, "Got malformed response from GCP API.");
+            outputs.push_back(embedding_res_t(500, "Got malformed response from GCP API."));
             continue;
         }
-        outputs[new_inputs[i].second] = embedding_res_t(prediction["embeddings"]["values"].get<std::vector<float>>());
-        RemoteEmbedder::cache[new_inputs[i].first] = outputs[new_inputs[i].second];
+        outputs.push_back(embedding_res_t(prediction["embeddings"]["values"].get<std::vector<float>>()));
     }
 
     return outputs;
