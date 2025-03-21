@@ -379,12 +379,14 @@ Option<bool> parse_multi_valued_geopoint_filter(const std::string& filter_query,
     return Option<bool>(true);
 }
 
-Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
+Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens, bool is_nested_object_field) {
     std::set<std::string> ref_collection_names;
     auto size = filter_query.size();
+    std::string nested_field_prefix="";
+
     for (size_t i = 0; i < size;) {
         auto c = filter_query[i];
-        if (c == ' ') {
+        if (c == ' ' || c == '}') {
             i++;
             continue;
         }
@@ -430,6 +432,15 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
                     is_geo_value = false;
                 }
 
+                if(c == '{' && is_nested_object_field) {
+                    c = filter_query[++i];
+                }
+
+                if( c == '}' && is_nested_object_field) {
+                    ++i;
+                    break;
+                }
+
                 ss << c;
                 c = filter_query[++i];
 
@@ -450,11 +461,17 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
                     break;
                 } else if (preceding_colon && c != ' ') {
                     preceding_colon = false;
+                } else if(c =='.' && is_nested_object_field) {
+                    ss << c;
+                    nested_field_prefix = ss.str();
+                    //clear buffer
+                    ss.str("");
+                    c = filter_query[++i];
                 }
             } while (i < size && (inBacktick || is_geo_value ||
                                   (c != '(' && c != ')' && !(c == '&' && filter_query[i + 1] == '&') &&
                                    !(c == '|' && filter_query[i + 1] == '|'))));
-            auto token = ss.str();
+            auto token = is_nested_object_field ? nested_field_prefix + ss.str() : ss.str();
             trim(token);
             tokens.push(token);
         }

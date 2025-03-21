@@ -3339,6 +3339,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return filter_init_op;
     }
 
+    if(filter_tree_root && filter_tree_root->is_nested_object_filter) {
+        filter_result_iterator->post_filtering_validate_docs();
+    }
+
 #ifdef TEST_BUILD
 
     if (filter_result_iterator->approx_filter_ids_length > 20) {

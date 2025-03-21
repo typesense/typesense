@@ -421,6 +421,8 @@ public:
     static void add_phrase_ids(filter_result_iterator_t*& filter_result_iterator,
                                uint32_t* phrase_result_ids, const uint32_t& phrase_result_count);
 
+    void post_filtering_validate_docs();
+
     [[nodiscard]] bool _get_is_filter_result_initialized() const {
         return is_filter_result_initialized;
     }

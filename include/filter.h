@@ -84,6 +84,8 @@ struct filter_node_t {
     filter_node_t* left = nullptr;
     filter_node_t* right = nullptr;
     std::string filter_query;
+    bool is_nested_object_filter = false;
+    std::string nested_object_parent;
 
     filter_node_t() = default;
 

@@ -783,8 +783,23 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
         return Option<bool>(true);
     }
 
+    bool is_nested_object_field = false;
+    auto pos = filter_query.find(".");
+    std::string nested_object_parent = "";
+
+    if(pos != std::string::npos && pos > 0) {
+        if(filter_query.at(pos + 1) == '{') {
+            //possible nested object field
+            // check for format "<field>.{<sub_field>: <val> ...}"
+            if(filter_query.at(filter_query.size() - 1) == '}') {
+                is_nested_object_field = true;
+                nested_object_parent = filter_query.substr(0, pos);
+            }
+        }
+    }
+
     std::queue<std::string> tokens;
-    Option<bool> tokenize_op = StringUtils::tokenize_filter_query(filter_query, tokens);
+    Option<bool> tokenize_op = StringUtils::tokenize_filter_query(filter_query, tokens, is_nested_object_field);
     if (!tokenize_op.ok()) {
         return tokenize_op;
     }
@@ -812,5 +827,7 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
     }
 
     root->filter_query = filter_query;
+    root->is_nested_object_filter = is_nested_object_field;
+    root->nested_object_parent = nested_object_parent;
     return Option<bool>(true);
 }
