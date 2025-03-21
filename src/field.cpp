@@ -12,13 +12,6 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                                         std::vector<field>& the_fields,
                                         string& fallback_field_type, size_t& num_auto_detect_fields) {
 
-    if(field_json["name"] == "id") {
-        // No field should exist with the name "id" as it is reserved for internal use
-        // We cannot throw an error here anymore since that will break backward compatibility!
-        LOG(WARNING) << "Collection schema cannot contain a field with name `id`. Ignoring field.";
-        return Option<bool>(true);
-    }
-
     if(!field_json.is_object() ||
        field_json.count(fields::name) == 0 || field_json.count(fields::type) == 0 ||
        !field_json.at(fields::name).is_string() || !field_json.at(fields::type).is_string()) {
@@ -468,7 +461,6 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         f.nested = field_json[fields::nested];
         the_fields.emplace_back(std::move(f));
     }
-
     return Option<bool>(true);
 }
 
@@ -749,6 +741,12 @@ Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::j
 
     for(size_t i = 0; i < fields_json.size(); i++) {
         nlohmann::json& field_json = fields_json[i];
+        if(field_json["name"] == "id") {
+            // No field should exist with the name "id" as it is reserved for internal use
+            // We cannot throw an error here anymore since that will break backward compatibility!
+            LOG(WARNING) << "Collection schema cannot contain a field with name `id`. Ignoring field.";
+            continue;
+        }
         auto op = json_field_to_field(enable_nested_fields,
                                       field_json, the_fields, fallback_field_type, num_auto_detect_fields);
         if(!op.ok()) {
