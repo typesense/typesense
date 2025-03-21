@@ -505,7 +505,8 @@ uint64_t hash_request(const std::shared_ptr<http_req>& req) {
     ss << req->route_hash << req->body;
 
     for(auto& kv: req->params) {
-        if(kv.first != "use_cache") {
+        const auto& param_name = kv.first;
+        if(param_name != "use_cache" && param_name != http_req::USER_HEADER) {
             ss << kv.second;
         }
     }
