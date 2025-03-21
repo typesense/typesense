@@ -8,7 +8,7 @@ import type { Options as ExecaOptions } from "execa";
 import type { Ora } from "ora";
 import type { CollectionCreateSchema } from "typesense/lib/Typesense/Collections";
 import type { ConversationModelCreateSchema } from "typesense/lib/Typesense/ConversationModel";
-import type { SearchParams } from "typesense/lib/Typesense/Documents";
+import type { SearchParams, SearchResponse } from "typesense/lib/Typesense/Documents";
 
 import { execa } from "execa";
 import { errAsync, ok, okAsync, Result, ResultAsync } from "neverthrow";
@@ -225,12 +225,34 @@ export class TypesenseProcessManager {
     );
   }
 
-  queryCollection(process: TypesenseProcessController, options: { collectionName: string; query: SearchParams }) {
+  queryCollection(
+    process: TypesenseProcessController,
+    options: { collectionName: string; query: SearchParams },
+  ): ResultAsync<SearchResponse<object>, ErrorWithMessage> {
     this.spinner.start(`Querying collection ${options.collectionName} on node ${process.http}\n`);
-    return ResultAsync.fromPromise(
-      process.client.collections(options.collectionName).documents().search(options.query),
-      toErrorWithMessage,
-    ).map((res) => {
+
+    const maxRetries = 7;
+    let retryCount = 0;
+
+    const attemptQuery = (): ResultAsync<SearchResponse<object>, ErrorWithMessage> => {
+      return ResultAsync.fromPromise(
+        process.client.collections(options.collectionName).documents().search(options.query),
+        toErrorWithMessage,
+      ).orElse((error) => {
+        if (retryCount < maxRetries) {
+          retryCount++;
+          this.spinner.text = `Retrying query for collection ${options.collectionName} on node ${process.http} (attempt ${retryCount}/${maxRetries})`;
+
+          const backoffTime = Math.min(500 * Math.pow(2, retryCount - 1), 10000);
+          return delay(backoffTime).andThen(() => attemptQuery());
+        }
+
+        this.spinner.fail(`Failed to query collection ${options.collectionName} after ${maxRetries} retries`);
+        return errAsync(error);
+      });
+    };
+
+    return attemptQuery().map((res) => {
       this.spinner.succeed(`Queried collection ${options.collectionName} on node ${process.http}`);
       logger.debug(`Query result: ${JSON.stringify(res)}`);
       return res;
