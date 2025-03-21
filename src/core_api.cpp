@@ -424,6 +424,14 @@ bool get_health_with_resource_usage(const std::shared_ptr<http_req>& req, const 
         }
     }
 
+    if(req->params.count("pending_write_batches_threshold") != 0 &&
+        StringUtils::is_uint32_t(req->params["pending_write_batches_threshold"])) {
+        const int64_t pending_write_batches_threshold = std::stol(req->params["pending_write_batches_threshold"]);
+        int64_t pending_write_batches = server->get_num_queued_writes();
+        bool is_lagging = (pending_write_batches > pending_write_batches_threshold);
+        alive = alive && !is_lagging;
+    }
+
     result["ok"] = alive;
 
     if(alive) {
