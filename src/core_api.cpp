@@ -549,6 +549,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
             if(seconds_elapsed < cached_value.ttl) {
                 res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
+                AppMetrics::get_instance().increment_count(AppMetrics::CACHE_HIT_LABEL, 1);
                 return true;
             }
 
@@ -591,6 +592,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
         std::unique_lock lock(mutex);
         res_cache.insert(req_hash, cached_res);
+        AppMetrics::get_instance().increment_count(AppMetrics::CACHE_MISS_LABEL, 1);
     }
 
     return true;
@@ -622,6 +624,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
             if(seconds_elapsed < cached_value.ttl) {
                 res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
+                AppMetrics::get_instance().increment_count(AppMetrics::CACHE_HIT_LABEL, 1);
                 return true;
             }
 
@@ -962,6 +965,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         std::unique_lock lock(mutex);
         res_cache.insert(req_hash, cached_res);
+        AppMetrics::get_instance().increment_count(AppMetrics::CACHE_MISS_LABEL, 1);
     }
 
     return true;
