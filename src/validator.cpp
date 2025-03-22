@@ -114,6 +114,11 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
             nlohmann::json& item = it.value();
             array_ele_erased = false;
 
+            if(item.is_null() && a_field.nested) {
+                it++;
+                continue;
+            }
+
             if (a_field.type == field_types::STRING_ARRAY && !item.is_string()) {
                 Option<uint32_t> coerce_op = coerce_string(dirty_values, fallback_field_type, a_field, document, field_name, it, true, array_ele_erased);
                 if (!coerce_op.ok()) {
