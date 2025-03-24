@@ -33,6 +33,7 @@ public:
     std::vector<embedding_res_t> batch_embed_users(const std::vector<std::vector<std::string>>& features);
     std::vector<embedding_res_t> batch_embed_items(const std::vector<std::vector<std::string>>& features);
     batch_encoded_input_t encode_features(const std::vector<std::string>& features);
+    std::vector<batch_encoded_input_t> encode_batch(const std::vector<std::vector<std::string>>& batch_features);
     Option<bool> validate_model_io();
 
 private:
