@@ -310,10 +310,13 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
             } else {
                 const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
                                                                                     refreshed_nodes_op.get());
-                replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
-
-                if(raft_counter % 60 == 0) {
-                    replication_state.do_snapshot(nodes_config);
+                if(nodes_config.empty()) {
+                    LOG(WARNING) << "No nodes resolved from peer configuration.";
+                } else {
+                    replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
+                    if(raft_counter % 60 == 0) {
+                        replication_state.do_snapshot(nodes_config);
+                    }
                 }
             }
         }
