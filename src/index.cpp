@@ -1400,7 +1400,7 @@ void Index::compute_facet_stats(facet &a_facet, const std::string& raw_value, co
         if (val > a_facet.stats.fvmax) {
             a_facet.stats.fvmax = val;
         }
-        a_facet.stats.fvsum += (count * val);
+        a_facet.stats.fvsum += ((int)count * val);
         a_facet.stats.fvcount += count;
     } else if(field_type == field_types::INT64 || field_type == field_types::INT64_ARRAY) {
         int64_t val = std::stoll(raw_value);

@@ -3614,3 +3614,41 @@ TEST_F(CollectionFacetingTest, IgnoreMissingFacetByFields) {
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ(0, res["facet_counts"].size());
 }
+
+TEST_F(CollectionFacetingTest, FacetingWithNegativeInt) {
+    nlohmann::json schema = R"({
+                "name": "test",
+                "fields": [
+                    {
+                        "name": "points",
+                        "type": "int32",
+                        "facet": true
+                    }
+                ]
+                })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+
+    auto coll = collectionManager.get_collection("test").get();
+
+    nlohmann::json doc = R"({
+        "points": 20
+    })"_json;
+    coll->add(doc.dump());
+
+    doc["points"] = 10;
+    coll->add(doc.dump());
+
+    doc["points"] = -5;
+    coll->add(doc.dump());
+
+
+   nlohmann::json results = coll->search("*", {}, "", {"points"}, {}, {0}, 10, 1,
+                                        FREQUENCY, {false}, 10, spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10).get();
+
+    ASSERT_FLOAT_EQ(8.333333333333334, results["facet_counts"][0]["stats"]["avg"]);
+    ASSERT_FLOAT_EQ(20, results["facet_counts"][0]["stats"]["max"]);
+    ASSERT_FLOAT_EQ(-5, results["facet_counts"][0]["stats"]["min"]);
+    ASSERT_FLOAT_EQ(25, results["facet_counts"][0]["stats"]["sum"]);
+}
