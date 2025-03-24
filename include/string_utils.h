@@ -30,39 +30,53 @@ struct StringUtils {
     static size_t split(const std::string& s, std::vector<std::string> & result, const std::string& delim,
                         const bool keep_empty = false, const bool trim_space = true,
                         const size_t start_index = 0,
-                        const size_t max_values = std::numeric_limits<size_t>::max()) {
+                        const size_t max_values = std::numeric_limits<size_t>::max(),
+                        const char escape_char = '\0') {
         if (delim.empty()) {
             result.push_back(s);
             return s.size();
         }
 
-        std::string::const_iterator substart = s.begin()+start_index, subend;
-        size_t end_index = start_index;
-
-        while (true) {
-            subend = std::search(substart, s.end(), delim.begin(), delim.end());
-            std::string temp(substart, subend);
-
-            end_index += temp.size() + delim.size();
-            if(trim_space) {
-                temp = trim(temp);
+        std::string::const_iterator substart = s.begin() + start_index;
+        bool in_escape = false;
+        std::string temp;
+        auto it = substart;
+        for(; it != s.end(); it++) {
+            if(escape_char != '\0' && *it == escape_char) {
+                in_escape = !in_escape;
+                continue;
             }
 
-            if (keep_empty || !temp.empty()) {
-                result.push_back(temp);
-            }
+            if(!in_escape && std::search(it, s.end(), delim.begin(), delim.end()) == it)  {
+                if(trim_space) {
+                    temp = trim(temp);
+                }
 
-            if(result.size() == max_values) {
-                break;
-            }
+                if (keep_empty || !temp.empty()) {
+                    result.push_back(temp);
+                }
 
-            if (subend == s.end()) {
-                break;
+                if(result.size() == max_values) {
+                    break;
+                    return std::min(static_cast<size_t>(std::distance(substart, it)), s.size());
+                }
+
+                temp.clear();
+                it += delim.size()-1;
+            } else {
+                temp += *it;
             }
-            substart = subend + delim.size();
         }
 
-        return std::min(end_index, s.size());
+        if(trim_space && !temp.empty()) {
+            temp = trim(temp);
+        }
+
+        if (keep_empty || !temp.empty()) {
+            result.push_back(temp);
+        }
+
+        return std::min(static_cast<size_t>(std::distance(substart, it)), s.size());
     }
 
     static std::string join(std::vector<std::string> vec, const std::string& delimiter, size_t start_index = 0) {
