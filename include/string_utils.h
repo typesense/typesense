@@ -57,8 +57,7 @@ struct StringUtils {
                 }
 
                 if(result.size() == max_values) {
-                    break;
-                    return std::min(static_cast<size_t>(std::distance(substart, it)), s.size());
+                    return std::min(static_cast<size_t>(std::distance(substart, ++it)), s.size());
                 }
 
                 temp.clear();
