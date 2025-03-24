@@ -2394,9 +2394,7 @@ TEST_F(CollectionNestedFieldsTest, UpdateOfNestFields) {
 
     ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
 
-    // action=update - `name` changed, `id` not sent
-    // `id` field should not be deleted
-
+    // action=update - `name` changed
     auto doc_update = R"({
         "id": "b4db5f0456a93320428365f92c2a54ce15df2d0a",
         "brand": {
@@ -2518,6 +2516,9 @@ TEST_F(CollectionNestedFieldsTest, UpdateOfNestFieldsWithWildcardSchema) {
     results = coll1->search("beta", {"studies.name"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
 
+    results = coll1->search("*", {}, "company.founded: 1976", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
     // try removing fields via upsert, dropping "company.year"
     doc_update = R"({
         "id": "0",
@@ -2535,7 +2536,8 @@ TEST_F(CollectionNestedFieldsTest, UpdateOfNestFieldsWithWildcardSchema) {
     results = coll1->search("*", {}, "studies.year: 1978", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["found"].get<size_t>());
 
-    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    results = coll1->search("*", {}, "company.founded: 1976", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"][0]["document"].size());
@@ -2997,7 +2999,7 @@ TEST_F(CollectionNestedFieldsTest, EmplaceWithNullValueOnOptionalField) {
     ASSERT_EQ(0, results["hits"][0]["document"]["currency"].size());
 }
 
-TEST_F(CollectionNestedFieldsTest, UpsertWithNullValueOnOptionalField) {
+TEST_F(CollectionNestedFieldsTest, UpsertWithNullValueOnObjectlField) {
     nlohmann::json schema = R"({
         "name": "coll1",
         "enable_nested_fields": true,
@@ -3047,6 +3049,251 @@ TEST_F(CollectionNestedFieldsTest, UpsertWithNullValueOnOptionalField) {
     ASSERT_EQ(0, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionNestedFieldsTest, UpsertWithNullValueONestedField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "status.name", "type": "string", "facet": true, "optional": true},
+          {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "title": "Title Alpha",
+        "status": {"name": "foo"}
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("alpha", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());  // id, title, status
+    ASSERT_EQ(1, results["hits"][0]["document"]["status"].size());  // status.name
+
+    results = coll1->search("foo", {"status"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // upsert again with null value
+    doc1 = R"({
+        "id": "0",
+        "title": "Title Alpha",
+        "status": {"name": null}
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("alpha", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());  // id, title, status
+    ASSERT_EQ(0, results["hits"][0]["document"]["status"].size());
+
+    // searching, filtering and faceting should produce no hits
+
+    results = coll1->search("foo", {"status"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "status.name: foo", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "", {"status.name"}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(0, results["facet_counts"][0]["counts"].size());
+}
+
+TEST_F(CollectionNestedFieldsTest, UpdateWithNullValueONestedField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "status.name", "type": "string", "facet": true, "optional": true},
+          {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "title": "Title Alpha",
+        "status": {"name": "foo"}
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("alpha", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());  // id, title, status
+    ASSERT_EQ(1, results["hits"][0]["document"]["status"].size());  // status.name
+
+    results = coll1->search("foo", {"status"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // upsert again with null value
+    doc1 = R"({
+        "id": "0",
+        "title": "Title Alpha",
+        "status": {"name": null}
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("alpha", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());  // id, title, status
+    ASSERT_EQ(0, results["hits"][0]["document"]["status"].size());
+
+    // searching, filtering and faceting should produce no hits
+
+    results = coll1->search("foo", {"status"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "status.name: foo", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "", {"status.name"}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(0, results["facet_counts"][0]["counts"].size());
+}
+
+TEST_F(CollectionNestedFieldsTest, UpsertWithNullValueONestedArrayField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "statuses", "type": "object[]", "facet": true},
+          {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "title": "Title Alpha",
+        "statuses": [{"name": "foo"}]
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("alpha", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());  // id, title, status
+    ASSERT_EQ(1, results["hits"][0]["document"]["statuses"].size());
+    ASSERT_EQ("foo", results["hits"][0]["document"]["statuses"][0]["name"].get<std::string>());
+
+    results = coll1->search("foo", {"statuses"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // upsert again with null value
+    doc1 = R"({
+        "id": "0",
+        "title": "Title Alpha",
+        "statuses": [{"name": null}]
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("alpha", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());  // id, title, status
+    ASSERT_EQ(1, results["hits"][0]["document"]["statuses"].size());
+    ASSERT_TRUE(results["hits"][0]["document"]["statuses"][0]["name"].is_null());
+
+    // searching, filtering & faceting should produce no hits
+
+    results = coll1->search("foo", {"statuses.name"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "statuses.name: foo", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "", {"statuses.name"}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(0, results["facet_counts"][0]["counts"].size());
+}
+
+TEST_F(CollectionNestedFieldsTest, UpdateWithNullValueONestedArrayField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "statuses", "type": "object[]", "facet": true},
+          {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "title": "Title Alpha",
+        "statuses": [{"name": "foo"}]
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("alpha", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());  // id, title, status
+    ASSERT_EQ(1, results["hits"][0]["document"]["statuses"].size());
+    ASSERT_EQ("foo", results["hits"][0]["document"]["statuses"][0]["name"].get<std::string>());
+
+    results = coll1->search("foo", {"statuses"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // upsert again with null value
+    doc1 = R"({
+        "id": "0",
+        "title": "Title Alpha",
+        "statuses": [{"name": null}]
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("alpha", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());  // id, title, status
+    ASSERT_EQ(1, results["hits"][0]["document"]["statuses"].size());
+    ASSERT_TRUE(results["hits"][0]["document"]["statuses"][0]["name"].is_null());
+
+    // searching, filtering & faceting should produce no hits
+    results = coll1->search("foo", {"statuses.name"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "statuses.name: foo", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "", {"statuses.name"}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(0, results["facet_counts"][0]["counts"].size());
+}
+
 TEST_F(CollectionNestedFieldsTest, EmplaceWithMissingArrayValueOnOptionalField) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -3072,7 +3319,7 @@ TEST_F(CollectionNestedFieldsTest, EmplaceWithMissingArrayValueOnOptionalField) 
     auto add_op = coll1->add(doc1.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    // now update with null value -- should be allowed since field is optional
+    // now update with missing value -- should be allowed since field is optional
     auto update_doc = R"({
       "id": "0",
       "currency": [
@@ -3089,6 +3336,27 @@ TEST_F(CollectionNestedFieldsTest, EmplaceWithMissingArrayValueOnOptionalField) 
     ASSERT_EQ(2, results["hits"][0]["document"].size());  // id, currency
     ASSERT_EQ(1, results["hits"][0]["document"]["currency"].size());
     ASSERT_EQ(10000, results["hits"][0]["document"]["currency"][0]["us"].get<uint32_t>());
+
+    // Try querying for `currency.eu` after reload
+    // recreate collection manager to ensure that it restores the records from the disk backed store
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store("/tmp/typesense_test/collection_nested");
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+
+    ASSERT_TRUE(load_op.ok());
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    ASSERT_NE(nullptr, coll1);
+
+    results = coll1->search("*", {}, "currency.eu: 12000", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
 }
 
 TEST_F(CollectionNestedFieldsTest, UpdateNestedDocument) {
