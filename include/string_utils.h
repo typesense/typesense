@@ -12,6 +12,7 @@
 #include <unicode/normalizer2.h>
 #include <set>
 #include "option.h"
+#include "logger.h"
 
 struct StringUtils {
 
@@ -37,17 +38,34 @@ struct StringUtils {
             return s.size();
         }
 
-        std::string::const_iterator substart = s.begin() + start_index;
         bool in_escape = false;
-        std::string temp;
-        auto it = substart;
-        for(; it != s.end(); it++) {
-            if(escape_char != '\0' && *it == escape_char) {
+        size_t end_index = start_index;
+        for(size_t i = start_index; i < s.size(); i++) {
+            if(escape_char != '\0' && s[i] == escape_char) {
                 in_escape = !in_escape;
                 continue;
             }
 
-            if(!in_escape && std::search(it, s.end(), delim.begin(), delim.end()) == it)  {
+            bool is_delimeter = true;
+            if(i + delim.size() > s.size()) {
+                is_delimeter = false;
+            } else {
+                size_t j = 0;
+                for(; j < delim.size() && i+j < s.size(); j++) {
+                    if(s[i+j] != delim[j]) {
+                        is_delimeter = false;
+                        break;
+                    }
+                }
+                if(j < delim.size()) {
+                    is_delimeter = false;
+                }
+            }
+
+            if(!in_escape && is_delimeter) {
+                i += delim.size();
+                std::string temp = s.substr(end_index, i - end_index - delim.size());
+                end_index += temp.size() + delim.size();
                 if(trim_space) {
                     temp = trim(temp);
                 }
@@ -57,25 +75,24 @@ struct StringUtils {
                 }
 
                 if(result.size() == max_values) {
-                    return std::min(static_cast<size_t>(std::distance(s.begin(), ++it)), s.size());
+                    break;
+                }
+            }
+
+            if(i + 1 == s.size()) {
+                std::string temp = s.substr(end_index, i - end_index + 1);
+                end_index += temp.size();
+                if(trim_space) {
+                    temp = trim(temp);
                 }
 
-                temp.clear();
-                it += delim.size()-1;
-            } else {
-                temp += *it;
+                if (keep_empty || !temp.empty()) {
+                    result.push_back(temp);
+                }
             }
         }
 
-        if(trim_space && !temp.empty()) {
-            temp = trim(temp);
-        }
-
-        if (keep_empty || !temp.empty()) {
-            result.push_back(temp);
-        }
-
-        return std::min(static_cast<size_t>(std::distance(s.begin(), it)), s.size());
+        return std::min(end_index, s.size());
     }
 
     static std::string join(std::vector<std::string> vec, const std::string& delimiter, size_t start_index = 0) {
