@@ -31,68 +31,63 @@ struct StringUtils {
     static size_t split(const std::string& s, std::vector<std::string> & result, const std::string& delim,
                         const bool keep_empty = false, const bool trim_space = true,
                         const size_t start_index = 0,
-                        const size_t max_values = std::numeric_limits<size_t>::max(),
-                        const char escape_char = '\0') {
+                        const size_t max_values = std::numeric_limits<size_t>::max()) {
         if (delim.empty()) {
             result.push_back(s);
             return s.size();
         }
 
-        bool in_escape = false;
+        std::string::const_iterator substart = s.begin()+start_index, subend;
         size_t end_index = start_index;
-        for(size_t i = start_index; i < s.size(); i++) {
-            if(escape_char != '\0' && s[i] == escape_char) {
-                in_escape = !in_escape;
-                continue;
+
+        while (true) {
+            subend = std::search(substart, s.end(), delim.begin(), delim.end());
+            std::string temp(substart, subend);
+
+            end_index += temp.size() + delim.size();
+            if(trim_space) {
+                temp = trim(temp);
             }
 
-            bool is_delimeter = true;
-            if(i + delim.size() > s.size()) {
-                is_delimeter = false;
-            } else {
-                size_t j = 0;
-                for(; j < delim.size() && i+j < s.size(); j++) {
-                    if(s[i+j] != delim[j]) {
-                        is_delimeter = false;
-                        break;
-                    }
-                }
-                if(j < delim.size()) {
-                    is_delimeter = false;
-                }
+            if (keep_empty || !temp.empty()) {
+                result.push_back(temp);
             }
 
-            if(!in_escape && is_delimeter) {
-                i += delim.size();
-                std::string temp = s.substr(end_index, i - end_index - delim.size());
-                end_index += temp.size() + delim.size();
-                if(trim_space) {
-                    temp = trim(temp);
-                }
-
-                if (keep_empty || !temp.empty()) {
-                    result.push_back(temp);
-                }
-
-                if(result.size() == max_values) {
-                    break;
-                }
+            if(result.size() == max_values) {
+                break;
             }
 
-            if(i + 1 == s.size()) {
-                std::string temp = s.substr(end_index, i - end_index + 1);
-                end_index += temp.size();
-                if(trim_space) {
-                    temp = trim(temp);
-                }
-
-                if (keep_empty || !temp.empty()) {
-                    result.push_back(temp);
-                }
+            if (subend == s.end()) {
+                break;
             }
+            substart = subend + delim.size();
         }
 
         return std::min(end_index, s.size());
+    }
+
+    static void split_list_with_backticks(const std::string &s, std::vector<std::string> &result) {
+        bool inBacktick = false;  // Tracks whether we are within backticks
+        std::string current;
+    
+        for (char c : s) {
+            if (c == '`') {
+                // Toggle whether we're inside a backtick section
+                inBacktick = !inBacktick;
+            } else if (c == ',' && !inBacktick) {
+                // If we see a comma and we're not in backticks, this ends the current token
+                result.push_back(current);
+                current.clear();
+            } else {
+                // Otherwise, just add the character to the current token
+                current.push_back(c);
+            }
+        }
+    
+        // If there's any leftover text in 'current', push it into the result
+        if (!current.empty()) {
+            result.push_back(current);
+        }
     }
 
     static std::string join(std::vector<std::string> vec, const std::string& delimiter, size_t start_index = 0) {
