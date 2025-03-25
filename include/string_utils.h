@@ -12,7 +12,6 @@
 #include <unicode/normalizer2.h>
 #include <set>
 #include "option.h"
-#include "logger.h"
 
 struct StringUtils {
 
