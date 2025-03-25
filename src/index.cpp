@@ -3323,7 +3323,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return Option<bool>(true);
     }
 
-    if(group_by_fields.empty() && group_limit == (GROUP_LIMIT_MAX + 1)) {
+    if(group_by_fields.empty() && group_limit == (Config::get_instance().get_max_group_limit() + 1)) {
         // this can happen if missing group_by fields are configured to be ignored
         // we will return empty set of results in that case
         return Option<bool>(true);
