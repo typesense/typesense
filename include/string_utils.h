@@ -57,8 +57,7 @@ struct StringUtils {
                 }
 
                 if(result.size() == max_values) {
-                    break;
-                    return std::min(static_cast<size_t>(std::distance(substart, it)), s.size());
+                    return std::min(static_cast<size_t>(std::distance(s.begin(), ++it)), s.size());
                 }
 
                 temp.clear();
@@ -76,7 +75,7 @@ struct StringUtils {
             result.push_back(temp);
         }
 
-        return std::min(static_cast<size_t>(std::distance(substart, it)), s.size());
+        return std::min(static_cast<size_t>(std::distance(s.begin(), it)), s.size());
     }
 
     static std::string join(std::vector<std::string> vec, const std::string& delimiter, size_t start_index = 0) {
