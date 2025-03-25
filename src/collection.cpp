@@ -2001,8 +2001,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         return Option<bool>(400, "Number of weights in `query_by_weights` does not match number of `query_by` fields.");
     }
 
-    if(!raw_group_by_fields.empty() && (group_limit == 0 || group_limit > Index::GROUP_LIMIT_MAX)) {
-        return Option<bool>(400, "Value of `group_limit` must be between 1 and " + std::to_string(Index::GROUP_LIMIT_MAX) + ".");
+    if(!raw_group_by_fields.empty() && (group_limit == 0 || group_limit > Config::get_instance().get_max_group_limit())) {
+        return Option<bool>(400, "Value of `group_limit` must be between 1 and " + std::to_string(Config::get_instance().get_max_group_limit()) + ".");
     }
 
     if(!raw_search_fields.empty() && raw_search_fields.size() != num_typos.size()) {
@@ -2288,7 +2288,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     if(group_by_fields.empty() && skipped_invalid_group_field) {
         // this ensures that Index::search() will return empty results, instead of an error
-        group_limit = Index::GROUP_LIMIT_MAX + 1;
+        group_limit = Config::get_instance().get_max_group_limit() + 1;
     }
 
     auto include_exclude_op = populate_include_exclude_fields(include_fields, exclude_fields,
