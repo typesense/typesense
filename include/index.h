@@ -675,8 +675,6 @@ public:
 
     enum {DEFAULT_TOPSTER_SIZE = 250};
 
-    static const size_t GROUP_LIMIT_MAX = 99;
-
     /// Value used when async_reference is true and a reference doc is not found.
     static constexpr int64_t reference_helper_sentinel_value = UINT32_MAX;
 

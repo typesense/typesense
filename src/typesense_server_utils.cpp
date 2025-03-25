@@ -120,6 +120,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<uint16_t>("filter-by-max-ops", '\0', "Maximum number of operations permitted in filtery_by.", false, Config::FILTER_BY_DEFAULT_OPERATIONS);
 
     options.add<int>("max-per-page", '\0', "Max number of hits per page", false, 250);
+    options.add<uint32_t>("max-group-limit", '\0', "Max number of results to be returned per group", false, 99);
 
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
@@ -310,10 +311,13 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
             } else {
                 const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
                                                                                     refreshed_nodes_op.get());
-                replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
-
-                if(raft_counter % 60 == 0) {
-                    replication_state.do_snapshot(nodes_config);
+                if(nodes_config.empty()) {
+                    LOG(WARNING) << "No nodes resolved from peer configuration.";
+                } else {
+                    replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
+                    if(raft_counter % 60 == 0) {
+                        replication_state.do_snapshot(nodes_config);
+                    }
                 }
             }
         }

@@ -267,7 +267,6 @@ void PersonalizationModel::initialize_session() {
 
 embedding_res_t PersonalizationModel::embed_recommendations(const std::vector<std::vector<float>>& input_vector, const std::vector<int64_t>& user_mask) {
     std::unique_lock<std::mutex> lock(recommendation_mutex_);
-    lock.unlock();
 
     try {
         Ort::AllocatorWithDefaultOptions allocator;
@@ -290,9 +289,7 @@ embedding_res_t PersonalizationModel::embed_recommendations(const std::vector<st
         auto output_node_name = recommendation_session_->GetOutputNameAllocated(0, allocator);
         std::vector<const char*> output_node_names = {output_node_name.get()};
 
-        lock.lock();
         auto output_tensors = recommendation_session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
-        lock.unlock();
 
         float* output_data = output_tensors[0].GetTensorMutableData<float>();
         auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
@@ -311,7 +308,6 @@ embedding_res_t PersonalizationModel::embed_recommendations(const std::vector<st
 
 std::vector<embedding_res_t> PersonalizationModel::batch_embed_recommendations(const std::vector<std::vector<std::vector<float>>>& input_vectors, const std::vector<std::vector<int64_t>>& user_masks) {
     std::unique_lock<std::mutex> lock(recommendation_mutex_);
-    lock.unlock();
 
     try {
         Ort::AllocatorWithDefaultOptions allocator;
@@ -340,9 +336,7 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_recommendations(c
         auto output_node_name = recommendation_session_->GetOutputNameAllocated(0, allocator);
         std::vector<const char*> output_node_names = {output_node_name.get()};
 
-        lock.lock();
         auto output_tensors = recommendation_session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
-        lock.unlock();
 
         float* output_data = output_tensors[0].GetTensorMutableData<float>();
         auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
@@ -364,7 +358,6 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_recommendations(c
 
 embedding_res_t PersonalizationModel::embed_user(const std::vector<std::string>& features) {
     std::unique_lock<std::mutex> lock(user_mutex_);
-    lock.unlock();
 
     batch_encoded_input_t encoded_inputs = encode_features(features);
 
@@ -399,9 +392,7 @@ embedding_res_t PersonalizationModel::embed_user(const std::vector<std::string>&
         auto output_node_name = user_session_->GetOutputNameAllocated(0, allocator);
         std::vector<const char*> output_node_names = {output_node_name.get()};
         
-        lock.lock();
         auto output_tensors = user_session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
-        lock.unlock();
 
         float* output_data = output_tensors[0].GetTensorMutableData<float>();
         auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
@@ -420,15 +411,12 @@ embedding_res_t PersonalizationModel::embed_user(const std::vector<std::string>&
 
 std::vector<embedding_res_t> PersonalizationModel::batch_embed_users(const std::vector<std::vector<std::string>>& features) {
     std::unique_lock<std::mutex> lock(user_mutex_);
-    lock.unlock();
 
     std::vector<embedding_res_t> embeddings;
-    for(int i = 0; i < features.size(); i+= 8) {
-        auto input_batch = std::vector<std::vector<std::string>>(features.begin() + i, features.begin() + std::min(i + 8, static_cast<int>(features.size())));
-        std::vector<batch_encoded_input_t> encoded_inputs;
-        for(auto& feature : input_batch) {
-            encoded_inputs.push_back(encode_features(feature));
-        }
+    size_t batch_size = 8;
+    for(size_t i = 0; i < features.size(); i+= batch_size) {
+        auto input_batch = std::vector<std::vector<std::string>>(features.begin() + i, features.begin() + std::min(i + batch_size, static_cast<size_t>(features.size())));
+        auto encoded_inputs = encode_batch(input_batch);
 
         try {
             Ort::AllocatorWithDefaultOptions allocator;
@@ -442,7 +430,25 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_users(const std::
 
             std::vector<int64_t> input_ids_flatten;
             std::vector<int64_t> attention_mask_flatten;
-            
+
+            std::cout << "User shapes: " << std::endl;
+            for (auto& i: input_shapes) {
+                std::cout << "Shape: ";
+                int64_t total_size = 1;
+                for (auto& j: i) {
+                    std::cout << j << " ";
+                    total_size *= j;
+                }
+                std::cout << ", Total size: " << total_size << std::endl;
+            }
+            std::cout << "Encoded inputs Size: " << std::endl;
+            for(auto& i: encoded_inputs) {
+                std::cout << "Input IDs: ";
+                for(auto& ids : i.input_ids) {
+                    std::cout << ids.size() << " ";
+                }
+                std::cout << std::endl;
+            }
             for(auto& batch : encoded_inputs) {
                 for(auto& input_ids : batch.input_ids) {
                     for(auto& id : input_ids) {
@@ -455,16 +461,17 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_users(const std::
                     }
                 }
             }
-            
+
+            std::cout << "Input IDs flatten size: " << input_ids_flatten.size() << std::endl;
+            std::cout << "Attention mask flatten size: " << attention_mask_flatten.size() << std::endl;
+
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, input_ids_flatten.data(), input_ids_flatten.size(), input_shapes[0].data(), input_shapes[0].size()));
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask_flatten.data(), attention_mask_flatten.size(), input_shapes[1].data(), input_shapes[1].size()));
 
             auto output_node_name = user_session_->GetOutputNameAllocated(0, allocator);
             std::vector<const char*> output_node_names = {output_node_name.get()};
             
-            lock.lock();
             auto output_tensors = user_session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
-            lock.unlock();
 
             float* output_data = output_tensors[0].GetTensorMutableData<float>();
             auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
@@ -486,7 +493,6 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_users(const std::
 
 embedding_res_t PersonalizationModel::embed_item(const std::vector<std::string>& features) {
     std::unique_lock<std::mutex> lock(item_mutex_);
-    lock.unlock();
 
     batch_encoded_input_t encoded_inputs = encode_features(features);
 
@@ -521,9 +527,7 @@ embedding_res_t PersonalizationModel::embed_item(const std::vector<std::string>&
         auto output_node_name = item_session_->GetOutputNameAllocated(0, allocator);
         std::vector<const char*> output_node_names = {output_node_name.get()};
 
-        lock.lock();
         auto output_tensors = item_session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
-        lock.unlock();
 
         float* output_data = output_tensors[0].GetTensorMutableData<float>();
         auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
@@ -542,15 +546,12 @@ embedding_res_t PersonalizationModel::embed_item(const std::vector<std::string>&
 
 std::vector<embedding_res_t> PersonalizationModel::batch_embed_items(const std::vector<std::vector<std::string>>& features) {
     std::unique_lock<std::mutex> lock(item_mutex_);
-    lock.unlock();
 
     std::vector<embedding_res_t> embeddings;
-    for(int i = 0; i < features.size(); i+= 8) {
-        auto input_batch = std::vector<std::vector<std::string>>(features.begin() + i, features.begin() + std::min(i + 8, static_cast<int>(features.size())));
-        std::vector<batch_encoded_input_t> encoded_inputs;
-        for(auto& feature : input_batch) {
-            encoded_inputs.push_back(encode_features(feature));
-        }
+    size_t batch_size = 8;
+    for(int i = 0; i < features.size(); i+= batch_size) {
+        auto input_batch = std::vector<std::vector<std::string>>(features.begin() + i, features.begin() + std::min(i + batch_size, static_cast<size_t>(features.size())));
+        auto encoded_inputs = encode_batch(input_batch);
 
         try {
             Ort::AllocatorWithDefaultOptions allocator;
@@ -562,8 +563,27 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_items(const std::
             input_shapes.push_back({static_cast<int64_t>(encoded_inputs.size()), static_cast<int64_t>(encoded_inputs[0].input_ids.size()), static_cast<int64_t>(encoded_inputs[0].input_ids[0].size())});
             input_shapes.push_back({static_cast<int64_t>(encoded_inputs.size()), static_cast<int64_t>(encoded_inputs[0].attention_mask.size()), static_cast<int64_t>(encoded_inputs[0].attention_mask[0].size())});
             
+            std::cout << "Item shapes: " << std::endl;
+            for (auto& i: input_shapes) {
+                std::cout << "Shape: ";
+                int64_t total_size = 1;
+                for (auto& j: i) {
+                    std::cout << j << " ";
+                    total_size *= j;
+                }
+                std::cout << ", Total size: " << total_size << std::endl;
+            }
+            std::cout << "Encoded inputs Size: " << std::endl;
+            for(auto& i: encoded_inputs) {
+                std::cout << "Input IDs: ";
+                for(auto& ids : i.input_ids) {
+                    std::cout << ids.size() << " ";
+                }
+                std::cout << std::endl;
+            }
             std::vector<int64_t> input_ids_flatten;
             std::vector<int64_t> attention_mask_flatten;
+
             
             for(auto& batch : encoded_inputs) {
                 for(auto& input_ids : batch.input_ids) {
@@ -578,15 +598,16 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_items(const std::
                 }
             }
             
+            std::cout << "Input IDs flatten size: " << input_ids_flatten.size() << std::endl;
+            std::cout << "Attention mask flatten size: " << attention_mask_flatten.size() << std::endl;
+            
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, input_ids_flatten.data(), input_ids_flatten.size(), input_shapes[0].data(), input_shapes[0].size()));
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask_flatten.data(), attention_mask_flatten.size(), input_shapes[1].data(), input_shapes[1].size()));
 
             auto output_node_name = item_session_->GetOutputNameAllocated(0, allocator);
             std::vector<const char*> output_node_names = {output_node_name.get()};
 
-            lock.lock();
             auto output_tensors = item_session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
-            lock.unlock();
 
             float* output_data = output_tensors[0].GetTensorMutableData<float>();
             auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
@@ -632,6 +653,41 @@ batch_encoded_input_t PersonalizationModel::encode_features(const std::vector<st
 
     for(auto& token_type_ids : encoded_inputs.token_type_ids) {
         token_type_ids.resize(max_input_len, 0);
+    }
+    return encoded_inputs;
+}
+
+std::vector<batch_encoded_input_t> PersonalizationModel::encode_batch(const std::vector<std::vector<std::string>>& batch_features) {
+    std::vector<batch_encoded_input_t> encoded_inputs;
+    for (auto& features : batch_features) {
+        encoded_inputs.push_back(encode_features(features));
+    }
+
+    size_t max_input_len = 0;
+    for(auto& batch_input_ids : encoded_inputs) {
+        for(auto& input_ids : batch_input_ids.input_ids) {
+            if(input_ids.size() > max_input_len) {
+                max_input_len = input_ids.size();
+            }
+        }
+    }
+
+    for(auto& batch_input_ids : encoded_inputs) {
+        for(auto& input_ids : batch_input_ids.input_ids) {
+            input_ids.resize(max_input_len, 0);
+        }
+    }
+
+    for(auto& batch_attention_mask : encoded_inputs) {
+        for(auto& attention_mask : batch_attention_mask.attention_mask) {
+            attention_mask.resize(max_input_len, 0);
+        }
+    }
+    
+    for(auto& batch_token_type_ids : encoded_inputs) {
+        for(auto& token_type_ids : batch_token_type_ids.token_type_ids) {
+            token_type_ids.resize(max_input_len, 0);
+        }
     }
     return encoded_inputs;
 }

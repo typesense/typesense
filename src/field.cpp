@@ -474,9 +474,14 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
         while(it != value.end()) {
             const std::string& child_field_name = flat_name + "." + it.key();
             if(it.value().is_null()) {
-                if(!has_array) {
-                    // we don't want to push null values into an array because that's not valid
-                    doc[child_field_name] = nullptr;
+                if(is_update) {
+                    // update requires null values (they are later removed before indexing)
+                    if(!has_array) {
+                        // we don't want to push null values into an array because that's not valid
+                        doc[child_field_name] = nullptr;
+                    } else {
+                        doc[child_field_name].push_back(nullptr);
+                    }
                 }
 
                 field flattened_field;
@@ -584,10 +589,15 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
             if(!field::get_type(obj, detected_type)) {
                 if(obj.is_null() && the_field.optional) {
                     // null values are allowed only if field is optional
-                    return Option<bool>(true);
+                    if(is_update) {
+                        // update requires null values (they are later removed before indexing)
+                        detected_type = the_field.type;
+                    } else {
+                        return Option<bool>(true);
+                    }
+                } else {
+                    return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type.");
                 }
-
-                return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type.");
             }
 
             if(std::isalnum(detected_type.back()) && has_array) {
