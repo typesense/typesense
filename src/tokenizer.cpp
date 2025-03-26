@@ -208,6 +208,12 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             if(emit_token) {
                 token = out;
                 token_index = token_counter++;
+
+                if(stemmer && !is_cyrillic(locale)) {
+                    // cyrillic is already stemmed prior to transliteration
+                    token = stemmer->stem(out);
+                }
+
                 out.clear();
             }
 
@@ -223,13 +229,8 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             }
         }
 
-        if(stemmer && !is_cyrillic(locale)) {
-            // cyrillic is already stemmed prior to transliteration
-            token = stemmer->stem(out);
-        } else {
-            token = out;
-        }
 
+        token = out;
         out.clear();
         start_index = utf8_start_index;
         end_index = text.size() - 1;
