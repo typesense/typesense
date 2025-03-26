@@ -525,7 +525,7 @@ void CollectionManager::dispose() {
     collections.clear();
     collection_symlinks.clear();
     preset_configs.clear();
-    referenced_in_backlog.clear();
+    referenced_ins.clear();
     store->close();
     collection_id_names.clear();
 }
@@ -624,10 +624,17 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     add_to_collections(new_collection);
 
     lock.lock();
-    auto it = referenced_in_backlog.find(name);
-    if (it != referenced_in_backlog.end()) {
-        new_collection->add_referenced_ins(it->second);
-        referenced_in_backlog.erase(it);
+    auto it = referenced_ins.find(name);
+    if (it != referenced_ins.end()) {
+        auto update_ref_infos = new_collection->add_referenced_ins(it->second);
+        for (auto& update_ref_info: update_ref_infos) {
+            auto coll = get_collection_unsafe(update_ref_info.collection);
+            coll->update_reference_field_with_lock(update_ref_info.field, update_ref_info.referenced_field);
+        }
+
+        // If a referenced collection is dropped and created again, the referenced field won't be updated in referencing
+        // collection if we erase here.
+        // referenced_ins.erase(it);
     }
 
     return Option<Collection*>(new_collection);
@@ -792,7 +799,9 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         }
 
         ref_coll->remove_referenced_in(actual_coll_name, field_name, reference_info.is_async, reference_info.field);
+        remove_referenced_ins(ref_coll_name, actual_coll_name);
     }
+    remove_referenced_ins(actual_coll_name);
 
     std::unique_lock u_lock(mutex);
     collections.erase(actual_coll_name);
@@ -1938,14 +1947,29 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     return Option<Collection*>(new_coll);
 }
 
-void CollectionManager::add_referenced_in_backlog(const std::string& collection_name, reference_info_t&& ref_info) {
-    std::shared_lock lock(mutex);
-    referenced_in_backlog[collection_name].insert(ref_info);
+void CollectionManager::add_referenced_ins(const std::string& collection_name, reference_info_t&& ref_info) {
+    std::unique_lock lock(mutex);
+    referenced_ins[collection_name] = {{ref_info.collection, ref_info}};
 }
 
-std::map<std::string, std::set<reference_info_t>> CollectionManager::_get_referenced_in_backlog() const {
+void CollectionManager::remove_referenced_ins(const std::string& referenced_coll_name,
+                                              const std::string& referring_coll_name) {
+    std::unique_lock lock(mutex);
+    if (referring_coll_name.empty()) {
+        referenced_ins.erase(referenced_coll_name);
+        return;
+    }
+
+    auto it = referenced_ins.find(referenced_coll_name);
+    if (it == referenced_ins.end()) {
+        return;
+    }
+    it->second.erase(referring_coll_name);
+}
+
+std::map<std::string, std::map<std::string, reference_info_t>> CollectionManager::_get_referenced_ins() const {
     std::shared_lock lock(mutex);
-    return referenced_in_backlog;
+    return referenced_ins;
 }
 
 void CollectionManager::process_embedding_field_delete(const std::string& model_name) {

@@ -77,8 +77,9 @@ private:
 
     std::atomic<bool>* quit;
 
-    // All the references to a particular collection are stored until it is created.
-    std::map<std::string, std::set<reference_info_t>> referenced_in_backlog;
+    // All the references to a particular collection are stored.
+    // referenced_coll_name -> referring_coll_name -> reference_info
+    std::map<std::string, std::map<std::string, reference_info_t>> referenced_ins;
 
     CollectionManager();
 
@@ -221,9 +222,11 @@ public:
 
     Option<bool> delete_preset(const std::string & preset_name);
 
-    void add_referenced_in_backlog(const std::string& collection_name, reference_info_t&& ref_info);
+    void add_referenced_ins(const std::string& collection_name, reference_info_t&& ref_info);
 
-    std::map<std::string, std::set<reference_info_t>> _get_referenced_in_backlog() const;
+    void remove_referenced_ins(const std::string& referenced_coll_name, const std::string& referring_coll_name = "");
+
+    std::map<std::string, std::map<std::string, reference_info_t>> _get_referenced_ins() const;
 
     void process_embedding_field_delete(const std::string& model_name);
 

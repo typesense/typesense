@@ -6880,22 +6880,27 @@ Index* Collection::init_index() {
 
             auto& collectionManager = CollectionManager::get_instance();
             auto ref_coll = collectionManager.get_collection(ref_coll_name);
+            std::set<update_reference_info_t> update_ref_infos{};
             if (ref_coll != nullptr) {
                 // `CollectionManager::get_collection` accounts for collection alias being used and provides pointer to
                 // the original collection.
                 ref_coll_name = ref_coll->name;
 
-                ref_coll->add_referenced_in(name, field.name, field.is_async_reference, ref_field_name);
-            } else {
-                // Reference collection has not been created yet.
-                collectionManager.add_referenced_in_backlog(ref_coll_name,
-                                                            reference_info_t{name, field.name, field.is_async_reference,
-                                                                             ref_field_name});
+                update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
+                                                                    ref_field_name);
             }
+
+            // todo: foo was not replaced with product_id
+            collectionManager.add_referenced_ins(ref_coll_name, reference_info_t{name, field.name, field.is_async_reference,
+                                                                         ref_field_name});
 
             reference_fields.emplace(field.name, reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference));
             if (field.nested) {
                 object_reference_helper_fields.insert(field.name);
+            }
+
+            for (auto& update_ref_info: update_ref_infos) {
+                update_reference_field(update_ref_info.field, update_ref_info.referenced_field);
             }
         }
     }
@@ -7387,53 +7392,56 @@ bool Collection::is_referenced_in(const std::string& collection_name) const {
     return referenced_in.count(collection_name) > 0;
 }
 
-void Collection::add_referenced_ins(const std::set<reference_info_t>& ref_infos) {
-    std::shared_lock lock(mutex);
-    for (const auto &ref_info: ref_infos) {
-        auto const& referenced_field_name = ref_info.referenced_field_name;
-
-        auto it = search_schema.find(referenced_field_name);
-        if (referenced_field_name != "id" && it == search_schema.end()) {
-            LOG(ERROR) << "Field `" << referenced_field_name << "` not found in the collection `" << name <<
-                        "` which is referenced in `" << ref_info.collection << "." << ref_info.field + "`.";
-            continue;
-        }
-
-        referenced_in.emplace(ref_info.collection, ref_info.field);
-        if (ref_info.is_async) {
-            async_referenced_ins[referenced_field_name].emplace(ref_info.collection, ref_info.field);
-        }
+std::set<update_reference_info_t> Collection::add_referenced_ins(const std::map<std::string, reference_info_t>& ref_infos) {
+    std::set<update_reference_info_t> update_ref_infos;
+    for (const auto &pair: ref_infos) {
+        const auto& ref_info = pair.second;
+        auto set = add_referenced_in(ref_info.collection, ref_info.field, ref_info.is_async,
+                                     ref_info.referenced_field_name);
+        update_ref_infos.insert(set.begin(), set.end());
     }
+
+    return update_ref_infos;
 }
 
-void Collection::add_referenced_in(const std::string& collection_name, const std::string& field_name,
-                                           const bool& is_async, const std::string& referenced_field_name) {
-    std::shared_lock lock(mutex);
+std::set<update_reference_info_t> Collection::add_referenced_in(const std::string& collection_name,
+                                                                const std::string& field_name, const bool& is_async,
+                                                                const std::string& referenced_field_name) {
+    std::unique_lock lock(mutex);
 
+    std::set<update_reference_info_t> update_ref_infos;
     auto it = search_schema.find(referenced_field_name);
     if (referenced_field_name != "id" && it == search_schema.end()) {
         LOG(ERROR) << "Field `" << referenced_field_name << "` not found in the collection `" << name <<
                    "` which is referenced in `" << collection_name << "." << field_name + "`.";
-        return;
+        return update_ref_infos;
     }
 
     referenced_in.emplace(collection_name, field_name);
     if (is_async) {
         async_referenced_ins[referenced_field_name].emplace(collection_name, field_name);
     }
+
+    update_ref_infos.insert({collection_name, field_name, referenced_field_name == "id" ?
+                                                                field("id", "string", false) :
+                                                                *it});
+    return update_ref_infos;
 }
 
 void Collection::remove_referenced_in(const std::string& collection_name, const std::string& field_name,
                                       const bool& is_async, const std::string& referenced_field_name) {
-    std::shared_lock lock(mutex);
+    {
+        std::shared_lock lock(mutex);
 
-    auto it = search_schema.find(referenced_field_name);
-    if (referenced_field_name != "id" && it == search_schema.end()) {
-        LOG(ERROR) << "Field `" << referenced_field_name << "` not found in the collection `" << name <<
-                   "` which is referenced in `" << collection_name << "." << field_name + "`.";
-        return;
+        auto it = search_schema.find(referenced_field_name);
+        if (referenced_field_name != "id" && it == search_schema.end()) {
+            LOG(ERROR) << "Field `" << referenced_field_name << "` not found in the collection `" << name <<
+                       "` which is referenced in `" << collection_name << "." << field_name + "`.";
+            return;
+        }
     }
 
+    std::unique_lock lock(mutex);
     referenced_in.erase(collection_name);
     if (is_async) {
         async_referenced_ins[referenced_field_name].erase(reference_pair_t(collection_name, field_name));
@@ -7452,6 +7460,20 @@ Option<std::string> Collection::get_referenced_in_field(const std::string& colle
     }
 
     return Option<std::string>(referenced_in.at(collection_name));
+}
+
+void Collection::update_reference_field_with_lock(const std::string& field_name, const field& ref_field) {
+    std::unique_lock lock(mutex);
+    update_reference_field(field_name, ref_field);
+}
+
+void Collection::update_reference_field(const std::string& field_name, const field& ref_field) {
+    auto it = reference_fields.find(field_name);
+    if (it == reference_fields.end()) {
+        return;
+    }
+
+    it->second.referenced_field = ref_field;
 }
 
 Option<bool> Collection::get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,

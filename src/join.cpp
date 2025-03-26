@@ -95,9 +95,9 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
             continue;
         }
 
-        auto reference_pair = pair.second;
-        auto reference_collection_name = reference_pair.collection;
-        auto reference_field_name = reference_pair.field;
+        const auto& ref_info = pair.second;
+        const auto& reference_collection_name = ref_info.collection;
+        const auto& reference_field_name = ref_info.field;
         auto& cm = CollectionManager::get_instance();
         auto ref_collection = cm.get_collection(reference_collection_name);
 
@@ -231,12 +231,12 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
             continue;
         }
 
-        if (ref_collection->get_schema().count(reference_field_name) == 0) {
+        if (ref_info.referenced_field.name.empty()) {
             return Option<bool>(400, "Referenced field `" + reference_field_name +
                                      "` not found in the collection `" += reference_collection_name + "`.");
         }
 
-        auto const ref_field = ref_collection->get_schema().at(reference_field_name);
+        const auto& ref_field = ref_info.referenced_field;
         if (!ref_field.index) {
             return Option<bool>(400, "Referenced field `" + reference_field_name +
                                      "` in the collection `" += reference_collection_name + "` must be indexed.");
@@ -612,7 +612,8 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
             }
             auto const& field_name = get_reference_field_op.get();
             auto const& reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
-            if (collection->get_schema().count(reference_helper_field_name) == 0) {
+            const auto& schema = collection->get_schema();
+            if (schema.count(reference_helper_field_name) == 0) {
                 continue;
             }
 
@@ -623,7 +624,6 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
 
                 if (!doc.contains(key)) {
                     if (!original_doc.contains(key)) {
-                        auto const& schema = collection->get_schema();
                         auto it = schema.find(field_name);
                         if (it == schema.end() || it->optional) {
                             continue;
@@ -671,7 +671,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
                     }
                     reference_filter_result_t result(ids.size(), &ids[0]);
                     prune_doc_op = prune_ref_doc(doc[key], result, ref_include_fields_full, ref_exclude_fields_full,
-                                                 collection->get_schema().at(field_name).is_array(), ref_include_exclude);
+                                                 schema.at(field_name).is_array(), ref_include_exclude);
                     result.docs = nullptr;
                 }
             } else {
@@ -683,7 +683,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
                 }
                 reference_filter_result_t result(ids.size(), &ids[0]);
                 prune_doc_op = prune_ref_doc(doc, result, ref_include_fields_full, ref_exclude_fields_full,
-                                             collection->get_schema().at(field_name).is_array(), ref_include_exclude);
+                                             schema.at(field_name).is_array(), ref_include_exclude);
                 result.docs = nullptr;
             }
         } else if (joined_coll_has_reference) {
@@ -693,7 +693,8 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
             }
 
             auto reference_field_name_op = ref_collection->get_referenced_in_field_with_lock(joined_coll_having_reference);
-            if (!reference_field_name_op.ok() || joined_collection->get_schema().count(reference_field_name_op.get()) == 0) {
+            const auto& joined_coll_schema = joined_collection->get_schema();
+            if (!reference_field_name_op.ok() || joined_coll_schema.count(reference_field_name_op.get()) == 0) {
                 continue;
             }
 
@@ -716,7 +717,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
             result.count = ids.size();
             result.docs = &ids[0];
             prune_doc_op = prune_ref_doc(doc, result, ref_include_fields_full, ref_exclude_fields_full,
-                                         joined_collection->get_schema().at(reference_field_name).is_array(),
+                                         joined_coll_schema.at(reference_field_name).is_array(),
                                          ref_include_exclude);
             result.docs = nullptr;
         }

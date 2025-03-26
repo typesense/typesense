@@ -1551,13 +1551,14 @@ TEST_F(CollectionManagerTest, CloneCollection) {
 }
 
 TEST_F(CollectionManagerTest, ReferencedInBacklog) {
-    auto referenced_ins_backlog = collectionManager._get_referenced_in_backlog();
-    ASSERT_EQ(1, referenced_ins_backlog.count("Products"));
+    auto referenced_ins = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, referenced_ins.count("Products"));
 
-    auto const& references = referenced_ins_backlog.at("Products");
-    ASSERT_EQ(1, references.size());
-    ASSERT_EQ("collection1", references.cbegin()->collection);
-    ASSERT_EQ("product_id", references.cbegin()->field);
+    auto const& map = referenced_ins.at("Products");
+    ASSERT_EQ(1, map.size());
+    auto const& references = map.at("collection1");
+    ASSERT_EQ("collection1", references.collection);
+    ASSERT_EQ("product_id", references.field);
 
     auto schema_json =
             R"({
@@ -1571,8 +1572,9 @@ TEST_F(CollectionManagerTest, ReferencedInBacklog) {
     auto create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(create_op.ok());
 
-    referenced_ins_backlog = collectionManager._get_referenced_in_backlog();
-    ASSERT_EQ(0, referenced_ins_backlog.count("Products"));
+    referenced_ins = collectionManager._get_referenced_ins();
+    // Not deleting ref_info even after creation of Products collection.
+    ASSERT_EQ(1, referenced_ins.count("Products"));
 
     auto get_reference_field_op = create_op.get()->get_referenced_in_field_with_lock("collection1");
     ASSERT_TRUE(get_reference_field_op.ok());

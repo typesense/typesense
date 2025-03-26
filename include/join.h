@@ -7,24 +7,37 @@
 #include "tsl/htrie_set.h"
 #include "filter_result_iterator.h"
 
-struct reference_info_t {
+struct base_reference_info_t {
     std::string collection;
     std::string field;
-    bool is_async;
 
-    std::string referenced_field_name;
+    base_reference_info_t(std::string collection, std::string field) :
+    collection(std::move(collection)), field(std::move(field)) {}
 
-    reference_info_t(std::string collection, std::string field, bool is_async, std::string referenced_field_name = "") :
-            collection(std::move(collection)), field(std::move(field)), is_async(is_async),
-            referenced_field_name(std::move(referenced_field_name)) {}
-
-    bool operator < (const reference_info_t& other) const noexcept {
+    bool operator < (const base_reference_info_t& other) const noexcept {
         if (collection == other.collection) {
             return field < other.field;
         }
 
         return collection < other.collection;
     }
+};
+
+struct reference_info_t: base_reference_info_t {
+    bool is_async;
+    std::string referenced_field_name;
+    struct field referenced_field{};
+
+    reference_info_t(std::string collection, std::string field, bool is_async, std::string referenced_field_name = "") :
+            base_reference_info_t(std::move(collection), std::move(field)), is_async(is_async),
+            referenced_field_name(std::move(referenced_field_name)) {}
+};
+
+struct update_reference_info_t: base_reference_info_t {
+    struct field referenced_field;
+
+    update_reference_info_t(std::string collection, std::string field, struct field referenced_field) :
+            base_reference_info_t(std::move(collection), std::move(field)), referenced_field(std::move(referenced_field)) {}
 };
 
 struct ref_include_collection_names_t {
