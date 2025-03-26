@@ -3340,7 +3340,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
 
     if(filter_tree_root && filter_tree_root->is_nested_object_filter) {
-        filter_result_iterator->post_filtering_validate_docs();
+        filter_result_iterator->post_filtering_validate_docs(enable_lazy_filter);
     }
 
 #ifdef TEST_BUILD

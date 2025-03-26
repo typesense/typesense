@@ -2887,7 +2887,7 @@ filter_result_iterator_timeout_info::filter_result_iterator_timeout_info(uint64_
                                                                          search_stop_us(search_stop) {}
 
 
-void filter_result_iterator_t::post_filtering_validate_docs() {
+void filter_result_iterator_t::post_filtering_validate_docs(bool enable_lazy_filter) {
     std::function<bool(nlohmann::json, const filter_node_t*)> validate_filter_condition;
     validate_filter_condition = [&](nlohmann::json doc, const filter_node_t* filter_node) -> bool {
         if(filter_node->isOperator) {
@@ -2993,6 +2993,12 @@ void filter_result_iterator_t::post_filtering_validate_docs() {
     std::vector<uint32_t> results;
 
     if (collection.get() != nullptr) {
+
+        if(enable_lazy_filter) {
+            //in case of lazy evalution, filter_result won't be ready hence need to enforce it
+            compute_iterators();
+        }
+
         for (auto j = 0; j < filter_result.count; ++j) {
             const std::string& seq_id_key = collection->get_seq_id_key(filter_result.docs[j]);
 

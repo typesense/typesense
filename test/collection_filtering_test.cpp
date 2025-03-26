@@ -3375,6 +3375,7 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
             {"collection",     "menu"},
             {"q",              "*"},
             {"filter_by",      "ingredients.{name : cheese && concentration :<50}"},
+            {"enable_lazy_filter", "true"},
             {"include_fields", "name, ingredients"}
     };
     nlohmann::json embedded_params;
@@ -3394,6 +3395,7 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
             {"collection",     "menu"},
             {"q",              "*"},
             {"filter_by",      "ingredients.{name : [jalepeno, olives] && concentration :<30}"},
+            {"enable_lazy_filter", "true"},
             {"include_fields", "name, ingredients"}
     };
     now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -3411,6 +3413,7 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
             {"collection",     "menu"},
             {"q",              "*"},
             {"filter_by",      "ingredients.{name : [jalepeno, olives] && concentration :[10..20]}"},
+            {"enable_lazy_filter", "true"},
             {"include_fields", "name, ingredients"}
     };
     now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -3428,6 +3431,7 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
             {"collection",     "menu"},
             {"q",              "*"},
             {"filter_by",      "ingredients.{name : cheese && concentration :[10..30, >=60]}"},
+            {"enable_lazy_filter", "true"},
             {"include_fields", "name, ingredients"}
     };
     now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
