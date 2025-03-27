@@ -5,6 +5,7 @@
 #include "stackprinter.h"
 #include "backward.hpp"
 #include "butil/at_exit.h"
+#include "text_embedder_remote.h"
 
 #ifndef ASAN_BUILD
 extern "C" {
