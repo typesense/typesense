@@ -4,8 +4,9 @@
 
 using namespace std::chrono_literals;
 
-HttpProxy::HttpProxy() : cache(30s){
+HttpProxy::HttpProxy() : cache(30s), sse_cache(30s) {
 }
+
 
 
 http_proxy_res_t HttpProxy::call(const std::string& url, const std::string& method,
@@ -99,4 +100,29 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
     }
 
     return res;
+}
+
+bool HttpProxy::call_sse(const std::string& url, const std::string& method,
+                        const std::string& req_body, const std::unordered_map<std::string, std::string>& req_headers,
+                        const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res,
+                        const size_t timeout_ms) {
+    if(method != "POST") {
+        res->status_code = 400;
+        res->body = "{\"message\": \"SSE only supports POST method.\"}";
+        res->final = true;
+        server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, new async_req_res_t(req, res, true));
+        return false;
+    }
+    HttpClient& client = HttpClient::get_instance();
+
+    uint64_t key = StringUtils::hash_wy(url.c_str(), url.size());
+    key = StringUtils::hash_combine(key, StringUtils::hash_wy(method.c_str(), method.size()));
+    key = StringUtils::hash_combine(key, StringUtils::hash_wy(req_body.c_str(), req_body.size()));
+
+    res->status_code =  client.post_response_sse(url, req_body, req_headers, timeout_ms, req, res, server);
+    if(res->status_code != 200){
+        return false;
+    }
+    
+    return true;
 }
