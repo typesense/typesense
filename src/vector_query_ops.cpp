@@ -213,7 +213,7 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                     param_kv[1].pop_back();
 
                     std::vector<std::string> qs;
-                    StringUtils::split(param_kv[1], qs, ",");
+                    StringUtils::split_list_with_backticks(param_kv[1], qs);
                     for(auto& q: qs) {
                         StringUtils::trim(q);
                         vector_query.queries.push_back(q);

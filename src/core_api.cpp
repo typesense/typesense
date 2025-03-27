@@ -424,6 +424,14 @@ bool get_health_with_resource_usage(const std::shared_ptr<http_req>& req, const 
         }
     }
 
+    if(req->params.count("pending_write_batches_threshold") != 0 &&
+        StringUtils::is_uint32_t(req->params["pending_write_batches_threshold"])) {
+        const int64_t pending_write_batches_threshold = std::stol(req->params["pending_write_batches_threshold"]);
+        int64_t pending_write_batches = server->get_num_queued_writes();
+        bool is_lagging = (pending_write_batches > pending_write_batches_threshold);
+        alive = alive && !is_lagging;
+    }
+
     result["ok"] = alive;
 
     if(alive) {
@@ -505,7 +513,8 @@ uint64_t hash_request(const std::shared_ptr<http_req>& req) {
     ss << req->route_hash << req->body;
 
     for(auto& kv: req->params) {
-        if(kv.first != "use_cache") {
+        const auto& param_name = kv.first;
+        if(param_name != "use_cache" && param_name != http_req::USER_HEADER) {
             ss << kv.second;
         }
     }
@@ -540,6 +549,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
             if(seconds_elapsed < cached_value.ttl) {
                 res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
+                AppMetrics::get_instance().increment_count(AppMetrics::CACHE_HIT_LABEL, 1);
                 return true;
             }
 
@@ -778,6 +788,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
         std::unique_lock lock(mutex);
         res_cache.insert(req_hash, cached_res);
+        AppMetrics::get_instance().increment_count(AppMetrics::CACHE_MISS_LABEL, 1);
     }
 
     return true;
@@ -811,6 +822,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
                 res->final = true;
                 stream_response(req, res);
+                AppMetrics::get_instance().increment_count(AppMetrics::CACHE_HIT_LABEL, 1);
                 return true;
             }
 
@@ -1217,6 +1229,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         std::unique_lock lock(mutex);
         res_cache.insert(req_hash, cached_res);
+        AppMetrics::get_instance().increment_count(AppMetrics::CACHE_MISS_LABEL, 1);
     }
 
     return true;

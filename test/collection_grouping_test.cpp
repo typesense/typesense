@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "tsconfig.h"
 
 class CollectionGroupingTest : public ::testing::Test {
 protected:
@@ -284,7 +285,7 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
                              {}, {}, {"rating"}, 100);
 
     ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ("Value of `group_limit` must be between 1 and 99.", res_op.error().c_str());
+    ASSERT_STREQ(("Value of `group_limit` must be between 1 and " + std::to_string(Config::get_instance().get_max_group_limit()) + ".").c_str(), res_op.error().c_str());
 
     res_op = coll_group->search("*", {}, "", {"brand"}, {}, {0}, 50, 1, FREQUENCY,
                                 {false}, Index::DROP_TOKENS_THRESHOLD,
@@ -294,7 +295,7 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
                                 {}, {}, {"rating"}, 0);
 
     ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ("Value of `group_limit` must be between 1 and 99.", res_op.error().c_str());
+    ASSERT_STREQ(("Value of `group_limit` must be between 1 and " + std::to_string(Config::get_instance().get_max_group_limit()) + ".").c_str(), res_op.error().c_str());
 }
 
 TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {

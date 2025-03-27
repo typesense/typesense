@@ -12,13 +12,6 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                                         std::vector<field>& the_fields,
                                         string& fallback_field_type, size_t& num_auto_detect_fields) {
 
-    if(field_json["name"] == "id") {
-        // No field should exist with the name "id" as it is reserved for internal use
-        // We cannot throw an error here anymore since that will break backward compatibility!
-        LOG(WARNING) << "Collection schema cannot contain a field with name `id`. Ignoring field.";
-        return Option<bool>(true);
-    }
-
     if(!field_json.is_object() ||
        field_json.count(fields::name) == 0 || field_json.count(fields::type) == 0 ||
        !field_json.at(fields::name).is_string() || !field_json.at(fields::type).is_string()) {
@@ -468,7 +461,6 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         f.nested = field_json[fields::nested];
         the_fields.emplace_back(std::move(f));
     }
-
     return Option<bool>(true);
 }
 
@@ -482,9 +474,14 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
         while(it != value.end()) {
             const std::string& child_field_name = flat_name + "." + it.key();
             if(it.value().is_null()) {
-                if(!has_array) {
-                    // we don't want to push null values into an array because that's not valid
-                    doc[child_field_name] = nullptr;
+                if(is_update) {
+                    // update requires null values (they are later removed before indexing)
+                    if(!has_array) {
+                        // we don't want to push null values into an array because that's not valid
+                        doc[child_field_name] = nullptr;
+                    } else {
+                        doc[child_field_name].push_back(nullptr);
+                    }
                 }
 
                 field flattened_field;
@@ -592,10 +589,15 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
             if(!field::get_type(obj, detected_type)) {
                 if(obj.is_null() && the_field.optional) {
                     // null values are allowed only if field is optional
-                    return Option<bool>(true);
+                    if(is_update) {
+                        // update requires null values (they are later removed before indexing)
+                        detected_type = the_field.type;
+                    } else {
+                        return Option<bool>(true);
+                    }
+                } else {
+                    return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type.");
                 }
-
-                return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type.");
             }
 
             if(std::isalnum(detected_type.back()) && has_array) {
@@ -749,6 +751,12 @@ Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::j
 
     for(size_t i = 0; i < fields_json.size(); i++) {
         nlohmann::json& field_json = fields_json[i];
+        if(field_json["name"] == "id") {
+            // No field should exist with the name "id" as it is reserved for internal use
+            // We cannot throw an error here anymore since that will break backward compatibility!
+            LOG(WARNING) << "Collection schema cannot contain a field with name `id`. Ignoring field.";
+            continue;
+        }
         auto op = json_field_to_field(enable_nested_fields,
                                       field_json, the_fields, fallback_field_type, num_auto_detect_fields);
         if(!op.ok()) {
