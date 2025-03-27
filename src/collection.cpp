@@ -6890,7 +6890,6 @@ Index* Collection::init_index() {
                                                                     ref_field_name);
             }
 
-            // todo: foo was not replaced with product_id
             collectionManager.add_referenced_ins(ref_coll_name, reference_info_t{name, field.name, field.is_async_reference,
                                                                          ref_field_name});
 

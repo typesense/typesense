@@ -791,6 +791,8 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         const auto& field_name = item.first;
         const auto& ref_coll_name = reference_info.collection;
 
+        remove_referenced_ins(ref_coll_name, actual_coll_name);
+
         auto& cm = CollectionManager::get_instance();
         auto ref_coll = cm.get_collection(ref_coll_name);
         if (ref_coll == nullptr) {
@@ -799,9 +801,7 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         }
 
         ref_coll->remove_referenced_in(actual_coll_name, field_name, reference_info.is_async, reference_info.field);
-        remove_referenced_ins(ref_coll_name, actual_coll_name);
     }
-    remove_referenced_ins(actual_coll_name);
 
     std::unique_lock u_lock(mutex);
     collections.erase(actual_coll_name);
@@ -1965,6 +1965,10 @@ void CollectionManager::remove_referenced_ins(const std::string& referenced_coll
         return;
     }
     it->second.erase(referring_coll_name);
+
+    if (it->second.empty()) {
+        referenced_ins.erase(it);
+    }
 }
 
 std::map<std::string, std::map<std::string, reference_info_t>> CollectionManager::_get_referenced_ins() const {
