@@ -86,8 +86,8 @@ private:
     uint32_t max_per_page;
   
     uint16_t filter_by_max_ops;
-
-
+  
+    uint32_t max_group_limit;
 
 protected:
 
@@ -127,6 +127,8 @@ protected:
         this->max_per_page = 250;
 
         this->filter_by_max_ops = FILTER_BY_DEFAULT_OPERATIONS;
+        
+        this->max_group_limit = 99;
     }
 
     Config(Config const&) {
@@ -237,6 +239,10 @@ public:
 
     void set_max_per_page(int max_per_page) {
         this->max_per_page = max_per_page;
+    }
+
+    void set_max_group_limit(uint32_t max_group_limit) {
+        this->max_group_limit = max_group_limit;
     }
 
     // getters
@@ -431,6 +437,10 @@ public:
 
     uint16_t get_filter_by_max_ops() const {
         return filter_by_max_ops;
+    }
+
+    uint32_t get_max_group_limit() const {
+        return this->max_group_limit;
     }
 
     // loaders

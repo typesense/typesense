@@ -3543,3 +3543,30 @@ TEST_F(CollectionSpecificMoreTest, ReloadStemmingDictionaryOnRestart) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificMoreTest, StemmingNonCyrilic) {
+    nlohmann::json schema = R"({
+         "name": "swedish_words",
+         "fields": [
+           {"name": "word", "type": "string", "stem": true, "locale": "sv"}
+         ]
+       })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+    auto coll_stem = coll_stem_res.get();
+
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Tomat"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Tomater"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Tomatsoppa"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Ost"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Osten"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Ostar"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Ostsås"})"_json.dump()).ok());
+
+    auto res = coll_stem->search("Tomater", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(3, res["hits"].size());
+
+    res = coll_stem->search("Ostar", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(4, res["hits"].size());
+}

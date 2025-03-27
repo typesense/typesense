@@ -59,6 +59,10 @@ void AppMetrics::get(const std::string& rps_key, const std::string& latency_key,
     auto DOC_DELETE_LATENCY_95PERCENTILE_KEY = DOC_DELETE_LABEL + "_" + PERCENTILE95 + latency_key;
     auto DOC_DELETE_LATENCY_99PERCENTILE_KEY = DOC_DELETE_LABEL + "_" + PERCENTILE99 + latency_key ;
 
+    auto CACHE_HIT_COUNT_KEY = CACHE_HIT_LABEL + "_" + "count";
+    auto CACHE_MISS_COUNT_KEY = CACHE_MISS_LABEL + "_" + "count";
+    auto CACHE_HIT_RATIO_KEY = CACHE_HIT_LABEL + "_" + "ratio";
+
     auto OVERLOADED_RPS_KEY = OVERLOADED_LABEL + "_" + rps_key;
 
     result[rps_key] = nlohmann::json::object();
@@ -83,10 +87,30 @@ void AppMetrics::get(const std::string& rps_key, const std::string& latency_key,
             result[OVERLOADED_RPS_KEY] = double(kv.second) / (METRICS_REFRESH_INTERVAL_MS / 1000);
         }
 
+        else if(kv.first == CACHE_HIT_LABEL) {
+            result[CACHE_HIT_COUNT_KEY] = kv.second;
+        }
+
+        else if(kv.first == CACHE_MISS_LABEL) {
+            result[CACHE_MISS_COUNT_KEY] = kv.second;
+        }
+
         else {
             result[rps_key][kv.first] = (double(kv.second) / (METRICS_REFRESH_INTERVAL_MS / 1000));
             total_counts += kv.second;
         }
+    }
+
+    if(counts->find(CACHE_HIT_LABEL) == counts->end() || counts->find(CACHE_MISS_LABEL) == counts->end()) {
+        result[CACHE_HIT_RATIO_KEY] = 0.0;
+    } else if(counts->find(CACHE_HIT_LABEL)->second == 0) {
+        result[CACHE_HIT_RATIO_KEY] = 0.0;
+    } else if(counts->find(CACHE_MISS_LABEL)->second == 0) {
+        result[CACHE_HIT_RATIO_KEY] = 1.0;
+    } else {
+        double cache_hit_val = counts->find(CACHE_HIT_LABEL)->second;
+        double cache_miss_val = counts->find(CACHE_MISS_LABEL)->second;
+        result[CACHE_HIT_RATIO_KEY] = cache_hit_val / (cache_hit_val + cache_miss_val);
     }
 
     result["total_" + rps_key] = double(total_counts) / (METRICS_REFRESH_INTERVAL_MS / 1000);

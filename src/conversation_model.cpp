@@ -4,6 +4,8 @@
 #include "embedder_manager.h"
 #include "text_embedder_remote.h"
 #include "conversation_manager.h"
+#include "typesense_server_utils.h"
+#include "http_proxy.h"
 
 
 const std::string get_model_namespace(const std::string& model_name) {
@@ -72,6 +74,38 @@ Option<std::string> ConversationModel::get_answer(const std::string& context, co
     }
 
     return Option<std::string>(400, "Model namespace " + model_namespace + " is not supported.");
+}
+
+Option<std::string> ConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, const nlohmann::json& model_config,
+                                                        const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res,
+                                                        const std::string conversation_id) {
+
+    const std::string& model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
+    std::string system_prompt = "";
+    if(model_config.count("system_prompt") != 0 && model_config["system_prompt"].is_string()) {
+        system_prompt = model_config["system_prompt"].get<std::string>();
+    }
+
+    // construct async_conversation_t object
+    async_conversations[req].conversation_id = conversation_id;
+
+
+    Option<std::string> response_op("");
+    if(model_namespace == "openai") {
+        response_op =  OpenAIConversationModel::get_answer_stream(context, prompt, system_prompt, model_config, req, res);
+    } else if(model_namespace == "cloudflare") {
+        response_op =  CFConversationModel::get_answer_stream(context, prompt, system_prompt, model_config, req, res);
+    } else if(model_namespace == "vllm") {
+        response_op =  vLLMConversationModel::get_answer_stream(context, prompt, system_prompt, model_config, req, res);
+    } else {
+        async_conversations.erase(req);
+        return Option<std::string>(400, "Model namespace " + model_namespace + " is not supported.");
+    }
+
+    // remove async_conversation_t object
+    async_conversations.erase(req);
+
+    return response_op;
 }
 
 Option<std::string> ConversationModel::get_standalone_question(const nlohmann::json& conversation_history, const std::string& question, const nlohmann::json& model_config) {
@@ -405,6 +439,146 @@ Option<nlohmann::json> OpenAIConversationModel::format_answer(const std::string&
     return Option<nlohmann::json>(json);
 }
 
+bool OpenAIConversationModel::async_res_set_headers_callback(const std::string& response, const std::shared_ptr<http_req> req, long status_code, char* content_type) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return false;
+    }
+
+    async_conversations[req].status_code = status_code;
+    if(status_code != 200) {
+        async_conversations[req].response = response;
+        return false;
+    }
+
+    return true;
+}
+
+void OpenAIConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return;
+    }
+
+    try {
+        bool found_done = false;
+        std::string parsed_response;
+        std::regex data_regex("data: (.*?)\\n\\n");
+        auto begin = std::sregex_iterator(response.begin(), response.end(), data_regex);
+        auto end = std::sregex_iterator();
+        for (std::sregex_iterator i = begin; i != end; ++i) {
+            std::string substr_line = i->str().substr(6, i->str().size() - 8);
+            if(substr_line.find("[DONE]") != std::string::npos) {
+                found_done = true;  
+                break;
+            }
+            nlohmann::json json_line;
+            json_line = nlohmann::json::parse(substr_line);
+            if(json_line.count("choices") == 0 || json_line["choices"][0].count("delta") == 0 || json_line["choices"][0]["delta"].count("content") == 0) {
+                continue;
+            }
+            parsed_response += json_line["choices"][0]["delta"]["content"].get<std::string>();
+        }
+
+        async_conversations[req].response += parsed_response;
+        nlohmann::json json_res;
+        json_res["message"] = parsed_response;
+        json_res["conversation_id"] = async_conversations[req].conversation_id;
+        response = "data: " + json_res.dump(-1) + "\n\n";
+        if(found_done) {
+            response += "data: [DONE]\n\n";
+        }
+    } catch (const std::exception& e) {
+        LOG(ERROR) << e.what();
+        LOG(ERROR) << "Response: " << response;
+    }
+}
+
+bool OpenAIConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return false;
+    }
+
+    async_conversations[req].ready = true;
+    async_conversations[req].cv.notify_one();
+    return false;
+}
+
+Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, 
+                                                                const std::string& system_prompt, const nlohmann::json& model_config,
+                                                                const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+    const std::string model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
+    const std::string api_key = model_config["api_key"].get<std::string>();
+
+    std::unordered_map<std::string, std::string> headers;
+    std::map<std::string, std::string> res_headers;
+    headers["Authorization"] = "Bearer " + api_key;
+    headers["Content-Type"] = "application/json";
+    nlohmann::json req_body;
+    req_body["model"] = model_name;
+    req_body["messages"] = nlohmann::json::array();
+
+    if(!system_prompt.empty()) {
+        nlohmann::json system_message = nlohmann::json::object();
+        system_message["role"] = "system";
+        system_message["content"] = system_prompt;
+        req_body["messages"].push_back(system_message);
+    }
+
+    nlohmann::json message = nlohmann::json::object();
+    message["role"] = "user";
+    message["content"] = DATA_STR + context + QUESTION_STR + prompt + ANSWER_STR;
+    req_body["messages"].push_back(message);
+    req_body["stream"] = true;
+
+    auto openai_url_op = get_openai_url(model_config);
+    if(!openai_url_op.ok()) {
+        return Option<std::string>(openai_url_op.code(), openai_url_op.error());
+    }
+    const std::string openai_url = openai_url_op.get();
+
+    req->async_res_set_headers_callback = async_res_set_headers_callback;
+    req->async_res_write_callback = async_res_write_callback;
+    req->async_res_done_callback = async_res_done_callback;
+    auto raft_server = RemoteEmbedder::get_raft_server();
+    if(raft_server && !raft_server->get_leader_url().empty()) {
+        auto proxy_url = raft_server->get_leader_url() + "proxy_sse";
+        nlohmann::json proxy_req_body;
+        proxy_req_body["method"] = "POST";
+        proxy_req_body["url"] = openai_url + OPENAI_CHAT_COMPLETION;
+        proxy_req_body["body"] = req_body.dump();
+        proxy_req_body["headers"] = headers;
+        std::unordered_map<std::string, std::string> header_;
+        header_["x-typesense-api-key"] = HttpClient::get_api_key();
+
+        auto status = HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
+    } else {
+        HttpClient::get_instance().post_response_sse(openai_url + OPENAI_CHAT_COMPLETION, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
+    }
+
+    auto& async_conversation = async_conversations[req];
+    // wait for the response
+    std::unique_lock<std::mutex> lock(async_conversation.mutex);
+    async_conversation.cv.wait(lock, [&async_conversation] { return async_conversation.ready; });
+
+    if(async_conversation.status_code != 200) {
+        nlohmann::json json_res;
+        try {
+            json_res = nlohmann::json::parse(async_conversation.response);
+        } catch (const std::exception& e) {
+            return Option<std::string>(400, "OpenAI API error: " + async_conversation.response);
+        }
+        if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
+            return Option<std::string>(400, "OpenAI API error: " + async_conversation.response);
+        }
+        return Option<std::string>(400, "OpenAI API error: " + nlohmann::json::parse(async_conversation.response)["error"]["message"].get<std::string>());
+    }
+
+
+    return Option<std::string>(async_conversation.response);
+}
+
 const std::string CFConversationModel::get_model_url(const std::string& model_name, const std::string& account_id) {
     return "https://api.cloudflare.com/client/v4/accounts/" + account_id + "/ai/run/" + model_name;
 }
@@ -527,6 +701,89 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
     return parse_stream_response(res);
 }
 
+Option<std::string> CFConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, 
+                                                                const std::string& system_prompt, const nlohmann::json& model_config,
+                                                                const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+    const std::string model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
+    const std::string api_key = model_config["api_key"].get<std::string>();
+    const std::string account_id = model_config["account_id"].get<std::string>();
+
+    std::unordered_map<std::string, std::string> headers;
+    std::map<std::string, std::string> res_headers;
+    headers["Authorization"] = "Bearer " + api_key;
+    headers["Content-Type"] = "application/json";
+    nlohmann::json req_body;
+    req_body["stream"] = true;
+    req_body["messages"] = nlohmann::json::array();
+
+    if(!system_prompt.empty()) {
+        nlohmann::json system_message = nlohmann::json::object();
+        system_message["role"] = "system";
+        system_message["content"] = system_prompt;
+        req_body["messages"].push_back(system_message);
+    }
+
+    nlohmann::json message = nlohmann::json::object();
+    message["role"] = "user";
+    message["content"] = CONTEXT_INFO + SPLITTER_STR + context + QUERY_STR + prompt + ANSWER_STR;
+    req_body["messages"].push_back(message);
+    req_body["stream"] = true;
+
+
+    auto url = get_model_url(model_name, account_id);
+
+    req->async_res_set_headers_callback = async_res_set_headers_callback;
+    req->async_res_write_callback = async_res_write_callback;
+    req->async_res_done_callback = async_res_done_callback;
+    auto raft_server = RemoteEmbedder::get_raft_server();
+    if(raft_server && !raft_server->get_leader_url().empty()) {
+        auto proxy_url = raft_server->get_leader_url() + "proxy_sse";
+        nlohmann::json proxy_req_body;
+        proxy_req_body["method"] = "POST";
+        proxy_req_body["url"] = url;
+        proxy_req_body["body"] = req_body.dump();
+        proxy_req_body["headers"] = headers;
+        std::unordered_map<std::string, std::string> header_;
+        header_["x-typesense-api-key"] = HttpClient::get_api_key();
+
+        HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
+    } else {
+        HttpClient::get_instance().post_response_sse(url, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
+    }
+
+    auto& async_conversation = async_conversations[req];
+    // wait for the response
+    std::unique_lock<std::mutex> lock(async_conversation.mutex);
+    async_conversation.cv.wait(lock, [&async_conversation] { return async_conversation.ready; });
+
+    if(async_conversation.status_code != 200) {
+        if(async_conversation.status_code == 408) {
+            return Option<std::string>(400, "Cloudflare API timeout.");
+        }
+    
+        nlohmann::json json_res;
+        try {
+            json_res = nlohmann::json::parse(async_conversation.response);
+            if(json_res.count("response") == 0 || json_res["response"].size() == 0) {
+                return Option<std::string>(400, "Cloudflare API error: " + async_conversation.response);
+            }
+            json_res = nlohmann::json::parse(json_res["response"][0].get<std::string>());
+        } catch (const std::exception& e) {
+            throw Option<std::string>(400, "Cloudflare API error: " + async_conversation.response);
+        }
+
+        if(json_res.count("errors") == 0 || json_res["errors"].size() == 0) {
+            return Option<std::string>(400, "Cloudflare API error: " + json_res.dump(0));
+        }
+
+        json_res = json_res["errors"][0];
+        return Option<std::string>(400, "Cloudflare API error: " + json_res["message"].get<std::string>());
+    }
+
+
+    return Option<std::string>(async_conversation.response);
+}
+
 Option<std::string> CFConversationModel::get_standalone_question(const nlohmann::json& conversation_history, 
                                                            const std::string& question, const nlohmann::json& model_config) {
     const size_t min_required_bytes = CONVERSATION_HISTORY.size() + QUESTION.size() + STANDALONE_QUESTION_PROMPT.size() + question.size();
@@ -639,6 +896,72 @@ Option<std::string> CFConversationModel::parse_stream_response(const std::string
         LOG(ERROR) << "Response: " << res;
         return Option<std::string>(400, "Got malformed response from Cloudflare API.");
     }
+}
+
+
+bool CFConversationModel::async_res_set_headers_callback(const std::string& response, const std::shared_ptr<http_req> req, long status_code, char* content_type) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return false;
+    }
+    async_conversations[req].status_code = status_code;
+    if(status_code != 200) {
+        async_conversations[req].response = response;
+        return false;
+    }
+
+    return true;
+}
+
+void CFConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return;
+    }
+
+    try {
+        bool found_done = false;
+        std::string parsed_response;
+        std::regex data_regex("data: (.*?)\\n\\n");
+        auto begin = std::sregex_iterator(response.begin(), response.end(), data_regex);
+        auto end = std::sregex_iterator();
+        for (std::sregex_iterator i = begin; i != end; ++i) {
+            std::string substr_line = i->str().substr(6, i->str().size() - 8);
+            if(substr_line.find("[DONE]") != std::string::npos) {
+                found_done = true;  
+                break;
+            }
+            nlohmann::json json_line;
+            json_line = nlohmann::json::parse(substr_line);
+            if(json_line.count("response") == 0) {
+                continue;
+            }
+            parsed_response += json_line["response"].get<std::string>();
+        }
+
+        async_conversations[req].response += parsed_response;
+        nlohmann::json json_res;
+        json_res["message"] = parsed_response;
+        json_res["conversation_id"] = async_conversations[req].conversation_id;
+        response = "data: " + json_res.dump(-1) + "\n\n";
+        if(found_done) {
+            response += "data: [DONE]\n\n";
+        }
+    } catch (const std::exception& e) {
+        LOG(ERROR) << e.what();
+        LOG(ERROR) << "Response: " << response;
+    }
+}
+
+bool CFConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return false;
+    }
+
+    async_conversations[req].ready = true;
+    async_conversations[req].cv.notify_one();
+    return false;
 }
 
 Option<bool> vLLMConversationModel::validate_model(const nlohmann::json& model_config) {
@@ -801,6 +1124,83 @@ Option<std::string> vLLMConversationModel::get_answer(const std::string& context
     return Option<std::string>(json_res["choices"][0]["message"]["content"].get<std::string>());
 }
 
+
+Option<std::string> vLLMConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, 
+                                                            const std::string& system_prompt, const nlohmann::json& model_config,
+                                                            const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+    const std::string model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
+    const std::string vllm_url = model_config["vllm_url"].get<std::string>();
+
+    std::unordered_map<std::string, std::string> headers;
+    std::map<std::string, std::string> res_headers;
+    headers["Content-Type"] = "application/json";
+    nlohmann::json req_body;
+    req_body["model"] = model_name;
+    req_body["messages"] = nlohmann::json::array();
+
+    if(!system_prompt.empty()) {
+        nlohmann::json system_message = nlohmann::json::object();
+        system_message["role"] = "system";
+        system_message["content"] = system_prompt;
+        req_body["messages"].push_back(system_message);
+    }
+
+    nlohmann::json message = nlohmann::json::object();
+    message["role"] = "user";
+    message["content"] = DATA_STR + context + QUESTION_STR + prompt + ANSWER_STR;
+    req_body["messages"].push_back(message);
+    req_body["stream"] = true;
+
+    if(model_config.count("api_key") != 0) {
+        headers["Authorization"] = "Bearer " + model_config["api_key"].get<std::string>();
+    }
+    
+
+    req->async_res_set_headers_callback = async_res_set_headers_callback;
+    req->async_res_write_callback = async_res_write_callback;
+    req->async_res_done_callback = async_res_done_callback;
+    auto raft_server = RemoteEmbedder::get_raft_server();
+    if(raft_server && !raft_server->get_leader_url().empty()) {
+        auto proxy_url = raft_server->get_leader_url() + "proxy_sse";
+        nlohmann::json proxy_req_body;
+        proxy_req_body["method"] = "POST";
+        proxy_req_body["url"] = get_chat_completion_url(vllm_url);
+        proxy_req_body["body"] = req_body.dump();
+        proxy_req_body["headers"] = headers;
+        std::unordered_map<std::string, std::string> header_;
+        header_["x-typesense-api-key"] = HttpClient::get_api_key();
+
+        HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
+    } else {
+        HttpClient::get_instance().post_response_sse(get_chat_completion_url(vllm_url), req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
+    }
+
+    auto& async_conversation = async_conversations[req];
+    // wait for the response
+    std::unique_lock<std::mutex> lock(async_conversation.mutex);
+    async_conversation.cv.wait(lock, [&async_conversation] { return async_conversation.ready; });
+
+    if(async_conversation.status_code != 200) {
+        if(async_conversation.status_code == 408) {
+            throw Option<std::string>(400, "vLLM API timeout.");
+        }
+    
+        nlohmann::json json_res;
+        try {
+            json_res = nlohmann::json::parse(async_conversation.response);
+        } catch (const std::exception& e) {
+            return Option<std::string>(400, "vLLM API error: " + async_conversation.response);
+        }
+        if(json_res.count("message") == 0) {
+            return Option<std::string>(400, "vLLM API error: " + async_conversation.response);
+        }
+        return Option<std::string>(400, "vLLM API error: " + nlohmann::json::parse(async_conversation.response)["message"].get<std::string>());
+    }
+
+
+    return Option<std::string>(async_conversation.response);
+}
+
 Option<std::string> vLLMConversationModel::get_standalone_question(const nlohmann::json& conversation_history, 
                                                            const std::string& question, const nlohmann::json& model_config) {
     const size_t min_required_bytes = CONVERSATION_HISTORY.size() + QUESTION.size() + STANDALONE_QUESTION_PROMPT.size() + question.size();
@@ -905,4 +1305,69 @@ const std::string vLLMConversationModel::get_list_models_url(const std::string& 
 
 const std::string vLLMConversationModel::get_chat_completion_url(const std::string& vllm_url) {
     return vllm_url.back() == '/' ? vllm_url + "v1/chat/completions" : vllm_url + "/v1/chat/completions";
+}
+
+bool vLLMConversationModel::async_res_set_headers_callback(const std::string& response, const std::shared_ptr<http_req> req, long status_code, char* content_type) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return false;
+    }
+    async_conversations[req].status_code = status_code;
+    if(status_code != 200) {
+        async_conversations[req].response = response;
+        return false;
+    }
+
+    return true;
+}
+
+void vLLMConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return;
+    }
+
+    try {
+        bool found_done = false;
+        std::string parsed_response;
+        std::regex data_regex("data: (.*?)\\n\\n");
+        auto begin = std::sregex_iterator(response.begin(), response.end(), data_regex);
+        auto end = std::sregex_iterator();
+        for (std::sregex_iterator i = begin; i != end; ++i) {
+            std::string substr_line = i->str().substr(6, i->str().size() - 8);
+            if(substr_line.find("[DONE]") != std::string::npos) {
+                found_done = true;  
+                break;
+            }
+            nlohmann::json json_line;
+            json_line = nlohmann::json::parse(substr_line);
+            if(json_line.count("choices") == 0 || json_line["choices"][0].count("delta") == 0 || json_line["choices"][0]["delta"].count("content") == 0) {
+                continue;
+            }
+            parsed_response += json_line["choices"][0]["delta"]["content"].get<std::string>();
+        }
+
+        async_conversations[req].response += parsed_response;
+        nlohmann::json json_res;
+        json_res["message"] = parsed_response;
+        json_res["conversation_id"] = async_conversations[req].conversation_id;
+        response = "data: " + json_res.dump(-1) + "\n\n";
+        if(found_done) {
+            response += "data: [DONE]\n\n";
+        }
+    } catch (const std::exception& e) {
+        LOG(ERROR) << e.what();
+        LOG(ERROR) << "Response: " << response;
+    }
+}
+
+bool vLLMConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return false;
+    }
+
+    async_conversations[req].ready = true;
+    async_conversations[req].cv.notify_one();
+    return false;
 }

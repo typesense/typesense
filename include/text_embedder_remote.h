@@ -63,6 +63,9 @@ class RemoteEmbedder {
         }
         virtual ~RemoteEmbedder() = default;
         virtual bool update_api_key(const std::string& api_key) = 0;
+        static ReplicationState* get_raft_server() {
+            return raft_server;
+        }
 };
 
 class AzureEmbedder : public RemoteEmbedder {
