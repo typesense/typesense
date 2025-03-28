@@ -2,7 +2,7 @@
   <a href="https://typesense.org">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="assets/typesense_logo_dark.svg">
-      <img src="assets/typesense_logo.svg" alt="Typesense" width="298" />
+      <img src="assets/typesense_logo.svg" alt="Typesense" width="650" />
     </picture>
   </a> 
 </p>
