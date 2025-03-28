@@ -1395,7 +1395,7 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
         "model_name": "ts/e5-small"
     })"_json;
 
-    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("butter");
+    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->embed_query("butter");
     
     std::string vec_string = "[";
     for(size_t i = 0; i < query_embedding.embedding.size(); i++) {
@@ -5498,4 +5498,32 @@ TEST_F(CollectionVectorTest, TestRankFusionOrdering) {
     ASSERT_FLOAT_EQ(0.7 + 0.3 * 1.0/1.0, res["hits"][0]["hybrid_search_info"]["rank_fusion_score"].get<float>());
     ASSERT_FLOAT_EQ(0.7 + 0.3 * 1.0/2.0, res["hits"][1]["hybrid_search_info"]["rank_fusion_score"].get<float>());
     ASSERT_FLOAT_EQ(0.7 + 0.3 * 1.0/3.0, res["hits"][2]["hybrid_search_info"]["rank_fusion_score"].get<float>());
+}
+
+TEST_F(CollectionVectorTest, TestVectorQueryParsingWithEscape) {
+        nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 4}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::string vector_query_without_escape = "vec:([], queries: [one, two, three])";
+    std::string vector_query_with_escape = "vec:([], queries: [`one, two`, three])";
+
+    vector_query_t q;
+
+    auto parse_op = VectorQueryOps::parse_vector_query_str(vector_query_without_escape, q, true, coll1, false);
+    ASSERT_TRUE(parse_op.ok());
+    ASSERT_EQ(3, q.queries.size());
+
+    q = vector_query_t();
+
+    parse_op = VectorQueryOps::parse_vector_query_str(vector_query_with_escape, q, true, coll1, false);
+    ASSERT_TRUE(parse_op.ok());
+    ASSERT_EQ(2, q.queries.size());
 }

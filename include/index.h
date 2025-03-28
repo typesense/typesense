@@ -625,6 +625,8 @@ private:
                                       const std::vector<embedding_res_t>& embeddings_text,
                                       const std::vector<std::pair<index_record*, std::string>>& values_to_embed_image,
                                       const std::vector<embedding_res_t>& embeddings_image,
+                                      const std::vector<std::pair<index_record*, std::vector<std::string>>>& values_to_embed_personalization,
+                                      const std::vector<embedding_res_t>& embeddings_personalization,
                                       const field& the_field);
 
     void update_async_references(const std::string& collection_name, const field& afield,
@@ -672,8 +674,6 @@ public:
     static const int DROP_TOKENS_THRESHOLD = 1;
 
     enum {DEFAULT_TOPSTER_SIZE = 250};
-
-    static const size_t GROUP_LIMIT_MAX = 99;
 
     /// Value used when async_reference is true and a reference doc is not found.
     static constexpr int64_t reference_helper_sentinel_value = UINT32_MAX;

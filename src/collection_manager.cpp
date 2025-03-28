@@ -802,8 +802,10 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
 
     u_lock.unlock();
     for(const auto& embedding_field : embedding_fields) {
-        const auto& model_name = embedding_field.embed[fields::model_config]["model_name"].get<std::string>();
-        process_embedding_field_delete(model_name);
+        const auto& model_name = embedding_field.embed[fields::model_config][fields::model_name].get<std::string>();
+        if (embedding_field.embed.count(fields::personalization_type) == 0) {
+            process_embedding_field_delete(model_name);
+        }
     }
 
 
@@ -1958,7 +1960,7 @@ void CollectionManager::process_embedding_field_delete(const std::string& model_
         for(const auto& embedding_field: embedding_fields) {
             if(embedding_field.embed.count(fields::model_config) != 0) {
                 const auto& model_config = embedding_field.embed[fields::model_config];
-                if(model_config["model_name"].get<std::string>() == model_name) {
+                if(model_config[fields::model_name].get<std::string>() == model_name) {
                     found = true;
                     break;
                 }

@@ -889,6 +889,79 @@ TEST_F(CollectionOverrideTest, ReplaceQuery) {
     ASSERT_TRUE(op.ok());
 }
 
+TEST_F(CollectionOverrideTest, BothFilterByAndQueryMatch) {
+    Collection* coll1;
+
+    auto schema = R"({
+            "name": "coll1",
+            "enable_nested_fields": true,
+            "fields": [
+                 {"name": "title", "type": "string"},
+                 {"name": "storiesIds", "type": "object[]"}
+            ]
+        })"_json;
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection(schema).get();
+    }
+
+    nlohmann::json doc1 = R"({
+       "id": "16b2e68b-b0a0-4b6f-aada-403277b5df7b",
+       "title": "First document in override",
+       "storiesIds": [{"id": "a94f4198-c22d-4a67-9993-370f69243cc9"}]
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+       "id": "ff62dbec-7510-4688-9186-d89106e6566f",
+       "title": "Second document in override",
+       "storiesIds": [{"id": "a94f4198-c22d-4a67-9993-370f69243cc9"}]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    // additional documents with same story ID
+    nlohmann::json docN;
+    docN["title"] = "Additional document";
+    docN["storiesIds"] = nlohmann::json::array();
+    docN["storiesIds"][0] = nlohmann::json::object();
+    docN["storiesIds"][0]["id"] = "a94f4198-c22d-4a67-9993-370f69243cc9";
+
+    for(size_t i = 0; i < 5; i++) {
+        docN["id"] = "id" + std::to_string(i);
+        ASSERT_TRUE(coll1->add(docN.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC") };
+
+    nlohmann::json override_json = R"({
+       "rule": {
+         "query": "*",
+         "match": "exact",
+         "filter_by": "storiesIds.id:=[a94f4198-c22d-4a67-9993-370f69243cc9]"
+       },
+       "includes": [
+         {"id": "16b2e68b-b0a0-4b6f-aada-403277b5df7b", "position": 1},
+         {"id": "ff62dbec-7510-4688-9186-d89106e6566f", "position": 2}
+       ],
+       "filter_curated_hits": true,
+       "stop_processing": true
+     })"_json;
+
+    override_t override_rule;
+    auto op = override_t::parse(override_json, "rule-1", override_rule);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule);
+
+    auto results = coll1->search("*", {}, "storiesIds.id:=[a94f4198-c22d-4a67-9993-370f69243cc9]",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(7, results["hits"].size());
+    ASSERT_EQ("16b2e68b-b0a0-4b6f-aada-403277b5df7b", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("ff62dbec-7510-4688-9186-d89106e6566f", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionOverrideTest, RuleQueryMustBeCaseInsensitive) {
     Collection *coll1;
 

@@ -70,9 +70,8 @@ TextEmbedder::TextEmbedder(const nlohmann::json& model_config, size_t num_dims, 
 
     if(model_namespace == "openai") {
         auto api_key = model_config["api_key"].get<std::string>();
-        const std::string& url = model_config.contains("url") ? model_config["url"].get<std::string>() : "";
 
-        remote_embedder_ = std::make_unique<OpenAIEmbedder>(model_name, api_key, num_dims, has_custom_dims, url);
+        remote_embedder_ = std::make_unique<OpenAIEmbedder>(model_name, api_key, num_dims, has_custom_dims, model_config);
     } else if(model_namespace == "google") {
         auto api_key = model_config["api_key"].get<std::string>();
 
@@ -122,9 +121,9 @@ std::vector<float> TextEmbedder::mean_pooling(const std::vector<std::vector<floa
     return pooled_output;
 }
 
-embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
+embedding_res_t TextEmbedder::embed_query(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
     if(is_remote()) {
-        return remote_embedder_->Embed(text, remote_embedder_timeout_ms, remote_embedding_num_tries);
+        return remote_embedder_->embed_query(text, remote_embedder_timeout_ms, remote_embedding_num_tries);
     } else {
         std::unique_lock<std::mutex> lock(mutex_);
         auto encoded_input = tokenizer_->Encode(text);
@@ -197,7 +196,7 @@ embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote
     }
 }
 
-std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size,
+std::vector<embedding_res_t> TextEmbedder::embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size,
                                                        const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     std::vector<embedding_res_t> outputs;
     if(!is_remote()) {
@@ -304,7 +303,7 @@ std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::st
             }
         }
     } else {
-        outputs = std::move(remote_embedder_->batch_embed(inputs, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries));
+        outputs = std::move(remote_embedder_->embed_documents(inputs, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries));
     }
     
     return outputs;

@@ -19,6 +19,7 @@
 #include "logger.h"
 #include "validator.h"
 #include <collection_manager.h>
+#include "personalization_model_manager.h"
 
 #define RETURN_CIRCUIT_BREAKER if((std::chrono::duration_cast<std::chrono::microseconds>( \
                   std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) { \
@@ -1399,7 +1400,7 @@ void Index::compute_facet_stats(facet &a_facet, const std::string& raw_value, co
         if (val > a_facet.stats.fvmax) {
             a_facet.stats.fvmax = val;
         }
-        a_facet.stats.fvsum += (count * val);
+        a_facet.stats.fvsum += ((int)count * val);
         a_facet.stats.fvcount += count;
     } else if(field_type == field_types::INT64 || field_type == field_types::INT64_ARRAY) {
         int64_t val = std::stoll(raw_value);
@@ -3322,7 +3323,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return Option<bool>(true);
     }
 
-    if(group_by_fields.empty() && group_limit == (GROUP_LIMIT_MAX + 1)) {
+    if(group_by_fields.empty() && group_limit == (Config::get_instance().get_max_group_limit() + 1)) {
         // this can happen if missing group_by fields are configured to be ignored
         // we will return empty set of results in that case
         return Option<bool>(true);
@@ -7357,14 +7358,124 @@ void Index::handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
     }
 }
 
+nlohmann::json process_value(const nlohmann::json& value) {
+    if (value.is_object()) {
+        nlohmann::json result = nlohmann::json::object();
+        for (auto it = value.begin(); it != value.end(); ++it) {
+            if (!it.value().is_null()) {
+                result[it.key()] = process_value(it.value());
+            }
+        }
+        return result;
+    } else if (value.is_array()) {
+        nlohmann::json result = nlohmann::json::array();
+        for (const auto& elem : value) {
+            if(!elem.is_null()) {
+                result.push_back(process_value(elem));
+            }
+        }
+        return result;
+    } else {
+        return value;
+    }
+}
+
 void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& embedding_fields,
                             nlohmann::json& update_doc, const nlohmann::json& old_doc, nlohmann::json& new_doc,
                             nlohmann::json& del_doc) {
+    /*
+        This function accepts:
 
-    if(op == UPSERT) {
-        new_doc = update_doc;
-        new_doc.merge_patch(update_doc);  // ensures that null valued keys are deleted
+        -`old_doc` (the document stored on-disk),
+        - `update_doc` (the document sent to the API to perform a write operation)
 
+        The function should return the following documents:
+
+        - `new_doc` (the new and updated version of the document to be replaced on-disk)
+        - `del_doc` (the document representing the fields whose values are deleted or changed: will be used for deleting from an index)
+        - `update_doc` (the document representing fields whose values have changed: will be used for adding to indexing)
+
+        Note:
+
+        1. The `op` could be `UPSERT` or `UPDATE`
+        2. When `op == UPDATE`, `update_doc` could have lesser fields than `old_doc` to reflect partial update operation.
+        3. Any field values from `old_doc` that are missing or changed must be added to `del_doc`.
+        4. A field on `update_doc` with `null` value should be treated as deletion operation.
+        5. `update_doc` should not contain null values or values that are unchanged compared to `old_doc`.
+        6. The documents could have nested objects or array of objects.
+    */
+
+    //LOG(INFO) << "update_doc: " << update_doc;
+
+    // Initialize output documents
+    new_doc = (op == UPSERT) ? update_doc : old_doc;
+    del_doc = nlohmann::json::object();   // For fields to remove from index
+    nlohmann::json final_update_doc = nlohmann::json::object(); // Temporary for changed fields
+
+    // Recursive function to apply merge patch and track changes
+    std::function<void(nlohmann::json&, nlohmann::json&, const nlohmann::json&,
+                       nlohmann::json&, nlohmann::json&)> apply_merge_patch =
+            [&](nlohmann::json& target, nlohmann::json& patch, const nlohmann::json& old,
+                nlohmann::json& del, nlohmann::json& upd) {
+                // If patch is not an object, treat it as a full replacement
+                if (!patch.is_object()) {
+                    if (patch != old) {
+                        del = old;
+                        upd = patch;
+                        target = patch;
+                    }
+                    return;
+                }
+
+                // Ensure target is an object for merging
+                if (!target.is_object()) target = nlohmann::json::object();
+
+                // Process each field in the patch
+                for (auto it = patch.begin(); it != patch.end(); ++it) {
+                    const std::string& key = it.key();
+                    nlohmann::json& value = it.value();
+
+                    if (value.is_null()) {
+                        // Null value indicates deletion
+                        if (old.contains(key)) {
+                            del[key] = old[key];
+                        }
+                        target.erase(key);
+                        // Do not add to upd (ensures no nulls in final_update_doc)
+                    } else if (value.is_object() && target.contains(key) && target[key].is_object() &&
+                               old.contains(key) && old[key].is_object()) {
+                        // Recursive merge for nested objects
+                        nlohmann::json sub_del = nlohmann::json::object();
+                        nlohmann::json sub_upd = nlohmann::json::object();
+                        apply_merge_patch(target[key], value, old[key], sub_del, sub_upd);
+                        if (!sub_del.empty()) del[key] = std::move(sub_del);
+                        if (!sub_upd.empty()) upd[key] = std::move(sub_upd);
+                        // sub_upd is empty if no changes, ensuring no unchanged values
+                    } else {
+                        // Replacement or new field
+                        nlohmann::json processed_value = process_value(value);
+                        if (!old.contains(key) || processed_value != old[key]) {
+                            if (old.contains(key)) del[key] = old[key];
+                            upd[key] = processed_value;
+                            target[key] = processed_value;
+                        }
+
+                        // If value equals old[key], do nothing (excludes unchanged values)
+                    }
+                }
+            };
+
+    // Apply the merge patch and compute changes
+    apply_merge_patch(new_doc, update_doc, old_doc, del_doc, final_update_doc);
+
+    if(op != UPSERT) {
+        if(old_doc.contains(".flat")) {
+            new_doc[".flat"] = old_doc[".flat"];
+            for(auto& fl: update_doc[".flat"]) {
+                new_doc[".flat"].push_back(fl);
+            }
+        }
+    } else {
         // since UPSERT could replace a doc with lesser fields, we have to add those missing fields to del_doc
         for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
             if(it.value().is_object() || (it.value().is_array() && (it.value().empty() || it.value()[0].is_object()))) {
@@ -7380,48 +7491,16 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                 }
             }
         }
-    } else {
-        new_doc = old_doc;
-        new_doc.merge_patch(update_doc);
-
-        if(old_doc.contains(".flat")) {
-            new_doc[".flat"] = old_doc[".flat"];
-            for(auto& fl: update_doc[".flat"]) {
-                new_doc[".flat"].push_back(fl);
-            }
-        }
     }
 
-    auto it = update_doc.begin();
-    while(it != update_doc.end()) {
-        if(it.value().is_object() || (it.value().is_array() && !it.value().empty() && it.value()[0].is_object())) {
-            ++it;
-            continue;
-        }
+    // Update update_doc with only changed/new fields, no nulls or unchanged values
+    update_doc = std::move(final_update_doc);
 
-        if(it.value().is_null()) {
-            // null values should not be indexed
-            new_doc.erase(it.key());
-            if(old_doc.contains(it.key()) && !old_doc[it.key()].is_null()) {
-                del_doc[it.key()] = old_doc[it.key()];
-            }
-            it = update_doc.erase(it);
-            continue;
-        }
-
-        if(old_doc.contains(it.key())) {
-            if(old_doc[it.key()] == it.value()) {
-                // unchanged so should not be part of update doc
-                it = update_doc.erase(it);
-                continue;
-            } else {
-                // delete this old value from index
-                del_doc[it.key()] = old_doc[it.key()];
-            }
-        }
-
-        it++;
-    }
+    /*LOG(INFO) << "old_doc: " << old_doc;
+    LOG(INFO) << "del_doc: " << del_doc;
+    LOG(INFO) << "new_doc: " << new_doc;
+    LOG(INFO) << "final_update_doc: " << final_update_doc;
+    LOG(INFO) << "update_doc: " << update_doc;*/
 }
 
 size_t Index::num_seq_ids() const {
@@ -7614,6 +7693,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                                const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     for(const auto& field : embedding_fields) {
         std::vector<std::pair<index_record*, std::string>> values_to_embed_text, values_to_embed_image;
+        std::vector<std::pair<index_record*, std::vector<std::string>>> values_to_embed_personalization;
         auto indexing_prefix = EmbedderManager::get_instance().get_indexing_prefix(field.embed[fields::model_config]);
         for(auto& record : records) {
             if(!record->indexed.ok()) {
@@ -7635,36 +7715,63 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 continue;
             }
 
-            std::string value = indexing_prefix;
             const auto& embed_from = field.embed[fields::from].get<std::vector<std::string>>();
-            for(const auto& field_name : embed_from) {
-                auto field_it = search_schema.find(field_name);
-                auto doc_field_it = document->find(field_name);
-                if(doc_field_it == document->end()) {
+            if (field.embed[fields::model_config].count(fields::personalization_type) > 0) {
+                const auto& embed_mapping = field.embed[fields::mapping].get<std::vector<std::string>>();
+                std::vector<std::string> value;
+                for (size_t i = 0; i < embed_from.size(); i++) {
+                    const auto& field_name = embed_from[i];
+                    auto field_it = search_schema.find(field_name);
+                    const auto& mapping = embed_mapping[i];
+                    auto doc_field_it = document->find(field_name);
+                    if(doc_field_it == document->end()) {
                         continue;
-                }
-                if(field_it.value().type == field_types::IMAGE) {
-                    values_to_embed_image.push_back(std::make_pair(record, doc_field_it->get<std::string>()));
-                    continue;
-                }
-                if(field_it.value().type == field_types::STRING) {
-                    value += doc_field_it->get<std::string>() + " ";
-                } else if(field_it.value().type == field_types::STRING_ARRAY) {
-                    for(const auto& val : *(doc_field_it)) {
-                        value += val.get<std::string>() + " ";
+                    }
+                    if(field_it.value().type == field_types::STRING) {
+                        value.push_back(mapping + ": " + doc_field_it->get<std::string>());
+                    } else if(field_it.value().type == field_types::STRING_ARRAY) {
+                        std::string value_str = mapping + ": ";
+                        for(auto it = doc_field_it->begin(); it != doc_field_it->end(); ++it) {
+                            value_str += it->get<std::string>();
+                            if(std::next(it) != doc_field_it->end()) {
+                                value_str += ", ";
+                            }
+                        }
+                        value.push_back(value_str);
                     }
                 }
-            }
-            if(value != indexing_prefix) {
-               values_to_embed_text.push_back(std::make_pair(record, value));
+                values_to_embed_personalization.push_back(std::make_pair(record, value));
+            } else {
+                std::string value = indexing_prefix;
+                for(const auto& field_name : embed_from) {
+                    auto field_it = search_schema.find(field_name);
+                    auto doc_field_it = document->find(field_name);
+                    if(doc_field_it == document->end()) {
+                            continue;
+                    }
+                    if(field_it.value().type == field_types::IMAGE) {
+                        values_to_embed_image.push_back(std::make_pair(record, doc_field_it->get<std::string>()));
+                        continue;
+                    }
+                    if(field_it.value().type == field_types::STRING) {
+                        value += doc_field_it->get<std::string>() + " ";
+                    } else if(field_it.value().type == field_types::STRING_ARRAY) {
+                        for(const auto& val : *(doc_field_it)) {
+                            value += val.get<std::string>() + " ";
+                        }
+                    }
+                }
+                if(value != indexing_prefix) {
+                    values_to_embed_text.push_back(std::make_pair(record, value));
+                }
             }
         }
 
-        if(values_to_embed_text.empty() && values_to_embed_image.empty()) {
+        if(values_to_embed_text.empty() && values_to_embed_image.empty() && values_to_embed_personalization.empty()) {
             continue;
         }
 
-        std::vector<embedding_res_t> embeddings_text, embeddings_image;
+        std::vector<embedding_res_t> embeddings_text, embeddings_image, embeddings_personalization;
 
         // sort texts by length
         if(!values_to_embed_text.empty()) {
@@ -7676,12 +7783,16 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
         }
         
         // get vector of values
+        std::vector<std::vector<std::string>> values_personalization;
         std::vector<std::string> values_text, values_image;
         for(auto& record : values_to_embed_text) {
             values_text.push_back(record.second);
         }
         for(auto& record : values_to_embed_image) {
             values_image.push_back(record.second);
+        }
+        for(auto& record : values_to_embed_personalization) {
+            values_personalization.push_back(record.second);
         }
 
         EmbedderManager& embedder_manager = EmbedderManager::get_instance();
@@ -7695,7 +7806,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 LOG(ERROR) << "Error: " << error_msg;
                 return;
             }
-            embeddings_image = embedder_op.get()->batch_embed(values_image);
+            embeddings_image = embedder_op.get()->embed_documents(values_image);
         }
 
         if(!values_text.empty()) {
@@ -7705,11 +7816,28 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 LOG(ERROR) << "Error: " << embedder_op.error();
                 return;
             }
-            embeddings_text = embedder_op.get()->batch_embed(values_text, remote_embedding_batch_size, remote_embedding_timeout_ms,
+            embeddings_text = embedder_op.get()->embed_documents(values_text, remote_embedding_batch_size, remote_embedding_timeout_ms,
                                                             remote_embedding_num_tries);
         }
 
-        process_embed_results(values_to_embed_text, embeddings_text, values_to_embed_image, embeddings_image, field);
+        if(!values_personalization.empty()) {
+            const auto& model_id = field.embed[fields::model_config]["personalization_model_id"].get<std::string>();
+            auto embedder = PersonalizationModelManager::get_model_embedder(model_id);
+            if(embedder == nullptr) {
+                LOG(ERROR) << "Model not found: " << field.embed[fields::model_config];
+                return;
+            }
+            if (field.embed[fields::model_config]["personalization_embedding_type"].get<std::string>() == "user") {
+                embeddings_personalization = embedder->batch_embed_users(values_personalization);
+            } else if (field.embed[fields::model_config]["personalization_embedding_type"].get<std::string>() == "item") {
+                embeddings_personalization = embedder->batch_embed_items(values_personalization);
+            } else {
+                LOG(ERROR) << "Invalid personalization embedding type: " << field.embed[fields::model_config]["personalization_embedding_type"].get<std::string>();
+                return;
+            }
+        }
+
+        process_embed_results(values_to_embed_text, embeddings_text, values_to_embed_image, embeddings_image, values_to_embed_personalization, embeddings_personalization, field);
     }
 }
 
@@ -7717,6 +7845,8 @@ void Index::process_embed_results(const std::vector<std::pair<index_record*, std
                                   const std::vector<embedding_res_t>& embeddings_text,
                                   const std::vector<std::pair<index_record*, std::string>>& values_to_embed_image,
                                   const std::vector<embedding_res_t>& embeddings_image,
+                                  const std::vector<std::pair<index_record*, std::vector<std::string>>>& values_to_embed_personalization,
+                                  const std::vector<embedding_res_t>& embeddings_personalization,
                                   const field& the_field) {
     std::unordered_map<index_record*, std::vector<embedding_res_t>> index_records_to_embeddings;
     for(size_t i = 0; i < values_to_embed_text.size(); i++) {
@@ -7737,7 +7867,16 @@ void Index::process_embed_results(const std::vector<std::pair<index_record*, std
         index_records_to_embeddings[values_to_embed_image[i].first].push_back(embeddings_image[i]);
     }
 
-    // get average embeddings for each record
+    for(size_t i = 0; i < values_to_embed_personalization.size(); i++) {
+        if(!embeddings_personalization[i].success) {
+            values_to_embed_personalization[i].first->embedding_res = embeddings_personalization[i].error;
+            values_to_embed_personalization[i].first->index_failure(embeddings_personalization[i].status_code, "");
+            continue;
+        }
+        index_records_to_embeddings[values_to_embed_personalization[i].first].push_back(embeddings_personalization[i]);
+    }
+
+    // get average embeddings for each record (except personalization)
     for(auto& record: index_records_to_embeddings) {
         if(!record.first->indexed.ok()) {
             continue;
