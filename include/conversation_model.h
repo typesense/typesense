@@ -64,6 +64,7 @@ class OpenAIConversationModel : public ConversationModel {
         static const inline std::string QUESTION_STR = "\n\n<Question>\n";
         static const inline std::string ANSWER_STR = "\n\n<Answer>";
         static Option<std::string> get_openai_url(const nlohmann::json& model_config);
+        static Option<std::string> get_openai_path(const nlohmann::json& model_config);
         static bool async_res_set_headers_callback(const std::string& response, const std::shared_ptr<http_req> req, long status_code, char* content_type);
         static void async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res);
         static bool async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res);

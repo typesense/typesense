@@ -179,6 +179,21 @@ Option<std::string> OpenAIConversationModel::get_openai_url(const nlohmann::json
     return Option<std::string>(openai_url);
 }
 
+Option<std::string> OpenAIConversationModel::get_openai_path(const nlohmann::json& model_config) {
+    std::string openai_path = OPENAI_CHAT_COMPLETION;
+    if(model_config.count("openai_path") != 0) {
+        if(!model_config["openai_path"].is_string()) {
+            return Option<std::string>(400, "Property `openai_path` is not a string.");
+        }
+        openai_path = model_config["openai_path"].get<std::string>();
+        if(!openai_path.empty() && openai_path.front() != '/') {
+            openai_path = "/" + openai_path;
+        }
+    }
+
+    return Option<std::string>(openai_path);
+}
+
 Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model_config) {
     if(model_config.count("api_key") == 0) {
         return Option<bool>(400, "API key is not provided");
@@ -194,48 +209,22 @@ Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model
     }
     const std::string openai_url = openai_url_op.get();
     
+    auto openai_path_op = get_openai_path(model_config);
+    if(!openai_path_op.ok()) {
+        return Option<bool>(openai_path_op.code(), openai_path_op.error());
+    }
+
+    const std::string openai_path = openai_path_op.get();
+
+    // extract model name by removing "openai/" prefix
+    auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(
+        model_config["model_name"].get<std::string>());
+    
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Authorization"] = "Bearer " + model_config["api_key"].get<std::string>();
     headers["Content-Type"] = "application/json";
     std::string res;
-    auto res_code = RemoteEmbedder::call_remote_api("GET", openai_url + OPENAI_LIST_MODELS, "", res, res_headers, headers);
-
-    if(res_code == 408) {
-        return Option<bool>(408, "OpenAI API timeout.");
-    }
-
-    nlohmann::json models_json;
-
-    try {
-        models_json = nlohmann::json::parse(res);
-    } catch (const std::exception& e) {
-        return Option<bool>(400, "Error parsing OpenAI API response: " + res);
-    }
-
-    if(res_code != 200) {
-        if(models_json.count("error") == 0 || models_json["error"].count("message") == 0) {
-            return Option<bool>(400, "OpenAI API error, response: " + res);
-        }
-
-        return Option<bool>(400, "OpenAI API error: " + models_json["error"]["message"].get<std::string>());
-    }
-
-    // extract model name by removing "openai/" prefix
-    auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(
-                                                            model_config["model_name"].get<std::string>());
-
-    bool found = false;
-    for (auto& model : models_json["data"]) {
-        if (model["id"] == model_name_without_namespace) {
-            found = true;
-            break;
-        }
-    }
-
-    if(!found) {
-        return Option<bool>(400, "Property `model_name` is not a valid OpenAI model.");
-    }
 
     nlohmann::json req_body;
     req_body["model"] = model_name_without_namespace;
@@ -247,7 +236,7 @@ Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model
     ])"_json;
 
     std::string chat_res;
-    res_code = RemoteEmbedder::call_remote_api("POST", openai_url + OPENAI_CHAT_COMPLETION, req_body.dump(), chat_res, res_headers, headers);
+    auto res_code = RemoteEmbedder::call_remote_api("POST", openai_url + openai_path, req_body.dump(), chat_res, res_headers, headers);
 
     if(res_code == 408) {
         return Option<bool>(408, "OpenAI API timeout.");
@@ -300,8 +289,15 @@ Option<std::string> OpenAIConversationModel::get_answer(const std::string& conte
     }
     const std::string openai_url = openai_url_op.get();
 
+    auto openai_path_op = get_openai_path(model_config);
+    if(!openai_path_op.ok()) {
+        return Option<std::string>(openai_path_op.code(), openai_path_op.error());
+    }
+
+    const std::string openai_path = openai_path_op.get();
+
     std::string res;
-    auto res_code = RemoteEmbedder::call_remote_api("POST", openai_url + OPENAI_CHAT_COMPLETION, req_body.dump(), res, res_headers, headers);
+    auto res_code = RemoteEmbedder::call_remote_api("POST", openai_url + openai_path, req_body.dump(), res, res_headers, headers);
 
     if(res_code == 408) {
         throw Option<std::string>(400, "OpenAI API timeout.");
@@ -391,7 +387,14 @@ Option<std::string> OpenAIConversationModel::get_standalone_question(const nlohm
     }
     const std::string openai_url = openai_url_op.get();
 
-    auto res_code = RemoteEmbedder::call_remote_api("POST", openai_url + OPENAI_CHAT_COMPLETION, req_body.dump(), res, res_headers, headers);
+    auto openai_path_op = get_openai_path(model_config);
+    if(!openai_path_op.ok()) {
+        return Option<std::string>(openai_path_op.code(), openai_path_op.error());
+    }
+
+    const std::string openai_path = openai_path_op.get();
+
+    auto res_code = RemoteEmbedder::call_remote_api("POST", openai_url + openai_path, req_body.dump(), res, res_headers, headers);
 
     if(res_code == 408) {
         return Option<std::string>(400, "OpenAI API timeout.");
@@ -538,6 +541,13 @@ Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string
     }
     const std::string openai_url = openai_url_op.get();
 
+    auto openai_path_op = get_openai_path(model_config);
+    if(!openai_path_op.ok()) {
+        return Option<std::string>(openai_path_op.code(), openai_path_op.error());
+    }
+
+    const std::string openai_path = openai_path_op.get();
+
     req->async_res_set_headers_callback = async_res_set_headers_callback;
     req->async_res_write_callback = async_res_write_callback;
     req->async_res_done_callback = async_res_done_callback;
@@ -546,7 +556,7 @@ Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string
         auto proxy_url = raft_server->get_leader_url() + "proxy_sse";
         nlohmann::json proxy_req_body;
         proxy_req_body["method"] = "POST";
-        proxy_req_body["url"] = openai_url + OPENAI_CHAT_COMPLETION;
+        proxy_req_body["url"] = openai_url + openai_path;
         proxy_req_body["body"] = req_body.dump();
         proxy_req_body["headers"] = headers;
         std::unordered_map<std::string, std::string> header_;
@@ -554,7 +564,7 @@ Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string
 
         auto status = HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
     } else {
-        HttpClient::get_instance().post_response_sse(openai_url + OPENAI_CHAT_COMPLETION, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
+        HttpClient::get_instance().post_response_sse(openai_url + openai_path, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
     }
 
     auto& async_conversation = async_conversations[req];
