@@ -339,6 +339,8 @@ private:
     /// this operation.
     void skip_to(uint32_t id);
 
+    bool validate_filter_nested_object(nlohmann::json doc, const filter_node_t* filter_node);
+
 public:
     uint32_t seq_id = 0;
     /// Collection name -> references
@@ -421,7 +423,7 @@ public:
     static void add_phrase_ids(filter_result_iterator_t*& filter_result_iterator,
                                uint32_t* phrase_result_ids, const uint32_t& phrase_result_count);
 
-    void post_filtering_validate_docs(bool enable_lazy_filter);
+    void post_filtering_validate_docs();
 
     [[nodiscard]] bool _get_is_filter_result_initialized() const {
         return is_filter_result_initialized;

@@ -331,7 +331,8 @@ struct StringUtils {
 
     static size_t get_num_chars(const std::string& text);
 
-    static Option<bool> tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens, bool is_nested_object_field=false);
+    static Option<bool> tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens,
+                                              std::set<std::string>& nested_object_fields);
 
     static Option<bool> split_include_exclude_fields(const std::string& include_exclude_fields,
                                                      std::vector<std::string>& tokens);

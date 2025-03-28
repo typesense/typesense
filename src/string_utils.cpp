@@ -379,10 +379,12 @@ Option<bool> parse_multi_valued_geopoint_filter(const std::string& filter_query,
     return Option<bool>(true);
 }
 
-Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens, bool is_nested_object_field) {
+Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens,
+                                                std::set<std::string>& nested_object_fields) {
     std::set<std::string> ref_collection_names;
     auto size = filter_query.size();
     std::string nested_field_prefix="";
+    bool is_nested_object_field = false;
 
     for (size_t i = 0; i < size;) {
         auto c = filter_query[i];
@@ -461,9 +463,10 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
                     break;
                 } else if (preceding_colon && c != ' ') {
                     preceding_colon = false;
-                } else if(c =='.' && is_nested_object_field) {
+                } else if(c =='.' && filter_query[i+1] == '{') {
                     ss << c;
                     nested_field_prefix = ss.str();
+                    is_nested_object_field = true;
                     //clear buffer
                     ss.str("");
                     c = filter_query[++i];
@@ -474,6 +477,14 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
             auto token = is_nested_object_field ? nested_field_prefix + ss.str() : ss.str();
             trim(token);
             tokens.push(token);
+
+            if(is_nested_object_field) {
+                nested_object_fields.insert(token);
+
+                if(c == '}') {
+                    is_nested_object_field = false;
+                }
+            }
         }
     }
     return Option<bool>(true);

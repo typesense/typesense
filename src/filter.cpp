@@ -682,7 +682,8 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                          const tsl::htrie_map<char, field>& search_schema,
                          const Store* store,
                          const std::string& doc_id_prefix,
-                         const bool& validate_field_names) {
+                         const bool& validate_field_names,
+                         const std::set<std::string>& nested_object_fields) {
     std::stack<filter_node_t*> nodeStack;
     bool is_successful = true;
     std::string error_message;
@@ -713,6 +714,11 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
 
             filter_node = new filter_node_t(expression == "&&" ? AND : OR, operandA, operandB);
             filter_node->filter_query = operandA->filter_query + " " + expression + " " + operandB->filter_query;
+            if(operandA->is_nested_object_filter || operandB->is_nested_object_filter) {
+                filter_node->is_nested_object_filter = true;
+                filter_node->nested_object_parent = !operandA->nested_object_parent.empty() ?
+                        operandA->nested_object_parent : operandB->nested_object_parent;
+            }
         } else {
             filter filter_exp;
 
@@ -748,6 +754,12 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
 
             filter_node = new filter_node_t(filter_exp);
             filter_node->filter_query = expression;
+            if(nested_object_fields.find(expression) != nested_object_fields.end()) {
+                filter_node->is_nested_object_filter = true;
+
+                auto pos = expression.find(".");
+                filter_node->nested_object_parent = expression.substr(0, pos);
+            }
         }
 
         nodeStack.push(filter_node);
@@ -783,23 +795,10 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
         return Option<bool>(true);
     }
 
-    bool is_nested_object_field = false;
-    auto pos = filter_query.find(".");
-    std::string nested_object_parent = "";
-
-    if(pos != std::string::npos && pos > 0) {
-        if(filter_query.at(pos + 1) == '{') {
-            //possible nested object field
-            // check for format "<field>.{<sub_field>: <val> ...}"
-            if(filter_query.at(filter_query.size() - 1) == '}') {
-                is_nested_object_field = true;
-                nested_object_parent = filter_query.substr(0, pos);
-            }
-        }
-    }
-
     std::queue<std::string> tokens;
-    Option<bool> tokenize_op = StringUtils::tokenize_filter_query(filter_query, tokens, is_nested_object_field);
+    std::set<std::string> nested_object_fields;
+
+    Option<bool> tokenize_op = StringUtils::tokenize_filter_query(filter_query, tokens, nested_object_fields);
     if (!tokenize_op.ok()) {
         return tokenize_op;
     }
@@ -821,13 +820,12 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
                                               search_schema,
                                               store,
                                               doc_id_prefix,
-                                              validate_field_names);
+                                              validate_field_names,
+                                              nested_object_fields);
     if (!toParseTree_op.ok()) {
         return toParseTree_op;
     }
 
     root->filter_query = filter_query;
-    root->is_nested_object_filter = is_nested_object_field;
-    root->nested_object_parent = nested_object_parent;
     return Option<bool>(true);
 }

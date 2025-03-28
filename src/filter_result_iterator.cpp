@@ -1741,6 +1741,32 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
         return;
     }
 
+    if(filter_node->is_nested_object_filter) {
+        auto collection = CollectionManager::get_instance().get_collection(collection_name);
+
+        if (collection.get() != nullptr) {
+            const std::string& seq_id_key = collection->get_seq_id_key(id);
+
+            nlohmann::json document;
+            const Option<bool>& document_op = collection->get_document_from_store(seq_id_key, document);
+
+            if (!document_op.ok()) {
+                LOG(ERROR) << "Document fetch error. " << document_op.error();
+                validity = invalid;
+                return;
+            }
+
+            for (const auto& nested_object: document[filter_node->nested_object_parent]) {
+                if (validate_filter_nested_object(nested_object, filter_node)) {
+                    seq_id = id;
+                    return;
+                }
+            }
+            validity = invalid;
+            return;
+        }
+    }
+
     const filter a_filter = filter_node->filter_exp;
 
     if (a_filter.field_name == "id") {
@@ -2887,118 +2913,117 @@ filter_result_iterator_timeout_info::filter_result_iterator_timeout_info(uint64_
                                                                          search_stop_us(search_stop) {}
 
 
-void filter_result_iterator_t::post_filtering_validate_docs(bool enable_lazy_filter) {
-    std::function<bool(nlohmann::json, const filter_node_t*)> validate_filter_condition;
-    validate_filter_condition = [&](nlohmann::json doc, const filter_node_t* filter_node) -> bool {
-        if(filter_node->isOperator) {
-            if(filter_node->filter_operator == AND) {
-                return validate_filter_condition(doc, filter_node->left) &&
-                       validate_filter_condition(doc, filter_node->right);
-            } else {
-                return validate_filter_condition(doc, filter_node->left) ||
-                       validate_filter_condition(doc, filter_node->right);
-            }
+bool filter_result_iterator_t::validate_filter_nested_object(nlohmann::json doc, const filter_node_t* filter_node) {
+    if(filter_node->isOperator) {
+        if(filter_node->filter_operator == AND) {
+            return validate_filter_nested_object(doc, filter_node->left) &&
+                    validate_filter_nested_object(doc, filter_node->right);
         } else {
-            const auto& filter_exp = filter_node->filter_exp;
-            auto pos = filter_exp.field_name.find(".");
-            const auto& nested_field = filter_exp.field_name.substr(pos+1, filter_exp.field_name.size() - (pos+1));
-            field f = index->search_schema.at(filter_exp.field_name);
+            return validate_filter_nested_object(doc, filter_node->left) ||
+                    validate_filter_nested_object(doc, filter_node->right);
+        }
+    } else {
+        if(!filter_node->is_nested_object_filter) {
+            //post processing for nested object fields only
+            return true;
+        }
 
-            using fieldType = std::variant<int64_t, float, bool, std::string>;
-            fieldType doc_val, filter_val;
+        const auto& filter_exp = filter_node->filter_exp;
+        auto pos = filter_exp.field_name.find(".");
 
-            bool match_found = false;
+        const auto& nested_field = filter_exp.field_name.substr(pos+1, filter_exp.field_name.size() - (pos+1));
+        field f = index->search_schema.at(filter_exp.field_name);
 
-            for(auto i = 0; i < filter_exp.values.size(); ++i) {
-                if(match_found) {
-                    break;
+        using fieldType = std::variant<int64_t, float, bool, std::string>;
+        fieldType doc_val, filter_val;
+
+        bool match_found = false;
+
+        for(auto i = 0; i < filter_exp.values.size(); ++i) {
+            if(match_found) {
+                break;
+            }
+
+            auto val = filter_exp.values[i];
+            auto comparator = filter_exp.comparators[i];
+
+            if (f.is_string()) {
+                if(val.at(val.size() - 1) == '*' && comparator == CONTAINS) {//prefix match
+                    val.pop_back();
                 }
 
-                auto val = filter_exp.values[i];
-                auto comparator = filter_exp.comparators[i];
-
-                if (f.is_string()) {
-                    if(val.at(val.size() - 1) == '*' && comparator == CONTAINS) {//prefix match
-                        val.pop_back();
-                    }
-
-                    //apply string values filter to all values
-                    if(filter_exp.values.size() > filter_exp.comparators.size()) {
-                        comparator = filter_exp.comparators[0];
-                    }
-
-                    filter_val = val;
-                    doc_val = doc[nested_field].get<std::string>();
-
-                } else if (f.is_float()) {
-                    filter_val = std::stof(val);
-                    doc_val = doc[nested_field].get<float>();
-                } else if (f.is_bool()) {
-                    filter_val = val == "true" ? true : false;
-                    doc_val = doc[nested_field].get<bool>();
-                } else if (f.is_integer()) {
-                    filter_val = std::stoll(val);
-                    doc_val = doc[nested_field].get<int64_t>();
+                //apply string values filter to all values
+                if(filter_exp.values.size() > filter_exp.comparators.size()) {
+                    comparator = filter_exp.comparators[0];
                 }
 
-                if (comparator == EQUALS) {
-                    match_found = (doc_val == filter_val);
-                } else if (comparator == NOT_EQUALS) {
-                    match_found = (doc_val != filter_val);
-                } else if(comparator == CONTAINS) {
-                    if(std::holds_alternative<std::string>(doc_val) && std::holds_alternative<std::string>(filter_val)) {
-                        match_found = (std::get<std::string>(doc_val).find(std::get<std::string>(filter_val)) != std::string::npos);
-                    }
-                } else if (comparator == LESS_THAN) { //further comparators for only float and integers
-                    if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
-                        match_found = (std::get<int64_t>(doc_val) < std::get<int64_t>(filter_val));
-                    } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
-                        match_found = (std::get<float>(doc_val) < std::get<float>(filter_val));
-                    }
-                } else if(comparator == LESS_THAN_EQUALS) {
-                    if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
-                        match_found = (std::get<int64_t>(doc_val) <= std::get<int64_t>(filter_val));
-                    } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
-                        match_found = (std::get<float>(doc_val) <= std::get<float>(filter_val));
-                    }
-                } else if(comparator == GREATER_THAN) {
-                    if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
-                        match_found = (std::get<int64_t>(doc_val) > std::get<int64_t>(filter_val));
-                    } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
-                        match_found = (std::get<float>(doc_val) > std::get<float>(filter_val));
-                    }
-                } else if(comparator == GREATER_THAN_EQUALS) {
-                    if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
-                        match_found = (std::get<int64_t>(doc_val) >= std::get<int64_t>(filter_val));
-                    } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
-                        match_found = (std::get<float>(doc_val) >= std::get<float>(filter_val));
-                    }
-                } else if(comparator == RANGE_INCLUSIVE) {
-                    auto range_end = filter_exp.values[++i];
+                filter_val = val;
+                doc_val = doc[nested_field].get<std::string>();
 
-                    if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
-                        auto range_end_val = std::stoll(range_end);
-                        match_found = (std::get<int64_t>(doc_val) >= std::get<int64_t>(filter_val) && std::get<int64_t>(doc_val) <= range_end_val);
-                    } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
-                        auto range_end_val = std::stof(range_end);
-                        match_found = (std::get<float>(doc_val) >= std::get<float>(filter_val) && std::get<float>(doc_val) <= range_end_val);
-                    }
+            } else if (f.is_float()) {
+                filter_val = std::stof(val);
+                doc_val = doc[nested_field].get<float>();
+            } else if (f.is_bool()) {
+                filter_val = val == "true" ? true : false;
+                doc_val = doc[nested_field].get<bool>();
+            } else if (f.is_integer()) {
+                filter_val = std::stoll(val);
+                doc_val = doc[nested_field].get<int64_t>();
+            }
+
+            if (comparator == EQUALS) {
+                match_found = (doc_val == filter_val);
+            } else if (comparator == NOT_EQUALS) {
+                match_found = (doc_val != filter_val);
+            } else if(comparator == CONTAINS) {
+                if(std::holds_alternative<std::string>(doc_val) && std::holds_alternative<std::string>(filter_val)) {
+                    match_found = (std::get<std::string>(doc_val).find(std::get<std::string>(filter_val)) != std::string::npos);
+                }
+            } else if (comparator == LESS_THAN) { //further comparators for only float and integers
+                if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
+                    match_found = (std::get<int64_t>(doc_val) < std::get<int64_t>(filter_val));
+                } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
+                    match_found = (std::get<float>(doc_val) < std::get<float>(filter_val));
+                }
+            } else if(comparator == LESS_THAN_EQUALS) {
+                if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
+                    match_found = (std::get<int64_t>(doc_val) <= std::get<int64_t>(filter_val));
+                } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
+                    match_found = (std::get<float>(doc_val) <= std::get<float>(filter_val));
+                }
+            } else if(comparator == GREATER_THAN) {
+                if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
+                    match_found = (std::get<int64_t>(doc_val) > std::get<int64_t>(filter_val));
+                } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
+                    match_found = (std::get<float>(doc_val) > std::get<float>(filter_val));
+                }
+            } else if(comparator == GREATER_THAN_EQUALS) {
+                if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
+                    match_found = (std::get<int64_t>(doc_val) >= std::get<int64_t>(filter_val));
+                } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
+                    match_found = (std::get<float>(doc_val) >= std::get<float>(filter_val));
+                }
+            } else if(comparator == RANGE_INCLUSIVE) {
+                auto range_end = filter_exp.values[++i];
+
+                if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
+                    auto range_end_val = std::stoll(range_end);
+                    match_found = (std::get<int64_t>(doc_val) >= std::get<int64_t>(filter_val) && std::get<int64_t>(doc_val) <= range_end_val);
+                } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
+                    auto range_end_val = std::stof(range_end);
+                    match_found = (std::get<float>(doc_val) >= std::get<float>(filter_val) && std::get<float>(doc_val) <= range_end_val);
                 }
             }
-            return match_found;
         }
-    };
+        return match_found;
+    }
+}
 
+void filter_result_iterator_t::post_filtering_validate_docs() {
     auto collection = CollectionManager::get_instance().get_collection(collection_name);
     std::vector<uint32_t> results;
 
     if (collection.get() != nullptr) {
-
-        if(enable_lazy_filter) {
-            //in case of lazy evalution, filter_result won't be ready hence need to enforce it
-            compute_iterators();
-        }
-
         for (auto j = 0; j < filter_result.count; ++j) {
             const std::string& seq_id_key = collection->get_seq_id_key(filter_result.docs[j]);
 
@@ -3011,7 +3036,7 @@ void filter_result_iterator_t::post_filtering_validate_docs(bool enable_lazy_fil
             }
 
             for(const auto& nested_object : document[filter_node->nested_object_parent]) {
-                if (validate_filter_condition(nested_object, filter_node)) {
+                if (validate_filter_nested_object(nested_object, filter_node)) {
                     results.push_back(filter_result.docs[j]);
                     break;
                 }
