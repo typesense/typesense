@@ -31,6 +31,23 @@ struct reference_info_t: base_reference_info_t {
     reference_info_t(std::string collection, std::string field, bool is_async, std::string referenced_field_name = "") :
             base_reference_info_t(std::move(collection), std::move(field)), is_async(is_async),
             referenced_field_name(std::move(referenced_field_name)) {}
+
+    reference_info_t(const nlohmann::json& json): reference_info_t(json["collection"],
+                                                                   json["field"],
+                                                                   json["is_async"],
+                                                                   json["referenced_field_name"]) {
+        referenced_field = field::field_from_json(json["referenced_field"]);
+    }
+
+    static nlohmann::json to_json(const reference_info_t& ref_info) {
+        nlohmann::json json;
+        json["collection"] = ref_info.collection;
+        json["field"] = ref_info.field;
+        json["is_async"] = ref_info.is_async;
+        json["referenced_field_name"] = ref_info.referenced_field_name;
+        json["referenced_field"] = field::field_to_json_field(ref_info.referenced_field);
+        return json;
+    }
 };
 
 struct update_reference_info_t: base_reference_info_t {

@@ -382,6 +382,29 @@ struct field {
         return false;
     }
 
+    static field field_from_json(const nlohmann::json& json) {
+        return field(json[fields::name].get<std::string>(), json[fields::type].get<std::string>(), json[fields::facet].get<bool>(),
+                     json.contains(fields::optional) ? json[fields::optional].get<bool>() : false,
+                     json.contains(fields::index) ? json[fields::index].get<bool>() : true,
+                     json.contains(fields::locale) ? json[fields::locale].get<std::string>() : "",
+                     json.contains(fields::sort) ? json[fields::sort].get<int>() : -1,
+                     json.contains(fields::infix) ? json[fields::infix].get<int>() : -1,
+                     json.contains(fields::nested) ? json[fields::nested].get<bool>() : false,
+                     json.contains(fields::nested_array) ? json[fields::nested_array].get<int>() : 0,
+                     json.contains(fields::num_dim) ? json[fields::num_dim].get<size_t>() : 0,
+                     json.contains(fields::vec_dist) ? (json[fields::vec_dist].get<std::string>() == "ip" ? ip : cosine) : cosine,
+                     json.contains(fields::reference) ? json[fields::reference].get<std::string>() : "",
+                     json.contains(fields::embed) ? json[fields::embed].get<nlohmann::json>() : nlohmann::json(),
+                     json.contains(fields::range_index) ? json[fields::range_index].get<bool>() : false,
+                     json.contains(fields::store) ? json[fields::store].get<bool>() : true,
+                     json.contains(fields::stem) ? json[fields::stem].get<bool>() : false,
+                     json.contains(fields::stem_dictionary) ? json[fields::stem_dictionary].get<std::string>() : "",
+                     json.contains(fields::hnsw_params) ? json[fields::hnsw_params].get<nlohmann::json>() : nlohmann::json(),
+                     json.contains(fields::async_reference) ? json[fields::async_reference].get<bool>() : false,
+                     json.contains(fields::token_separators) ? json[fields::token_separators].get<nlohmann::json>() : nlohmann::json(),
+                     json.contains(fields::symbols_to_index) ? json[fields::symbols_to_index].get<nlohmann::json>() : nlohmann::json());
+    }
+
     static Option<bool> fields_to_json_fields(const std::vector<field> & fields,
                                               const std::string & default_sorting_field,
                                               nlohmann::json& fields_json);
@@ -417,6 +440,8 @@ struct field {
                                     bool is_update, std::vector<field>& flattened_fields);
 
     static void compact_nested_fields(tsl::htrie_map<char, field>& nested_fields);
+
+    static nlohmann::json field_to_json_field(const struct field& field);
 };
 
 enum index_operation_t {

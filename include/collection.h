@@ -729,9 +729,7 @@ public:
                const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
                const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model = nullptr,
                spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>(),
-               const nlohmann::json& metadata = {},
-               spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins =
-                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+               const nlohmann::json& metadata = {});
 
     ~Collection();
 
@@ -1090,11 +1088,12 @@ public:
     // Return a copy of the referenced field in the referencing collection to avoid schema lookups in the future. The
     // tradeoff is that we have to make sure any changes during collection alter operation are passed to the referencing
     // collection.
-    [[nodiscard]] std::set<update_reference_info_t> add_referenced_ins(const std::map<std::string, reference_info_t>& ref_infos);
+    [[nodiscard]] std::set<update_reference_info_t> add_referenced_ins(std::map<std::string, reference_info_t>& ref_infos);
 
-    [[nodiscard]] std::set<update_reference_info_t>  add_referenced_in(const std::string& collection_name,
-                                                                       const std::string& field_name, const bool& is_async,
-                                                                       const std::string& referenced_field_name);
+    [[nodiscard]] std::set<update_reference_info_t> add_referenced_in(const std::string& collection_name,
+                                                                      const std::string& field_name, const bool& is_async,
+                                                                      const std::string& referenced_field_name,
+                                                                      field& referenced_field);
 
     void remove_referenced_in(const std::string& collection_name, const std::string& field_name,
                               const bool& is_async, const std::string& referenced_field_name);

@@ -5358,6 +5358,7 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
 
     auto add_op = collectionManager.get_collection_unsafe("Foods")->add(doc.dump(), index_operation_t::UPDATE, "1",
                                                                         DIRTY_VALUES::REJECT);
+    LOG(INFO) << add_op.error();
     ASSERT_TRUE(add_op.ok());
 
     req_params = {

@@ -60,8 +60,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const std::vector<std::string>& token_separators,
                        const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model,
                        spp::sparse_hash_map<std::string, std::string> referenced_in,
-                       const nlohmann::json& metadata,
-                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins) :
+                       const nlohmann::json& metadata) :
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
@@ -70,7 +69,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
         index(init_index()), vq_model(vq_model),
         referenced_in(std::move(referenced_in)),
-        metadata(metadata), async_referenced_ins(std::move(async_referenced_ins)) {
+        metadata(metadata) {
     
     if (vq_model) {
         vq_model->inc_collection_ref_count();
@@ -845,6 +844,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
                                          const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings) {
     std::unique_lock lock(mutex);
+    LOG(INFO) << "index " << name << " documents";
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
                                                    search_schema, embedding_fields, fallback_field_type,
                                                    token_separators, symbols_to_index, true, remote_embedding_batch_size,
@@ -6881,17 +6881,19 @@ Index* Collection::init_index() {
             auto& collectionManager = CollectionManager::get_instance();
             auto ref_coll = collectionManager.get_collection(ref_coll_name);
             std::set<update_reference_info_t> update_ref_infos{};
+            struct field ref_field;
             if (ref_coll != nullptr) {
                 // `CollectionManager::get_collection` accounts for collection alias being used and provides pointer to
                 // the original collection.
                 ref_coll_name = ref_coll->name;
 
                 update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
-                                                                    ref_field_name);
+                                                                    ref_field_name, ref_field);
             }
 
-            collectionManager.add_referenced_ins(ref_coll_name, reference_info_t{name, field.name, field.is_async_reference,
-                                                                         ref_field_name});
+            auto ref_info = reference_info_t{name, field.name, field.is_async_reference, ref_field_name};
+            ref_info.referenced_field = ref_field;
+            collectionManager.add_referenced_ins(ref_coll_name, std::move(ref_info));
 
             reference_fields.emplace(field.name, reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference));
             if (field.nested) {
@@ -7391,12 +7393,12 @@ bool Collection::is_referenced_in(const std::string& collection_name) const {
     return referenced_in.count(collection_name) > 0;
 }
 
-std::set<update_reference_info_t> Collection::add_referenced_ins(const std::map<std::string, reference_info_t>& ref_infos) {
+std::set<update_reference_info_t> Collection::add_referenced_ins(std::map<std::string, reference_info_t>& ref_infos) {
     std::set<update_reference_info_t> update_ref_infos;
-    for (const auto &pair: ref_infos) {
-        const auto& ref_info = pair.second;
+    for (auto& pair: ref_infos) {
+        auto& ref_info = pair.second;
         auto set = add_referenced_in(ref_info.collection, ref_info.field, ref_info.is_async,
-                                     ref_info.referenced_field_name);
+                                     ref_info.referenced_field_name, ref_info.referenced_field);
         update_ref_infos.insert(set.begin(), set.end());
     }
 
@@ -7405,7 +7407,8 @@ std::set<update_reference_info_t> Collection::add_referenced_ins(const std::map<
 
 std::set<update_reference_info_t> Collection::add_referenced_in(const std::string& collection_name,
                                                                 const std::string& field_name, const bool& is_async,
-                                                                const std::string& referenced_field_name) {
+                                                                const std::string& referenced_field_name,
+                                                                field& referenced_field) {
     std::unique_lock lock(mutex);
 
     std::set<update_reference_info_t> update_ref_infos;
@@ -7421,9 +7424,8 @@ std::set<update_reference_info_t> Collection::add_referenced_in(const std::strin
         async_referenced_ins[referenced_field_name].emplace(collection_name, field_name);
     }
 
-    update_ref_infos.insert({collection_name, field_name, referenced_field_name == "id" ?
-                                                                field("id", "string", false) :
-                                                                *it});
+    referenced_field = referenced_field_name == "id" ? field("id", "string", false) : *it;
+    update_ref_infos.insert({collection_name, field_name, referenced_field});
     return update_ref_infos;
 }
 

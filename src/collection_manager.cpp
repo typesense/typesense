@@ -23,8 +23,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                                const uint32_t collection_next_seq_id,
                                                Store* store,
                                                float max_memory_ratio,
-                                               spp::sparse_hash_map<std::string, std::string>& referenced_in,
-                                               spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
+                                               const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos) {
     std::string this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
     std::vector<field> fields;
@@ -206,6 +205,15 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         }
     }
 
+    spp::sparse_hash_map<std::string, std::string> referenced_in{};
+    auto ref_info_it = referenced_infos.find(this_collection_name);
+    if (ref_info_it != referenced_infos.end()) {
+        for (const auto& item: ref_info_it->second) {
+            const auto& ref_info = item.second;
+            referenced_in.emplace(ref_info.collection, ref_info.field);
+        }
+    }
+
     nlohmann::json metadata;
 
     if(collection_meta.count(Collection::COLLECTION_METADATA) != 0) {
@@ -223,9 +231,23 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             fallback_field_type,
                                             symbols_to_index,
                                             token_separators,
-                                            enable_nested_fields, model, std::move(referenced_in),
-                                            metadata, std::move(async_referenced_ins));
+                                            enable_nested_fields, model,
+                                            referenced_in,
+                                            metadata);
 
+    for (const auto& ref_field: collection->get_reference_fields()) {
+        const auto& ref_info = ref_field.second;
+        ref_info_it = referenced_infos.find(ref_info.collection);
+        if (ref_info_it == referenced_infos.end()) {
+            continue;
+        }
+
+        const auto it = ref_info_it->second.find(this_collection_name);
+        if (it == ref_info_it->second.end()) {
+            continue;
+        }
+        collection->update_reference_field_with_lock(ref_field.first, it->second.referenced_field);
+    }
     return collection;
 }
 
@@ -260,21 +282,43 @@ void CollectionManager::init(Store *store, const float max_memory_ratio, const s
     init(store, thread_pool, max_memory_ratio, auth_key, quit, filter_by_max_operations);
 }
 
-void CollectionManager::_populate_referenced_ins(const std::string& collection_meta_json,
-                                                 std::map<std::string, spp::sparse_hash_map<std::string, std::string>>& referenced_ins,
-                                                 std::map<std::string, spp::sparse_hash_map<std::string, std::set<reference_pair_t>>>& async_referenced_ins) {
-    auto const& obj = nlohmann::json::parse(collection_meta_json, nullptr, false);
+field get_referenced_field(const std::string& ref_schema, const std::string& ref_field_name) {
+    struct field ref_field{};
+    const auto& ref_coll_schema = nlohmann::json::parse(ref_schema);
+    for (const auto &field: ref_coll_schema["fields"]) {
+        if (!field.contains("name") || !field.contains("reference")) {
+            continue;
+        }
 
-    if (!obj.is_discarded() && obj.is_object() && obj.contains("name") && obj["name"].is_string() &&
-        obj.contains("fields")) {
+        const auto& field_name = std::string(field["name"]);
+        if (field_name != ref_field_name) {
+            continue;
+        }
+        return field::field_from_json(field);
+    }
+
+    return ref_field;
+}
+
+void CollectionManager::_populate_referenced_ins(const std::vector<std::string>& collection_meta_jsons,
+                                                 std::map<std::string, std::map<std::string, reference_info_t>>& referenced_ins) {
+    std::map<std::string, uint32_t> collection_index;
+    for (size_t i = 0; i < collection_meta_jsons.size(); i++) {
+        auto const& obj = nlohmann::json::parse(collection_meta_jsons[i]);
+        if (obj.is_discarded() || !obj.is_object() || !obj.contains("name") || !obj["name"].is_string() ||
+            !obj.contains("fields")) {
+            continue;
+        }
+
         auto const& collection_name = obj["name"];
+        collection_index[collection_name] = i;
 
         for (const auto &field: obj["fields"]) {
             if (!field.contains("name") || !field.contains("reference")) {
                 continue;
             }
-            auto field_name = std::string(field["name"]);
 
+            auto field_name = std::string(field["name"]);
             auto const& reference = field["reference"].get<std::string>();
             std::vector<std::string> split_result;
             StringUtils::split(reference, split_result, ".");
@@ -291,16 +335,45 @@ void CollectionManager::_populate_referenced_ins(const std::string& collection_m
             if (actual_ref_coll_it != CollectionManager::get_instance().collection_symlinks.end()) {
                 ref_coll_name = actual_ref_coll_it->second;
             }
-            if (referenced_ins.count(ref_coll_name) == 0) {
-                referenced_ins.emplace(ref_coll_name, spp::sparse_hash_map<std::string, std::string>());
+
+            struct field ref_field{};
+            if (collection_index.count(ref_coll_name) != 0) {
+                ref_field = get_referenced_field(collection_meta_jsons.at(collection_index[ref_coll_name]),
+                                                 ref_field_name);
+            } else {
+                size_t ref_index = i;
+                for (size_t j = i + 1; j < collection_meta_jsons.size(); j++) {
+                    auto const& ref_obj = nlohmann::json::parse(collection_meta_jsons[j]);
+                    if (ref_obj.is_discarded() || !ref_obj.is_object() || !ref_obj.contains("name") || !ref_obj["name"].is_string() ||
+                        !ref_obj.contains("fields")) {
+                        continue;
+                    }
+
+                    auto const& ref_collection_name = ref_obj["name"];
+                    collection_index[collection_name] = j;
+                    if (ref_collection_name == ref_coll_name) {
+                        ref_index = j;
+                        break;
+                    }
+                }
+
+                if (ref_index > i) {
+                    ref_field = get_referenced_field(collection_meta_jsons.at(ref_index), ref_field_name);
+                }
             }
 
-            referenced_ins[ref_coll_name].emplace(collection_name, field_name);
-
+            bool async_ref = false;
             if (field.contains(fields::async_reference) &&
-                    field[fields::async_reference].is_boolean() && field[fields::async_reference].get<bool>()) {
-                async_referenced_ins[ref_coll_name][ref_field_name].emplace(collection_name, field_name);
+                field[fields::async_reference].is_boolean() && field[fields::async_reference].get<bool>()) {
+                async_ref = true;
             }
+
+            auto ref_info = reference_info_t(collection_name, field_name, async_ref);
+            if (!ref_field.name.empty()) {
+                ref_info.referenced_field = std::move(ref_field);
+            }
+
+            referenced_ins[ref_coll_name].insert({collection_name, std::move(ref_info)});
         }
     }
 }
@@ -354,15 +427,32 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     const size_t num_collections = collection_meta_jsons.size();
     LOG(INFO) << "Found " << num_collections << " collection(s) on disk.";
 
-    ThreadPool loading_pool(collection_batch_size);
+    if (!store->contains(REFERENCED_INS)) {
+        _populate_referenced_ins(collection_meta_jsons, referenced_ins);
+    } else {
+        std::string referenced_ins_str;
+        store->get(REFERENCED_INS, referenced_ins_str);
+        if (!referenced_ins_str.empty()) {
+            const auto& referenced_ins_json = nlohmann::json::parse(referenced_ins_str);
+            for (const auto& referenced_coll: referenced_ins_json) {
+                auto referenced_coll_it = referenced_coll.find("referenced_coll_name");
+                if (referenced_coll_it == referenced_coll.end()) {
+                    continue;
+                }
 
-    // Collection name -> Ref collection name -> Ref field name
-    std::map<std::string, spp::sparse_hash_map<std::string, std::string>> referenced_ins;
-    // Collection name -> field name -> {Ref collection name, Ref field name}
-    std::map<std::string, spp::sparse_hash_map<std::string, std::set<reference_pair_t>>> async_referenced_ins;
-    for (const auto &collection_meta_json: collection_meta_jsons) {
-        _populate_referenced_ins(collection_meta_json, referenced_ins, async_referenced_ins);
+                auto referenced_infos_it = referenced_coll.find("referenced_infos");
+                if (referenced_infos_it == referenced_coll.end()) {
+                    continue;
+                }
+
+                for (const auto& ref_info: referenced_infos_it.value()) {
+                    referenced_ins[referenced_coll_it.value()].insert({ref_info["collection"], reference_info_t(ref_info)});
+                }
+            }
+        }
     }
+
+    ThreadPool loading_pool(collection_batch_size);
 
     size_t num_processed = 0;
     std::mutex m_process;
@@ -384,25 +474,14 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         }
 
         auto captured_store = store;
+        auto captured_referenced_ins = referenced_ins;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
                               &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit,
-                                     &referenced_ins, &async_referenced_ins, collection_name]() {
-
-            spp::sparse_hash_map<std::string, std::string> referenced_in;
-            auto const& it = referenced_ins.find(collection_name);
-            if (it != referenced_ins.end()) {
-                referenced_in = it->second;
-            }
-
-            spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_in;
-            auto const& async_it = async_referenced_ins.find(collection_name);
-            if (async_it != async_referenced_ins.end()) {
-                async_referenced_in = async_it->second;
-            }
+                                     captured_referenced_ins, collection_name]() {
 
             //auto begin = std::chrono::high_resolution_clock::now();
             Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit,
-                                               referenced_in, async_referenced_in);
+                                               captured_referenced_ins);
             /*long long int timeMillis =
                     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
             LOG(INFO) << "Time taken for indexing: " << timeMillis << "ms";*/
@@ -520,6 +599,21 @@ void CollectionManager::dispose() {
     for(auto & name_collection: collections) {
         delete name_collection.second;
         name_collection.second = nullptr;
+    }
+
+    auto referenced_ins_json = nlohmann::json::array();
+    for (const auto& pair: referenced_ins) {
+        nlohmann::json temp_json;
+        temp_json["referenced_coll_name"] = pair.first;
+        for (const auto& item: pair.second) {
+            const auto& ref_info = item.second;
+            temp_json["referenced_infos"] += reference_info_t::to_json(ref_info);
+        }
+
+        referenced_ins_json += temp_json;
+    }
+    if (!store->insert(REFERENCED_INS, referenced_ins_json.dump())) {
+         LOG(ERROR) << "Could not persist referenced_ins to store.";
     }
 
     collections.clear();
@@ -1667,8 +1761,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
                                                 const size_t batch_size,
                                                 const StoreStatus& next_coll_id_status,
                                                 const std::atomic<bool>& quit,
-                                                spp::sparse_hash_map<std::string, std::string>& referenced_in,
-                                                spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
+                                                const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos) {
 
     auto& cm = CollectionManager::get_instance();
 
@@ -1714,8 +1807,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
     }
 
-    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f, referenced_in,
-                                             async_referenced_ins);
+    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f, referenced_infos);
 
     LOG(INFO) << "Loading collection " << collection->get_name();
 
@@ -1949,7 +2041,13 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
 
 void CollectionManager::add_referenced_ins(const std::string& collection_name, reference_info_t&& ref_info) {
     std::unique_lock lock(mutex);
-    referenced_ins[collection_name] = {{ref_info.collection, ref_info}};
+    auto it = referenced_ins.find(collection_name);
+    if (it == referenced_ins.end()) {
+        referenced_ins[collection_name] = {{ref_info.collection, ref_info}};
+        return;
+    }
+
+    referenced_ins[collection_name].insert({ref_info.collection, ref_info});
 }
 
 void CollectionManager::remove_referenced_ins(const std::string& referenced_coll_name,

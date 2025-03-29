@@ -101,6 +101,7 @@ public:
     static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
     static constexpr const char* SYMLINK_PREFIX = "$SL";
     static constexpr const char* PRESET_PREFIX = "$PS";
+    static constexpr const char* REFERENCED_INS = "$REFERENCED_INS";
 
     uint16_t filter_by_max_ops;
 
@@ -116,15 +117,13 @@ public:
                                        const uint32_t collection_next_seq_id,
                                        Store* store,
                                        float max_memory_ratio,
-                                       spp::sparse_hash_map<std::string, std::string>& referenced_in,
-                                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins);
+                                       const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos);
 
     static Option<bool> load_collection(const nlohmann::json& collection_meta,
                                         const size_t batch_size,
                                         const StoreStatus& next_coll_id_status,
                                         const std::atomic<bool>& quit,
-                                        spp::sparse_hash_map<std::string, std::string>& referenced_in,
-                                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins);
+                                        const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos);
 
     Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json);
 
@@ -230,9 +229,8 @@ public:
 
     void process_embedding_field_delete(const std::string& model_name);
 
-    static void _populate_referenced_ins(const std::string& collection_meta_json,
-                                         std::map<std::string, spp::sparse_hash_map<std::string, std::string>>& referenced_ins,
-                                         std::map<std::string, spp::sparse_hash_map<std::string, std::set<reference_pair_t>>>& async_referenced_ins);
+    static void _populate_referenced_ins(const std::vector<std::string>& collection_meta_jsons,
+                                         std::map<std::string, std::map<std::string, reference_info_t>>& referenced_ins);
 
     std::unordered_set<std::string> get_collection_references(const std::string& coll_name);
 
