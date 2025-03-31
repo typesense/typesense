@@ -3514,4 +3514,23 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
     ASSERT_EQ(2, result["hits"].size());
     ASSERT_EQ("Pizza", result["hits"][0]["document"]["name"]);
     ASSERT_EQ("Pasta", result["hits"][1]["document"]["name"]);
+
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "*"},
+            {"filter_by",      "ingredients.{name : olives && concentration :<50} || ingredients.{name : cheese && concentration :>50}"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, result["found"].get<size_t>());
+    ASSERT_EQ(3, result["hits"].size());
+    ASSERT_EQ("Pizza Rolls", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Lasagna", result["hits"][1]["document"]["name"]);
+    ASSERT_EQ("Pizza", result["hits"][2]["document"]["name"]);
 }

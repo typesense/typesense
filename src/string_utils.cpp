@@ -388,7 +388,16 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
 
     for (size_t i = 0; i < size;) {
         auto c = filter_query[i];
-        if (c == ' ' || c == '}') {
+        if (c == ' ') {
+            i++;
+            continue;
+        }
+
+        if(c == '}') {
+            if (is_nested_object_field) {
+                is_nested_object_field = false;
+                tokens.push(")");
+            }
             i++;
             continue;
         }
@@ -469,6 +478,7 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
                     is_nested_object_field = true;
                     //clear buffer
                     ss.str("");
+                    tokens.push("(");
                     c = filter_query[++i];
                 }
             } while (i < size && (inBacktick || is_geo_value ||
@@ -483,6 +493,7 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
 
                 if(c == '}') {
                     is_nested_object_field = false;
+                    tokens.push(")");
                 }
             }
         }
