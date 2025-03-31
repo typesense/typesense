@@ -1723,24 +1723,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 }
 
 void filter_result_iterator_t::skip_to(uint32_t id) {
-    if (is_filter_result_initialized) {
-        ArrayUtils::skip_index_to_id(result_index, filter_result.docs, filter_result.count, id);
-
-        if (result_index >= filter_result.count) {
-            validity = invalid;
-            return;
-        }
-
-        seq_id = filter_result.docs[result_index];
-        reference.clear();
-        if (filter_result.coll_to_references != nullptr) {
-            auto& ref = filter_result.coll_to_references[result_index];
-            reference.insert(ref.begin(), ref.end());
-        }
-
-        return;
-    }
-
     if(filter_node->is_nested_object_filter) {
         auto collection = CollectionManager::get_instance().get_collection(collection_name);
 
@@ -1765,6 +1747,24 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
             validity = invalid;
             return;
         }
+    }
+
+    if (is_filter_result_initialized) {
+        ArrayUtils::skip_index_to_id(result_index, filter_result.docs, filter_result.count, id);
+
+        if (result_index >= filter_result.count) {
+            validity = invalid;
+            return;
+        }
+
+        seq_id = filter_result.docs[result_index];
+        reference.clear();
+        if (filter_result.coll_to_references != nullptr) {
+            auto& ref = filter_result.coll_to_references[result_index];
+            reference.insert(ref.begin(), ref.end());
+        }
+
+        return;
     }
 
     const filter a_filter = filter_node->filter_exp;
@@ -1969,8 +1969,9 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout
         return validity ? (seq_id == id ? 1 : 0) : -1;
     }
 
-    if (filter_node->isOperator) {
+    if (filter_node->isOperator && !filter_node->is_nested_object_filter) {
         // We only need to consider only valid/invalid state since child nodes can never time out.
+        // nested object filters need to be computed as whole, not in parts
         auto left_validity = left_it->is_valid(id), right_validity = right_it->is_valid(id);
 
         if (filter_node->filter_operator == AND) {
@@ -2047,6 +2048,10 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout
     }
 
     skip_to(id);
+
+    if(filter_node->is_nested_object_filter) {
+        return validity ? (id == seq_id ? 1 : 0) : -1;
+    }
 
     if (is_not_equals_iterator) {
         validity = valid;
@@ -3044,7 +3049,7 @@ void filter_result_iterator_t::post_filtering_validate_docs() {
         }
 
         //update the result ids
-        delete filter_result.docs;
+        delete[] filter_result.docs;
         filter_result.count = results.size();
         filter_result.docs = new uint32[results.size()];
         std::copy(results.begin(), results.end(), filter_result.docs);

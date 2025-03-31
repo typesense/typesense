@@ -3336,7 +3336,7 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
             R"({
                 "name": "menu",
                 "fields": [
-                    {"name": "name", "type": "string"},
+                    {"name": "name", "type": "string", "infix": true},
                     {"name": "ingredients", "type": "object[]"},
                     {"name": "ingredients.*", "type": "auto", "optional": true}
                 ],
@@ -3357,6 +3357,15 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
                 "name": "Lasagna",
                 "ingredients": [{"name": "cheese", "concentration": 60}, {"name": "jalepeno", "concentration": 20},
                                 {"name": "olives", "concentration": 20}]
+            })"_json,
+            R"({
+                "name": "Popcorn",
+                "ingredients": [{"name": "cheese", "concentration": 30}]
+            })"_json,
+            R"({
+                "name": "Pizza Rolls",
+                "ingredients": [{"name": "cheese", "concentration": 60}, {"name": "pizza sauce", "concentration": 5},
+                                {"name" : "corn", "concentration": 40}]
             })"_json
     };
 
@@ -3385,10 +3394,11 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     auto result = nlohmann::json::parse(json_res);
-    ASSERT_EQ(2, result["found"].get<size_t>());
-    ASSERT_EQ(2, result["hits"].size());
-    ASSERT_EQ("Pizza", result["hits"][0]["document"]["name"]);
-    ASSERT_EQ("Pasta", result["hits"][1]["document"]["name"]);
+    ASSERT_EQ(3, result["found"].get<size_t>());
+    ASSERT_EQ(3, result["hits"].size());
+    ASSERT_EQ("Popcorn", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Pizza", result["hits"][1]["document"]["name"]);
+    ASSERT_EQ("Pasta", result["hits"][2]["document"]["name"]);
 
     req_params = {
             {"collection",     "menu"},
@@ -3411,6 +3421,7 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
             {"collection",     "menu"},
             {"q",              "p*"},
             {"query_by",       "name"},
+            {"enable_lazy_filter",       "true"},
             {"filter_by",      "ingredients.{name : cheese && concentration :<50}"},
             {"include_fields", "name, ingredients"}
     };
@@ -3421,10 +3432,11 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     result = nlohmann::json::parse(json_res);
-    ASSERT_EQ(2, result["found"].get<size_t>());
-    ASSERT_EQ(2, result["hits"].size());
-    ASSERT_EQ("Pizza", result["hits"][0]["document"]["name"]);
-    ASSERT_EQ("Pasta", result["hits"][1]["document"]["name"]);
+    ASSERT_EQ(3, result["found"].get<size_t>());
+    ASSERT_EQ(3, result["hits"].size());
+    ASSERT_EQ("Popcorn", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Pizza", result["hits"][1]["document"]["name"]);
+    ASSERT_EQ("Pasta", result["hits"][2]["document"]["name"]);
 
     req_params = {
             {"collection",     "menu"},
@@ -3475,9 +3487,31 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, result["found"].get<size_t>());
+    ASSERT_EQ(4, result["hits"].size());
+    ASSERT_EQ("Pizza Rolls", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Popcorn", result["hits"][1]["document"]["name"]);
+    ASSERT_EQ("Lasagna", result["hits"][2]["document"]["name"]);
+    ASSERT_EQ("Pizza", result["hits"][3]["document"]["name"]);
+
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "a"},
+            {"query_by",       "name"},
+            {"infix",          "always"},
+            {"filter_by",      "ingredients.{name : cheese && concentration :<50} && name: p*"},
+            {"enable_lazy_filter", "true"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
     ASSERT_EQ(2, result["found"].get<size_t>());
     ASSERT_EQ(2, result["hits"].size());
-    ASSERT_EQ("Lasagna", result["hits"][0]["document"]["name"]);
-    ASSERT_EQ("Pizza", result["hits"][1]["document"]["name"]);
-
+    ASSERT_EQ("Pizza", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Pasta", result["hits"][1]["document"]["name"]);
 }

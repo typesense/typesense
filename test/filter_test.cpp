@@ -288,9 +288,25 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto iter_validate_ids_test3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
                                                             enable_lazy_evaluation);
     ASSERT_TRUE(iter_validate_ids_test3.init_status().ok());
+    ASSERT_FALSE(iter_validate_ids_test3._get_is_filter_result_initialized());
+
+    iter_validate_ids_test3.compute_iterators();
     ASSERT_TRUE(iter_validate_ids_test3._get_is_filter_result_initialized());
 
     validate_ids = {0, 1, 2, 3, 4, 5, 6}, seq_ids = {0, 4, 4, 4, 4, 4, 4};
+    expected = {1, 0, 0, 0, 1, -1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(expected[i], iter_validate_ids_test3.is_valid(validate_ids[i]));
+        ASSERT_EQ(seq_ids[i], iter_validate_ids_test3.seq_id);
+    }
+
+    // Lazy evaluation.
+    iter_validate_ids_test3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                       enable_lazy_evaluation);
+    ASSERT_TRUE(iter_validate_ids_test3.init_status().ok());
+    ASSERT_FALSE(iter_validate_ids_test3._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5, 6}, seq_ids = {0, 3, 3, 4, 4, 4, 4};
     expected = {1, 0, 0, 0, 1, -1, -1};
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
         ASSERT_EQ(expected[i], iter_validate_ids_test3.is_valid(validate_ids[i]));
@@ -1053,6 +1069,9 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
     auto iter_not_equals_and_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
                                                              filter_tree_root, enable_lazy_evaluation);
     ASSERT_TRUE(iter_not_equals_and_test.init_status().ok());
+    ASSERT_FALSE(iter_not_equals_and_test._get_is_filter_result_initialized());
+
+    iter_not_equals_and_test.compute_iterators();
     ASSERT_TRUE(iter_not_equals_and_test._get_is_filter_result_initialized());
 
     validate_ids = {4, 5, 6, 7};
@@ -1070,20 +1089,65 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_and_test.validity);
 
+    // Lazy evaluation.
+    iter_not_equals_and_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                        filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_not_equals_and_test.init_status().ok());
+    ASSERT_FALSE(iter_not_equals_and_test._get_is_filter_result_initialized());
+
+    validate_ids = {5, 6, 7, 8};
+    seq_ids = {6, 7, 8, 8};
+    expected = {1, 1, 0, -1};
+
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_and_test.validity);
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(expected[i], iter_not_equals_and_test.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_not_equals_and_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_not_equals_and_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_and_test.validity);
+
     delete filter_tree_root;
     filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("tags: != silver && tags: != gold", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
-    ASSERT_TRUE(iter_not_equals_and_test._get_is_filter_result_initialized());
 
     auto iter_not_equals_and_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
                                                                 filter_tree_root, enable_lazy_evaluation);
     ASSERT_TRUE(iter_not_equals_and_test_2.init_status().ok());
+    ASSERT_FALSE(iter_not_equals_and_test_2._get_is_filter_result_initialized());
+
+    iter_not_equals_and_test_2.compute_iterators();
+    ASSERT_TRUE(iter_not_equals_and_test_2._get_is_filter_result_initialized());
 
     validate_ids = {0, 1, 2, 3, 4, 5, 6, 7, 8};
     seq_ids = {1, 5, 5, 5, 5, 6, 6, 6, 6};
     expected = {0, 1, 0, 0, 0, 1, 1, -1, -1};
+
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_and_test_2.validity);
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(expected[i], iter_not_equals_and_test_2.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_not_equals_and_test_2.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_not_equals_and_test_2.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_and_test_2.validity);
+
+    // Lazy evaluation.
+    iter_not_equals_and_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                          filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_not_equals_and_test_2.init_status().ok());
+    ASSERT_FALSE(iter_not_equals_and_test_2._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+    seq_ids = {1, 2, 3, 4, 5, 6, 7, 8, 8};
+    expected = {0, 1, 0, 0, 0, 1, 1, 0, -1};
 
     ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_and_test_2.validity);
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
