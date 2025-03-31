@@ -731,7 +731,7 @@ public:
                spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>(),
                const nlohmann::json& metadata = {},
                spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins =
-                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
 
     ~Collection();
 
@@ -1087,13 +1087,22 @@ public:
 
     bool is_referenced_in(const std::string& collection_name) const;
 
-    void add_referenced_ins(const std::set<reference_info_t>& ref_infos);
+    // Return a copy of the referenced field in the referencing collection to avoid schema lookups in the future. The
+    // tradeoff is that we have to make sure any changes during collection alter operation are passed to the referencing
+    // collection.
+    [[nodiscard]] std::set<update_reference_info_t> add_referenced_ins(std::map<std::string, reference_info_t>& ref_infos);
 
-    void add_referenced_in(const std::string& collection_name, const std::string& field_name,
-                                   const bool& is_async, const std::string& referenced_field_name);
+    [[nodiscard]] std::set<update_reference_info_t> add_referenced_in(const std::string& collection_name,
+                                                                      const std::string& field_name, const bool& is_async,
+                                                                      const std::string& referenced_field_name,
+                                                                      field& referenced_field);
 
     void remove_referenced_in(const std::string& collection_name, const std::string& field_name,
                               const bool& is_async, const std::string& referenced_field_name);
+
+    void update_reference_field_with_lock(const std::string& field_name, const field& ref_field);
+
+    void update_reference_field(const std::string& field_name, const field& ref_field);
 
     Option<std::string> get_referenced_in_field_with_lock(const std::string& collection_name) const;
 

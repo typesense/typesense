@@ -4990,6 +4990,7 @@ TEST_F(CollectionVectorTest, TestRestoringImages) {
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     auto coll = collection_create_op.get();
+    ASSERT_TRUE(collection_create_op.ok());
 
     auto add_op = coll->add(R"({
         "name": "dog",

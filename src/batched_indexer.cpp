@@ -181,6 +181,12 @@ std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>&
                 coll_name = obj["history_collection"];
             }
         }
+    } else {
+        // Resolves alias if used in schema.
+        auto coll_op = CollectionManager::get_instance().resolve_symlink(coll_name);
+        if(coll_op.ok()) {
+            coll_name = coll_op.get();
+        }
     }
 
     return coll_name;
@@ -638,4 +644,8 @@ void BatchedIndexer::clear_skip_indices() {
     }
 
     meta_store->flush();
+}
+
+size_t BatchedIndexer::get_reference_q_size() {
+    return reference_q.size();
 }

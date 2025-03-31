@@ -847,6 +847,66 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
     return Option<bool>(true);
 }
 
+nlohmann::json field::field_to_json_field(const struct field& field) {
+    nlohmann::json field_val;
+    field_val[fields::name] = field.name;
+    field_val[fields::type] = field.type;
+    field_val[fields::facet] = field.facet;
+    field_val[fields::optional] = field.optional;
+    field_val[fields::index] = field.index;
+    field_val[fields::sort] = field.sort;
+    field_val[fields::infix] = field.infix;
+
+    field_val[fields::locale] = field.locale;
+
+    field_val[fields::store] = field.store;
+    field_val[fields::stem] = field.stem;
+    field_val[fields::range_index] = field.range_index;
+    field_val[fields::stem_dictionary] = field.stem_dictionary;
+
+    if(field.embed.count(fields::from) != 0) {
+        field_val[fields::embed] = field.embed;
+    }
+
+    field_val[fields::nested] = field.nested;
+    if(field.nested) {
+        field_val[fields::nested_array] = field.nested_array;
+    }
+
+    if(field.num_dim > 0) {
+        field_val[fields::num_dim] = field.num_dim;
+        field_val[fields::vec_dist] = field.vec_dist == ip ? "ip" : "cosine";
+    }
+
+    if (!field.reference.empty()) {
+        field_val[fields::reference] = field.reference;
+        field_val[fields::async_reference] = field.is_async_reference;
+    }
+
+    if(!field.token_separators.empty()) {
+        field_val[fields::token_separators] = nlohmann::json::array();
+
+        for(const auto& c : field.token_separators) {
+            std::string token{c};
+            field_val[fields::token_separators].push_back(token);
+        }
+    }
+
+    if(!field.symbols_to_index.empty()) {
+        field_val[fields::symbols_to_index] = nlohmann::json::array();
+
+        for(const auto& c : field.symbols_to_index) {
+            std::string symbol{c};
+            field_val[fields::symbols_to_index].push_back(symbol);
+        }
+    }
+
+    if (field.num_dim > 0 && !field.hnsw_params.empty()) {
+        field_val[fields::hnsw_params] = field.hnsw_params;
+    }
+    return field_val;
+}
+
 Option<bool> field::fields_to_json_fields(const std::vector<field>& fields, const string& default_sorting_field,
                                           nlohmann::json& fields_json) {
     bool found_default_sorting_field = false;
@@ -861,60 +921,7 @@ Option<bool> field::fields_to_json_fields(const std::vector<field>& fields, cons
             continue;
         }
 
-        nlohmann::json field_val;
-        field_val[fields::name] = field.name;
-        field_val[fields::type] = field.type;
-        field_val[fields::facet] = field.facet;
-        field_val[fields::optional] = field.optional;
-        field_val[fields::index] = field.index;
-        field_val[fields::sort] = field.sort;
-        field_val[fields::infix] = field.infix;
-
-        field_val[fields::locale] = field.locale;
-
-        field_val[fields::store] = field.store;
-        field_val[fields::stem] = field.stem;
-        field_val[fields::range_index] = field.range_index;
-        field_val[fields::stem_dictionary] = field.stem_dictionary;
-
-        if(field.embed.count(fields::from) != 0) {
-            field_val[fields::embed] = field.embed;
-        }
-
-        field_val[fields::nested] = field.nested;
-        if(field.nested) {
-            field_val[fields::nested_array] = field.nested_array;
-        }
-
-        if(field.num_dim > 0) {
-            field_val[fields::num_dim] = field.num_dim;
-            field_val[fields::vec_dist] = field.vec_dist == ip ? "ip" : "cosine";
-        }
-
-        if (!field.reference.empty()) {
-            field_val[fields::reference] = field.reference;
-            field_val[fields::async_reference] = field.is_async_reference;
-        }
-
-        if(!field.token_separators.empty()) {
-            field_val[fields::token_separators] = nlohmann::json::array();
-
-            for(const auto& c : field.token_separators) {
-                std::string token{c};
-                field_val[fields::token_separators].push_back(token);
-            }
-        }
-
-        if(!field.symbols_to_index.empty()) {
-            field_val[fields::symbols_to_index] = nlohmann::json::array();
-
-            for(const auto& c : field.symbols_to_index) {
-                std::string symbol{c};
-                field_val[fields::symbols_to_index].push_back(symbol);
-            }
-        }
-
-        fields_json.push_back(field_val);
+        fields_json.push_back(field_to_json_field(field));
 
         if(!field.has_valid_type()) {
             return Option<bool>(400, "Field `" + field.name +
