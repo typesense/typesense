@@ -247,6 +247,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
             },
             {
               "facet":false,
+              "hnsw_params": {"M": 16, "ef_construction": 200},
               "index":true,
               "infix":false,
               "locale":"",

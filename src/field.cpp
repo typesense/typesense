@@ -901,9 +901,9 @@ nlohmann::json field::field_to_json_field(const struct field& field) {
         }
     }
 
-//    if (!field.hnsw_params.empty()) {
-//        field_val[fields::hnsw_params] = field.hnsw_params;
-//    }
+    if (field.num_dim > 0 && !field.hnsw_params.empty()) {
+        field_val[fields::hnsw_params] = field.hnsw_params;
+    }
     return field_val;
 }
 
