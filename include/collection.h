@@ -729,7 +729,9 @@ public:
                const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
                const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model = nullptr,
                spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>(),
-               const nlohmann::json& metadata = {});
+               const nlohmann::json& metadata = {},
+               spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins =
+                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
 
     ~Collection();
 

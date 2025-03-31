@@ -1766,49 +1766,53 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
 }
 
 TEST_F(CollectionManagerTest, PopulateReferencedIns) {
-//    std::vector<std::string> collection_meta_jsons = {
-//            R"({
-//                "name": "A",
-//                "fields": [
-//                  {"name": "a_id", "type": "string"}
-//                ]
-//            })"_json.dump(),
-//            R"({
-//                "name": "B",
-//                "fields": [
-//                  {"name": "b_id", "type": "string"},
-//                  {"name": "a_ref", "type": "string", "reference": "A.a_id"},
-//                  {"name": "c_ref", "type": "string", "reference": "C.c_id", "async_reference": true}
-//                ]
-//            })"_json.dump(),
-//            R"({
-//                "name": "C",
-//                "fields": [
-//                  {"name": "c_id", "type": "string"}
-//                ]
-//            })"_json.dump(),
-//    };
-//    std::map<std::string, std::map<std::string, reference_info_t>> referenced_ins;
-//
-//    CollectionManager::_populate_referenced_ins(collection_meta_jsons, referenced_ins);
-//
-//    ASSERT_EQ(2, referenced_ins.size());
-//    ASSERT_EQ(1, referenced_ins.count("A"));
-//    ASSERT_EQ(1, referenced_ins["A"].size());
-//    ASSERT_EQ(1, referenced_ins["A"].count("B"));
-//    ASSERT_EQ("a_ref", referenced_ins["A"]["B"]);
-//
-//    ASSERT_EQ(1, referenced_ins.count("C"));
-//    ASSERT_EQ(1, referenced_ins["C"].size());
-//    ASSERT_EQ(1, referenced_ins["C"].count("B"));
-//    ASSERT_EQ("c_ref", referenced_ins["C"]["B"]);
-//
-//    ASSERT_EQ(1, async_referenced_ins.count("C"));
-//    ASSERT_EQ(1, async_referenced_ins["C"].size());
-//    ASSERT_EQ(1, async_referenced_ins["C"].count("c_id"));
-//    ASSERT_EQ(1, async_referenced_ins["C"]["c_id"].size());
-//    ASSERT_EQ("B", async_referenced_ins["C"]["c_id"].begin()->collection);
-//    ASSERT_EQ("c_ref", async_referenced_ins["C"]["c_id"].begin()->field);
+    std::vector<std::string> collection_meta_jsons = {
+            R"({
+                "name": "A",
+                "fields": [
+                  {"name": "a_id", "type": "string", "index": false}
+                ]
+            })"_json.dump(),
+            R"({
+                "name": "B",
+                "fields": [
+                  {"name": "b_id", "type": "string"},
+                  {"name": "a_ref", "type": "string", "reference": "A.a_id"},
+                  {"name": "c_ref", "type": "string", "reference": "C.c_id", "async_reference": true}
+                ]
+            })"_json.dump(),
+            R"({
+                "name": "C",
+                "fields": [
+                  {"name": "c_id", "type": "int32", "optional": true}
+                ]
+            })"_json.dump(),
+    };
+
+    std::map<std::string, std::map<std::string, reference_info_t>> referenced_ins;
+    CollectionManager::_populate_referenced_ins(collection_meta_jsons, referenced_ins);
+
+    ASSERT_EQ(2, referenced_ins.size());
+    ASSERT_EQ(1, referenced_ins.count("A"));
+    ASSERT_EQ(1, referenced_ins["A"].size());
+    ASSERT_EQ(1, referenced_ins["A"].count("B"));
+    ASSERT_EQ("B", referenced_ins["A"].at("B").collection);
+    ASSERT_EQ("a_ref", referenced_ins["A"].at("B").field);
+    ASSERT_FALSE(referenced_ins["A"].at("B").is_async);
+    ASSERT_EQ("a_id", referenced_ins["A"].at("B").referenced_field.name);
+    ASSERT_EQ("string", referenced_ins["A"].at("B").referenced_field.type);
+    ASSERT_FALSE(referenced_ins["A"].at("B").referenced_field.index);
+
+    ASSERT_EQ(1, referenced_ins.count("C"));
+    ASSERT_EQ(1, referenced_ins["C"].size());
+    ASSERT_EQ(1, referenced_ins["C"].count("B"));
+    ASSERT_EQ("B", referenced_ins["C"].at("B").collection);
+    ASSERT_EQ("c_ref", referenced_ins["C"].at("B").field);
+    ASSERT_TRUE(referenced_ins["C"].at("B").is_async);
+    ASSERT_EQ("c_id", referenced_ins["C"].at("B").referenced_field.name);
+    ASSERT_EQ("int32", referenced_ins["C"].at("B").referenced_field.type);
+    ASSERT_TRUE(referenced_ins["C"].at("B").referenced_field.index);
+    ASSERT_TRUE(referenced_ins["C"].at("B").referenced_field.optional);
 }
 
 TEST_F(CollectionManagerTest, CollectionPagination) {

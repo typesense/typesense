@@ -60,7 +60,8 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const std::vector<std::string>& token_separators,
                        const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model,
                        spp::sparse_hash_map<std::string, std::string> referenced_in,
-                       const nlohmann::json& metadata) :
+                       const nlohmann::json& metadata,
+                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins) :
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
@@ -69,7 +70,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
         index(init_index()), vq_model(vq_model),
         referenced_in(std::move(referenced_in)),
-        metadata(metadata) {
+        metadata(metadata), async_referenced_ins(std::move(async_referenced_ins))  {
     
     if (vq_model) {
         vq_model->inc_collection_ref_count();
@@ -844,7 +845,6 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
                                          const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings) {
     std::unique_lock lock(mutex);
-    LOG(INFO) << "index " << name << " documents";
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
                                                    search_schema, embedding_fields, fallback_field_type,
                                                    token_separators, symbols_to_index, true, remote_embedding_batch_size,

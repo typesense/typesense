@@ -383,7 +383,8 @@ struct field {
     }
 
     static field field_from_json(const nlohmann::json& json) {
-        return field(json[fields::name].get<std::string>(), json[fields::type].get<std::string>(), json[fields::facet].get<bool>(),
+        return field(json[fields::name].get<std::string>(), json[fields::type].get<std::string>(),
+                     json.contains(fields::facet) ? json[fields::facet].get<bool>() : false,
                      json.contains(fields::optional) ? json[fields::optional].get<bool>() : false,
                      json.contains(fields::index) ? json[fields::index].get<bool>() : true,
                      json.contains(fields::locale) ? json[fields::locale].get<std::string>() : "",

@@ -206,11 +206,16 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     }
 
     spp::sparse_hash_map<std::string, std::string> referenced_in{};
+    spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins;
     auto ref_info_it = referenced_infos.find(this_collection_name);
     if (ref_info_it != referenced_infos.end()) {
         for (const auto& item: ref_info_it->second) {
             const auto& ref_info = item.second;
             referenced_in.emplace(ref_info.collection, ref_info.field);
+
+            if (ref_info.is_async) {
+                async_referenced_ins[ref_info.referenced_field_name].emplace(ref_info.collection, ref_info.field);
+            }
         }
     }
 
@@ -233,7 +238,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             token_separators,
                                             enable_nested_fields, model,
                                             referenced_in,
-                                            metadata);
+                                            metadata,
+                                            async_referenced_ins);
 
     for (const auto& ref_field: collection->get_reference_fields()) {
         const auto& ref_info = ref_field.second;
@@ -283,21 +289,17 @@ void CollectionManager::init(Store *store, const float max_memory_ratio, const s
 }
 
 field get_referenced_field(const std::string& ref_schema, const std::string& ref_field_name) {
-    struct field ref_field{};
     const auto& ref_coll_schema = nlohmann::json::parse(ref_schema);
     for (const auto &field: ref_coll_schema["fields"]) {
-        if (!field.contains("name") || !field.contains("reference")) {
+        auto it = field.find("name");
+        if (it == field.end() || it->get<std::string>() != ref_field_name) {
             continue;
         }
 
-        const auto& field_name = std::string(field["name"]);
-        if (field_name != ref_field_name) {
-            continue;
-        }
         return field::field_from_json(field);
     }
 
-    return ref_field;
+    return field{};
 }
 
 void CollectionManager::_populate_referenced_ins(const std::vector<std::string>& collection_meta_jsons,
