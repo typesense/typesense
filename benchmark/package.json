@@ -46,11 +46,11 @@
     "eslint": "^9.17.0",
     "openai": "^4.83.0",
     "prettier": "^3.4.2",
-    "tsup": "^8.3.5",
+    "tsup": "^8.4.0",
     "type-fest": "^4.31.0",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.2",
-    "vitest": "^3.0.2",
+    "vitest": "^3.1.1",
     "zod": "^3.24.1"
   },
   "dependencies": {
