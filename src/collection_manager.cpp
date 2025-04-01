@@ -454,6 +454,26 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         }
     }
 
+    // load stemming dictionaries
+    std::string stemming_dictionary_prefix_key = std::string(StemmerManager::STEMMING_DICTIONARY_PREFIX) + "_";
+    std::string stemming_dictionary_upper_bound_key = std::string(StemmerManager::STEMMING_DICTIONARY_PREFIX) + "`";
+    rocksdb::Slice stemming_dictionary_upper_bound(stemming_dictionary_upper_bound_key);
+
+    iter = store->scan(stemming_dictionary_prefix_key, &stemming_dictionary_upper_bound);
+    while(iter->Valid() && iter->key().starts_with(stemming_dictionary_prefix_key)) {
+        std::string stemming_dictionary_name = iter->key().ToString().substr(stemming_dictionary_prefix_key.size());
+        nlohmann::json stemming_dictionary_obj = nlohmann::json::parse(iter->value().ToString(), nullptr, false);
+
+        if(!stemming_dictionary_obj.is_discarded() && stemming_dictionary_obj.is_object()) {
+            StemmerManager::get_instance().load_stemming_dictioary(stemming_dictionary_obj);
+        } else {
+            LOG(INFO) << "Invalid object for stemming dictionary " << stemming_dictionary_name;
+        }
+
+        iter->Next();
+    }
+    delete iter;
+
     ThreadPool loading_pool(collection_batch_size);
 
     size_t num_processed = 0;
@@ -550,26 +570,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
             StopwordsManager::get_instance().upsert_stopword(stopword_name, stopword_obj);
         } else {
             LOG(INFO) << "Invalid object for stopword " << stopword_name;
-        }
-
-        iter->Next();
-    }
-    delete iter;
-
-    // load stemming dictionaries
-    std::string stemming_dictionary_prefix_key = std::string(StemmerManager::STEMMING_DICTIONARY_PREFIX) + "_";
-    std::string stemming_dictionary_upper_bound_key = std::string(StemmerManager::STEMMING_DICTIONARY_PREFIX) + "`";
-    rocksdb::Slice stemming_dictionary_upper_bound(stemming_dictionary_upper_bound_key);
-
-    iter = store->scan(stemming_dictionary_prefix_key, &stemming_dictionary_upper_bound);
-    while(iter->Valid() && iter->key().starts_with(stemming_dictionary_prefix_key)) {
-        std::string stemming_dictionary_name = iter->key().ToString().substr(stemming_dictionary_prefix_key.size());
-        nlohmann::json stemming_dictionary_obj = nlohmann::json::parse(iter->value().ToString(), nullptr, false);
-
-        if(!stemming_dictionary_obj.is_discarded() && stemming_dictionary_obj.is_object()) {
-            StemmerManager::get_instance().load_stemming_dictioary(stemming_dictionary_obj);
-        } else {
-            LOG(INFO) << "Invalid object for stemming dictionary " << stemming_dictionary_name;
         }
 
         iter->Next();
