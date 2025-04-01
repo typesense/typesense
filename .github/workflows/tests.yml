@@ -38,7 +38,7 @@ jobs:
           sudo apt-get install -y lld
 
       - name: Set up Bazel
-        uses: bazelbuild/setup-bazelisk@v2
+        uses: bazel-contrib/setup-bazel@0.14.0
 
       - name: Download bazel cache
         uses: jasonbosco/action-download-artifact@709b71d3729e8980f52a5a2a9ec04261060945c1
