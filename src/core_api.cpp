@@ -550,6 +550,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
             if(seconds_elapsed < cached_value.ttl) {
                 res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
                 AppMetrics::get_instance().increment_count(AppMetrics::CACHE_HIT_LABEL, 1);
+                stream_response(req, res);
                 return true;
             }
 
@@ -774,7 +775,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     stream_response(req, res);
 
     // we will cache only successful requests
-    if(use_cache) {
+    if(use_cache && !conversation_stream) {
         //LOG(INFO) << "Adding to cache, key = " << req_hash;
         auto now = std::chrono::high_resolution_clock::now();
         const auto cache_ttl_it = req->params.find("cache_ttl");
@@ -784,7 +785,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         }
 
         cached_res_t cached_res;
-        cached_res.load(res->status_code, res->content_type_header, res->body, now, cache_ttl, req_hash);
+        cached_res.load(res->status_code, res->content_type_header, results_json_str, now, cache_ttl, req_hash);
 
         std::unique_lock lock(mutex);
         res_cache.insert(req_hash, cached_res);
@@ -820,7 +821,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
             if(seconds_elapsed < cached_value.ttl) {
                 res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
-                res->final = true;
                 stream_response(req, res);
                 AppMetrics::get_instance().increment_count(AppMetrics::CACHE_HIT_LABEL, 1);
                 return true;
@@ -1215,7 +1215,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     stream_response(req, res);
 
     // we will cache only successful requests
-    if(use_cache) {
+    if(use_cache && !conversation_stream) {
         //LOG(INFO) << "Adding to cache, key = " << req_hash;
         auto now = std::chrono::high_resolution_clock::now();
         const auto cache_ttl_it = req->params.find("cache_ttl");
@@ -1225,7 +1225,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
 
         cached_res_t cached_res;
-        cached_res.load(res->status_code, res->content_type_header, res->body, now, cache_ttl, req_hash);
+        cached_res.load(res->status_code, res->content_type_header, response_str, now, cache_ttl, req_hash);
 
         std::unique_lock lock(mutex);
         res_cache.insert(req_hash, cached_res);
