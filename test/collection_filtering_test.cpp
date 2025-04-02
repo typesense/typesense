@@ -3421,7 +3421,6 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
             {"collection",     "menu"},
             {"q",              "p*"},
             {"query_by",       "name"},
-            {"enable_lazy_filter",       "true"},
             {"filter_by",      "ingredients.{name : cheese && concentration :<50}"},
             {"include_fields", "name, ingredients"}
     };
@@ -3517,8 +3516,11 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
 
     req_params = {
             {"collection",     "menu"},
-            {"q",              "*"},
+            {"q",              "a"},
+            {"query_by",       "name"},
+            {"infix",          "always"},
             {"filter_by",      "ingredients.{name : olives && concentration :<50} || ingredients.{name : cheese && concentration :>50}"},
+            {"enable_lazy_filter", "true"},
             {"include_fields", "name, ingredients"}
     };
     now_ts = std::chrono::duration_cast<std::chrono::microseconds>(

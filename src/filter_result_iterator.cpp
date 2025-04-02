@@ -1728,29 +1728,11 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
 void filter_result_iterator_t::skip_to(uint32_t id) {
     if(filter_node->is_nested_object_filter) {
-        auto collection = CollectionManager::get_instance().get_collection(collection_name);
-
-        if (collection.get() != nullptr) {
-            const std::string& seq_id_key = collection->get_seq_id_key(id);
-
-            nlohmann::json document;
-            const Option<bool>& document_op = collection->get_document_from_store(seq_id_key, document);
-
-            if (!document_op.ok()) {
-                LOG(ERROR) << "Document fetch error. " << document_op.error();
-                validity = invalid;
-                return;
-            }
-
-            for (const auto& nested_object: document[filter_node->nested_object_parent]) {
-                if (validate_filter_nested_object(nested_object, filter_node)) {
-                    seq_id = id;
-                    return;
-                }
-            }
-            validity = invalid;
+        if(validate_document_with_filters(id)) {
+            seq_id = id;
             return;
         }
+        return;
     }
 
     if (is_filter_result_initialized) {
@@ -1973,65 +1955,71 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout
         return validity ? (seq_id == id ? 1 : 0) : -1;
     }
 
-    if (filter_node->isOperator && !filter_node->is_nested_object_filter) {
-        // We only need to consider only valid/invalid state since child nodes can never time out.
-        // nested object filters need to be computed as whole, not in parts
-        auto left_validity = left_it->is_valid(id), right_validity = right_it->is_valid(id);
+    if (filter_node->isOperator) {
+        if(filter_node->is_nested_object_filter) {
+            // nested object filters need to be computed as whole, not in parts
+            skip_to(id);
 
-        if (filter_node->filter_operator == AND) {
-            validity = (left_it->validity == valid && right_it->validity == valid) ? valid : invalid;
-
-            if (left_validity < 1 || right_validity < 1) {
-                if (left_validity == -1 || right_validity == -1) {
-                    return -1;
-                }
-
-                seq_id = std::max(left_it->seq_id, right_it->seq_id);
-                return 0;
-            }
-
-            seq_id = id;
-
-            reference.clear();
-            for (const auto& item: left_it->reference) {
-                reference[item.first] = item.second;
-            }
-            for (const auto& item: right_it->reference) {
-                reference[item.first] = item.second;
-            }
-            return 1;
+            return validity ? (id == seq_id ? 1 : 0) : -1;
         } else {
-            validity = (left_it->validity == valid || right_it->validity == valid) ? valid : invalid;
+            // We only need to consider only valid/invalid state since child nodes can never time out.
+            auto left_validity = left_it->is_valid(id), right_validity = right_it->is_valid(id);
 
-            if (left_validity < 1 && right_validity < 1) {
-                if (left_validity == -1 && right_validity == -1) {
-                    return -1;
-                } else if (left_validity == -1) {
-                    seq_id = right_it->seq_id;
-                    return 0;
-                } else if (right_validity == -1) {
-                    seq_id = left_it->seq_id;
+            if (filter_node->filter_operator == AND) {
+                validity = (left_it->validity == valid && right_it->validity == valid) ? valid : invalid;
+
+                if (left_validity < 1 || right_validity < 1) {
+                    if (left_validity == -1 || right_validity == -1) {
+                        return -1;
+                    }
+
+                    seq_id = std::max(left_it->seq_id, right_it->seq_id);
                     return 0;
                 }
 
-                seq_id = std::min(left_it->seq_id, right_it->seq_id);
-                return 0;
-            }
+                seq_id = id;
 
-            seq_id = id;
-
-            reference.clear();
-            if (left_validity == 1) {
+                reference.clear();
                 for (const auto& item: left_it->reference) {
                     reference[item.first] = item.second;
                 }
-            }
-            if (right_validity == 1) {
                 for (const auto& item: right_it->reference) {
                     reference[item.first] = item.second;
                 }
+                return 1;
+            } else {
+                validity = (left_it->validity == valid || right_it->validity == valid) ? valid : invalid;
+
+                if (left_validity < 1 && right_validity < 1) {
+                    if (left_validity == -1 && right_validity == -1) {
+                        return -1;
+                    } else if (left_validity == -1) {
+                        seq_id = right_it->seq_id;
+                        return 0;
+                    } else if (right_validity == -1) {
+                        seq_id = left_it->seq_id;
+                        return 0;
+                    }
+
+                    seq_id = std::min(left_it->seq_id, right_it->seq_id);
+                    return 0;
+                }
+
+                seq_id = id;
+
+                reference.clear();
+                if (left_validity == 1) {
+                    for (const auto& item: left_it->reference) {
+                        reference[item.first] = item.second;
+                    }
+                }
+                if (right_validity == 1) {
+                    for (const auto& item: right_it->reference) {
+                        reference[item.first] = item.second;
+                    }
+                }
+                return 1;
             }
-            return 1;
         }
     }
 
@@ -2052,10 +2040,6 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout
     }
 
     skip_to(id);
-
-    if(filter_node->is_nested_object_filter) {
-        return validity ? (id == seq_id ? 1 : 0) : -1;
-    }
 
     if (is_not_equals_iterator) {
         validity = valid;
@@ -3046,6 +3030,8 @@ bool filter_result_iterator_t::validate_filter_nested_object(nlohmann::json doc,
 bool filter_result_iterator_t::validate_document_with_filters(uint32_t seqid) {
     auto collection = CollectionManager::get_instance().get_collection(collection_name);
     if (collection.get() != nullptr) {
+        auto total_docs = collection->get_num_documents();
+
         const std::string& seq_id_key = collection->get_seq_id_key(seqid);
 
         nlohmann::json document;
@@ -3060,6 +3046,11 @@ bool filter_result_iterator_t::validate_document_with_filters(uint32_t seqid) {
             if (validate_filter_nested_object(nested_object, filter_node)) {
                 return true;
             }
+        }
+
+        if(seqid == total_docs - 1) {
+            //reached end
+            validity = invalid;
         }
     }
     return false;
