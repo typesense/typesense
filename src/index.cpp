@@ -6246,11 +6246,6 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
     filter_result_iterator->compute_iterators();
 
-    //validate filter if any nested object fields are there
-    if(filter_tree_root && filter_tree_root->is_nested_object_filter) {
-        filter_result_iterator->post_filtering_validate_docs();
-    }
-
     auto const& approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
 
     // Timed out during computation of filter_result_iterator. We should still process the partial ids.

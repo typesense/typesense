@@ -341,6 +341,10 @@ private:
 
     bool validate_filter_nested_object(nlohmann::json doc, const filter_node_t* filter_node);
 
+    bool validate_document_with_filters(uint32_t seqid);
+
+    void init_nested_object_filter();
+
 public:
     uint32_t seq_id = 0;
     /// Collection name -> references
@@ -422,8 +426,6 @@ public:
 
     static void add_phrase_ids(filter_result_iterator_t*& filter_result_iterator,
                                uint32_t* phrase_result_ids, const uint32_t& phrase_result_count);
-
-    void post_filtering_validate_docs();
 
     [[nodiscard]] bool _get_is_filter_result_initialized() const {
         return is_filter_result_initialized;

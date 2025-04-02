@@ -714,7 +714,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
 
             filter_node = new filter_node_t(expression == "&&" ? AND : OR, operandA, operandB);
             filter_node->filter_query = operandA->filter_query + " " + expression + " " + operandB->filter_query;
-            if(operandA->is_nested_object_filter || operandB->is_nested_object_filter) {
+            if(operandA->is_nested_object_filter && operandB->is_nested_object_filter) {
                 filter_node->is_nested_object_filter = true;
                 filter_node->nested_object_parent = !operandA->nested_object_parent.empty() ?
                         operandA->nested_object_parent : operandB->nested_object_parent;
