@@ -443,13 +443,25 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
                     is_geo_value = false;
                 }
 
-                if(c == '{' && is_nested_object_field) {
+                if(c == '{') {
+                    if(filter_query[i-1] != '.') {
+                        return Option<bool>(400, "Bad nested filter query syntax.");
+                    }
+
                     c = filter_query[++i];
                 }
 
-                if( c == '}' && is_nested_object_field) {
+                if(c == '}') {
+                    if(!is_nested_object_field) {
+                        return Option<bool>(400, "Bad nested filter query syntax.");
+                    }
                     ++i;
                     break;
+                }
+
+                if((c == '(' || c == ')') && is_nested_object_field) {
+                    tokens.push(std::string(1, c));
+                    c = filter_query[++i];
                 }
 
                 ss << c;

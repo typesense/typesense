@@ -339,9 +339,9 @@ private:
     /// this operation.
     void skip_to(uint32_t id);
 
-    bool validate_filter_nested_object(nlohmann::json doc, const filter_node_t* filter_node);
+    bool validate_object_filter_helper(nlohmann::json doc, const filter_node_t* filter_node);
 
-    bool validate_document_with_filters(uint32_t seqid);
+    bool validate_object_filter(uint32_t seqid, filter_node_t* filter_node = nullptr);
 
     void init_nested_object_filter();
 

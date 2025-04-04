@@ -683,6 +683,12 @@ void filter_result_iterator_t::next() {
             or_filter_iterators();
         }
 
+        if(filter_node->is_nested_object_filter) {
+            if(!validate_object_filter(seq_id)) {
+                next();
+            }
+        }
+
         return;
     }
 
@@ -1728,10 +1734,12 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
 void filter_result_iterator_t::skip_to(uint32_t id) {
     if(filter_node->is_nested_object_filter) {
-        if(validate_document_with_filters(id)) {
+        if(validate_object_filter(id)) {
             seq_id = id;
             return;
         }
+        //advance iterators in case didnt match
+        next();
         return;
     }
 
@@ -2620,7 +2628,7 @@ void filter_result_iterator_t::compute_iterators() {
             std::vector<uint32_t> processed_results;
             for(auto i = 0; i < filter_result.count; ++i) {
                 auto seqid = filter_result.docs[i];
-                if(validate_document_with_filters(seqid)) {
+                if(validate_object_filter(seqid)) {
                     processed_results.push_back(seqid);
                 }
             }
@@ -2921,21 +2929,16 @@ filter_result_iterator_timeout_info::filter_result_iterator_timeout_info(uint64_
                                                                          search_stop_us(search_stop) {}
 
 
-bool filter_result_iterator_t::validate_filter_nested_object(nlohmann::json doc, const filter_node_t* filter_node) {
+bool filter_result_iterator_t::validate_object_filter_helper(nlohmann::json doc, const filter_node_t* filter_node) {
     if(filter_node->isOperator) {
         if(filter_node->filter_operator == AND) {
-            return validate_filter_nested_object(doc, filter_node->left) &&
-                    validate_filter_nested_object(doc, filter_node->right);
+            return validate_object_filter_helper(doc, filter_node->left) &&
+                   validate_object_filter_helper(doc, filter_node->right);
         } else {
-            return validate_filter_nested_object(doc, filter_node->left) ||
-                    validate_filter_nested_object(doc, filter_node->right);
+            return validate_object_filter_helper(doc, filter_node->left) ||
+                   validate_object_filter_helper(doc, filter_node->right);
         }
     } else {
-        if(!filter_node->is_nested_object_filter) {
-            //post processing for nested object fields only
-            return true;
-        }
-
         const auto& filter_exp = filter_node->filter_exp;
         auto pos = filter_exp.field_name.find(".");
 
@@ -3027,30 +3030,33 @@ bool filter_result_iterator_t::validate_filter_nested_object(nlohmann::json doc,
     }
 }
 
-bool filter_result_iterator_t::validate_document_with_filters(uint32_t seqid) {
-    auto collection = CollectionManager::get_instance().get_collection(collection_name);
-    if (collection.get() != nullptr) {
-        auto total_docs = collection->get_num_documents();
+bool filter_result_iterator_t::validate_object_filter(uint32_t seqid, filter_node_t* filterNode) {
+    auto filterNode_current = filterNode != nullptr ? filterNode : filter_node;
 
-        const std::string& seq_id_key = collection->get_seq_id_key(seqid);
-
-        nlohmann::json document;
-        const Option<bool>& document_op = collection->get_document_from_store(seq_id_key, document);
-
-        if (!document_op.ok()) {
-            LOG(ERROR) << "Document fetch error. " << document_op.error();
-            return false;
+    if(filterNode_current->isOperator && (filterNode_current->left->nested_object_parent != filterNode_current->right->nested_object_parent)) {
+        if(filterNode_current->filter_operator == AND) {
+            return validate_object_filter(seqid, filterNode_current->left) && validate_object_filter(seqid, filterNode_current->right);
+        } else {
+            return validate_object_filter(seqid, filterNode_current->left) || validate_object_filter(seqid, filterNode_current->right);
         }
+    } else {
+        auto collection = CollectionManager::get_instance().get_collection(collection_name);
+        if (collection.get() != nullptr) {
+            const std::string& seq_id_key = collection->get_seq_id_key(seqid);
 
-        for (const auto& nested_object: document[filter_node->nested_object_parent]) {
-            if (validate_filter_nested_object(nested_object, filter_node)) {
-                return true;
+            nlohmann::json document;
+            const Option<bool>& document_op = collection->get_document_from_store(seq_id_key, document);
+
+            if (!document_op.ok()) {
+                LOG(ERROR) << "Document fetch error. " << document_op.error();
+                return false;
             }
-        }
 
-        if(seqid == total_docs - 1) {
-            //reached end
-            validity = invalid;
+            for (const auto& nested_object: document[filterNode_current->nested_object_parent]) {
+                if (validate_object_filter_helper(nested_object, filterNode_current)) {
+                    return true;
+                }
+            }
         }
     }
     return false;
@@ -3058,7 +3064,13 @@ bool filter_result_iterator_t::validate_document_with_filters(uint32_t seqid) {
 
 void filter_result_iterator_t::init_nested_object_filter() {
     while(validity != invalid) {
-        if (validate_document_with_filters(seq_id)) {
+        if (filter_node->filter_operator == AND) {
+            and_filter_iterators();
+        } else {
+            or_filter_iterators();
+        }
+
+        if (validate_object_filter(seq_id)) {
             break;
         }
         next();
