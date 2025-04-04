@@ -3726,7 +3726,6 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFilteringMultiple) {
             {"filter_by",      "country.{name : I* && consumption :>20} && name: l* && ingredients.{name : olives && concentration :20}"},
             {"include_fields", "name, ingredients, country"}
     };
-    embedded_params;
     json_res.clear();
     now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();

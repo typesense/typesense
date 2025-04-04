@@ -2240,3 +2240,88 @@ TEST_F(FilterTest, IdFilterIterator) {
     delete filter_tree_root;
     filter_tree_root = nullptr;
 }
+
+TEST_F(FilterTest, ObjectFitlterIterator) {
+    auto schema_json =
+            R"({
+                "name": "menu",
+                "fields": [
+                    {"name": "name", "type": "string", "infix": true},
+                    {"name": "ingredients", "type": "object[]"},
+                    {"name": "ingredients.*", "type": "auto", "optional": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({ "name": "Pasta", "ingredients": [{"name": "cheese", "concentration": 40},
+                                                {"name": "spinach", "concentration": 100},
+                                                {"name": "jalepeno", "concentration": 20}]
+        })"_json,
+            R"({ "name": "Lasagna", "ingredients": [{"name": "cheese", "concentration": 60},
+                                                {"name": "jalepeno", "concentration": 20},
+                                                {"name": "olives", "concentration": 20}]
+        })"_json,
+            R"({ "name": "Pizza", "ingredients": [{"name": "cheese", "concentration": 30},
+                                                {"name": "pizza sauce", "concentration": 30},
+                                                {"name": "olives", "concentration": 30}]
+        })"_json,
+            R"({ "name": "Popcorn", "ingredients": [{"name": "cheese", "concentration": 30}]
+        })"_json,
+            R"({"name": "Pizza Rolls", "ingredients": [{"name": "cheese", "concentration": 60},
+                                                {"name": "pizza sauce", "concentration": 5},
+                                                {"name" : "corn", "concentration": 40}]
+        })"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll = collection_create_op.get();
+    for (auto const& json: documents) {
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    Option<bool> filter_op = filter::parse_filter_query("ingredients.{name : cheese && concentration : >50}",
+                                                        coll->get_schema(), store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    auto const enable_lazy_evaluation = true;
+    auto root_object_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                            enable_lazy_evaluation);
+    ASSERT_TRUE(root_object_filter_test.init_status().ok());
+    ASSERT_FALSE(root_object_filter_test._get_is_filter_result_initialized());
+    ASSERT_EQ(3, root_object_filter_test.approx_filter_ids_length);
+    ASSERT_EQ(1, root_object_filter_test.seq_id);
+    std::vector<uint32_t> validate_ids = {0, 1, 2, 3, 4, 5};    // Equivalent to `take_id()` call.
+    std::vector<int> expected = {0, 1, 0, 0, 1, -1};            // The result of `is_valid()` call.
+    std::vector<uint32_t> seq_ids = {1, 4, 4, 4, 4, 4};         // The id filter_result_iterator is at after `take_id()` call.
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(expected[i], root_object_filter_test.is_valid(validate_ids[i]));
+        if (expected[i] == 1) { // We call `next()` in `take_id()` when there is a match.
+            root_object_filter_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], root_object_filter_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, root_object_filter_test.validity);
+    root_object_filter_test.reset();
+    ASSERT_EQ(filter_result_iterator_t::valid, root_object_filter_test.validity);
+    ASSERT_EQ(0, root_object_filter_test.is_valid(0));
+    ASSERT_EQ(1, root_object_filter_test.is_valid(1));
+    ASSERT_EQ(-1, root_object_filter_test.is_valid(10));
+    ASSERT_EQ(filter_result_iterator_t::invalid, root_object_filter_test.validity);
+    root_object_filter_test.compute_iterators();
+    ASSERT_TRUE(root_object_filter_test._get_is_filter_result_initialized());
+    ASSERT_EQ(2, root_object_filter_test.approx_filter_ids_length);
+    ASSERT_EQ(1, root_object_filter_test.seq_id);
+    uint32_t excluded_result_index = 0;
+    auto result = new filter_result_t();
+    root_object_filter_test.get_n_ids(2, excluded_result_index, nullptr, 0, result);
+    ASSERT_EQ(2, result->count);
+    ASSERT_EQ(1, result->docs[0]);
+    ASSERT_EQ(4, result->docs[1]);
+    delete result;
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+}

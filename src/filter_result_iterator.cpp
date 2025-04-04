@@ -1738,8 +1738,17 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
             seq_id = id;
             return;
         }
-        //advance iterators in case didnt match
-        next();
+
+        if(id > seq_id) {
+            while(validity == valid) {
+                next();
+                if(id == seq_id) {
+                    seq_id = id;
+                    return;
+                }
+            }
+        }
+
         return;
     }
 
@@ -2181,6 +2190,10 @@ void filter_result_iterator_t::reset(const bool& override_timeout) {
             and_filter_iterators();
         } else {
             or_filter_iterators();
+        }
+
+        if(filter_node->is_nested_object_filter) {
+            init_nested_object_filter();
         }
 
         return;
