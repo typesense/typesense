@@ -665,6 +665,8 @@ void filter_result_iterator_t::next() {
     }
 
     if (filter_node->isOperator) {
+        auto last_seq_id = seq_id;
+
         // Advance the subtrees and then apply operators to arrive at the next valid doc.
         if (filter_node->filter_operator == AND) {
             left_it->next();
@@ -686,6 +688,11 @@ void filter_result_iterator_t::next() {
         if(filter_node->is_nested_object_filter) {
             if(!validate_object_filter(seq_id)) {
                 next();
+                if(validity == invalid) {
+                    //case to handle if ids are valid in sub tree independently but not as whole expression
+                    //and there is no valid ids left
+                    seq_id = last_seq_id;
+                }
             }
         }
 

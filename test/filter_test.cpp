@@ -2324,4 +2324,25 @@ TEST_F(FilterTest, ObjectFitlterIterator) {
     delete result;
     delete filter_tree_root;
     filter_tree_root = nullptr;
+
+    filter_op = filter::parse_filter_query("ingredients.{name : cheese && concentration : [25..45]}",
+                                                        coll->get_schema(), store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    root_object_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                            enable_lazy_evaluation);
+    ASSERT_TRUE(root_object_filter_test.init_status().ok());
+    ASSERT_FALSE(root_object_filter_test._get_is_filter_result_initialized());
+    ASSERT_EQ(4, root_object_filter_test.approx_filter_ids_length);
+    ASSERT_EQ(0, root_object_filter_test.seq_id);
+    validate_ids = {0, 1, 2, 3, 4, 5};    // Equivalent to `take_id()` call.
+    expected = {1, 0, 1, 1, -1, -1};      // The result of `is_valid()` call.
+    seq_ids = {2, 2, 3, 3, 3, 3};         // The id filter_result_iterator is at after `take_id()` call.
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(expected[i], root_object_filter_test.is_valid(validate_ids[i]));
+        if (expected[i] == 1) { // We call `next()` in `take_id()` when there is a match.
+            root_object_filter_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], root_object_filter_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, root_object_filter_test.validity);
 }
