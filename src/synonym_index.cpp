@@ -11,7 +11,7 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
     std::vector<std::set<std::vector<std::string>>> dp(tokens.size() + 1);
     std::vector<std::vector<synonym_match_t>> synonym_matches(tokens.size());
     // keep only larger intervals
-    std::unordered_map<std::string, std::pair<std::vector<synonym_match_t>::iterator, std::vector<size_t>> synonym_ids_intervals;
+    // std::unordered_map<std::string, std::pair<std::vector<synonym_match_t>::iterator, std::vector<size_t>> synonym_ids_intervals;
     
     for(size_t i = 0; i < tokens.size(); i++) {
         auto status = synonym_trie_root.get_synonyms(tokens, synonym_matches[i], synonym_num_typos, i, synonym_prefix);
@@ -45,7 +45,6 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
                 continue;
             }
 
-            LOG(INFO) << "Synonym root raw: " << synonym_def.raw_root;
             if(!synonym_def.root.empty()) {
                 auto orig_tokens = std::vector<std::string>(tokens.begin() + synonym_match.start_index,
                                                             tokens.begin() + synonym_match.end_index);
@@ -383,7 +382,6 @@ Option<bool> synonym_node_t::add(const synonym_t& syn) {
             }
 
             current_node = child_node;
-            LOG(INFO) << "Current node: " << current_node;
         }
     }
 
