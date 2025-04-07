@@ -2346,6 +2346,9 @@ TEST_F(FilterTest, ObjectFitlterIterator) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, root_object_filter_test.validity);
 
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
     filter_op = filter::parse_filter_query("ingredients.{name : cheese && concentration : >50} || "
                                            "ingredients.{name : cheese && concentration : [25..45]}",
                                            coll->get_schema(), store, doc_id_prefix, filter_tree_root);
@@ -2367,4 +2370,7 @@ TEST_F(FilterTest, ObjectFitlterIterator) {
         ASSERT_EQ(seq_ids[i], root_object_filter_test.seq_id);
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, root_object_filter_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
 }

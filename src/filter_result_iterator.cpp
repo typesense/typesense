@@ -2976,16 +2976,12 @@ bool filter_result_iterator_t::validate_object_filter_helper(nlohmann::json doc,
             }
 
             auto val = filter_exp.values[i];
-            auto comparator = filter_exp.comparators[i];
+            auto comparator = filter_exp.comparators.size() < filter_exp.values.size() && f.is_string() ?
+                                filter_exp.comparators[0] : filter_exp.comparators[i];
 
             if (f.is_string()) {
                 if(val.at(val.size() - 1) == '*' && comparator == CONTAINS) {//prefix match
                     val.pop_back();
-                }
-
-                //apply string values filter to all values
-                if(filter_exp.values.size() > filter_exp.comparators.size()) {
-                    comparator = filter_exp.comparators[0];
                 }
 
                 filter_val = val;
