@@ -1578,3 +1578,82 @@ TEST_F(CollectionSynonymsTest, SynonymWithStemming) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSynonymsTest, SynonymsWithMultiToken) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {
+                "name": "title",
+                "type": "string"
+            },
+            {
+                "name": "gender",
+                "type": "string",
+                "optional": true
+            }
+        ]
+    })"_json;
+
+    auto coll1 = collectionManager.create_collection(schema).get();
+
+    coll1->add_synonym(R"({"id": "foobar", "synonyms": ["blazer", "suit", "jacket"]})"_json);
+
+    coll1->add_synonym(R"({"id": "foobar2", "synonyms": ["man", "male", "gentleman", "men"]})"_json);
+
+    coll1->add_synonym(R"({"id": "foobar3", "synonyms": ["wool", "linen", "cotton"]})"_json);
+
+
+    nlohmann::json doc;
+    doc["title"] = "Cotton Blazer for men";
+    coll1->add(doc.dump());
+
+    doc["title"] = "Blazer made of wool for men";
+    coll1->add(doc.dump());
+
+    doc["title"] = "Suit made of Linen for a man";
+    coll1->add(doc.dump());
+
+    doc["title"] = "Gentleman Suit made of Linen";
+    coll1->add(doc.dump());
+
+    doc["title"] = "Blue Wool Jacket men";
+    coll1->add(doc.dump());
+
+    doc["title"] = "Red Cotton Jacket for gentleman";
+    coll1->add(doc.dump());
+
+
+    auto res = coll1->search("suit", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("wool", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("gentleman", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("suit wool", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("wool suit", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("blazer linen", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("jacket cotton", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("linen suit man", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("blazer cotton men", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("wool jacket gentleman", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("male jacket wool", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+}
