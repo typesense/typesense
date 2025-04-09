@@ -250,6 +250,20 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
     coll_mul_fields->synonym_reduction({"new", "york", "t", "shirt"}, "", results);
 
     ASSERT_EQ(3, results.size());
+    ASSERT_EQ(3, results[0].size());
+    ASSERT_EQ(3, results[1].size());
+    ASSERT_EQ(2, results[2].size());
+
+    ASSERT_STREQ("new", results[0][0].c_str());
+    ASSERT_STREQ("york", results[0][1].c_str());
+    ASSERT_STREQ("tshirt", results[0][2].c_str());
+
+    ASSERT_STREQ("nyc", results[1][0].c_str());
+    ASSERT_STREQ("t", results[1][1].c_str());
+    ASSERT_STREQ("shirt", results[1][2].c_str());
+
+    ASSERT_STREQ("nyc", results[2][0].c_str());
+    ASSERT_STREQ("tshirt", results[2][1].c_str());
 
     // replace two synonyms with different lengths
     results.clear();
@@ -263,6 +277,23 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
     coll_mul_fields->synonym_reduction({"red", "new", "york", "cap"}, "", results);
 
     ASSERT_EQ(3, results.size());
+
+    ASSERT_EQ(4, results[0].size());
+    ASSERT_EQ(3, results[1].size());
+    ASSERT_EQ(3, results[2].size());
+
+    ASSERT_STREQ("crimson", results[0][0].c_str());
+    ASSERT_STREQ("new", results[0][1].c_str());
+    ASSERT_STREQ("york", results[0][2].c_str());
+    ASSERT_STREQ("cap", results[0][3].c_str());
+
+    ASSERT_STREQ("crimson", results[1][0].c_str());
+    ASSERT_STREQ("nyc", results[1][1].c_str());
+    ASSERT_STREQ("cap", results[1][2].c_str());
+
+    ASSERT_STREQ("red", results[2][0].c_str());
+    ASSERT_STREQ("nyc", results[2][1].c_str());
+    ASSERT_STREQ("cap", results[2][2].c_str());
 }
 
 TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
