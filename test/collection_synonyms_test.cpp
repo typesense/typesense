@@ -1656,4 +1656,6 @@ TEST_F(CollectionSynonymsTest, SynonymsWithMultiToken) {
 
     res = coll1->search("male jacket wool", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(6, res["hits"].size());
+
+    collectionManager.drop_collection("coll1");
 }

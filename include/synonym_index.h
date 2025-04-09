@@ -53,7 +53,7 @@ struct synonym_match_t {
 
 struct synonym_node_t {
     std::unordered_map<std::string, synonym_node_t*> children;
-    art_tree children_tree;
+    art_tree* children_tree;
     size_t children_tree_index = 0;
     std::vector<std::string> terminal_synonym_ids;
     std::string token;
@@ -62,12 +62,15 @@ struct synonym_node_t {
         for(auto& child : children) {
             delete child.second;
         }
-        art_tree_destroy(&children_tree);
+        if (children_tree != nullptr) {
+            art_tree_destroy(children_tree);
+            delete children_tree;
+        }
         children.clear();
     }
     
     // avoid copying art tree
-    synonym_node_t operator=(const synonym_node_t& other) = delete;
+    synonym_node_t& operator=(const synonym_node_t& other) = delete;
 
     // avoid copying art tree
     synonym_node_t(const synonym_node_t& other) = delete;
@@ -76,6 +79,7 @@ struct synonym_node_t {
         children = std::move(other.children);
         terminal_synonym_ids = std::move(other.terminal_synonym_ids);
         children_tree = other.children_tree;
+        other.children_tree = nullptr;
         children_tree_index = other.children_tree_index;
         token = std::move(other.token);
     }
@@ -85,6 +89,7 @@ struct synonym_node_t {
             children = std::move(other.children);
             terminal_synonym_ids = std::move(other.terminal_synonym_ids);
             children_tree = other.children_tree;
+            other.children_tree = nullptr;
             children_tree_index = other.children_tree_index;
             token = std::move(other.token);
         }
@@ -92,7 +97,8 @@ struct synonym_node_t {
     }
 
     synonym_node_t() {
-        art_tree_init(&children_tree);
+        children_tree = new art_tree();
+        art_tree_init(children_tree);
     }
 
     Option<bool> add(const synonym_t& synonym);
@@ -120,15 +126,6 @@ private:
     uint32_t synonym_index = 0;
     std::map<uint32_t, synonym_t> synonym_definitions;
     synonym_node_t synonym_trie_root;
-
-    void synonym_reduction_internal(const std::vector<std::string>& tokens,
-                                    const std::string& locale,
-                                    size_t start_window_size,
-                                    size_t start_index_pos,
-                                    std::set<std::string>& processed_tokens,
-                                    std::vector<std::vector<std::string>>& results,
-                                    const std::vector<std::string>& orig_tokens,
-                                    bool synonym_prefix, uint32_t synonym_num_typos) const;
 public:
 
     static constexpr const char* COLLECTION_SYNONYM_PREFIX = "$CY";

@@ -1,27 +1,21 @@
 #include "synonym_index.h"
 #include "posting.h"
 
-void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& tokens,
-                                            const std::string& locale,
-                                            size_t start_window_size, size_t start_index_pos,
-                                            std::set<std::string>& processed_tokens,
-                                            std::vector<std::vector<std::string>>& results,
-                                            const std::vector<std::string>& orig_tokens,
-                                            bool synonym_prefix, uint32_t synonym_num_typos) const {
+
+void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
+                                     const std::string& locale,
+                                     std::vector<std::vector<std::string>>& results,
+                                     bool synonym_prefix, uint32_t synonym_num_typos) const {
+    std::shared_lock lock(mutex);
+    if(synonym_definitions.empty()) {
+        return;
+    }
+
     std::vector<std::set<std::vector<std::string>>> dp(tokens.size() + 1);
     std::vector<std::vector<synonym_match_t>> synonym_matches(tokens.size());
-    // keep only larger intervals
-    // std::unordered_map<std::string, std::pair<std::vector<synonym_match_t>::iterator, std::vector<size_t>> synonym_ids_intervals;
     
     for(size_t i = 0; i < tokens.size(); i++) {
         auto status = synonym_trie_root.get_synonyms(tokens, synonym_matches[i], synonym_num_typos, i, synonym_prefix);
-
-        // size_t longest_match = i + 1;
-        // for(auto& match: synonym_matches[i]) {
-        //     longest_match = std::max(longest_match, match.end_index);
-        // }
-
-        // i = longest_match - 1;
     }
 
     dp[tokens.size()] = {{}};
@@ -75,25 +69,11 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
 
     for(const auto& exp: dp[0]) {
         // exclude original tokens
-        if(exp == orig_tokens) {
+        if(exp == tokens) {
             continue;
         }
         results.push_back(exp);
     }
-}
-
-void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
-                                     const std::string& locale,
-                                     std::vector<std::vector<std::string>>& results,
-                                     bool synonym_prefix, uint32_t synonym_num_typos) const {
-    std::shared_lock lock(mutex);
-    if(synonym_definitions.empty()) {
-        return;
-    }
-
-    std::set<std::string> processed_tokens;
-    synonym_reduction_internal(tokens, locale, tokens.size(), 0, processed_tokens, results, tokens,
-                               synonym_prefix, synonym_num_typos);
 }
 
 Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, const synonym_t& synonym,
@@ -348,7 +328,7 @@ Option<bool> synonym_node_t::add(const synonym_t& syn) {
                 child_node->token = token;
                 current_node->children[token] = child_node;
                 art_document document(current_node->children_tree_index, current_node->children_tree_index, {0});
-                art_insert(&current_node->children_tree, (unsigned char *) token.c_str(), token.size() + 1, &document);
+                art_insert(current_node->children_tree, (unsigned char *) token.c_str(), token.size() + 1, &document);
                 current_node->children_tree_index++;
             }
 
@@ -373,7 +353,7 @@ Option<bool> synonym_node_t::add(const synonym_t& syn) {
                 child_node->token = token;
                 current_node->children[token] = child_node;
                 art_document document(current_node->children_tree_index, current_node->children_tree_index, {0});
-                art_insert(&current_node->children_tree, (unsigned char *) token.c_str(), token.size() + 1, &document);
+                art_insert(current_node->children_tree, (unsigned char *) token.c_str(), token.size() + 1, &document);
                 current_node->children_tree_index++;
             }
 
@@ -479,7 +459,7 @@ std::vector<synonym_node_t*> synonym_node_t::get_matching_children(const std::st
     // do fuzzy search if the token is not found
     std::vector<art_leaf*> leaves;
     std::set<std::string> exclude_leaves;
-    art_fuzzy_search((art_tree*) &children_tree, (unsigned char*)token.c_str(), token.size(), 0, num_typos,
+    art_fuzzy_search((art_tree*) children_tree, (unsigned char*)token.c_str(), token.size(), 0, num_typos,
                      10, FREQUENCY, synonym_prefix, false, "", nullptr, 0, leaves, exclude_leaves);
     
     std::vector<synonym_node_t*> matching_children;
