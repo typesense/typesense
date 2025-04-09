@@ -287,44 +287,60 @@ TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
 
     ASSERT_STREQ("pod", results[1][0].c_str());
 
-    // multiple tokens
-    // results.clear();
-    // coll_mul_fields->synonym_reduction({"i", "pod"}, "", results);
+    nlohmann::json synonym2 = R"({
+        "id": "car-synonyms",
+        "synonyms": ["car", "automobile", "vehicle"]
+    })"_json;
+    
+    op = coll_mul_fields->add_synonym(synonym2);
+    ASSERT_TRUE(op.ok());
+    results.clear();
 
-    // ASSERT_EQ(2, results.size());
-    // ASSERT_EQ(1, results[0].size());
-    // ASSERT_EQ(1, results[1].size());
+    coll_mul_fields->synonym_reduction({"car"}, "", results);
 
-    // ASSERT_STREQ("ipod", results[0][0].c_str());
-    // ASSERT_STREQ("pod", results[1][0].c_str());
+    ASSERT_EQ(2, results.size());
+    ASSERT_EQ(1, results[0].size());
+    ASSERT_EQ(1, results[1].size());
 
-    // multi-token synonym + multi-token synonym definitions
-    // nlohmann::json synonym2 = R"({
-    //     "id": "usa-synonyms",
-    //     "synonyms": ["usa", "united states", "us", "united states of america", "states"]
-    // })"_json;
-    // coll_mul_fields->add_synonym(synonym2);
+    ASSERT_STREQ("automobile", results[0][0].c_str());
+    ASSERT_STREQ("vehicle", results[1][0].c_str());
 
-    // results.clear();
-    // coll_mul_fields->synonym_reduction({"united", "states"}, "", results);
+    results.clear();
 
-    // ASSERT_EQ(4, results.size());
+    coll_mul_fields->synonym_reduction({"automobile"}, "", results);
+    ASSERT_EQ(2, results.size());
+
+    ASSERT_EQ(1, results[0].size());
+    ASSERT_EQ(1, results[1].size());
 
 
-    // ASSERT_EQ(1, results[0].size());
-    // ASSERT_EQ(4, results[1].size());
-    // ASSERT_EQ(1, results[2].size());
-    // ASSERT_EQ(1, results[3].size());
+    nlohmann::json synonym3 = R"({
+        "id": "card-synonyms-3",
+        "synonyms": ["credit card", "payment card", "cc"]
+    })"_json;
+    op = coll_mul_fields->add_synonym(synonym3);
+    ASSERT_TRUE(op.ok());
 
-    // ASSERT_STREQ("states", results[0][0].c_str());
-    // ASSERT_STREQ("united states of america", results[1][0].c_str());
+    results.clear();
+    coll_mul_fields->synonym_reduction({"credit", "card"}, "", results);
+    ASSERT_EQ(2, results.size());
+    ASSERT_EQ(1, results[0].size());
+    ASSERT_EQ(2, results[1].size());
 
-    // std::vector<std::string> red_new_york_tshirts = {"united", "states", "of", "america"};
-    // for(size_t i=0; i<red_new_york_tshirts.size(); i++) {
-    //     ASSERT_STREQ(red_new_york_tshirts[i].c_str(), results[2][i].c_str());
-    // }
+    ASSERT_STREQ("cc", results[0][0].c_str());
+    ASSERT_STREQ("payment", results[1][0].c_str());
+    ASSERT_STREQ("card", results[1][1].c_str());
 
-    // ASSERT_STREQ("usa", results[3][0].c_str());
+    results.clear();
+    coll_mul_fields->synonym_reduction({"payment", "card"}, "", results);
+
+    ASSERT_EQ(2, results.size());
+    ASSERT_EQ(1, results[0].size());
+    ASSERT_EQ(2, results[1].size());
+
+    ASSERT_STREQ("cc", results[0][0].c_str());
+    ASSERT_STREQ("credit", results[1][0].c_str());
+    ASSERT_STREQ("card", results[1][1].c_str());
 }
 
 TEST_F(CollectionSynonymsTest, SynonymBelongingToMultipleSets) {

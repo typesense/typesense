@@ -47,12 +47,9 @@ void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
                 auto orig_tokens_str = StringUtils::join(orig_tokens, " ");
                 StringUtils::trim(root_tokens_str);
                 StringUtils::trim(orig_tokens_str);
-                LOG(INFO) << "Synonym root: " << root_tokens_str;
-                LOG(INFO) << "Original tokens: " << orig_tokens_str;
                 if(root_tokens_str != orig_tokens_str) {
                     continue;
                 }
-                LOG(INFO) << "Synonym root: " << root_tokens_str;
             }
 
             size_t end_index = synonym_match.end_index;

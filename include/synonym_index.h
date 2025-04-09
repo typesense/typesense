@@ -77,6 +77,7 @@ struct synonym_node_t {
 
     synonym_node_t(synonym_node_t&& other) noexcept {
         children = std::move(other.children);
+        other.children.clear();
         terminal_synonym_ids = std::move(other.terminal_synonym_ids);
         children_tree = other.children_tree;
         other.children_tree = nullptr;
@@ -87,6 +88,7 @@ struct synonym_node_t {
     synonym_node_t& operator=(synonym_node_t&& other) noexcept {
         if (this != &other) {
             children = std::move(other.children);
+            other.children.clear();
             terminal_synonym_ids = std::move(other.terminal_synonym_ids);
             children_tree = other.children_tree;
             other.children_tree = nullptr;
