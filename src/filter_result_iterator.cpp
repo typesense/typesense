@@ -254,8 +254,16 @@ void filter_result_iterator_t::and_filter_iterators() {
 
         if (left_it->seq_id == right_it->seq_id) {
             seq_id = left_it->seq_id;
-            reference.clear();
 
+            if (filter_node->is_object_filter_root && !validate_object_filter()) {
+                // Object filter is not satisfied. Move both the sub-nodes to the next seq_id.
+                left_it->next();
+                right_it->next();
+
+                continue;
+            }
+
+            reference.clear();
             for (const auto& item: left_it->reference) {
                 reference[item.first] = item.second;
             }
@@ -271,6 +279,107 @@ void filter_result_iterator_t::and_filter_iterators() {
 }
 
 void filter_result_iterator_t::or_filter_iterators() {
+    if (filter_node->is_object_filter_root) {
+        while (left_it->validity || right_it->validity) {
+            if (left_it->validity && right_it->validity) {
+                if (left_it->seq_id < right_it->seq_id) {
+                    seq_id = left_it->seq_id;
+
+                    if (!validate_object_filter()) {
+                        // Object filter is not satisfied. Move left sub-node to the next seq_id.
+                        left_it->next();
+
+                        continue;
+                    }
+
+                    reference.clear();
+                    for (const auto& item: left_it->reference) {
+                        reference[item.first] = item.second;
+                    }
+
+                    return;
+                }
+
+                if (left_it->seq_id > right_it->seq_id) {
+                    seq_id = right_it->seq_id;
+
+                    if (!validate_object_filter()) {
+                        // Object filter is not satisfied. Move right sub-node to the next seq_id.
+                        right_it->next();
+
+                        continue;
+                    }
+
+                    reference.clear();
+                    for (const auto& item: right_it->reference) {
+                        reference[item.first] = item.second;
+                    }
+
+                    return;
+                }
+
+                seq_id = left_it->seq_id;
+
+                if (!validate_object_filter()) {
+                    // Object filter is not satisfied. Move both the sub-nodes to the next seq_id.
+                    left_it->next();
+                    right_it->next();
+
+                    continue;
+                }
+
+                reference.clear();
+                for (const auto& item: left_it->reference) {
+                    reference[item.first] = item.second;
+                }
+                for (const auto& item: right_it->reference) {
+                    reference[item.first] = item.second;
+                }
+
+                return;
+            }
+
+            if (left_it->validity) {
+                seq_id = left_it->seq_id;
+
+                if (!validate_object_filter()) {
+                    // Object filter is not satisfied. Move left sub-node to the next seq_id.
+                    left_it->next();
+
+                    continue;
+                }
+
+                reference.clear();
+                for (const auto& item: left_it->reference) {
+                    reference[item.first] = item.second;
+                }
+
+                return;
+            }
+
+            if (right_it->validity) {
+                seq_id = right_it->seq_id;
+
+                if (!validate_object_filter()) {
+                    // Object filter is not satisfied. Move right sub-node to the next seq_id.
+                    right_it->next();
+
+                    continue;
+                }
+
+                reference.clear();
+                for (const auto& item: right_it->reference) {
+                    reference[item.first] = item.second;
+                }
+
+                return;
+            }
+        }
+
+        validity = invalid;
+        return;
+    }
+
     if (left_it->validity && right_it->validity) {
         if (left_it->seq_id < right_it->seq_id) {
             seq_id = left_it->seq_id;
@@ -685,17 +794,6 @@ void filter_result_iterator_t::next() {
             or_filter_iterators();
         }
 
-        if(filter_node->is_nested_object_filter) {
-            if(!validate_object_filter(seq_id)) {
-                next();
-                if(validity == invalid) {
-                    //case to handle if ids are valid in sub tree independently but not as whole expression
-                    //and there is no valid ids left
-                    seq_id = last_seq_id;
-                }
-            }
-        }
-
         return;
     }
 
@@ -784,10 +882,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
     }
 
     if (filter_node->isOperator) {
-        if(filter_node->is_nested_object_filter) {
-            init_nested_object_filter();
-        }
-
         if (filter_node->filter_operator == AND) {
             approx_filter_ids_length = std::min(left_it->approx_filter_ids_length, right_it->approx_filter_ids_length);
             if (approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
@@ -1740,25 +1834,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 }
 
 void filter_result_iterator_t::skip_to(uint32_t id) {
-    if(filter_node->is_nested_object_filter) {
-        if(validate_object_filter(id)) {
-            seq_id = id;
-            return;
-        }
-
-        if(id > seq_id) {
-            while(validity == valid) {
-                next();
-                if(id == seq_id) {
-                    seq_id = id;
-                    return;
-                }
-            }
-        }
-
-        return;
-    }
-
     if (is_filter_result_initialized) {
         ArrayUtils::skip_index_to_id(result_index, filter_result.docs, filter_result.count, id);
 
@@ -1980,70 +2055,87 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout
     }
 
     if (filter_node->isOperator) {
-        if(filter_node->is_nested_object_filter) {
-            // nested object filters need to be computed as whole, not in parts
-            skip_to(id);
+        // We only need to consider only valid/invalid state since child nodes can never time out.
+        auto left_validity = left_it->is_valid(id), right_validity = right_it->is_valid(id);
 
-            return validity ? (id == seq_id ? 1 : 0) : -1;
+        if (filter_node->filter_operator == AND) {
+            validity = (left_it->validity == valid && right_it->validity == valid) ? valid : invalid;
+
+            if (left_validity < 1 || right_validity < 1) {
+                if (left_validity == -1 || right_validity == -1) {
+                    return -1;
+                }
+
+                seq_id = std::max(left_it->seq_id, right_it->seq_id);
+                return 0;
+            }
+
+            seq_id = id;
+
+            if (filter_node->is_object_filter_root && !validate_object_filter()) {
+                // Object filter is not satisfied. Move both the sub-nodes to the next seq_id.
+                left_it->next();
+                right_it->next();
+                and_filter_iterators();
+
+                return validity == invalid ? -1 : 0;
+            }
+
+            reference.clear();
+            for (const auto& item: left_it->reference) {
+                reference[item.first] = item.second;
+            }
+            for (const auto& item: right_it->reference) {
+                reference[item.first] = item.second;
+            }
+            return 1;
         } else {
-            // We only need to consider only valid/invalid state since child nodes can never time out.
-            auto left_validity = left_it->is_valid(id), right_validity = right_it->is_valid(id);
+            validity = (left_it->validity == valid || right_it->validity == valid) ? valid : invalid;
 
-            if (filter_node->filter_operator == AND) {
-                validity = (left_it->validity == valid && right_it->validity == valid) ? valid : invalid;
-
-                if (left_validity < 1 || right_validity < 1) {
-                    if (left_validity == -1 || right_validity == -1) {
-                        return -1;
-                    }
-
-                    seq_id = std::max(left_it->seq_id, right_it->seq_id);
+            if (left_validity < 1 && right_validity < 1) {
+                if (left_validity == -1 && right_validity == -1) {
+                    return -1;
+                } else if (left_validity == -1) {
+                    seq_id = right_it->seq_id;
+                    return 0;
+                } else if (right_validity == -1) {
+                    seq_id = left_it->seq_id;
                     return 0;
                 }
 
-                seq_id = id;
+                seq_id = std::min(left_it->seq_id, right_it->seq_id);
+                return 0;
+            }
 
-                reference.clear();
+            seq_id = id;
+
+            if (filter_node->is_object_filter_root && !validate_object_filter()) {
+                // Object filter is not satisfied. Move the sub-node at `id` to its next seq_id.
+                if (left_it->seq_id == id && right_it->seq_id == id) {
+                    left_it->next();
+                    right_it->next();
+                } else if (left_it->seq_id == id) {
+                    left_it->next();
+                } else {
+                    right_it->next();
+                }
+                or_filter_iterators();
+
+                return validity == invalid ? -1 : 0;
+            }
+
+            reference.clear();
+            if (left_validity == 1) {
                 for (const auto& item: left_it->reference) {
                     reference[item.first] = item.second;
                 }
+            }
+            if (right_validity == 1) {
                 for (const auto& item: right_it->reference) {
                     reference[item.first] = item.second;
                 }
-                return 1;
-            } else {
-                validity = (left_it->validity == valid || right_it->validity == valid) ? valid : invalid;
-
-                if (left_validity < 1 && right_validity < 1) {
-                    if (left_validity == -1 && right_validity == -1) {
-                        return -1;
-                    } else if (left_validity == -1) {
-                        seq_id = right_it->seq_id;
-                        return 0;
-                    } else if (right_validity == -1) {
-                        seq_id = left_it->seq_id;
-                        return 0;
-                    }
-
-                    seq_id = std::min(left_it->seq_id, right_it->seq_id);
-                    return 0;
-                }
-
-                seq_id = id;
-
-                reference.clear();
-                if (left_validity == 1) {
-                    for (const auto& item: left_it->reference) {
-                        reference[item.first] = item.second;
-                    }
-                }
-                if (right_validity == 1) {
-                    for (const auto& item: right_it->reference) {
-                        reference[item.first] = item.second;
-                    }
-                }
-                return 1;
             }
+            return 1;
         }
     }
 
@@ -2197,10 +2289,6 @@ void filter_result_iterator_t::reset(const bool& override_timeout) {
             and_filter_iterators();
         } else {
             or_filter_iterators();
-        }
-
-        if(filter_node->is_nested_object_filter) {
-            init_nested_object_filter();
         }
 
         return;
@@ -2644,19 +2732,10 @@ void filter_result_iterator_t::compute_iterators() {
             validity = timed_out;
         }
 
-        if(filter_node->is_nested_object_filter) {
-            std::vector<uint32_t> processed_results;
-            for(auto i = 0; i < filter_result.count; ++i) {
-                auto seqid = filter_result.docs[i];
-                if(validate_object_filter(seqid)) {
-                    processed_results.push_back(seqid);
-                }
-            }
+        is_filter_result_initialized = true;
 
-            delete[] filter_result.docs;
-            filter_result.docs = new uint32_t[processed_results.size()];
-            std::copy(processed_results.begin(), processed_results.end(), filter_result.docs);
-            filter_result.count = processed_results.size();
+        if(filter_node->is_object_filter_root) {
+            validate_object_filter();
         }
 
         // In a complex filter query a sub-expression might not match any document while the full expression does match
@@ -2674,8 +2753,6 @@ void filter_result_iterator_t::compute_iterators() {
                 }
             }
         }
-
-        is_filter_result_initialized = true;
 
         // Deleting subtree since we've already computed the result.
         delete left_it;
@@ -2949,14 +3026,15 @@ filter_result_iterator_timeout_info::filter_result_iterator_timeout_info(uint64_
                                                                          search_stop_us(search_stop) {}
 
 
-bool filter_result_iterator_t::validate_object_filter_helper(nlohmann::json doc, const filter_node_t* filter_node) {
+bool filter_result_iterator_t::validate_object_filter_helper(Index const* const index, const nlohmann::json& doc,
+                                                             const filter_node_t* filter_node) {
     if(filter_node->isOperator) {
         if(filter_node->filter_operator == AND) {
-            return validate_object_filter_helper(doc, filter_node->left) &&
-                   validate_object_filter_helper(doc, filter_node->right);
+            return validate_object_filter_helper(index, doc, filter_node->left) &&
+                   validate_object_filter_helper(index, doc, filter_node->right);
         } else {
-            return validate_object_filter_helper(doc, filter_node->left) ||
-                   validate_object_filter_helper(doc, filter_node->right);
+            return validate_object_filter_helper(index, doc, filter_node->left) ||
+                   validate_object_filter_helper(index, doc, filter_node->right);
         }
     } else {
         const auto& filter_exp = filter_node->filter_exp;
@@ -3046,49 +3124,53 @@ bool filter_result_iterator_t::validate_object_filter_helper(nlohmann::json doc,
     }
 }
 
-bool filter_result_iterator_t::validate_object_filter(uint32_t seqid, filter_node_t* filterNode) {
-    auto filterNode_current = filterNode != nullptr ? filterNode : filter_node;
+bool filter_result_iterator_t::validate_object_filter() {
+    auto collection = CollectionManager::get_instance().get_collection(collection_name);
+    if (collection.get() == nullptr) {
+        return false;
+    }
 
-    if(filterNode_current->isOperator && (filterNode_current->left->nested_object_parent != filterNode_current->right->nested_object_parent)) {
-        if(filterNode_current->filter_operator == AND) {
-            return validate_object_filter(seqid, filterNode_current->left) && validate_object_filter(seqid, filterNode_current->right);
-        } else {
-            return validate_object_filter(seqid, filterNode_current->left) || validate_object_filter(seqid, filterNode_current->right);
-        }
-    } else {
-        auto collection = CollectionManager::get_instance().get_collection(collection_name);
-        if (collection.get() != nullptr) {
-            const std::string& seq_id_key = collection->get_seq_id_key(seqid);
+    // `compute_iterators()` has been called.
+    if (is_filter_result_initialized) {
+        size_t result_count = 0;
+        for (size_t i = 0; i < filter_result.count; i++) {
+            const auto& id = filter_result.docs[i];
+            const std::string& seq_id_key = collection->get_seq_id_key(id);
 
             nlohmann::json document;
             const Option<bool>& document_op = collection->get_document_from_store(seq_id_key, document);
 
             if (!document_op.ok()) {
                 LOG(ERROR) << "Document fetch error. " << document_op.error();
-                return false;
+                continue;
             }
 
-            for (const auto& nested_object: document[filterNode_current->nested_object_parent]) {
-                if (validate_object_filter_helper(nested_object, filterNode_current)) {
-                    return true;
+            for (const auto& nested_object: document[filter_node->object_field_name]) {
+                if (validate_object_filter_helper(index, nested_object, filter_node)) {
+                    filter_result.docs[result_count++] = id;
+                    break;
                 }
             }
         }
+
+        filter_result.count = result_count;
+        return true;
+    }
+
+    const std::string& seq_id_key = collection->get_seq_id_key(seq_id);
+
+    nlohmann::json document;
+    const Option<bool>& document_op = collection->get_document_from_store(seq_id_key, document);
+
+    if (!document_op.ok()) {
+        LOG(ERROR) << "Document fetch error. " << document_op.error();
+        return false;
+    }
+
+    for (const auto& nested_object: document[filter_node->object_field_name]) {
+        if (validate_object_filter_helper(index, nested_object, filter_node)) {
+            return true;
+        }
     }
     return false;
-}
-
-void filter_result_iterator_t::init_nested_object_filter() {
-    while(validity != invalid) {
-        if (filter_node->filter_operator == AND) {
-            and_filter_iterators();
-        } else {
-            or_filter_iterators();
-        }
-
-        if (validate_object_filter(seq_id)) {
-            break;
-        }
-        next();
-    }
 }

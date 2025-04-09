@@ -379,25 +379,37 @@ Option<bool> parse_multi_valued_geopoint_filter(const std::string& filter_query,
     return Option<bool>(true);
 }
 
-Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens,
-                                                std::set<std::string>& nested_object_fields) {
+Option<bool> parse_object_filter(const std::string& filter_query, std::string& token, size_t& index) {
+    // Format: object_name.{ <filter expression> }
+    if (index >= filter_query.size() || filter_query[index] != '{') {
+        return Option<bool>(400, "Could not parse the object filter: `" + filter_query.substr(index) + "`.");
+    }
+
+    const auto start_index = index;
+    size_t curly_braces_count = 1;
+    while (++index < filter_query.size() && curly_braces_count > 0) {
+        if (filter_query[index] == '}') {
+            curly_braces_count--;
+        } else if (filter_query[index] == '{') {
+            return Option<bool>(400, "Nested object filters are not supported.");
+        }
+    }
+
+    if (curly_braces_count != 0) {
+        return Option<bool>(400, "Could not parse the object filter: unbalanced curly braces.");
+    }
+
+    token = filter_query.substr(start_index, index - start_index);
+    return Option<bool>(true);
+}
+
+Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
     std::set<std::string> ref_collection_names;
     auto size = filter_query.size();
-    std::string nested_field_prefix="";
-    bool is_nested_object_field = false;
 
     for (size_t i = 0; i < size;) {
         auto c = filter_query[i];
         if (c == ' ') {
-            i++;
-            continue;
-        }
-
-        if(c == '}') {
-            if (is_nested_object_field) {
-                is_nested_object_field = false;
-                tokens.push(")");
-            }
             i++;
             continue;
         }
@@ -442,26 +454,15 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
                 if (c == ')' && is_geo_value) {
                     is_geo_value = false;
                 }
-
-                if(c == '{') {
-                    if(filter_query[i-1] != '.') {
-                        return Option<bool>(400, "Bad nested filter query syntax.");
+                if (!preceding_colon && c == '{' && i > 0 && filter_query[i - 1] == '.') { // Object filter
+                    std::string value;
+                    auto op = parse_object_filter(filter_query, value, i);
+                    if (!op.ok()) {
+                        return op;
                     }
 
-                    c = filter_query[++i];
-                }
-
-                if(c == '}') {
-                    if(!is_nested_object_field) {
-                        return Option<bool>(400, "Bad nested filter query syntax.");
-                    }
-                    ++i;
+                    ss << value;
                     break;
-                }
-
-                if((c == '(' || c == ')') && is_nested_object_field) {
-                    tokens.push(std::string(1, c));
-                    c = filter_query[++i];
                 }
 
                 ss << c;
@@ -484,29 +485,15 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
                     break;
                 } else if (preceding_colon && c != ' ') {
                     preceding_colon = false;
-                } else if(c =='.' && filter_query[i+1] == '{') {
-                    ss << c;
-                    nested_field_prefix = ss.str();
-                    is_nested_object_field = true;
-                    //clear buffer
-                    ss.str("");
-                    tokens.push("(");
-                    c = filter_query[++i];
                 }
             } while (i < size && (inBacktick || is_geo_value ||
                                   (c != '(' && c != ')' && !(c == '&' && filter_query[i + 1] == '&') &&
                                    !(c == '|' && filter_query[i + 1] == '|'))));
-            auto token = is_nested_object_field ? nested_field_prefix + ss.str() : ss.str();
+
+            auto token = ss.str();
             trim(token);
-            tokens.push(token);
-
-            if(is_nested_object_field) {
-                nested_object_fields.insert(token);
-
-                if(c == '}') {
-                    is_nested_object_field = false;
-                    tokens.push(")");
-                }
+            if (!token.empty()) {
+                tokens.push(token);
             }
         }
     }

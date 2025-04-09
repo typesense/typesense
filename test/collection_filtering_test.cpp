@@ -3588,7 +3588,7 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
     json_res.clear();
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Could not parse the filter query: unbalanced parentheses.", search_op.error());
+    ASSERT_EQ("Could not parse the object filter: unbalanced curly braces.", search_op.error());
 
     //typo in nested field name
     req_params = {
@@ -3636,7 +3636,7 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
     json_res.clear();
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Bad nested filter query syntax.", search_op.error());
+    ASSERT_EQ("Could not find a filter field named `ingredients{name` in the schema.", search_op.error());
 }
 
 TEST_F(CollectionFilteringTest, NestedObjectFieldsFilteringMultiple) {

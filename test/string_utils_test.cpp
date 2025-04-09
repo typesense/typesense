@@ -347,8 +347,7 @@ TEST(StringUtilsTest, ShouldSplitRangeFacet){
 
 void tokenizeTestHelper(const std::string& filter_query, const std::vector<std::string>& tokenList) {
     std::queue<std::string> tokenizeOutput;
-    std::set<std::string> nested_object_fields;
-    auto tokenize_op = StringUtils::tokenize_filter_query(filter_query, tokenizeOutput, nested_object_fields);
+    auto tokenize_op = StringUtils::tokenize_filter_query(filter_query, tokenizeOutput);
     ASSERT_TRUE(tokenize_op.ok());
     for (auto const& token: tokenList) {
         ASSERT_EQ(token, tokenizeOutput.front());
@@ -401,6 +400,22 @@ TEST(StringUtilsTest, TokenizeFilterQuery) {
 
     filter_query = "$Customers(customer_id:=customer_a) || !$Customers_2(customer_id:=customer_a)";
     tokenList = {"$Customers(customer_id:=customer_a)", "||", "!$Customers_2(customer_id:=customer_a)"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "ingredients.{name: != spinach && concentration: >50}";
+    tokenList = {"ingredients.{name: != spinach && concentration: >50}"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "name: p* && ingredients.{name : cheese && concentration : [25..45]}";
+    tokenList = {"name: p*", "&&", "ingredients.{name : cheese && concentration : [25..45]}"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "ingredients.{name : cheese && concentration : >50} || ingredients.{name : cheese && concentration : [25..45]}";
+    tokenList = {"ingredients.{name : cheese && concentration : >50}", "||", "ingredients.{name : cheese && concentration : [25..45]}"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "ingredients.{(name : olives && concentration :<50) || (name : cheese && concentration :>50)}";
+    tokenList = {"ingredients.{(name : olives && concentration :<50) || (name : cheese && concentration :>50)}"};
     tokenizeTestHelper(filter_query, tokenList);
 }
 

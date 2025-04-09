@@ -79,7 +79,8 @@ struct filter {
                                            const Store* store,
                                            const std::string& doc_id_prefix,
                                            filter_node_t*& root,
-                                           const bool& validate_field_names = true);
+                                           const bool& validate_field_names = true,
+                                           const std::string& object_field_prefix = "");
 };
 
 struct filter_node_t {
@@ -89,8 +90,8 @@ struct filter_node_t {
     filter_node_t* left = nullptr;
     filter_node_t* right = nullptr;
     std::string filter_query;
-    bool is_nested_object_filter = false;
-    std::string nested_object_parent;
+    bool is_object_filter_root = false;
+    std::string object_field_name;
 
     filter_node_t() = default;
 
