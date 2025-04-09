@@ -288,9 +288,25 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto iter_validate_ids_test3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
                                                             enable_lazy_evaluation);
     ASSERT_TRUE(iter_validate_ids_test3.init_status().ok());
+    ASSERT_FALSE(iter_validate_ids_test3._get_is_filter_result_initialized());
+
+    iter_validate_ids_test3.compute_iterators();
     ASSERT_TRUE(iter_validate_ids_test3._get_is_filter_result_initialized());
 
     validate_ids = {0, 1, 2, 3, 4, 5, 6}, seq_ids = {0, 4, 4, 4, 4, 4, 4};
+    expected = {1, 0, 0, 0, 1, -1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(expected[i], iter_validate_ids_test3.is_valid(validate_ids[i]));
+        ASSERT_EQ(seq_ids[i], iter_validate_ids_test3.seq_id);
+    }
+
+    // Lazy evaluation.
+    iter_validate_ids_test3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                       enable_lazy_evaluation);
+    ASSERT_TRUE(iter_validate_ids_test3.init_status().ok());
+    ASSERT_FALSE(iter_validate_ids_test3._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5, 6}, seq_ids = {0, 3, 3, 4, 4, 4, 4};
     expected = {1, 0, 0, 0, 1, -1, -1};
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
         ASSERT_EQ(expected[i], iter_validate_ids_test3.is_valid(validate_ids[i]));
@@ -1053,6 +1069,9 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
     auto iter_not_equals_and_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
                                                              filter_tree_root, enable_lazy_evaluation);
     ASSERT_TRUE(iter_not_equals_and_test.init_status().ok());
+    ASSERT_FALSE(iter_not_equals_and_test._get_is_filter_result_initialized());
+
+    iter_not_equals_and_test.compute_iterators();
     ASSERT_TRUE(iter_not_equals_and_test._get_is_filter_result_initialized());
 
     validate_ids = {4, 5, 6, 7};
@@ -1070,20 +1089,65 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_and_test.validity);
 
+    // Lazy evaluation.
+    iter_not_equals_and_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                        filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_not_equals_and_test.init_status().ok());
+    ASSERT_FALSE(iter_not_equals_and_test._get_is_filter_result_initialized());
+
+    validate_ids = {5, 6, 7, 8};
+    seq_ids = {6, 7, 8, 8};
+    expected = {1, 1, 0, -1};
+
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_and_test.validity);
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(expected[i], iter_not_equals_and_test.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_not_equals_and_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_not_equals_and_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_and_test.validity);
+
     delete filter_tree_root;
     filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("tags: != silver && tags: != gold", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
-    ASSERT_TRUE(iter_not_equals_and_test._get_is_filter_result_initialized());
 
     auto iter_not_equals_and_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
                                                                 filter_tree_root, enable_lazy_evaluation);
     ASSERT_TRUE(iter_not_equals_and_test_2.init_status().ok());
+    ASSERT_FALSE(iter_not_equals_and_test_2._get_is_filter_result_initialized());
+
+    iter_not_equals_and_test_2.compute_iterators();
+    ASSERT_TRUE(iter_not_equals_and_test_2._get_is_filter_result_initialized());
 
     validate_ids = {0, 1, 2, 3, 4, 5, 6, 7, 8};
     seq_ids = {1, 5, 5, 5, 5, 6, 6, 6, 6};
     expected = {0, 1, 0, 0, 0, 1, 1, -1, -1};
+
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_and_test_2.validity);
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(expected[i], iter_not_equals_and_test_2.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_not_equals_and_test_2.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_not_equals_and_test_2.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_and_test_2.validity);
+
+    // Lazy evaluation.
+    iter_not_equals_and_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                          filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_not_equals_and_test_2.init_status().ok());
+    ASSERT_FALSE(iter_not_equals_and_test_2._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+    seq_ids = {1, 2, 3, 4, 5, 6, 7, 8, 8};
+    expected = {0, 1, 0, 0, 0, 1, 1, 0, -1};
 
     ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_and_test_2.validity);
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
@@ -2175,4 +2239,257 @@ TEST_F(FilterTest, IdFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
+}
+
+TEST_F(FilterTest, ObjectFitlterIterator) {
+    auto schema_json =
+            R"({
+                "name": "menu",
+                "fields": [
+                    {"name": "name", "type": "string", "infix": true},
+                    {"name": "ingredients", "type": "object[]"},
+                    {"name": "ingredients.*", "type": "auto", "optional": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({ "name": "Pasta", "ingredients": [{"name": "cheese", "concentration": 40},
+                                                {"name": "spinach", "concentration": 100},
+                                                {"name": "jalepeno", "concentration": 20}]
+        })"_json,
+            R"({ "name": "Lasagna", "ingredients": [{"name": "cheese", "concentration": 60},
+                                                {"name": "jalepeno", "concentration": 20},
+                                                {"name": "olives", "concentration": 20}]
+        })"_json,
+            R"({ "name": "Pizza", "ingredients": [{"name": "cheese", "concentration": 30},
+                                                {"name": "pizza sauce", "concentration": 30},
+                                                {"name": "olives", "concentration": 30}]
+        })"_json,
+            R"({ "name": "Popcorn", "ingredients": [{"name": "cheese", "concentration": 30}]
+        })"_json,
+            R"({"name": "Pizza Rolls", "ingredients": [{"name": "cheese", "concentration": 60},
+                                                {"name": "pizza sauce", "concentration": 5},
+                                                {"name" : "corn", "concentration": 40}]
+        })"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll = collection_create_op.get();
+    for (auto const& json: documents) {
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    Option<bool> filter_op = filter::parse_filter_query("ingredients.{name : cheese && concentration : >50}",
+                                                        coll->get_schema(), store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    auto const enable_lazy_evaluation = true;
+    auto root_object_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                            enable_lazy_evaluation);
+    ASSERT_TRUE(root_object_filter_test.init_status().ok());
+    ASSERT_FALSE(root_object_filter_test._get_is_filter_result_initialized());
+    ASSERT_EQ(3, root_object_filter_test.approx_filter_ids_length);
+    ASSERT_EQ(1, root_object_filter_test.seq_id);
+
+    std::vector<uint32_t> validate_ids = {0, 1, 2, 3, 4, 5};    // Equivalent to `take_id()` call.
+    std::vector<int> expected = {0, 1, 0, 0, 1, -1};            // The result of `is_valid()` call.
+    std::vector<uint32_t> seq_ids = {1, 4, 4, 4, 4, 4};         // The id filter_result_iterator is at after `take_id()` call.
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 5) {
+            ASSERT_EQ(filter_result_iterator_t::valid, root_object_filter_test.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, root_object_filter_test.validity);
+        }
+
+        ASSERT_EQ(expected[i], root_object_filter_test.is_valid(validate_ids[i]));
+        if (expected[i] == 1) { // We call `next()` in `take_id()` when there is a match.
+            root_object_filter_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], root_object_filter_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, root_object_filter_test.validity);
+
+    root_object_filter_test.reset();
+    ASSERT_EQ(filter_result_iterator_t::valid, root_object_filter_test.validity);
+    ASSERT_EQ(0, root_object_filter_test.is_valid(0));
+    ASSERT_EQ(1, root_object_filter_test.is_valid(1));
+    ASSERT_EQ(-1, root_object_filter_test.is_valid(10));
+    ASSERT_EQ(filter_result_iterator_t::invalid, root_object_filter_test.validity);
+
+    root_object_filter_test.compute_iterators();
+    ASSERT_TRUE(root_object_filter_test._get_is_filter_result_initialized());
+    ASSERT_EQ(2, root_object_filter_test.approx_filter_ids_length);
+    ASSERT_EQ(1, root_object_filter_test.seq_id);
+
+    uint32_t excluded_result_index = 0;
+    auto result = new filter_result_t();
+    root_object_filter_test.get_n_ids(2, excluded_result_index, nullptr, 0, result);
+    ASSERT_EQ(2, result->count);
+    ASSERT_EQ(1, result->docs[0]);
+    ASSERT_EQ(4, result->docs[1]);
+    delete result;
+
+    delete filter_tree_root;
+    filter_op = filter::parse_filter_query("ingredients.{name : cheese && concentration : [25..45]}",
+                                                        coll->get_schema(), store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    root_object_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                            enable_lazy_evaluation);
+    ASSERT_TRUE(root_object_filter_test.init_status().ok());
+    ASSERT_FALSE(root_object_filter_test._get_is_filter_result_initialized());
+    ASSERT_EQ(4, root_object_filter_test.approx_filter_ids_length);
+    ASSERT_EQ(0, root_object_filter_test.seq_id);
+
+    validate_ids = {0, 1, 2, 3, 4, 5};    // Equivalent to `take_id()` call.
+    expected = {1, 0, 1, 1, -1, -1};      // The result of `is_valid()` call.
+    seq_ids = {2, 2, 3, 4, 4, 4};         // The id filter_result_iterator is at after `take_id()` call.
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 4) {
+            ASSERT_EQ(filter_result_iterator_t::valid, root_object_filter_test.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, root_object_filter_test.validity);
+        }
+
+        ASSERT_EQ(expected[i], root_object_filter_test.is_valid(validate_ids[i]));
+        if (expected[i] == 1) { // We call `next()` in `take_id()` when there is a match.
+            root_object_filter_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], root_object_filter_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, root_object_filter_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    filter_op = filter::parse_filter_query("ingredients.{name : cheese && concentration : >50} || "
+                                           "ingredients.{name : cheese && concentration : [25..45]}",
+                                           coll->get_schema(), store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    auto or_object_filters_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                       enable_lazy_evaluation);
+    ASSERT_TRUE(or_object_filters_test.init_status().ok());
+    ASSERT_FALSE(or_object_filters_test._get_is_filter_result_initialized());
+    ASSERT_EQ(7, or_object_filters_test.approx_filter_ids_length);
+    ASSERT_EQ(0, or_object_filters_test.seq_id);
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    expected = {1, 1, 1, 1, 1, -1};
+    seq_ids = {1, 2, 3, 4, 4, 4};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 5) {
+            ASSERT_EQ(filter_result_iterator_t::valid, or_object_filters_test.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, or_object_filters_test.validity);
+        }
+
+        ASSERT_EQ(expected[i], or_object_filters_test.is_valid(validate_ids[i]));
+        if (expected[i] == 1) { // We call `next()` in `take_id()` when there is a match.
+            or_object_filters_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], or_object_filters_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, root_object_filter_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    filter_op = filter::parse_filter_query("ingredients.{ (name: spinach && concentration: >50) || "
+                                                            "(name: jalepeno && concentration: [25..45]) ||"
+                                                            "(name: pizza sauce && concentration: <30) }",
+                                           coll->get_schema(), store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    auto or_object_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                           enable_lazy_evaluation);
+    ASSERT_TRUE(or_object_filter_test.init_status().ok());
+    ASSERT_FALSE(or_object_filter_test._get_is_filter_result_initialized());
+    ASSERT_EQ(3, or_object_filter_test.approx_filter_ids_length);
+    ASSERT_EQ(0, or_object_filter_test.seq_id);
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    expected = {1, 0, 0, 0, 1, -1};
+    seq_ids = {4, 4, 4, 4, 4, 4};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 5) {
+            ASSERT_EQ(filter_result_iterator_t::valid, or_object_filter_test.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, or_object_filter_test.validity);
+        }
+
+        ASSERT_EQ(expected[i], or_object_filter_test.is_valid(validate_ids[i]));
+        if (expected[i] == 1) { // We call `next()` in `take_id()` when there is a match.
+            or_object_filter_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], or_object_filter_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, root_object_filter_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    filter_op = filter::parse_filter_query("name: p* && ingredients.{name : cheese && concentration : [25..45]}",
+                                           coll->get_schema(), store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    search_stop_us = UINT64_MAX; // `Index::fuzzy_search_fields` checks for timeout.
+    auto and_object_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                       enable_lazy_evaluation);
+    ASSERT_TRUE(and_object_filter_test.init_status().ok());
+    ASSERT_FALSE(and_object_filter_test._get_is_filter_result_initialized());
+    ASSERT_EQ(4, and_object_filter_test.approx_filter_ids_length);
+    ASSERT_EQ(0, and_object_filter_test.seq_id);
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    expected = {1, 0, 1, 1, -1, -1};
+    seq_ids = {2, 2, 3, 3, 3, 3};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 4) {
+            ASSERT_EQ(filter_result_iterator_t::valid, and_object_filter_test.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, and_object_filter_test.validity);
+        }
+
+        ASSERT_EQ(expected[i], and_object_filter_test.is_valid(validate_ids[i]));
+        if (expected[i] == 1) { // We call `next()` in `take_id()` when there is a match.
+            and_object_filter_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], and_object_filter_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, and_object_filter_test.validity);
+
+    delete filter_tree_root;
+
+    filter_op = filter::parse_filter_query("ingredients.{name: != spinach && concentration: >50}",
+                                           coll->get_schema(), store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto not_object_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                           enable_lazy_evaluation);
+    ASSERT_TRUE(not_object_filter_test.init_status().ok());
+    ASSERT_FALSE(not_object_filter_test._get_is_filter_result_initialized());
+    ASSERT_EQ(3, not_object_filter_test.approx_filter_ids_length);
+    ASSERT_EQ(1, not_object_filter_test.seq_id);
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    expected = {0, 1, 0, 0, 1, -1};
+    seq_ids = {1, 4, 4, 4, 4, 4};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 5) {
+            ASSERT_EQ(filter_result_iterator_t::valid, not_object_filter_test.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, not_object_filter_test.validity);
+        }
+
+        ASSERT_EQ(expected[i], not_object_filter_test.is_valid(validate_ids[i]));
+        if (expected[i] == 1) { // We call `next()` in `take_id()` when there is a match.
+            not_object_filter_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], not_object_filter_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, not_object_filter_test.validity);
+
+    delete filter_tree_root;
 }

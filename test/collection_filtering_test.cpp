@@ -3330,3 +3330,410 @@ TEST_F(CollectionFilteringTest, IgnoreFieldValidation) {
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_EQ("8", res_obj["hits"][0]["document"].at("id"));
 }
+
+TEST_F(CollectionFilteringTest, NestedObjectFieldsFiltering) {
+    auto schema_json =
+            R"({
+                "name": "menu",
+                "fields": [
+                    {"name": "name", "type": "string", "infix": true},
+                    {"name": "ingredients", "type": "object[]"},
+                    {"name": "ingredients.*", "type": "auto", "optional": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "name": "Pasta",
+                "ingredients": [{"name": "cheese", "concentration": 40}, {"name" : "spinach", "concentration": 10},
+                                {"name": "jalepeno", "concentration": 20}]
+            })"_json,
+            R"({
+                "name": "Pizza",
+                "ingredients": [{"name": "cheese", "concentration": 30}, {"name": "pizza sauce", "concentration": 30},
+                                {"name": "olives", "concentration": 30}]
+            })"_json,
+            R"({
+                "name": "Lasagna",
+                "ingredients": [{"name": "cheese", "concentration": 60}, {"name": "jalepeno", "concentration": 20},
+                                {"name": "olives", "concentration": 20}]
+            })"_json,
+            R"({
+                "name": "Popcorn",
+                "ingredients": [{"name": "cheese", "concentration": 30}]
+            })"_json,
+            R"({
+                "name": "Pizza Rolls",
+                "ingredients": [{"name": "cheese", "concentration": 60}, {"name": "pizza sauce", "concentration": 5},
+                                {"name" : "corn", "concentration": 40}]
+            })"_json
+    };
+
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection",     "menu"},
+            {"q",              "*"},
+            {"filter_by",      "name: p* && ingredients.{name : cheese && concentration :<50}"},
+            {"include_fields", "name, ingredients"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, result["found"].get<size_t>());
+    ASSERT_EQ(3, result["hits"].size());
+    ASSERT_EQ("Popcorn", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Pizza", result["hits"][1]["document"]["name"]);
+    ASSERT_EQ("Pasta", result["hits"][2]["document"]["name"]);
+
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "*"},
+            {"filter_by",      "ingredients.{name : olives && concentration :<50} && name : l*"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("Lasagna", result["hits"][0]["document"]["name"]);
+
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "p*"},
+            {"query_by",       "name"},
+            {"filter_by",      "ingredients.{name : cheese && concentration :<50}"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, result["found"].get<size_t>());
+    ASSERT_EQ(3, result["hits"].size());
+    ASSERT_EQ("Popcorn", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Pizza", result["hits"][1]["document"]["name"]);
+    ASSERT_EQ("Pasta", result["hits"][2]["document"]["name"]);
+
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "*"},
+            {"filter_by",      "ingredients.{name : [jalepeno, olives] && concentration :<30}"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("Lasagna", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Pasta", result["hits"][1]["document"]["name"]);
+
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "*"},
+            {"filter_by",      "ingredients.{name : [jalepeno, olives] && concentration :[10..20]}"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("Lasagna", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Pasta", result["hits"][1]["document"]["name"]);
+
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "*"},
+            {"filter_by",      "ingredients.{name : cheese && concentration :[10..30, >=60]}"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, result["found"].get<size_t>());
+    ASSERT_EQ(4, result["hits"].size());
+    ASSERT_EQ("Pizza Rolls", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Popcorn", result["hits"][1]["document"]["name"]);
+    ASSERT_EQ("Lasagna", result["hits"][2]["document"]["name"]);
+    ASSERT_EQ("Pizza", result["hits"][3]["document"]["name"]);
+
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "a"},
+            {"query_by",       "name"},
+            {"infix",          "always"},
+            {"filter_by",      "ingredients.{name : cheese && concentration :<50} && name: p*"},
+            {"enable_lazy_filter", "true"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("Pizza", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Pasta", result["hits"][1]["document"]["name"]);
+
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "a"},
+            {"query_by",       "name"},
+            {"infix",          "always"},
+            {"filter_by",      "ingredients.{name : olives && concentration :<50} || ingredients.{name : cheese && concentration :>50}"},
+            {"enable_lazy_filter", "true"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, result["found"].get<size_t>());
+    ASSERT_EQ(3, result["hits"].size());
+    ASSERT_EQ("Pizza Rolls", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Lasagna", result["hits"][1]["document"]["name"]);
+    ASSERT_EQ("Pizza", result["hits"][2]["document"]["name"]);
+
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "a"},
+            {"query_by",       "name"},
+            {"infix",          "always"},
+            {"filter_by",      "ingredients.{(name : olives && concentration :<50) || (name : cheese && concentration :>50)}"},
+            {"enable_lazy_filter", "true"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, result["found"].get<size_t>());
+    ASSERT_EQ(3, result["hits"].size());
+    ASSERT_EQ("Pizza Rolls", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Lasagna", result["hits"][1]["document"]["name"]);
+    ASSERT_EQ("Pizza", result["hits"][2]["document"]["name"]);
+
+    //validation tests
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "*"},
+            {"filter_by",      "ingredients.{name : cheese && }"},
+            {"enable_lazy_filter", "true"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Could not parse the filter query: unbalanced `&&` operands.", search_op.error());
+
+    //missing } at end
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "*"},
+            {"filter_by",      "ingredients.{name : cheese && concentration:30"},
+            {"enable_lazy_filter", "true"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Could not parse the object filter: unbalanced curly braces.", search_op.error());
+
+    //typo in nested field name
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "*"},
+            {"filter_by",      "ingredients.{name : cheese && concentrations:30}"},
+            {"enable_lazy_filter", "true"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Could not find a filter field named `ingredients.concentrations` in the schema.", search_op.error());
+
+    //invalid nested field
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "*"},
+            {"filter_by",      "ingredients.{name : cheese && concentration:30 && cost:<100}"},
+            {"enable_lazy_filter", "true"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Could not find a filter field named `ingredients.cost` in the schema.", search_op.error());
+
+    //missing . after {
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "*"},
+            {"filter_by",      "ingredients{name : cheese && concentration:30}"},
+            {"enable_lazy_filter", "true"},
+            {"include_fields", "name, ingredients"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Could not find a filter field named `ingredients{name` in the schema.", search_op.error());
+}
+
+TEST_F(CollectionFilteringTest, NestedObjectFieldsFilteringMultiple) {
+    auto schema_json =
+            R"({
+                "name": "menu",
+                "fields": [
+                    {"name": "name", "type": "string", "infix": true},
+                    {"name": "ingredients", "type": "object[]"},
+                    {"name": "ingredients.*", "type": "auto", "optional": true},
+                    {"name": "country", "type": "object[]"},
+                    {"name": "country.*", "type": "auto", "optional": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "name": "Pasta",
+                "ingredients": [{"name": "cheese", "concentration": 40}, {"name" : "spinach", "concentration": 10},
+                                {"name": "jalepeno", "concentration": 20}],
+                "country": [{"name": "Italy", "consumption": 60}, {"name": "India", "consumption": 20},
+                            {"name": "England", "consumption": 45}]
+            })"_json,
+            R"({
+                "name": "Pizza",
+                "ingredients": [{"name": "cheese", "concentration": 30}, {"name": "pizza sauce", "concentration": 30},
+                                {"name": "olives", "concentration": 30}],
+                "country": [{"name": "Italy", "consumption": 80}, {"name": "India", "consumption": 50},
+                            {"name": "England", "consumption": 75}]
+            })"_json,
+            R"({
+                "name": "Lasagna",
+                "ingredients": [{"name": "cheese", "concentration": 60}, {"name": "jalepeno", "concentration": 20},
+                                {"name": "olives", "concentration": 20}],
+                "country": [{"name": "Italy", "consumption": 44}, {"name": "India", "consumption": 12},
+                            {"name": "England", "consumption": 55}]
+            })"_json,
+            R"({
+                "name": "Popcorn",
+                "ingredients": [{"name": "cheese", "concentration": 30}],
+                "country": [{"name": "Italy", "consumption": 20}, {"name": "India", "consumption": 70},
+                            {"name": "England", "consumption": 35}]
+            })"_json,
+            R"({
+                "name": "Pizza Rolls",
+                "ingredients": [{"name": "cheese", "concentration": 60}, {"name": "pizza sauce", "concentration": 5},
+                                {"name" : "corn", "concentration": 40}],
+                "country": [{"name": "Italy", "consumption": 10}, {"name": "India", "consumption": 50},
+                            {"name": "England", "consumption": 15}]
+            })"_json
+    };
+
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection",     "menu"},
+            {"q",              "*"},
+            {"filter_by",      "country.{name : India && consumption :>20} && ingredients.{name : cheese && concentration :<50}"},
+            {"include_fields", "name, ingredients, country"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("Popcorn", result["hits"][0]["document"]["name"]);
+    ASSERT_EQ("Pizza", result["hits"][1]["document"]["name"]);
+
+    req_params = {
+            {"collection",     "menu"},
+            {"q",              "*"},
+            {"filter_by",      "country.{name : I* && consumption :>20} && name: l* && ingredients.{name : olives && concentration :20}"},
+            {"include_fields", "name, ingredients, country"}
+    };
+    json_res.clear();
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("Lasagna", result["hits"][0]["document"]["name"]);
+}

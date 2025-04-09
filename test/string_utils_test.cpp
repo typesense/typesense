@@ -401,6 +401,22 @@ TEST(StringUtilsTest, TokenizeFilterQuery) {
     filter_query = "$Customers(customer_id:=customer_a) || !$Customers_2(customer_id:=customer_a)";
     tokenList = {"$Customers(customer_id:=customer_a)", "||", "!$Customers_2(customer_id:=customer_a)"};
     tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "ingredients.{name: != spinach && concentration: >50}";
+    tokenList = {"ingredients.{name: != spinach && concentration: >50}"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "name: p* && ingredients.{name : cheese && concentration : [25..45]}";
+    tokenList = {"name: p*", "&&", "ingredients.{name : cheese && concentration : [25..45]}"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "ingredients.{name : cheese && concentration : >50} || ingredients.{name : cheese && concentration : [25..45]}";
+    tokenList = {"ingredients.{name : cheese && concentration : >50}", "||", "ingredients.{name : cheese && concentration : [25..45]}"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "ingredients.{(name : olives && concentration :<50) || (name : cheese && concentration :>50)}";
+    tokenList = {"ingredients.{(name : olives && concentration :<50) || (name : cheese && concentration :>50)}"};
+    tokenizeTestHelper(filter_query, tokenList);
 }
 
 void splitIncludeExcludeTestHelper(const std::string& include_exclude_fields, const std::vector<std::string>& expected) {
