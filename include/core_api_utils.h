@@ -10,6 +10,11 @@ struct deletion_state_t: public req_state_t {
     std::vector<std::pair<size_t, uint32_t*>> index_ids;  // ids_len -> ids
     std::vector<size_t> offsets;
     size_t num_removed;
+    
+    bool return_doc = false;
+    bool return_id = false;
+    std::vector<nlohmann::json> removed_docs;
+    std::vector<nlohmann::json> removed_ids;
 
     ~deletion_state_t() override {
         for(auto& kv: index_ids) {

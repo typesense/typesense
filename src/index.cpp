@@ -6245,6 +6245,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
     }
 
     filter_result_iterator->compute_iterators();
+
     auto const& approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
 
     // Timed out during computation of filter_result_iterator. We should still process the partial ids.
@@ -6476,6 +6477,11 @@ Option<bool> Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& 
             field_values[i] = &eval_sentinel_value;
             auto& eval_exp = sort_fields_std[i].eval;
             auto count = sort_fields_std[i].eval_expressions.size();
+
+            if (eval_exp.eval_ids_vec.size() == count && eval_exp.eval_ids_count_vec.size() == count) {
+                // Both eval_ids_vec and eval_ids_count_vec have already been initialized in the first group_by pass.
+                continue;
+            }
             for (uint32_t j = 0; j < count; j++) {
                 auto filter_result_iterator = filter_result_iterator_t("", this, eval_exp.filter_trees[j], false,
                                                                        DEFAULT_FILTER_BY_CANDIDATES,

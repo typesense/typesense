@@ -1487,3 +1487,241 @@ TEST_F(CollectionGroupingTest, GroupByPerPage) {
     ASSERT_EQ("1003", res["grouped_hits"][3]["group_key"][0]);
     ASSERT_EQ("1001", res["grouped_hits"][4]["group_key"][0]);
 }
+
+TEST_F(CollectionGroupingTest, SortByEval) {
+    auto schema_json =
+            R"({
+                "name": "collection",
+                "fields": [
+                    {"name": "deduplicator", "type": "string", "facet": true, "optional": true},
+                    {"name": "offer", "type": "object", "optional": true},
+                    {"name": "offer._id", "type": "string", "optional": true},
+                    {"name": "offer.price", "type": "float", "sort": true, "facet": true, "optional": true},
+                    {"name": "category", "type": "string", "facet": true, "optional": true},
+                    {"name": "subCategory", "type": "string", "facet": true, "optional": true},
+                    {"name": "department", "type": "string", "facet": true, "optional": true},
+                    {"name": "product", "type": "object", "optional": true},
+                    {"name": "product.brand", "type": "string", "facet": true, "optional": true},
+                    {"name": "collections", "type": "object", "optional": true},
+                    {"name": "collections.names", "type": "string[]", "facet": true, "optional": true},
+                    {"name": "offer.seller", "type": "object", "optional": true},
+                    {"name": "offer.seller._id", "type": "string", "sort": true, "facet": true, "optional": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "deduplicator": "r_0NRwMuoO",
+                "offer": {
+                    "_id": "offer_r_0NRwMuoO",
+                    "seller": {
+                        "_id": "r_0NRwMuoO"
+                    },
+                    "price": 100
+                },
+                "category": "Test Category",
+                "subCategory": "Test SubCategory",
+                "department": "Test Department",
+                "product": {
+                    "brand": "Test Brand"
+                },
+                "collections": {
+                    "names": [
+                        "top-200-produtos"
+                    ]
+                }
+            })"_json,
+            R"({
+                "deduplicator": "ebhDVjRA2-",
+                "offer": {
+                    "_id": "offer_ebhDVjRA2-",
+                    "seller": {
+                        "_id": "ebhDVjRA2-"
+                    },
+                    "price": 100
+                },
+                "category": "Test Category",
+                "subCategory": "Test SubCategory",
+                "department": "Test Department",
+                "product": {
+                    "brand": "Test Brand"
+                },
+                "collections": {
+                    "names": [
+                        "top-200-produtos"
+                    ]
+                }
+            })"_json,
+            R"({
+                "deduplicator": "OMDZGUlnMh",
+                "offer": {
+                    "_id": "offer_OMDZGUlnMh",
+                    "seller": {
+                        "_id": "OMDZGUlnMh"
+                    },
+                    "price": 100
+                },
+                "category": "Test Category",
+                "subCategory": "Test SubCategory",
+                "department": "Test Department",
+                "product": {
+                    "brand": "Test Brand"
+                },
+                "collections": {
+                    "names": [
+                        "top-200-produtos"
+                    ]
+                }
+            })"_json,
+            R"({
+                "deduplicator": "iWYhaXHLuV",
+                "offer": {
+                    "_id": "offer_iWYhaXHLuV",
+                    "seller": {
+                        "_id": "iWYhaXHLuV"
+                    },
+                    "price": 100
+                },
+                "category": "Test Category",
+                "subCategory": "Test SubCategory",
+                "department": "Test Department",
+                "product": {
+                    "brand": "Test Brand"
+                },
+                "collections": {
+                    "names": [
+                        "top-200-produtos"
+                    ]
+                }
+            })"_json,
+            R"({
+                "deduplicator": "GcVpUulgN-",
+                "offer": {
+                    "_id": "offer_GcVpUulgN-",
+                    "seller": {
+                        "_id": "GcVpUulgN-"
+                    },
+                    "price": 100
+                },
+                "category": "Test Category",
+                "subCategory": "Test SubCategory",
+                "department": "Test Department",
+                "product": {
+                    "brand": "Test Brand"
+                },
+                "collections": {
+                    "names": [
+                        "top-200-produtos"
+                    ]
+                }
+            })"_json,
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+    for (auto const &json: documents) {
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "collection"},
+            {"q", "*"},
+            {"group_by", "deduplicator"},
+            {"group_limit", "1"},
+            {"filter_by", "offer.seller._id:[r_0NRwMuoO,ebhDVjRA2-,OMDZGUlnMh,iWYhaXHLuV,GcVpUulgN-,hLDQv6xYTq,5N1kxAEtEi,"
+                          "wzJkWEpMQl,fHr7liahKk,HH8zOmY4Qg,Du4B3eYe-m,ZN-bR62Tdt,LisFdBlIPd,EB6Qp7Rzl0,LoVjFroRNF,cfemmOea2l,"
+                          "fe9V0IPrGN,OXFnytzfC1,ZsvMOt1kF_,jVelifFXKT,TGc8CRZyvv,XCS3jRwrH5,Dc337159LV,qfEi-OeU8A,7e6J3qkQjM,"
+                          "GailP9H-2y,WFjAhbf4gb,wEqE3L1vft,QcJF9-KXbp,-anlIuFtY-] && collections.names:=top-200-produtos"},
+            {"facet_by", "offer.seller._id,category,subCategory,department,product.brand,collections.names"},
+            {"sort_by", "_text_match:desc,_eval([(offer.seller._id:r_0NRwMuoO):30,(offer.seller._id:ebhDVjRA2-):30,"
+                        "(offer.seller._id:OMDZGUlnMh):30,(offer.seller._id:iWYhaXHLuV):30,(offer.seller._id:GcVpUulgN-):30,"
+                        "(offer.seller._id:hLDQv6xYTq):30,(offer.seller._id:5N1kxAEtEi):30,(offer.seller._id:wzJkWEpMQl):30,"
+                        "(offer.seller._id:fHr7liahKk):30,(offer.seller._id:HH8zOmY4Qg):30,(offer.seller._id:Du4B3eYe-m):30,"
+                        "(offer.seller._id:ZN-bR62Tdt):30,(offer.seller._id:LisFdBlIPd):30,(offer.seller._id:EB6Qp7Rzl0):30,"
+                        "(offer.seller._id:LoVjFroRNF):30,(offer.seller._id:cfemmOea2l):30,(offer.seller._id:fe9V0IPrGN):30,"
+                        "(offer.seller._id:OXFnytzfC1):30,(offer.seller._id:ZsvMOt1kF_):30,(offer.seller._id:jVelifFXKT):30,"
+                        "(offer.seller._id:TGc8CRZyvv):30,(offer.seller._id:XCS3jRwrH5):30,(offer.seller._id:Dc337159LV):30,"
+                        "(offer.seller._id:qfEi-OeU8A):30,(offer.seller._id:7e6J3qkQjM):30,(offer.seller._id:GailP9H-2y):30,"
+                        "(offer.seller._id:WFjAhbf4gb):30,(offer.seller._id:wEqE3L1vft):30,(offer.seller._id:QcJF9-KXbp):30,"
+                        "(offer.seller._id:-anlIuFtY-):30]):desc,offer.price:asc"}
+    };
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    long now_ts = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    nlohmann::json res_obj = nlohmann::json::parse(json_res);
+    // Validate top-level keys
+    ASSERT_EQ(5, res_obj["found"].get<size_t>());
+    ASSERT_EQ(5, res_obj["found_docs"].get<size_t>());
+    ASSERT_EQ(5, res_obj["out_of"].get<size_t>());
+
+    // Validate facet_counts
+    ASSERT_TRUE(res_obj["facet_counts"].is_array());
+    ASSERT_EQ(6, res_obj["facet_counts"].size());
+
+    // Validate offer.seller._id facet
+    ASSERT_EQ("offer.seller._id", res_obj["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(5, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("r_0NRwMuoO", res_obj["facet_counts"][0]["counts"][0]["value"]);
+
+    // Validate category facet
+    ASSERT_EQ("category", res_obj["facet_counts"][1]["field_name"]);
+    ASSERT_EQ(1, res_obj["facet_counts"][1]["counts"].size());
+    ASSERT_EQ(5, res_obj["facet_counts"][1]["counts"][0]["count"]);
+    ASSERT_EQ("Test Category", res_obj["facet_counts"][1]["counts"][0]["value"]);
+
+    // Validate subCategory facet
+    ASSERT_EQ("subCategory", res_obj["facet_counts"][2]["field_name"]);
+    ASSERT_EQ(1, res_obj["facet_counts"][2]["counts"].size());
+    ASSERT_EQ(5, res_obj["facet_counts"][2]["counts"][0]["count"]);
+    ASSERT_EQ("Test SubCategory", res_obj["facet_counts"][2]["counts"][0]["value"]);
+
+    // Validate department facet
+    ASSERT_EQ("department", res_obj["facet_counts"][3]["field_name"]);
+    ASSERT_EQ(1, res_obj["facet_counts"][3]["counts"].size());
+    ASSERT_EQ(5, res_obj["facet_counts"][3]["counts"][0]["count"]);
+    ASSERT_EQ("Test Department", res_obj["facet_counts"][3]["counts"][0]["value"]);
+
+    // Validate product.brand facet
+    ASSERT_EQ("product.brand", res_obj["facet_counts"][4]["field_name"]);
+    ASSERT_EQ(1, res_obj["facet_counts"][4]["counts"].size());
+    ASSERT_EQ(5, res_obj["facet_counts"][4]["counts"][0]["count"]);
+    ASSERT_EQ("Test Brand", res_obj["facet_counts"][4]["counts"][0]["value"]);
+
+    // Validate collections.names facet
+    ASSERT_EQ("collections.names", res_obj["facet_counts"][5]["field_name"]);
+    ASSERT_EQ(1, res_obj["facet_counts"][5]["counts"].size());
+    ASSERT_EQ(5, res_obj["facet_counts"][5]["counts"][0]["count"]);
+    ASSERT_EQ("top-200-produtos", res_obj["facet_counts"][5]["counts"][0]["value"]);
+
+    // Validate grouped_hits
+    ASSERT_EQ(5, res_obj["grouped_hits"].size());
+
+    for (size_t i = 0; i < res_obj["grouped_hits"].size(); ++i) {
+        auto& hit_group = res_obj["grouped_hits"][i];
+        ASSERT_EQ(1, hit_group["found"].get<size_t>());
+        ASSERT_EQ(1, hit_group["hits"].size());
+
+        auto& document = hit_group["hits"][0]["document"];
+        ASSERT_EQ("Test Category", document["category"].get<std::string>());
+        ASSERT_EQ("Test SubCategory", document["subCategory"].get<std::string>());
+        ASSERT_EQ("Test Department", document["department"].get<std::string>());
+        ASSERT_EQ("Test Brand", document["product"]["brand"].get<std::string>());
+        ASSERT_EQ("top-200-produtos", document["collections"]["names"][0].get<std::string>());
+
+        // Validate offer
+        auto& offer = document["offer"];
+        ASSERT_EQ(100, offer["price"].get<int>());
+        ASSERT_EQ(document["deduplicator"].get<std::string>(), offer["seller"]["_id"].get<std::string>());
+    }
+}
