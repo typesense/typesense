@@ -3497,6 +3497,14 @@ TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
     ASSERT_EQ("set1", dictionary_sets["dictionaries"][0].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, StemmingDictionaryEmpty) {
+    stemmerManager.delete_all_stemming_dictionaries();
+    nlohmann::json dictionary_sets;
+    stemmerManager.get_stemming_dictionaries(dictionary_sets);
+    ASSERT_EQ(0, dictionary_sets["dictionaries"].size());
+    ASSERT_TRUE(dictionary_sets["dictionaries"].is_array());
+}
+
 TEST_F(CollectionSpecificMoreTest, ReloadStemmingDictionaryOnRestart) {
     stemmerManager.delete_all_stemming_dictionaries();
 
@@ -3534,4 +3542,31 @@ TEST_F(CollectionSpecificMoreTest, ReloadStemmingDictionaryOnRestart) {
     ASSERT_EQ("person", dictionary["words"][0]["root"]);
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingNonCyrilic) {
+    nlohmann::json schema = R"({
+         "name": "swedish_words",
+         "fields": [
+           {"name": "word", "type": "string", "stem": true, "locale": "sv"}
+         ]
+       })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+    auto coll_stem = coll_stem_res.get();
+
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Tomat"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Tomater"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Tomatsoppa"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Ost"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Osten"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Ostar"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Ostsås"})"_json.dump()).ok());
+
+    auto res = coll_stem->search("Tomater", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(3, res["hits"].size());
+
+    res = coll_stem->search("Ostar", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(4, res["hits"].size());
 }

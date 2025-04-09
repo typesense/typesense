@@ -4,6 +4,7 @@
 #include <string>
 #include "http_client.h"
 #include "lru/lru.hpp"
+#include "typesense_server_utils.h"
 
 
 struct http_proxy_res_t {
@@ -21,6 +22,7 @@ struct http_proxy_res_t {
 };
 
 
+
 class HttpProxy {
     // singleton class for http proxy
     public:
@@ -36,6 +38,11 @@ class HttpProxy {
         HttpProxy(HttpProxy&&) = delete;
         void operator=(HttpProxy&&) = delete;
         http_proxy_res_t send(const std::string& url, const std::string& method, const std::string& req_body, std::unordered_map<std::string, std::string>& req_headers);
+        
+        bool call_sse(const std::string& url, const std::string& method,
+                    const std::string& req_body = "", const std::unordered_map<std::string, std::string>& req_headers = {},
+                    const std::shared_ptr<http_req>& req = nullptr, const std::shared_ptr<http_res>& res = nullptr,
+                    const size_t timeout_ms = default_timeout_ms);
     private:
         HttpProxy();
         ~HttpProxy() = default;
@@ -47,4 +54,5 @@ class HttpProxy {
         // lru cache for http requests
         std::shared_mutex mutex;
         LRU::TimedCache<uint64_t, http_proxy_res_t> cache;
+        LRU::TimedCache<uint64_t, std::vector<std::string>> sse_cache;
 };

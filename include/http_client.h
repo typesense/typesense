@@ -34,7 +34,11 @@ private:
 
     static CURL* init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist*& chunk,
                                  bool send_ts_api_header);
+
     static CURL* init_curl_stream(const std::string& url, async_stream_response_t& res, long timeout_ms);
+
+    static CURL* init_curl_sse(const std::string& url, long timeout_ms,
+                                  deferred_req_res_t* req_res);
 
     static size_t curl_req_send_callback(char* buffer, size_t size, size_t nitems, void *userdata);
 
@@ -76,8 +80,14 @@ public:
                                     bool send_ts_api_header = false);
 
     static long post_response_stream(const std::string &url, const std::string &body, async_stream_response_t &response,
-                                     std::map<std::string, std::string>& res_headers,
-                                     const std::unordered_map<std::string, std::string>& headers, long timeout_ms=4000);
+                                    std::map<std::string, std::string>& res_headers,
+                                    const std::unordered_map<std::string, std::string>& headers, long timeout_ms=4000);
+
+    static long post_response_sse(const std::string &url, const std::string &body,
+                                const std::unordered_map<std::string, std::string>& headers, long timeout_ms=4000,
+                                const std::shared_ptr<http_req> request = nullptr,
+                                const std::shared_ptr<http_res> response = nullptr,
+                                HttpServer* server = nullptr);
 
     static long put_response(const std::string & url, const std::string & body, std::string & response,
                              std::map<std::string, std::string>& res_headers, long timeout_ms=4000,
@@ -88,4 +98,8 @@ public:
                                bool send_ts_api_header = false);
 
     static void extract_response_headers(CURL* curl, std::map<std::string, std::string> &res_headers);
+
+    static inline std::string get_api_key() {
+        return api_key;
+    }
 };

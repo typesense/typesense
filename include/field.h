@@ -64,6 +64,7 @@ namespace fields {
     static const std::string async_reference = "async_reference";
     static const std::string embed = "embed";
     static const std::string from = "from";
+    static const std::string mapping = "mapping";
     static const std::string model_name = "model_name";
     static const std::string range_index = "range_index";
     static const std::string stem = "stem";
@@ -77,6 +78,7 @@ namespace fields {
     static const std::string query_prefix = "query_prefix";
     static const std::string api_key = "api_key";
     static const std::string model_config = "model_config";
+    static const std::string personalization_type = "personalization_type";
 
     static const std::string reference_helper_fields = ".ref";
     static const std::string REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
@@ -380,6 +382,30 @@ struct field {
         return false;
     }
 
+    static field field_from_json(const nlohmann::json& json) {
+        return field(json[fields::name].get<std::string>(), json[fields::type].get<std::string>(),
+                     json.contains(fields::facet) ? json[fields::facet].get<bool>() : false,
+                     json.contains(fields::optional) ? json[fields::optional].get<bool>() : false,
+                     json.contains(fields::index) ? json[fields::index].get<bool>() : true,
+                     json.contains(fields::locale) ? json[fields::locale].get<std::string>() : "",
+                     json.contains(fields::sort) ? json[fields::sort].get<int>() : -1,
+                     json.contains(fields::infix) ? json[fields::infix].get<int>() : -1,
+                     json.contains(fields::nested) ? json[fields::nested].get<bool>() : false,
+                     json.contains(fields::nested_array) ? json[fields::nested_array].get<int>() : 0,
+                     json.contains(fields::num_dim) ? json[fields::num_dim].get<size_t>() : 0,
+                     json.contains(fields::vec_dist) ? (json[fields::vec_dist].get<std::string>() == "ip" ? ip : cosine) : cosine,
+                     json.contains(fields::reference) ? json[fields::reference].get<std::string>() : "",
+                     json.contains(fields::embed) ? json[fields::embed].get<nlohmann::json>() : nlohmann::json(),
+                     json.contains(fields::range_index) ? json[fields::range_index].get<bool>() : false,
+                     json.contains(fields::store) ? json[fields::store].get<bool>() : true,
+                     json.contains(fields::stem) ? json[fields::stem].get<bool>() : false,
+                     json.contains(fields::stem_dictionary) ? json[fields::stem_dictionary].get<std::string>() : "",
+                     json.contains(fields::hnsw_params) ? json[fields::hnsw_params].get<nlohmann::json>() : nlohmann::json(),
+                     json.contains(fields::async_reference) ? json[fields::async_reference].get<bool>() : false,
+                     json.contains(fields::token_separators) ? json[fields::token_separators].get<nlohmann::json>() : nlohmann::json(),
+                     json.contains(fields::symbols_to_index) ? json[fields::symbols_to_index].get<nlohmann::json>() : nlohmann::json());
+    }
+
     static Option<bool> fields_to_json_fields(const std::vector<field> & fields,
                                               const std::string & default_sorting_field,
                                               nlohmann::json& fields_json);
@@ -415,6 +441,8 @@ struct field {
                                     bool is_update, std::vector<field>& flattened_fields);
 
     static void compact_nested_fields(tsl::htrie_map<char, field>& nested_fields);
+
+    static nlohmann::json field_to_json_field(const struct field& field);
 };
 
 enum index_operation_t {
@@ -462,6 +490,8 @@ namespace sort_field_const {
     static const std::string decay = "decay";
     static const std::string func = "func";
     static const std::string diff = "diff";
+
+    static const std::string union_search_index = "_union_search_index";
 }
 
 namespace ref_include {
@@ -515,6 +545,7 @@ struct sort_random_t {
         rng = other.rng;
         distrib = other.distrib;
         is_enabled = other.is_enabled;
+        return *this;
     }
 
     void initialize(uint32_t seed) {
@@ -537,11 +568,11 @@ struct sort_by {
         bool_field,
         geopoint_field,
         eval_expression,
-        join_expression,
         text_match,
         random_order,
         vector_search,
-        insertion_order
+        insertion_order,
+        union_query_order
     };
 
     enum missing_values_t {
@@ -573,6 +604,10 @@ struct sort_by {
     uint32_t text_match_buckets;
     uint32_t text_match_bucket_size;
 
+    uint32_t vector_search_buckets = 0;
+    uint32_t vector_search_bucket_size = 0;
+
+
     // geo related fields
     int64_t geopoint;
     uint32_t exclude_radius;
@@ -594,6 +629,8 @@ struct sort_by {
     sort_by_params_t sort_by_param = none;
 
     sort_by_type_t type{};
+
+    uint32_t union_search_index{};
 
     sort_by(const std::string & name, const std::string & order):
             name(name), order(order), text_match_buckets(0), text_match_bucket_size(0), geopoint(0), exclude_radius(0),
@@ -624,6 +661,8 @@ struct sort_by {
         order = other.order;
         text_match_buckets = other.text_match_buckets;
         text_match_bucket_size = other.text_match_bucket_size;
+        vector_search_buckets = other.vector_search_buckets;
+        vector_search_bucket_size = other.vector_search_bucket_size;
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;
@@ -639,18 +678,20 @@ struct sort_by {
         offset = other.offset;
         decay_val = other.decay_val;
         type = other.type;
+        union_search_index = other.union_search_index;
     }
 
     sort_by& operator=(const sort_by& other) {
         if (&other == this) {
             return *this;
         }
-
         name = other.name;
         eval_expressions = other.eval_expressions;
         order = other.order;
         text_match_buckets = other.text_match_buckets;
         text_match_bucket_size = other.text_match_bucket_size;
+        vector_search_buckets = other.vector_search_buckets;
+        vector_search_bucket_size = other.vector_search_bucket_size;
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;
@@ -659,6 +700,7 @@ struct sort_by {
         reference_collection_name = other.reference_collection_name;
         nested_join_collection_names = other.nested_join_collection_names;
         type = other.type;
+        union_search_index = other.union_search_index;
         return *this;
     }
 

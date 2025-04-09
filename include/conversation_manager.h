@@ -22,7 +22,7 @@ class ConversationManager {
             static ConversationManager instance;
             return instance;
         }
-        Option<std::string> add_conversation(const nlohmann::json& conversation, const nlohmann::json& model, const std::string& id = "");
+        Option<std::string> add_conversation(const nlohmann::json& conversation, const nlohmann::json& model, const std::string& id = "", const bool check_if_exists = true);
         Option<nlohmann::json> get_conversation(const std::string& conversation_id, const nlohmann::json& model);
         Option<nlohmann::json> get_full_conversation(const std::string& question, const std::string& answer, const nlohmann::json& model, const std::string& conversation_id);
         static Option<nlohmann::json> get_last_n_messages(const nlohmann::json& conversation, size_t n);

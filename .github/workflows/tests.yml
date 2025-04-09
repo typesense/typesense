@@ -1,6 +1,5 @@
 name: tests
 
-#on: workflow_dispatch
 on: [push, pull_request]
 
 # Cancel previous running if a new push is made
@@ -11,11 +10,11 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
@@ -39,7 +38,7 @@ jobs:
           sudo apt-get install -y lld
 
       - name: Set up Bazel
-        uses: bazelbuild/setup-bazelisk@v2
+        uses: bazel-contrib/setup-bazel@0.14.0
 
       - name: Download bazel cache
         uses: jasonbosco/action-download-artifact@709b71d3729e8980f52a5a2a9ec04261060945c1
@@ -75,8 +74,11 @@ jobs:
       - name: Build Typesense
         run: bazel build //:typesense-server
 
+      - name: Setup artifacts for tests
+        run: curl https://dl.typesense.org/tyrec/tyrec-1-models.tar.gz > ./test/resources/models.tar.gz
+
       - name: Run tests
-        run: bazel test --cache_test_results=no --test_output=all //:typesense-test
+        run: bazel test --cache_test_results=no --test_output=all //:typesense-test --test_timeout=900
 
       - name: Compress bazel cache
         if: always()
@@ -84,7 +86,7 @@ jobs:
           tar -czvf bazel-cache.tar.gz -C ~/.cache/bazel .
 
       - name: Save bazel cache
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: bazel-cache
@@ -96,7 +98,47 @@ jobs:
       - name: Set BAZEL_BIN_FULL_PATH
         run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
       - name: Save build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: typesense-server
           path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
+   
+  integration-tests:
+    needs: test
+
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Typesense Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: typesense-server
+          path: ./typesense-server-binary
+
+      - name: Make binary executable
+        run: chmod +x ./typesense-server-binary/typesense-server
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: benchmark
+        run: |
+          npm install -g pnpm
+          pnpm install
+
+      - name: Build CLI
+        working-directory: benchmark
+        run: pnpm build
+
+      - name: Run Integration Tests
+        working-directory: benchmark
+        run: |
+          ./dist/index.js test \
+            --binary $(pwd)/../typesense-server-binary/typesense-server \
+            --working-directory $(pwd)/../tmp/test -y -v

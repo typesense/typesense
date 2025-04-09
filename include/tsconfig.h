@@ -63,6 +63,8 @@ private:
 
     std::atomic<uint32_t> cache_num_entries = 1000;
 
+    std::atomic<uint32_t> embedding_cache_num_entries = 100;
+
     std::atomic<bool> skip_writes;
 
     std::atomic<int> log_slow_searches_time_ms;
@@ -84,6 +86,8 @@ private:
     uint32_t max_per_page;
   
     uint16_t filter_by_max_ops;
+  
+    uint32_t max_group_limit;
 
 protected:
 
@@ -101,6 +105,7 @@ protected:
         this->num_collections_parallel_load = 0;  // will be set dynamically if not overridden
         this->num_documents_parallel_load = 1000;
         this->cache_num_entries = 1000;
+        this->embedding_cache_num_entries = 100;
         this->thread_pool_size = 0; // will be set dynamically if not overridden
         this->ssl_refresh_interval_seconds = 8 * 60 * 60;
         this->enable_access_logging = false;
@@ -122,6 +127,8 @@ protected:
         this->max_per_page = 250;
 
         this->filter_by_max_ops = FILTER_BY_DEFAULT_OPERATIONS;
+        
+        this->max_group_limit = 99;
     }
 
     Config(Config const&) {
@@ -218,6 +225,10 @@ public:
         this->cache_num_entries = cache_num_entries;
     }
 
+    void set_embedding_cache_num_entries(uint32_t embedding_cache_num_entries) {
+        this->embedding_cache_num_entries = embedding_cache_num_entries;
+    }
+
     void set_skip_writes(bool skip_writes) {
         this->skip_writes = skip_writes;
     }
@@ -228,6 +239,10 @@ public:
 
     void set_max_per_page(int max_per_page) {
         this->max_per_page = max_per_page;
+    }
+
+    void set_max_group_limit(uint32_t max_group_limit) {
+        this->max_group_limit = max_group_limit;
     }
 
     // getters
@@ -356,6 +371,10 @@ public:
         return this->cache_num_entries;
     }
 
+    size_t get_embedding_cache_num_entries() const {
+        return this->embedding_cache_num_entries;
+    }
+
     size_t get_analytics_flush_interval() const {
         return this->analytics_flush_interval;
     }
@@ -418,6 +437,10 @@ public:
 
     uint16_t get_filter_by_max_ops() const {
         return filter_by_max_ops;
+    }
+
+    uint32_t get_max_group_limit() const {
+        return this->max_group_limit;
     }
 
     // loaders

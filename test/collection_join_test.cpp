@@ -1739,6 +1739,20 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
         ASSERT_EQ("2", doc["genres"][1]);
         ASSERT_EQ(2, doc["genres_sequence_id"][1]);
     }
+
+    // Deleting referencing collection shouldn't affect any operation of the referenced collection.
+    collectionManager.drop_collection("Customers");
+    auto products_coll = collectionManager.get_collection_unsafe("Products");
+
+    doc_json = R"({
+                    "product_id": "product_e",
+                    "product_name": "ice cream",
+                    "product_description": "refreshing.",
+                    "rating": "5"
+                })"_json;
+    add_doc_op = products_coll->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+    products_coll->add(doc_json.dump());
 }
 
 TEST_F(CollectionJoinTest, UpdateDocumentHavingReferenceField) {
@@ -2268,6 +2282,21 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"].get<std::string>());
+
+    auto customers_coll = collectionManager.get_collection_unsafe("Customers");
+    customers_coll->remove("0");
+    customers_coll->remove("2");
+    // product_a has no references now. `get_filter_ids` should still include reference of product_b in the result.
+    filter_result_t filter_result;
+    collectionManager.get_collection_unsafe("Products")->get_filter_ids("id:* || $Customers(id:*)", filter_result);
+    ASSERT_NE(nullptr, filter_result.coll_to_references);
+    ASSERT_EQ(2, filter_result.count);
+    ASSERT_EQ(0, filter_result.docs[0]);
+    ASSERT_TRUE(filter_result.coll_to_references[0].empty());
+
+    ASSERT_EQ(1, filter_result.docs[1]);
+    ASSERT_EQ(1, filter_result.coll_to_references[1].count("Customers"));
+    ASSERT_EQ(2, filter_result.coll_to_references[1]["Customers"].count); // Doc 1 and 3 reference product_b.
 
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
@@ -4415,7 +4444,7 @@ TEST_F(JoinIncludeExcludeFieldsTest, IntegrationWithOtherFeatures) {
     nlohmann::json model_config = R"({
         "model_name": "ts/e5-small"
     })"_json;
-    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("natural products");
+    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->embed_query("natural products");
     std::string vec_string = "[";
     for (auto const& i : query_embedding.embedding) {
         vec_string += std::to_string(i);
@@ -6734,7 +6763,7 @@ TEST_F(JoinSortTest, ErrorHandling) {
     nlohmann::json model_config = R"({
         "model_name": "ts/e5-small"
     })"_json;
-    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("natural products");
+    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->embed_query("natural products");
     std::string vec_string = "[";
     for (auto const& i : query_embedding.embedding) {
         vec_string += std::to_string(i);
@@ -7316,7 +7345,7 @@ TEST_F(JoinSortTest, IntegrationWithOtherFeatures) {
     nlohmann::json model_config = R"({
         "model_name": "ts/e5-small"
     })"_json;
-    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("natural products");
+    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->embed_query("natural products");
     std::string vec_string = "[";
     for (auto const& i : query_embedding.embedding) {
         vec_string += std::to_string(i);

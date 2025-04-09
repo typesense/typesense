@@ -175,6 +175,7 @@ TEST(ConfigTest, CmdLineArgsOverrideConfigFileAndEnvVars) {
     ASSERT_EQ(1, config.get_cors_domains().size());  // cli parameter overrides file config
     ASSERT_EQ("http://localhost:8108", *(config.get_cors_domains().begin()));
     ASSERT_EQ(250, config.get_max_per_page());
+    ASSERT_EQ(99, config.get_max_group_limit());
 }
 
 TEST(ConfigTest, CorsDefaults) {

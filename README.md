@@ -1,5 +1,10 @@
 <p align="center">
-  <a href="https://typesense.org"><img src="assets/typesense_logo.svg" alt="Typesense" width="298" /></a> 
+  <a href="https://typesense.org">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="assets/typesense_logo_dark.svg">
+      <img src="assets/typesense_logo.svg" alt="Typesense" width="600" />
+    </picture>
+  </a> 
 </p>
 <p align="center">
   Typesense is a fast, typo-tolerant search engine for building delightful search experiences.
@@ -140,7 +145,7 @@ Here's a quick example showcasing how you can create a collection, index a docum
 Let's begin by starting the Typesense server via Docker:
 
 ```
-docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:27.1 --data-dir /data --api-key=Hu52dwsas2AdxdE
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:28.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 We have [API Clients](#api-clients) in a couple of languages, but let's use the Python client for this example.

@@ -302,6 +302,12 @@ struct http_req {
 
     bool is_binary_body = false;
 
+    std::atomic<bool> is_write = false;
+
+    bool (*async_res_set_headers_callback)(const std::string&, const std::shared_ptr<http_req>, long, char*) = nullptr;
+    void (*async_res_write_callback)(std::string&, const std::shared_ptr<http_req>, const std::shared_ptr<http_res>) = nullptr;
+    bool (*async_res_done_callback)(const std::shared_ptr<http_req>, const std::shared_ptr<http_res>) = nullptr;
+
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
                 chunk_len(0), body_index(0), data(nullptr), ready(false), log_index(0),

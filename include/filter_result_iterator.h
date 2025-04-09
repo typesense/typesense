@@ -444,4 +444,8 @@ public:
     inline bool is_filter_provided() const {
         return filter_node != nullptr;
     }
+
+    [[nodiscard]] inline bool result_has_references() const {
+        return is_filter_result_initialized && filter_result.coll_to_references != nullptr;
+    }
 };

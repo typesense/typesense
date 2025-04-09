@@ -41,8 +41,9 @@ TEST_F(PopularQueriesTest, PrefixQueryCompaction) {
     ASSERT_EQ(0, queries.size());
     auto local_counts = pq.get_local_counts();
     ASSERT_EQ(1, local_counts.size());
-    ASSERT_EQ(1, local_counts.count("f"));
-    ASSERT_EQ(1, local_counts["f"]);
+    QueryAnalytics::analytics_meta_t query_meta("f");
+    ASSERT_EQ(1, local_counts.count(query_meta));
+    ASSERT_EQ(1, local_counts[query_meta]);
 
     // 3 letter search
     pq.reset_local_counts();
@@ -54,8 +55,9 @@ TEST_F(PopularQueriesTest, PrefixQueryCompaction) {
     ASSERT_EQ(0, queries.size());
     local_counts = pq.get_local_counts();
     ASSERT_EQ(1, local_counts.size());
-    ASSERT_EQ(1, local_counts.count("foo"));
-    ASSERT_EQ(1, local_counts["foo"]);
+    query_meta.query = "foo";
+    ASSERT_EQ(1, local_counts.count(query_meta));
+    ASSERT_EQ(1, local_counts[query_meta]);
 
     // 3 letter search + start of next search
     pq.reset_local_counts();
@@ -70,8 +72,8 @@ TEST_F(PopularQueriesTest, PrefixQueryCompaction) {
     ASSERT_EQ("b", queries["0"][0].query);
     local_counts = pq.get_local_counts();
     ASSERT_EQ(1, local_counts.size());
-    ASSERT_EQ(1, local_counts.count("foo"));
-    ASSERT_EQ(1, local_counts["foo"]);
+    ASSERT_EQ(1, local_counts.count(query_meta));
+    ASSERT_EQ(1, local_counts[query_meta]);
 
     // continue with that query
     auto prev_ts = now_ts_us + 3 + QueryAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS + 100 + 1;
@@ -82,6 +84,7 @@ TEST_F(PopularQueriesTest, PrefixQueryCompaction) {
     ASSERT_EQ(0, queries.size());
     local_counts = pq.get_local_counts();
     ASSERT_EQ(2, local_counts.size());
-    ASSERT_EQ(1, local_counts.count("bar"));
-    ASSERT_EQ(1, local_counts["bar"]);
+    query_meta.query = "bar";
+    ASSERT_EQ(1, local_counts.count(query_meta));
+    ASSERT_EQ(1, local_counts[query_meta]);
 }

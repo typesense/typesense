@@ -65,6 +65,30 @@ struct StringUtils {
         return std::min(end_index, s.size());
     }
 
+    static void split_list_with_backticks(const std::string &s, std::vector<std::string> &result) {
+        bool inBacktick = false;  // Tracks whether we are within backticks
+        std::string current;
+    
+        for (char c : s) {
+            if (c == '`') {
+                // Toggle whether we're inside a backtick section
+                inBacktick = !inBacktick;
+            } else if (c == ',' && !inBacktick) {
+                // If we see a comma and we're not in backticks, this ends the current token
+                result.push_back(current);
+                current.clear();
+            } else {
+                // Otherwise, just add the character to the current token
+                current.push_back(c);
+            }
+        }
+    
+        // If there's any leftover text in 'current', push it into the result
+        if (!current.empty()) {
+            result.push_back(current);
+        }
+    }
+
     static std::string join(std::vector<std::string> vec, const std::string& delimiter, size_t start_index = 0) {
         std::stringstream ss;
         for(size_t i = start_index; i < vec.size(); i++) {
@@ -293,7 +317,7 @@ struct StringUtils {
     }
 
     // reference: https://stackoverflow.com/a/27952689/131050
-    static uint64_t hash_combine(uint64_t combined, uint64_t hash) {
+    static constexpr uint64_t hash_combine(uint64_t combined, uint64_t hash) {
         combined ^= hash + 0x517cc1b727220a95 + (combined << 6) + (combined >> 2);
         return combined;
     }

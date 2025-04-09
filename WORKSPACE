@@ -300,7 +300,7 @@ http_archive(
     build_file = "//bazel:iconv.BUILD",
     sha256 = "8f74213b56238c85a50a5329f77e06198771e70dd9a739779f4c02f65d971313",
     strip_prefix = "libiconv-1.17",
-    urls = ["https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.17.tar.gz"],
+    urls = ["https://dl.typesense.org/deps/libiconv-1.17.tar.gz"],
 )
 
 http_file(
@@ -313,9 +313,9 @@ http_file(
 http_archive(
     name = "elfutils",
     build_file = "//bazel:elfutils.BUILD",
-    sha256 = "ecc406914edf335f0b7fc084ebe6c460c4d6d5175bfdd6688c1c78d9146b8858",
-    strip_prefix = "elfutils-0.182",
-    urls = ["https://sourceware.org/elfutils/ftp/0.182/elfutils-0.182.tar.bz2"],
+    sha256 = "df76db71366d1d708365fc7a6c60ca48398f14367eb2b8954efc8897147ad871",
+    strip_prefix = "elfutils-0.191",
+        urls = ["https://dl.typesense.org/deps/elfutils-0.191.tar.bz2"],
 )
 
 new_git_repository(

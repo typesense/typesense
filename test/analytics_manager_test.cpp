@@ -171,6 +171,137 @@ TEST_F(AnalyticsManagerTest, AddSuggestionWithExpandedQuery) {
     ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
 }
 
+TEST_F(AnalyticsManagerTest, MetaFieldsAnalyticsTest) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "size", "type": "int32"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Cool trousers";
+    doc["size"] = 40;
+    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
+
+    // create a collection to store suggestions
+    nlohmann::json suggestions_schema = R"({
+        "name": "top_queries2",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "filter_by", "type" : "string"},
+          {"name": "analytics_tag", "type" : "string"},
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    nlohmann::json analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "expand_query": true,
+            "meta_fields": ["filter_by", "analytics_tag"],
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries2"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    analyticsManager.add_suggestion("titles", "c", "cool", true, "1", "size:=40", "Bandra");
+
+    auto popularQueries = analyticsManager.get_popular_queries();
+    popularQueries["top_queries2"]->compact_user_queries(0);
+    std::string payload;
+    popularQueries["top_queries2"]->serialize_as_docs(payload);
+    auto result = nlohmann::json::parse(payload);
+
+    ASSERT_EQ("cool", result["q"]);
+    ASSERT_EQ("size:=40", result["filter_by"]);
+    ASSERT_EQ("Bandra",result["analytics_tag"]);
+
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
+
+    //only adding tags in meta_fields with nohits_queries
+    analytics_rule = R"({
+        "name": "top_search_queries2",
+        "type": "nohits_queries",
+        "params": {
+            "limit": 100,
+            "expand_query": true,
+            "meta_fields": ["analytics_tag"],
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries2"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    analyticsManager.add_nohits_query("titles", "b", true, "1", "", "Colaba");
+
+    auto nohitsQueries = analyticsManager.get_nohits_queries();
+    nohitsQueries["top_queries2"]->compact_user_queries(0);
+    payload.clear();
+    nohitsQueries["top_queries2"]->serialize_as_docs(payload);
+    result = nlohmann::json::parse(payload);
+
+    ASSERT_EQ("b", result["q"]);
+    ASSERT_EQ("Colaba",result["analytics_tag"]);
+    ASSERT_FALSE(result.contains("filter_by"));
+
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries2").ok());
+
+    // only populate the meta fields specified in analytics rule
+    analytics_rule = R"({
+        "name": "top_search_queries3",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "expand_query": true,
+            "meta_fields": ["analytics_tag"],
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries2"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    analyticsManager.add_suggestion("titles", "c", "cool", true, "1", "size:=40", "Bandra");
+
+    popularQueries = analyticsManager.get_popular_queries();
+    popularQueries["top_queries2"]->compact_user_queries(0);
+    payload.clear();
+    popularQueries["top_queries2"]->serialize_as_docs(payload);
+    result = nlohmann::json::parse(payload);
+
+    ASSERT_EQ("cool", result["q"]);
+    ASSERT_FALSE(result.contains("filter_by"));
+    ASSERT_EQ("Bandra",result["analytics_tag"]);
+
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries3").ok());
+}
+
 TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
     nlohmann::json titles_schema = R"({
             "name": "titles",
@@ -666,9 +797,11 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     })"_json;
 
     create_op = analyticsManager.create_rule(analytics_rule, true, true);
-    ASSERT_TRUE(create_op.ok());
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Log type can only be used for a single collection.", create_op.error());
 
-    event9 = R"({
+    // This test can be present when multiple source collections are allowed log type events.
+    /* event9 = R"({
         "type": "click",
         "name": "CP",
         "data": {
@@ -678,19 +811,7 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     })"_json;
     req->body = event9.dump();
     ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"Multiple source collections. 'collection' should be specified\"}", res->body);
-
-    event9 = R"({
-        "type": "click",
-        "name": "CP",
-        "data": {
-            "doc_id": "12",
-            "user_id": "11",
-            "collection": "titles"
-        }
-    })"_json;
-    req->body = event9.dump();
-    ASSERT_TRUE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"Multiple source collections. 'collection' should be specified\"}", res->body); */
 
     // Test doc_ids validation
     nlohmann::json event_doc_ids = R"({
@@ -826,7 +947,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     std::vector<std::string> values;
-    analyticsManager.get_last_N_events("13", "*", 5, values);
+    analyticsManager.get_last_N_events("13", "titles", "*", 5, values);
     ASSERT_EQ(1, values.size());
 
     auto parsed_json = nlohmann::json::parse(values[0]);
@@ -865,7 +986,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     values.clear();
-    analyticsManager.get_last_N_events("13", "*", 5, values);
+    analyticsManager.get_last_N_events("13", "titles", "*", 5, values);
     ASSERT_EQ(2, values.size());
 
     parsed_json = nlohmann::json::parse(values[0]);
@@ -1690,7 +1811,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     std::vector<std::string> values;
-    analyticsManager.get_last_N_events("11", "*", 5, values);
+    analyticsManager.get_last_N_events("11", "books", "*", 5, values);
     ASSERT_EQ(1, values.size());
 
     auto parsed_json = nlohmann::json::parse(values[0]);
@@ -1768,7 +1889,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     values.clear();
-    analyticsManager.get_last_N_events("11", "*", 5, values);
+    analyticsManager.get_last_N_events("11", "books", "*", 5, values);
     ASSERT_EQ(2, values.size());
 
     parsed_json = nlohmann::json::parse(values[0]);
@@ -1786,7 +1907,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_EQ("shorts", parsed_json["query"]);
 
     values.clear();
-    analyticsManager.get_last_N_events("13", "*", 5, values);
+    analyticsManager.get_last_N_events("13", "books", "*", 5, values);
     ASSERT_EQ(1, values.size());
 
     parsed_json = nlohmann::json::parse(values[0]);
@@ -2009,7 +2130,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //basic test
     std::vector<std::string> values;
-    analyticsManager.get_last_N_events("13", "*", 5, values);
+    analyticsManager.get_last_N_events("13", "titles", "*", 5, values);
     ASSERT_EQ(5, values.size());
 
     nlohmann::json parsed_json;
@@ -2021,7 +2142,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //fetch events for middle user
     values.clear();
-    analyticsManager.get_last_N_events("14", "*", 5, values);
+    analyticsManager.get_last_N_events("14", "titles", "*", 5, values);
     ASSERT_EQ(5, values.size());
 
     start_index = 6;
@@ -2032,7 +2153,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //fetch more events than stored in db
     values.clear();
-    analyticsManager.get_last_N_events("15", "*", 8, values);
+    analyticsManager.get_last_N_events("15", "titles", "*", 8, values);
     ASSERT_EQ(5, values.size());
 
     start_index = 4;
@@ -2044,7 +2165,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //fetch events for non-existing user
     values.clear();
-    analyticsManager.get_last_N_events("16", "*", 8, values);
+    analyticsManager.get_last_N_events("16", "titles", "*", 8, values);
     ASSERT_EQ(0, values.size());
 
     //get specific event type or user
@@ -2076,7 +2197,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //get last 5 visit events for user_id 14
     values.clear();
-    analyticsManager.get_last_N_events("14", "AV", 5, values);
+    analyticsManager.get_last_N_events("14", "titles", "AV", 5, values);
     ASSERT_EQ(5, values.size());
     for(int i = 0; i < 5; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);
@@ -2086,7 +2207,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
 
     //get last 5 click events for user_id 14
     values.clear();
-    analyticsManager.get_last_N_events("14", "AB", 5, values);
+    analyticsManager.get_last_N_events("14", "titles", "AB", 5, values);
     ASSERT_EQ(5, values.size());
     for(int i = 0; i < 5; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);
@@ -2119,7 +2240,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     values.clear();
-    analyticsManager.get_last_N_events("14", "AB", 10, values);
+    analyticsManager.get_last_N_events("14", "titles", "AB", 10, values);
     ASSERT_EQ(10, values.size());
     for(int i = 0; i < 10; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);
@@ -2154,7 +2275,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
     values.clear();
-    analyticsManager.get_last_N_events("14_U1", "AB", 10, values);
+    analyticsManager.get_last_N_events("14_U1", "titles", "AB", 10, values);
     ASSERT_EQ(5, values.size());
     for(int i = 0; i < 5; ++i) {
         parsed_json = nlohmann::json::parse(values[i]);
@@ -2266,8 +2387,9 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
     auto popularQueries = analyticsManager.get_popular_queries();
     auto localCounts = popularQueries["top_queries"]->get_local_counts();
     ASSERT_EQ(1, localCounts.size());
-    ASSERT_EQ(1, localCounts.count("coo"));
-    ASSERT_EQ(1, localCounts["coo"]);
+    QueryAnalytics::analytics_meta_t query_meta("coo");
+    ASSERT_EQ(1, localCounts.count(query_meta));
+    ASSERT_EQ(1, localCounts[query_meta]);
 
     // add another query which is more popular
     event_data["q"] = "buzzfoo";
@@ -2283,10 +2405,12 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
     popularQueries = analyticsManager.get_popular_queries();
     localCounts = popularQueries["top_queries"]->get_local_counts();
     ASSERT_EQ(2, localCounts.size());
-    ASSERT_EQ(1, localCounts.count("coo"));
-    ASSERT_EQ(1, localCounts["coo"]);
-    ASSERT_EQ(1, localCounts.count("buzzfoo"));
-    ASSERT_EQ(3, localCounts["buzzfoo"]);
+    query_meta.query = "coo";
+    ASSERT_EQ(1, localCounts.count(query_meta));
+    ASSERT_EQ(1, localCounts[query_meta]);
+    query_meta.query = "buzzfoo";
+    ASSERT_EQ(1, localCounts.count(query_meta));
+    ASSERT_EQ(3, localCounts[query_meta]);
 
     //try with nohits analytic rule
     analytics_rule = R"({
@@ -2314,8 +2438,9 @@ TEST_F(AnalyticsManagerTest, AddSuggestionByEvent) {
     localCounts = noresults_queries["top_queries"]->get_local_counts();
 
     ASSERT_EQ(1, localCounts.size());
-    ASSERT_EQ(1, localCounts.count("foobar"));
-    ASSERT_EQ(1, localCounts["foobar"]);
+    query_meta.query = "foobar";
+    ASSERT_EQ(1, localCounts.count(query_meta));
+    ASSERT_EQ(1, localCounts[query_meta]);
 
     //try creating event with same name
     suggestions_schema = R"({
@@ -2410,8 +2535,9 @@ TEST_F(AnalyticsManagerTest, EventsOnlySearchTest) {
     popularQueries = analyticsManager.get_popular_queries();
     auto localCounts = popularQueries["top_queries"]->get_local_counts();
     ASSERT_EQ(1, localCounts.size());
-    ASSERT_EQ(1, localCounts.count("coo"));
-    ASSERT_EQ(1, localCounts["coo"]);
+    QueryAnalytics::analytics_meta_t query_meta("coo");
+    ASSERT_EQ(1, localCounts.count(query_meta));
+    ASSERT_EQ(1, localCounts[query_meta]);
 
     //try with nohits analytic rule
     analytics_rule = R"({
@@ -2449,8 +2575,9 @@ TEST_F(AnalyticsManagerTest, EventsOnlySearchTest) {
     localCounts = noresults_queries["top_queries"]->get_local_counts();
 
     ASSERT_EQ(1, localCounts.size());
-    ASSERT_EQ(1, localCounts.count("foobar"));
-    ASSERT_EQ(1, localCounts["foobar"]);
+    query_meta.query = "foobar";
+    ASSERT_EQ(1, localCounts.count(query_meta));
+    ASSERT_EQ(1, localCounts[query_meta]);
 }
 
 TEST_F(AnalyticsManagerTest, GetEvents) {

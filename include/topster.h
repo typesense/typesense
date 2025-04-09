@@ -4,9 +4,18 @@
 #include <climits>
 #include <cstdio>
 #include <algorithm>
+#include <memory>
 #include <unordered_map>
-#include <field.h>
+#include "field.h"
+#include "count_min_sketch.h"
 #include "filter_result_iterator.h"
+#include "loglogbeta.h"
+
+struct group_found_params_t {
+    int8_t sort_index = -1;
+    int8_t sort_order = 1;
+    uint64_t group_count{};
+};
 
 struct KV {
     int8_t match_score_index{};
@@ -118,6 +127,22 @@ struct KV {
         query_indices = nullptr;
     }
 
+    static int64_t get_group_found_value(KV* kv, const group_found_params_t& group_found_params) {
+        if (group_found_params.sort_index == -1) {
+            return 0;
+        }
+
+        return group_found_params.sort_order * kv->scores[group_found_params.sort_index];
+    }
+
+    static void set_group_found_value(KV* kv, const group_found_params_t& group_found_params) {
+        if (group_found_params.sort_index == -1) {
+            return;
+        }
+
+        kv->scores[group_found_params.sort_index] = group_found_params.sort_order * group_found_params.group_count;
+    }
+
     static bool is_greater(const KV* i, const KV* j) {
         return std::tie(i->scores[0], i->scores[1], i->scores[2], i->key) >
                     std::tie(j->scores[0], j->scores[1], j->scores[2], j->key);
@@ -135,6 +160,10 @@ struct KV {
 
     static constexpr uint64_t get_key(const KV* kv) {
         return kv->key;
+    }
+
+    static constexpr uint64_t get_distinct_key(const KV* kv) {
+        return kv->distinct_key;
     }
 };
 
@@ -167,32 +196,35 @@ struct Union_KV : public KV {
     }
 
     static bool is_greater(const Union_KV* i, const Union_KV* j) {
-        return std::tie(i->scores[0], i->scores[1], i->scores[2], i->search_index, i->key) >
-                    std::tie(j->scores[0], j->scores[1], j->scores[2], j->search_index, j->key);
+        // When the scores are same, we'll order the Union kvs according to ascending order of their search_index and
+        // in descending order of their sequence ids.
+        return std::tie(i->scores[0], i->scores[1], i->scores[2], j->search_index, i->key) >
+                    std::tie(j->scores[0], j->scores[1], j->scores[2], i->search_index, j->key);
     }
 
     static bool is_smaller(const Union_KV* i, const Union_KV* j) {
-        return std::tie(i->scores[0], i->scores[1], i->scores[2], i->search_index, i->key) <
-                    std::tie(j->scores[0], j->scores[1], j->scores[2], j->search_index, j->key);
+        // When the scores are same, we'll order the Union kvs according to ascending order of their search_index and
+        // in descending order of their sequence ids.
+        return std::tie(i->scores[0], i->scores[1], i->scores[2], j->search_index, i->key) <
+                    std::tie(j->scores[0], j->scores[1], j->scores[2], i->search_index, j->key);
     }
 
-    static constexpr std::pair<uint32_t, uint64_t> get_key(const Union_KV* union_kv) {
-        return std::make_pair(union_kv->search_index, union_kv->key);
+    static constexpr uint64_t get_key(const Union_KV* union_kv) {
+        return StringUtils::hash_combine(union_kv->search_index, union_kv->key);
     }
-};
 
-struct pair_hash {
-    template <class T1, class T2>
-    std::size_t operator() (const std::pair<T1, T2> &pair) const {
-        return std::hash<T1>()(pair.first) ^ std::hash<T2>()(pair.second);
+    static constexpr uint64_t get_distinct_key(const Union_KV* union_kv) {
+        return StringUtils::hash_combine(union_kv->search_index, union_kv->distinct_key);
     }
 };
 
 /*
 * Remembers the max-K elements seen so far using a min-heap
 */
-template <typename T, typename K = uint64_t, typename H = std::hash<uint64_t>, const auto& get_key = KV::get_key,
-            const auto& is_greater = KV::is_greater, const auto& is_smaller = KV::is_smaller>
+template <typename T, const auto& get_key = KV::get_key, const auto& get_distinct_key = KV::get_distinct_key,
+            const auto& is_greater = KV::is_greater, const auto& is_smaller = KV::is_smaller,
+            const auto& set_group_found_value = KV::set_group_found_value,
+            const auto& get_group_found_value = KV::get_group_found_value>
 struct Topster {
     const uint32_t MAX_SIZE;
     uint32_t size;
@@ -200,16 +232,31 @@ struct Topster {
     T *data;
     T** kvs;
 
-    std::unordered_map<K, T*, H> map;
+    std::unordered_map<uint64_t, T*> map;
 
     size_t distinct;
     spp::sparse_hash_set<uint64_t> group_doc_seq_ids;
-    spp::sparse_hash_map<uint64_t, Topster<T, K, H, get_key, is_greater, is_smaller>*> group_kv_map;
+    spp::sparse_hash_map<uint64_t, Topster<T, get_key, get_distinct_key, is_greater, is_smaller>*> group_kv_map;
 
-    explicit Topster(size_t capacity): Topster(capacity, 0) {
+    // For estimating the count of groups identified by `distinct_key`.
+    bool is_group_by_first_pass;
+    std::unique_ptr<LogLogBeta> loglog_counter;
+    size_t aggregate_counter = 0;
+
+    // For estimating the size of each group in the first pass of group_by. We'll have the exact size of each group in
+    // the second pass. Only required when `sort_by: _group_found` is mentioned.
+    bool should_group_count;
+    group_found_params_t group_found_params;
+    std::unique_ptr<CountMinSketch> count_min;
+
+    explicit Topster(size_t capacity): Topster(capacity, 0, false) {
     }
 
-    explicit Topster(size_t capacity, size_t distinct): MAX_SIZE(capacity), size(0), distinct(distinct) {
+    explicit Topster(size_t capacity, size_t distinct, bool is_group_by_first_pass,
+                     const group_found_params_t& group_found_params = {}) :
+                        MAX_SIZE(capacity), size(0), distinct(distinct),
+                        is_group_by_first_pass(is_group_by_first_pass),
+                        group_found_params(group_found_params) {
         // we allocate data first to get a memory block whose indices are then assigned to `kvs`
         // we use separate **kvs for easier pointer swaps
         data = new T[capacity];
@@ -222,6 +269,15 @@ struct Topster {
             data[i].key = 0;
             data[i].distinct_key = 0;
             kvs[i] = &data[i];
+        }
+
+        if (is_group_by_first_pass) {
+            loglog_counter = std::make_unique<LogLogBeta>();
+        }
+
+        should_group_count = is_group_by_first_pass && group_found_params.sort_index > -1;
+        if (should_group_count) {
+            count_min = std::make_unique<CountMinSketch>(0.005, 0.01);
         }
     }
 
@@ -254,19 +310,37 @@ struct Topster {
             LOG(INFO) << "kv key: " << mkv.first << " => " << mkv.second->scores[mkv.second->match_score_index];
         }*/
 
+        if (should_group_count) {
+            const auto& key = get_distinct_key(kv);
+            count_min->update(key, get_group_found_value(kv, group_found_params));
+
+            group_found_params_t const& params = {group_found_params.sort_index, group_found_params.sort_order,
+                                                        count_min->estimate(key)};
+            set_group_found_value(kv, params);
+
+            const auto& found_it = map.find(key);
+            if (found_it != map.end()) {
+                set_group_found_value(found_it->second, params);
+            }
+        }
+
         int ret = 1;
        
         bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller(kv, kvs[0]);
         size_t heap_op_index = 0;
+        const bool& is_group_by_second_pass = distinct && !is_group_by_first_pass;
 
-        if(!distinct && less_than_min_heap) {
-            // for non-distinct, if incoming value is smaller than min-heap ignore
+        if(!is_group_by_second_pass && less_than_min_heap) {
+            if (is_group_by_first_pass) {
+                loglog_counter->add(std::to_string(get_distinct_key(kv)));
+            }
+            // for non-distinct or first group_by pass, if incoming value is smaller than min-heap ignore
             return 0;
         }
 
         bool SIFT_DOWN = true;
 
-        if(distinct) {
+        if(is_group_by_second_pass) {
             const auto& doc_seq_id_exists = 
                 (group_doc_seq_ids.find(kv->key) != group_doc_seq_ids.end());
         
@@ -280,17 +354,18 @@ struct Topster {
             if(kvs_it != group_kv_map.end()) {
                 kvs_it->second->add(kv);
             } else {
-                auto g_topster = new Topster<T, K, H, get_key, is_greater, is_smaller>(distinct, 0);
+                auto g_topster = new Topster<T, get_key, get_distinct_key, is_greater, is_smaller>(distinct, 0, false);
                 g_topster->add(kv);
                 group_kv_map.insert({kv->distinct_key, g_topster});
             }
             
             return ret;
 
-        } else { // not distinct
+        } else { // not distinct or first group_by pass
             //LOG(INFO) << "Searching for key: " << kv->key;
 
-            const auto& found_it = map.find(get_key(kv));
+            const auto& key = is_group_by_first_pass ? get_distinct_key(kv) : get_key(kv);
+            const auto& found_it = map.find(key);
             bool is_duplicate_key = (found_it != map.end());
 
             /*
@@ -314,8 +389,11 @@ struct Topster {
 
                 // replace existing kv and sift down
                 heap_op_index = existing_kv->array_index;
-                map.erase(get_key(kvs[heap_op_index]));
+                map.erase(is_group_by_first_pass ? get_distinct_key(kvs[heap_op_index]) : get_key(kvs[heap_op_index]));
             } else {  // not duplicate
+                if (is_group_by_first_pass) {
+                    loglog_counter->add(std::to_string(key));
+                }
 
                 if(size < MAX_SIZE) {
                     // we just copy to end of array
@@ -327,12 +405,12 @@ struct Topster {
                     // we have to replace min heap element since array is full
                     SIFT_DOWN = true;
                     heap_op_index = 0;
-                    map.erase(get_key(kvs[heap_op_index]));
+                    map.erase(is_group_by_first_pass ? get_distinct_key(kvs[heap_op_index]) : get_key(kvs[heap_op_index]));
                 }
             }
 
             // kv will be copied into the pointer at heap_op_index
-            map.emplace(get_key(kv), kvs[heap_op_index]);
+            map.emplace(key, kvs[heap_op_index]);
         }
 
         // we have to replace the existing element in the heap and sift down
@@ -389,11 +467,23 @@ struct Topster {
     }
 
     uint64_t getDistinctKeyAt(uint32_t index) {
-        return kvs[index]->distinct_key;
+        return get_distinct_key(kvs[index]);
     }
 
     T* getKV(uint32_t index) {
         return kvs[index];
+    }
+
+    size_t getGroupsCount() {
+        return std::max(aggregate_counter, loglog_counter != nullptr ? loglog_counter->cardinality() : 0);
+    }
+
+    void mergeGroupsCount(Topster& topster) {
+        if (loglog_counter == nullptr) {
+            loglog_counter = std::move(topster.loglog_counter);
+            return;
+        }
+        loglog_counter->merge(*topster.loglog_counter.get());
     }
 };
 

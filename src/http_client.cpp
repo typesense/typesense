@@ -3,6 +3,7 @@
 #include "logger.h"
 #include <vector>
 #include <json.hpp>
+#include "http_data.h"
 
 std::string HttpClient::api_key = "";
 std::string HttpClient::ca_cert_path = "";
@@ -42,6 +43,39 @@ long HttpClient::post_response_stream(const std::string &url, const std::string 
     struct curl_slist* chunk = nullptr;
 
     CURL *curl = init_curl_stream(url, response, timeout_ms);
+    if(curl == nullptr) {
+        return 500;
+    }
+
+    for(const auto& header: headers) {
+        std::string header_str = header.first + ": " + header.second;
+        chunk = curl_slist_append(chunk, header_str.c_str());
+    }
+
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
+
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+    curl_easy_perform(curl);
+
+    long status_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
+    curl_easy_cleanup(curl);
+    curl_slist_free_all(chunk);
+
+    return status_code;
+}
+
+long HttpClient::post_response_sse(const std::string &url, const std::string &body,
+                                const std::unordered_map<std::string, std::string>& headers, long timeout_ms,
+                                const std::shared_ptr<http_req> request,
+                                const std::shared_ptr<http_res> response,
+                                HttpServer* server) {
+    struct curl_slist* chunk = nullptr;
+    deferred_req_res_t* req_res = new deferred_req_res_t(request, response, server, false);
+    std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
+
+    CURL *curl = init_curl_sse(url, timeout_ms, req_res);
     if(curl == nullptr) {
         return 500;
     }
@@ -283,6 +317,7 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
     }
 
     size_t res_size = size * nmemb;
+    std::string resp_str = std::string(buffer, res_size);
 
     // set headers if not already set
     if(req_res->res->status_code == 0) {
@@ -290,12 +325,21 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
         CURL* curl = client_state->curl;
         long http_code = 500;
         CURLcode res = curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
+        char* content_type;
+        res = curl_easy_getinfo (curl, CURLINFO_CONTENT_TYPE, &content_type);
+
+        if(req_res->req->async_res_set_headers_callback && res == CURLE_OK) {
+            auto output = req_res->req->async_res_set_headers_callback(resp_str, req_res->req, http_code, content_type);
+            if(!output) {
+                // if the callback returns false, don't set headers, early return
+                return res_size;
+            }
+        }
+
         if(res == CURLE_OK) {
             req_res->res->status_code = http_code;
         }
 
-        char* content_type;
-        res = curl_easy_getinfo (curl, CURLINFO_CONTENT_TYPE, &content_type);
         if(res == CURLE_OK && content_type != nullptr) {
             req_res->res->content_type_header = content_type;
         }
@@ -303,8 +347,15 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
 
     // we've got response from remote host: write to client and ask for more request body
 
-    req_res->res->body = std::string(buffer, res_size);
+
     req_res->res->final = false;
+
+    if(req_res->req->async_res_write_callback) {
+        // middleware callback to modify response body
+        req_res->req->async_res_write_callback(resp_str, req_res->req, req_res->res);
+    }
+
+    req_res->res->body = resp_str;
 
     //LOG(INFO) << "curl_write_async response, res body size: " << req_res->res->body.size();
 
@@ -342,7 +393,18 @@ size_t HttpClient::curl_write_stream_done(void *context, curl_socket_t item) {
 size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     //LOG(INFO) << "curl_write_async_done";
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
-    req_res->server->decr_pending_writes();
+    if(req_res->req->is_write) {
+       req_res->server->decr_pending_writes();
+    }
+
+    if(req_res->req->async_res_done_callback) {
+        bool output = req_res->req->async_res_done_callback(req_res->req, req_res->res);
+        if(!output) {
+            // if the callback returns false, don't send response, early return
+            //LOG(INFO) << "async_res_done_callback returned false";
+            return 0;
+        }
+    }
 
     if(!req_res->res->is_alive) {
         // underlying client request is dead, don't try to send anymore data
@@ -350,6 +412,8 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
         close(item);
         return 0;
     }
+
+
 
     req_res->res->body = "";
     req_res->res->final = true;
@@ -386,12 +450,48 @@ CURL *HttpClient::init_curl_stream(const std::string& url, async_stream_response
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write_stream);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &res);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write_stream);  
 
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &res);
+    
     curl_easy_setopt(curl, CURLOPT_CLOSESOCKETFUNCTION, HttpClient::curl_write_stream_done);
+
     curl_easy_setopt(curl, CURLOPT_CLOSESOCKETDATA, &res);
 
+    return curl;
+}
+
+
+CURL *HttpClient::init_curl_sse(const std::string& url, long timeout_ms,
+                                deferred_req_res_t* req_res) {
+    CURL* curl = curl_easy_init();
+    if(curl == nullptr) {
+        return nullptr;
+    }
+
+    if(!ca_cert_path.empty()) {
+    curl_easy_setopt(curl, CURLOPT_CAINFO, ca_cert_path.c_str());
+    } else {
+    LOG(WARNING) << "Unable to locate system SSL certificates.";
+    }
+
+    req_res->req->data = new client_state_t(curl);  // destruction of data is managed by req destructor
+
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
+    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+
+    // to allow self-signed certs
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write_async);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, req_res);
+
+    curl_easy_setopt(curl, CURLOPT_CLOSESOCKETFUNCTION, HttpClient::curl_write_async_done);
+    curl_easy_setopt(curl, CURLOPT_CLOSESOCKETDATA, req_res);
     return curl;
 }
 

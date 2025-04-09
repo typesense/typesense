@@ -3286,9 +3286,9 @@ TEST_F(CollectionSortingTest, TextMatchBucketSizeRanking) {
     ASSERT_EQ(6, results["hits"].size());
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
-    ASSERT_EQ("4", results["hits"][2]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
-    ASSERT_EQ("2", results["hits"][4]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][4]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][5]["document"]["id"].get<std::string>());
 
     //in case of bucket_size more than results, no bucketing happens
@@ -3332,4 +3332,314 @@ TEST_F(CollectionSortingTest, TextMatchBucketSizeRanking) {
     ASSERT_EQ("0", results["hits"][3]["document"]["id"].get<std::string>());
     ASSERT_EQ("4", results["hits"][4]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][5]["document"]["id"].get<std::string>());
+}
+
+
+TEST_F(CollectionSortingTest, VectorSearchBucketRanking) {
+    nlohmann::json schema = nlohmann::json::parse(R"({
+        "name": "test",
+        "fields": [
+            {"name": "points", "type": "int32"},
+            {"name": "vec", "type": "float[]", "num_dim": 3}
+        ],
+        "default_sorting_field": "points"
+    })");
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["points"] = 100;
+    doc1["vec"] = {0.8, 0.6, 0.0};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["points"] = 200;
+    doc2["vec"] = {0.2, 0.1, 0.9};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    sort_fields = {
+    sort_by("_vector_distance(buckets: 10)", "ASC"),
+    sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "vec:([0.85, 0.5, 0.1])").get();
+
+
+
+    // when there are more buckets than results, no bucketing will happen
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // bucketing by 1 makes the text match score the same
+    sort_fields = {
+    sort_by("_vector_distance(buckets: 1)", "ASC"),
+    sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.85, 0.5, 0.1])").get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    float score1 = results["hits"][0]["vector_distance"].get<float>();
+    float score2 = results["hits"][1]["vector_distance"].get<float>();
+    ASSERT_TRUE(score1 > score2);
+
+    // bucketing by 0 produces original text match
+    sort_fields = {
+    sort_by("_vector_distance(buckets: 0)", "ASC"),
+    sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.85, 0.5, 0.1])").get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // don't allow bad parameter name
+    sort_fields[0] = sort_by("_vector_distance(foobar: 0)", "ASC");
+
+    auto res_op = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "vec:([0.85, 0.5, 0.1])");
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid sorting parameter passed for _vector_distance.", res_op.error());
+
+    // handle bad syntax
+    sort_fields[0] = sort_by("_vector_distance(foobar:", "ASC");
+    res_op = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.85, 0.5, 0.1])");
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Could not find a field named `_vector_distance(foobar:` in the schema for sorting.", res_op.error());
+
+    // handle bad value
+    sort_fields[0] = sort_by("_vector_distance(buckets: x)", "ASC");
+    res_op = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.85, 0.5, 0.1])");
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid value passed for _vector_distance `buckets` or `bucket_size` configuration.", res_op.error());
+
+    // handle negative value
+    sort_fields[0] = sort_by("_vector_distance(buckets: -1)", "ASC");
+    res_op = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.85, 0.5, 0.1])");
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid value passed for _vector_distance `buckets` or `bucket_size` configuration.", res_op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
+
+TEST_F(CollectionSortingTest, VectorSearchBucketSizeRanking) {
+    nlohmann::json schema = nlohmann::json::parse(R"({
+        "name": "test",
+        "fields": [
+            {"name": "points", "type": "int32"},
+            {"name": "vec", "type": "float[]", "num_dim": 3}
+        ],
+        "default_sorting_field": "points"
+    })");
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["vec"] = {0.1, 0.1, 0.1};
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["vec"] = {0.2, 0.1, 0.9};
+    doc2["points"] = 200;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["vec"] = {0.8, 0.6, 0.0};
+    doc3["points"] = 100;
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["vec"] = {0.7, 0.4, 0.1};
+    doc4["points"] = 300;
+
+    nlohmann::json doc5;
+    doc5["id"] = "4";
+    doc5["vec"] = {0.3, 0.4, 0.5};
+    doc5["points"] = 200;
+
+    nlohmann::json doc6;
+    doc6["id"] = "5";
+    doc6["vec"] = {0.9, 0.7, 0.1};
+    doc6["points"] = 200;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc6.dump()).ok());
+
+    sort_fields = {
+            sort_by("_vector_distance(bucket_size: 3)", "ASC"),
+            sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "vec:([0.85, 0.5, 0.1])").get();
+
+    //two buckets will be formed and results will rank as per points among buckets
+    ASSERT_EQ(6, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][4]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][5]["document"]["id"].get<std::string>());
+
+    //in case of bucket_size more than results, no bucketing happens
+    sort_fields = {
+            sort_by("_vector_distance(bucket_size: 10)", "ASC"),
+            sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.85, 0.5, 0.1])").get();
+
+    ASSERT_EQ(6, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][4]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][5]["document"]["id"].get<std::string>());
+
+    //in case of bucket_size 0, no bucketing happens
+    sort_fields = {
+            sort_by("_vector_distance(bucket_size: 0)", "ASC"),
+            sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.85, 0.5, 0.1])").get();
+
+    ASSERT_EQ(6, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][4]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][5]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSortingTest, VectorSearchBucketRankingTwoBuckets) {
+    nlohmann::json schema = nlohmann::json::parse(R"({
+        "name": "test",
+        "fields": [
+            {"name": "points", "type": "int32"},
+            {"name": "vec", "type": "float[]", "num_dim": 3}
+        ],
+        "default_sorting_field": "points"
+    })");
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["points"] = 200;
+    doc1["vec"] = {0.8, 0.6, 0.0};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["points"] = 300;
+    doc2["vec"] = {0.3, 0.4, 0.5};
+    
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["points"] = 500;
+    doc3["vec"] = {0.2, 0.1, 0.9};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    sort_fields = {
+    sort_by("_vector_distance(buckets: 2)", "ASC"),
+    sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "vec:([0.85, 0.5, 0.1])").get();
+
+    // when there are more buckets than results, no bucketing will happen
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
 }
