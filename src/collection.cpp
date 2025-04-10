@@ -4316,8 +4316,8 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
     }
 
     if(q_include_tokens.empty()) {
-        if(!stopwords_set.empty()) {
-            //this can happen when all tokens in the include are stopwords
+        if(!stopwords_set.empty() && q_phrases.empty()) {
+            // this can happen when all tokens in the include are stopwords
             q_include_tokens.emplace_back("##hrhdh##");
         } else {
             // this can happen if the only query token is an exclusion token

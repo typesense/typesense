@@ -491,10 +491,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
-        if(collection_name != "6490_searchproductsprod_7qnnmget2ttehgxfus2ski2yxa") {
-            //continue;
-        }
-
         auto captured_store = store;
         auto captured_referenced_ins = referenced_ins;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
