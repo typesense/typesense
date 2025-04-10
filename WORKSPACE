@@ -255,8 +255,8 @@ new_git_repository(
     name = "icu",
     build_file = "//bazel/icu:BUILD",
     patches = ["//bazel/icu:icu.patch"],
-    remote = "https://github.com/unicode-org/icu.git",
-    tag = "release-71-1",
+    remote = "https://github.com/typesense/icu.git",
+    tag = "release-71-1-patch",
 )
 
 git_repository(

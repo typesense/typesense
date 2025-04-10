@@ -1915,6 +1915,8 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
     const char *TOP_K_BY = "top_k_by";
     const char* VALIDATE_FIELD_NAMES = "validate_field_names";
     const char* TRUNCATE = "truncate";
+    const char* RETURN_DOC = "return_doc";
+    const char* RETURN_ID = "return_id";
 
     if(req->params.count(TOP_K_BY) != 0) {
         std::vector<std::string> parts;
@@ -2006,6 +2008,14 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         // destruction of data is managed by req destructor
         req->data = deletion_state;
 
+        if (req->params.count(RETURN_DOC) != 0 && req->params[RETURN_DOC] == "true") {
+            deletion_state->return_doc = true;
+        }
+        
+        if (req->params.count(RETURN_ID) != 0 && req->params[RETURN_ID] == "true") {
+            deletion_state->return_id = true;
+        }
+
         bool validate_field_names = true;
         if (req->params.count(VALIDATE_FIELD_NAMES) != 0 && req->params[VALIDATE_FIELD_NAMES] == "false") {
             validate_field_names = false;
@@ -2048,6 +2058,15 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
             res->final = false;
         } else {
             response["num_deleted"] = deletion_state->num_removed;
+            
+            if (deletion_state->return_doc && !deletion_state->removed_docs.empty()) {
+                response["documents"] = deletion_state->removed_docs;
+            }
+            
+            if (deletion_state->return_id && !deletion_state->removed_ids.empty()) {
+                response["ids"] = deletion_state->removed_ids;
+            }
+            
             req->last_chunk_aggregate = true;
             res->body = response.dump();
             res->final = true;

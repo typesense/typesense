@@ -45,36 +45,98 @@ struct synonym_t {
     }
 };
 
+struct synonym_match_t {
+    std::string synonym_id;
+    size_t start_index;
+    size_t end_index;
+};
+
+struct synonym_node_t {
+    std::unordered_map<std::string, synonym_node_t*> children;
+    art_tree* children_tree;
+    size_t children_tree_index = 0;
+    std::vector<std::string> terminal_synonym_ids;
+    std::string token;
+
+    ~synonym_node_t() {
+        for(auto& child : children) {
+            delete child.second;
+        }
+        if (children_tree != nullptr) {
+            art_tree_destroy(children_tree);
+            delete children_tree;
+        }
+        children.clear();
+    }
+    
+    // avoid copying art tree
+    synonym_node_t& operator=(const synonym_node_t& other) = delete;
+
+    // avoid copying art tree
+    synonym_node_t(const synonym_node_t& other) = delete;
+
+    synonym_node_t(synonym_node_t&& other) noexcept {
+        children = std::move(other.children);
+        other.children.clear();
+        terminal_synonym_ids = std::move(other.terminal_synonym_ids);
+        children_tree = other.children_tree;
+        other.children_tree = nullptr;
+        children_tree_index = other.children_tree_index;
+        token = std::move(other.token);
+    }
+
+    synonym_node_t& operator=(synonym_node_t&& other) noexcept {
+        if (this != &other) {
+            children = std::move(other.children);
+            other.children.clear();
+            terminal_synonym_ids = std::move(other.terminal_synonym_ids);
+            children_tree = other.children_tree;
+            other.children_tree = nullptr;
+            children_tree_index = other.children_tree_index;
+            token = std::move(other.token);
+        }
+        return *this;
+    }
+
+    synonym_node_t() {
+        children_tree = new art_tree();
+        art_tree_init(children_tree);
+    }
+
+    Option<bool> add(const synonym_t& synonym);
+
+    Option<bool> remove(const synonym_t& synonym);
+
+    Option<bool> get_synonyms(const std::vector<std::string>& tokens, std::vector<synonym_match_t>& synonyms, uint32_t num_typos, size_t start_index = 0, bool synonym_prefix = false) const;
+
+    Option<bool> get_synonyms(const std::vector<std::string>& tokens, std::vector<synonym_match_t>& synonyms, uint32_t num_typos, bool synonym_prefix, size_t start_index, size_t current_index) const;
+
+    std::vector<synonym_node_t*> get_matching_children(const std::string& token, uint32_t num_typos, bool synonym_prefix) const;
+
+    void cleanup();
+
+    static bool cleanup(synonym_node_t* current, synonym_node_t* parent);
+
+};
+
 class SynonymIndex {
 private:
 
     mutable std::shared_mutex mutex;
     Store* store;
     spp::sparse_hash_map<std::string, uint32_t> synonym_ids_index_map;
-    art_tree* synonym_index_tree;
     uint32_t synonym_index = 0;
     std::map<uint32_t, synonym_t> synonym_definitions;
-
-    void synonym_reduction_internal(const std::vector<std::string>& tokens,
-                                    const std::string& locale,
-                                    size_t start_window_size,
-                                    size_t start_index_pos,
-                                    std::set<std::string>& processed_tokens,
-                                    std::vector<std::vector<std::string>>& results,
-                                    const std::vector<std::string>& orig_tokens,
-                                    bool synonym_prefix, uint32_t synonym_num_typos) const;
+    synonym_node_t synonym_trie_root;
 public:
 
     static constexpr const char* COLLECTION_SYNONYM_PREFIX = "$CY";
 
     SynonymIndex(Store* store): store(store) {
-        synonym_index_tree = new art_tree;
-        art_tree_init(synonym_index_tree);
+
     }
 
     ~SynonymIndex() {
-        art_tree_destroy(synonym_index_tree);
-        delete synonym_index_tree;
     }
 
     static std::string get_synonym_key(const std::string & collection_name, const std::string & synonym_id);

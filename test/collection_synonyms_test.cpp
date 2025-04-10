@@ -249,13 +249,21 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
 
     coll_mul_fields->synonym_reduction({"new", "york", "t", "shirt"}, "", results);
 
-    ASSERT_EQ(1, results.size());
-    ASSERT_EQ(2, results[0].size());
+    ASSERT_EQ(3, results.size());
+    ASSERT_EQ(3, results[0].size());
+    ASSERT_EQ(3, results[1].size());
+    ASSERT_EQ(2, results[2].size());
 
-    std::vector<std::string> nyc_tshirt = {"nyc", "tshirt"};
-    for(size_t i=0; i<nyc_tshirt.size(); i++) {
-        ASSERT_STREQ(nyc_tshirt[i].c_str(), results[0][i].c_str());
-    }
+    ASSERT_STREQ("new", results[0][0].c_str());
+    ASSERT_STREQ("york", results[0][1].c_str());
+    ASSERT_STREQ("tshirt", results[0][2].c_str());
+
+    ASSERT_STREQ("nyc", results[1][0].c_str());
+    ASSERT_STREQ("t", results[1][1].c_str());
+    ASSERT_STREQ("shirt", results[1][2].c_str());
+
+    ASSERT_STREQ("nyc", results[2][0].c_str());
+    ASSERT_STREQ("tshirt", results[2][1].c_str());
 
     // replace two synonyms with different lengths
     results.clear();
@@ -268,13 +276,24 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
 
     coll_mul_fields->synonym_reduction({"red", "new", "york", "cap"}, "", results);
 
-    ASSERT_EQ(1, results.size());
-    ASSERT_EQ(3, results[0].size());
+    ASSERT_EQ(3, results.size());
 
-    std::vector<std::string> crimson_nyc_cap = {"crimson", "nyc", "cap"};
-    for(size_t i=0; i<crimson_nyc_cap.size(); i++) {
-        ASSERT_STREQ(crimson_nyc_cap[i].c_str(), results[0][i].c_str());
-    }
+    ASSERT_EQ(4, results[0].size());
+    ASSERT_EQ(3, results[1].size());
+    ASSERT_EQ(3, results[2].size());
+
+    ASSERT_STREQ("crimson", results[0][0].c_str());
+    ASSERT_STREQ("new", results[0][1].c_str());
+    ASSERT_STREQ("york", results[0][2].c_str());
+    ASSERT_STREQ("cap", results[0][3].c_str());
+
+    ASSERT_STREQ("crimson", results[1][0].c_str());
+    ASSERT_STREQ("nyc", results[1][1].c_str());
+    ASSERT_STREQ("cap", results[1][2].c_str());
+
+    ASSERT_STREQ("red", results[2][0].c_str());
+    ASSERT_STREQ("nyc", results[2][1].c_str());
+    ASSERT_STREQ("cap", results[2][2].c_str());
 }
 
 TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
@@ -299,42 +318,60 @@ TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
 
     ASSERT_STREQ("pod", results[1][0].c_str());
 
-    // multiple tokens
+    nlohmann::json synonym2 = R"({
+        "id": "car-synonyms",
+        "synonyms": ["car", "automobile", "vehicle"]
+    })"_json;
+    
+    op = coll_mul_fields->add_synonym(synonym2);
+    ASSERT_TRUE(op.ok());
     results.clear();
-    coll_mul_fields->synonym_reduction({"i", "pod"}, "", results);
+
+    coll_mul_fields->synonym_reduction({"car"}, "", results);
 
     ASSERT_EQ(2, results.size());
     ASSERT_EQ(1, results[0].size());
     ASSERT_EQ(1, results[1].size());
 
-    ASSERT_STREQ("ipod", results[0][0].c_str());
-    ASSERT_STREQ("pod", results[1][0].c_str());
-
-    // multi-token synonym + multi-token synonym definitions
-    nlohmann::json synonym2 = R"({
-        "id": "usa-synonyms",
-        "synonyms": ["usa", "united states", "us", "united states of america", "states"]
-    })"_json;
-    coll_mul_fields->add_synonym(synonym2);
+    ASSERT_STREQ("automobile", results[0][0].c_str());
+    ASSERT_STREQ("vehicle", results[1][0].c_str());
 
     results.clear();
-    coll_mul_fields->synonym_reduction({"united", "states"}, "", results);
-    ASSERT_EQ(4, results.size());
+
+    coll_mul_fields->synonym_reduction({"automobile"}, "", results);
+    ASSERT_EQ(2, results.size());
 
     ASSERT_EQ(1, results[0].size());
     ASSERT_EQ(1, results[1].size());
-    ASSERT_EQ(4, results[2].size());
-    ASSERT_EQ(1, results[3].size());
 
-    ASSERT_STREQ("usa", results[0][0].c_str());
-    ASSERT_STREQ("us", results[1][0].c_str());
 
-    std::vector<std::string> red_new_york_tshirts = {"united", "states", "of", "america"};
-    for(size_t i=0; i<red_new_york_tshirts.size(); i++) {
-        ASSERT_STREQ(red_new_york_tshirts[i].c_str(), results[2][i].c_str());
-    }
+    nlohmann::json synonym3 = R"({
+        "id": "card-synonyms-3",
+        "synonyms": ["credit card", "payment card", "cc"]
+    })"_json;
+    op = coll_mul_fields->add_synonym(synonym3);
+    ASSERT_TRUE(op.ok());
 
-    ASSERT_STREQ("states", results[3][0].c_str());
+    results.clear();
+    coll_mul_fields->synonym_reduction({"credit", "card"}, "", results);
+    ASSERT_EQ(2, results.size());
+    ASSERT_EQ(1, results[0].size());
+    ASSERT_EQ(2, results[1].size());
+
+    ASSERT_STREQ("cc", results[0][0].c_str());
+    ASSERT_STREQ("payment", results[1][0].c_str());
+    ASSERT_STREQ("card", results[1][1].c_str());
+
+    results.clear();
+    coll_mul_fields->synonym_reduction({"payment", "card"}, "", results);
+
+    ASSERT_EQ(2, results.size());
+    ASSERT_EQ(1, results[0].size());
+    ASSERT_EQ(2, results[1].size());
+
+    ASSERT_STREQ("cc", results[0][0].c_str());
+    ASSERT_STREQ("credit", results[1][0].c_str());
+    ASSERT_STREQ("card", results[1][1].c_str());
 }
 
 TEST_F(CollectionSynonymsTest, SynonymBelongingToMultipleSets) {
@@ -359,10 +396,10 @@ TEST_F(CollectionSynonymsTest, SynonymBelongingToMultipleSets) {
     ASSERT_EQ(2, results[1].size());
     ASSERT_EQ(2, results[2].size());
 
-    ASSERT_STREQ("i", results[0][0].c_str());
+    ASSERT_STREQ("galaxy", results[0][0].c_str());
     ASSERT_STREQ("phone", results[0][1].c_str());
 
-    ASSERT_STREQ("galaxy", results[1][0].c_str());
+    ASSERT_STREQ("i", results[1][0].c_str());
     ASSERT_STREQ("phone", results[1][1].c_str());
 
     ASSERT_STREQ("samsung", results[2][0].c_str());
@@ -1585,6 +1622,87 @@ TEST_F(CollectionSynonymsTest, SynonymWithStemming) {
 
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ(2, res["found"].get<uint32_t>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSynonymsTest, SynonymsWithMultiToken) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {
+                "name": "title",
+                "type": "string"
+            },
+            {
+                "name": "gender",
+                "type": "string",
+                "optional": true
+            }
+        ]
+    })"_json;
+
+    auto coll1 = collectionManager.create_collection(schema).get();
+
+    coll1->add_synonym(R"({"id": "foobar", "synonyms": ["blazer", "suit", "jacket"]})"_json);
+
+    coll1->add_synonym(R"({"id": "foobar2", "synonyms": ["man", "male", "gentleman", "men"]})"_json);
+
+    coll1->add_synonym(R"({"id": "foobar3", "synonyms": ["wool", "linen", "cotton"]})"_json);
+
+
+    nlohmann::json doc;
+    doc["title"] = "Cotton Blazer for men";
+    coll1->add(doc.dump());
+
+    doc["title"] = "Blazer made of wool for men";
+    coll1->add(doc.dump());
+
+    doc["title"] = "Suit made of Linen for a man";
+    coll1->add(doc.dump());
+
+    doc["title"] = "Gentleman Suit made of Linen";
+    coll1->add(doc.dump());
+
+    doc["title"] = "Blue Wool Jacket men";
+    coll1->add(doc.dump());
+
+    doc["title"] = "Red Cotton Jacket for gentleman";
+    coll1->add(doc.dump());
+
+
+    auto res = coll1->search("suit", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("wool", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("gentleman", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("suit wool", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("wool suit", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("blazer linen", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("jacket cotton", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("linen suit man", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("blazer cotton men", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("wool jacket gentleman", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
+
+    res = coll1->search("male jacket wool", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, res["hits"].size());
 
     collectionManager.drop_collection("coll1");
 }
