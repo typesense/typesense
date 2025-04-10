@@ -6461,6 +6461,13 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
                 auto& f = diff_fields.back();
 
+                if (f.is_reference_helper && diff_fields.size() > 1 &&
+                            !diff_fields[diff_fields.size() - 2].reference.empty()) {
+                    const auto& ref_field = diff_fields[diff_fields.size() - 2];
+                    return Option<bool>(400, "Adding/Modifying reference field `" + ref_field.name +
+                                                "` using alter operation is not yet supported.");
+                }
+
                 if(f.is_dynamic()) {
                     new_dynamic_fields[f.name] = f;
                 } else {

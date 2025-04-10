@@ -1995,3 +1995,26 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterUpdateOldDocs) {
     ASSERT_EQ(0, search_res.get()["hits"][0]["document"].count(".flat"));
     ASSERT_EQ(0, search_res.get()["hits"][0]["document"].count("nested.hello"));
 }
+
+TEST_F(CollectionSchemaChangeTest, AlterReferenceField) {
+    nlohmann::json req_json = R"({
+        "name": "coll",
+        "fields": [
+            {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll_op.ok());
+
+    auto coll = coll_op.get();
+    nlohmann::json schema_change = R"({
+            "fields": [
+                {"name": "ref_field", "type": "string", "reference": "Ref_Coll.ref_field"}
+            ]
+        })"_json;
+
+    auto schema_change_op = coll->alter(schema_change);
+    ASSERT_FALSE(schema_change_op.ok());
+    ASSERT_EQ("Adding/Modifying reference field `ref_field` using alter operation is not yet supported.", schema_change_op.error());
+}
