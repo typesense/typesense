@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "conversation_manager.h"
+#include "conversation_model.h"
 
 
 class ConversationTest : public ::testing::Test {
@@ -281,4 +282,112 @@ TEST_F(ConversationTest, TestGettingFullConversation) {
     ASSERT_EQ(conversation_history["conversation"][1]["assistant"], "The capital of France is Paris.");
     ASSERT_EQ(conversation_history["conversation"][2]["user"], "What is the capital of Germany?");
     ASSERT_EQ(conversation_history["conversation"][3]["assistant"], "The capital of Germany is Berlin.");
+}
+
+TEST_F(ConversationTest, TestGeminiStreamManipulation) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    ConversationModel::_add_async_conversation(req, "test");
+    // test JSON to SSE
+    std::string test = R"([
+    {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": "Hello"
+                        }
+                    ],
+                    "role": "model"
+                }
+            }
+        ],
+        "usageMetadata": {
+            "promptTokenCount": 1,
+            "totalTokenCount": 1,
+            "promptTokensDetails": [
+                {
+                    "modality": "TEXT",
+                    "tokenCount": 1
+                }
+            ]
+        },
+        "modelVersion": "gemini-2.0-flash"
+    })";
+
+    std::string expected = "data: {\"conversation_id\":\"test\",\"message\":\"Hello\"}\n\n";
+    GeminiConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+
+    test = R"(,{
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": "! How can"
+                        }
+                    ],
+                    "role": "model"
+                }
+            }
+        ],
+        "usageMetadata": {
+            "promptTokenCount": 1,
+            "totalTokenCount": 1,
+            "promptTokensDetails": [
+                {
+                    "modality": "TEXT",
+                    "tokenCount": 1
+                }
+            ]
+        },
+        "modelVersion": "gemini-2.0-flash"
+    })";
+
+    expected = "data: {\"conversation_id\":\"test\",\"message\":\"! How can\"}\n\n";
+    GeminiConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+
+    test = R"(,
+        {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": " I help you today?\n"
+                            }
+                        ],
+                        "role": "model"
+                    },
+                    "finishReason": "STOP"
+                }
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 1,
+                "candidatesTokenCount": 10,
+                "totalTokenCount": 11,
+                "promptTokensDetails": [
+                    {
+                        "modality": "TEXT",
+                        "tokenCount": 1
+                    }
+                ],
+                "candidatesTokensDetails": [
+                    {
+                        "modality": "TEXT",
+                        "tokenCount": 10
+                    }
+                ]
+            },
+            "modelVersion": "gemini-2.0-flash"
+        }
+    ])";
+
+    expected = "data: {\"conversation_id\":\"test\",\"message\":\" I help you today?\\n\"}\n\n";
+    expected += "data: [DONE]\n\n";
+    GeminiConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
 }

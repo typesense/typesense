@@ -31,6 +31,10 @@ class ConversationModel {
         static Option<std::string> get_answer_stream(const std::string& context, const std::string& prompt, const nlohmann::json& model_config,
                                                     const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res, 
                                                     const std::string conversation_id);
+        // for testing
+        static inline void _add_async_conversation(std::shared_ptr<http_req> req, const std::string& conversation_id) {
+            async_conversations[req].conversation_id = conversation_id;
+        }
     protected:
         static const inline std::string CONVERSATION_HISTORY = "\n\n<Conversation history>\n";
         static const inline std::string QUESTION = "\n\n<Question>\n";
@@ -149,6 +153,10 @@ class GeminiConversationModel : public ConversationModel {
         )";
         // prevent instantiation
         GeminiConversationModel() = delete;
+        static void _async_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+            // for testing purposes
+            return async_res_write_callback(response, req, res);
+        }
     private:
         static constexpr char* GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
         static constexpr char* NON_STREAM_RESPONSE_STR = ":generateContent";
