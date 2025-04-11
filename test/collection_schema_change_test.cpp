@@ -2016,5 +2016,38 @@ TEST_F(CollectionSchemaChangeTest, AlterReferenceField) {
 
     auto schema_change_op = coll->alter(schema_change);
     ASSERT_FALSE(schema_change_op.ok());
-    ASSERT_EQ("Adding/Modifying reference field `ref_field` using alter operation is not yet supported.", schema_change_op.error());
+    ASSERT_EQ("Adding/Modifying reference field `ref_field` using alter operation is not yet supported. "
+              "Workaround is to drop the whole collection and re-index it.", schema_change_op.error());
+
+    req_json = R"({
+        "name": "coll_1",
+        "fields": [
+            {"name": "reference_field", "type": "string", "reference": "Ref_coll.foo"}
+        ]
+    })"_json;
+
+    coll_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll_op.ok());
+
+    auto coll_1 = coll_op.get();
+    schema_change = R"({
+            "fields": [
+                {"name": "reference_field", "drop": true},
+                {"name": "reference_field", "type": "string", "reference": "Ref_Coll.foo"}
+            ]
+        })"_json;
+
+    schema_change_op = coll_1->alter(schema_change);
+    ASSERT_FALSE(schema_change_op.ok());
+    ASSERT_EQ("Adding/Modifying reference field `reference_field` using alter operation is not yet supported. "
+              "Workaround is to drop the whole collection and re-index it.", schema_change_op.error());
+
+    schema_change = R"({
+            "fields": [
+                {"name": "reference_field", "drop": true}
+            ]
+        })"_json;
+
+    schema_change_op = coll_1->alter(schema_change);
+    ASSERT_TRUE(schema_change_op.ok());
 }
