@@ -327,9 +327,10 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
         CURLcode res = curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
         char* content_type;
         res = curl_easy_getinfo (curl, CURLINFO_CONTENT_TYPE, &content_type);
+        std::string content_type_str = content_type ? content_type : "";
 
         if(req_res->req->async_res_set_headers_callback && res == CURLE_OK) {
-            auto output = req_res->req->async_res_set_headers_callback(resp_str, req_res->req, http_code, content_type);
+            auto output = req_res->req->async_res_set_headers_callback(resp_str, req_res->req, http_code, content_type_str);
             if(!output) {
                 // if the callback returns false, don't set headers, early return
                 return res_size;
@@ -341,7 +342,7 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
         }
 
         if(res == CURLE_OK && content_type != nullptr) {
-            req_res->res->content_type_header = content_type;
+            req_res->res->content_type_header = content_type_str;
         }
     }
 
