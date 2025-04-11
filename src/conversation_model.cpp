@@ -51,6 +51,8 @@ Option<bool> ConversationModel::validate_model(const nlohmann::json& model_confi
         return CFConversationModel::validate_model(model_config);
     } else if(model_namespace == "vllm") {
         return vLLMConversationModel::validate_model(model_config);
+    } else if(model_namespace == "gemini") {
+        return GeminiConversationModel::validate_model(model_config);
     }
 
     return Option<bool>(400, "Model namespace `" + model_namespace + "` is not supported.");
@@ -71,6 +73,8 @@ Option<std::string> ConversationModel::get_answer(const std::string& context, co
         return CFConversationModel::get_answer(context, prompt, system_prompt, model_config);
     } else if(model_namespace == "vllm") {
         return vLLMConversationModel::get_answer(context, prompt, system_prompt, model_config);
+    } else if(model_namespace == "gemini") {
+        return GeminiConversationModel::get_answer(context, prompt, system_prompt, model_config);
     }
 
     return Option<std::string>(400, "Model namespace " + model_namespace + " is not supported.");
@@ -97,6 +101,8 @@ Option<std::string> ConversationModel::get_answer_stream(const std::string& cont
         response_op =  CFConversationModel::get_answer_stream(context, prompt, system_prompt, model_config, req, res);
     } else if(model_namespace == "vllm") {
         response_op =  vLLMConversationModel::get_answer_stream(context, prompt, system_prompt, model_config, req, res);
+    } else if(model_namespace == "gemini") {
+        response_op =  GeminiConversationModel::get_answer_stream(context, prompt, system_prompt, model_config, req, res);
     } else {
         async_conversations.erase(req);
         return Option<std::string>(400, "Model namespace " + model_namespace + " is not supported.");
@@ -117,6 +123,8 @@ Option<std::string> ConversationModel::get_standalone_question(const nlohmann::j
         return CFConversationModel::get_standalone_question(conversation_history, question, model_config);
     } else if(model_namespace == "vllm") {
         return vLLMConversationModel::get_standalone_question(conversation_history, question, model_config);
+    } else if(model_namespace == "gemini") {
+        return GeminiConversationModel::get_standalone_question(conversation_history, question, model_config);
     }
 
     return Option<std::string>(400, "Model namespace " + model_namespace + " is not supported.");
@@ -131,6 +139,8 @@ Option<nlohmann::json> ConversationModel::format_question(const std::string& mes
         return CFConversationModel::format_question(message);
     } else if(model_namespace == "vllm") {
         return vLLMConversationModel::format_question(message);
+    } else if(model_namespace == "gemini") {
+        return GeminiConversationModel::format_question(message);
     }
 
     return Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
@@ -145,6 +155,8 @@ Option<nlohmann::json> ConversationModel::format_answer(const std::string& messa
         return CFConversationModel::format_answer(message);
     } else if(model_namespace == "vllm") {
         return vLLMConversationModel::format_answer(message);
+    } else if(model_namespace == "gemini") {
+        return GeminiConversationModel::format_answer(message);
     }
 
     return Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
@@ -159,6 +171,8 @@ Option<size_t> ConversationModel::get_minimum_required_bytes(const nlohmann::jso
         return Option<size_t>(CFConversationModel::get_minimum_required_bytes());
     } else if(model_namespace == "vllm") {
         return Option<size_t>(vLLMConversationModel::get_minimum_required_bytes());
+    } else if(model_namespace == "gemini") {
+        return Option<size_t>(GeminiConversationModel::get_minimum_required_bytes());
     }
 
     return Option<size_t>(400, "Model namespace " + model_namespace + " is not supported.");
@@ -442,7 +456,7 @@ Option<nlohmann::json> OpenAIConversationModel::format_answer(const std::string&
     return Option<nlohmann::json>(json);
 }
 
-bool OpenAIConversationModel::async_res_set_headers_callback(const std::string& response, const std::shared_ptr<http_req> req, long status_code, char* content_type) {
+bool OpenAIConversationModel::async_res_set_headers_callback(const std::string& response, const std::shared_ptr<http_req> req, long status_code, std::string& content_type) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return false;
@@ -909,7 +923,7 @@ Option<std::string> CFConversationModel::parse_stream_response(const std::string
 }
 
 
-bool CFConversationModel::async_res_set_headers_callback(const std::string& response, const std::shared_ptr<http_req> req, long status_code, char* content_type) {
+bool CFConversationModel::async_res_set_headers_callback(const std::string& response, const std::shared_ptr<http_req> req, long status_code, std::string& content_type) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return false;
@@ -1317,7 +1331,7 @@ const std::string vLLMConversationModel::get_chat_completion_url(const std::stri
     return vllm_url.back() == '/' ? vllm_url + "v1/chat/completions" : vllm_url + "/v1/chat/completions";
 }
 
-bool vLLMConversationModel::async_res_set_headers_callback(const std::string& response, const std::shared_ptr<http_req> req, long status_code, char* content_type) {
+bool vLLMConversationModel::async_res_set_headers_callback(const std::string& response, const std::shared_ptr<http_req> req, long status_code, std::string& content_type) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return false;
@@ -1380,4 +1394,366 @@ bool vLLMConversationModel::async_res_done_callback(const std::shared_ptr<http_r
     async_conversations[req].ready = true;
     async_conversations[req].cv.notify_one();
     return false;
+}
+
+
+Option<std::string> GeminiConversationModel::get_gemini_url(const nlohmann::json& model_config, const bool stream) {
+    if(model_config.count("model_name") == 0) {
+        return Option<std::string>(400, "Gemini model name is not provided");
+    }
+    if(!model_config["model_name"].is_string()) {
+        return Option<std::string>(400, "Gemini model name is not a string");
+    }
+
+    if(model_config.count("api_key") == 0) {
+        return Option<std::string>(400, "Gemini API key is not provided");
+    }
+
+    if(!model_config["api_key"].is_string()) {
+        return Option<std::string>(400, "Gemini API key is not a string");
+    }
+
+    auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
+
+    std::string url = GEMINI_URL + model_name_without_namespace;
+
+    if(stream) {
+        url += STREAM_RESPONSE_STR;
+    } else {
+        url += NON_STREAM_RESPONSE_STR;
+    }
+
+    return Option<std::string>(url + "?key=" + model_config["api_key"].get<std::string>());
+}
+
+Option<bool> GeminiConversationModel::validate_model(const nlohmann::json& model_config) {
+    auto get_gemini_url_op = get_gemini_url(model_config, false);
+    if(!get_gemini_url_op.ok()) {
+        return Option<bool>(get_gemini_url_op.code(), get_gemini_url_op.error());
+    }
+
+    std::unordered_map<std::string, std::string> headers;
+    std::map<std::string, std::string> res_headers;
+    headers["Content-Type"] = "application/json";
+    std::string res;
+
+    nlohmann::json req_body;
+    req_body["contents"] = nlohmann::json::object();
+    req_body["contents"]["parts"] = nlohmann::json::array();
+    req_body["contents"]["parts"].push_back(R"({
+        "text": "hello"
+    })"_json);
+
+    auto url = get_gemini_url_op.get();
+
+    auto res_code = RemoteEmbedder::call_remote_api("POST", url, req_body.dump(), res, res_headers, headers);
+    if(res_code == 408) {
+        return Option<bool>(408, "Gemini API timeout.");
+    }
+
+    if(res_code != 200) {
+        nlohmann::json json_res;
+        try {
+            json_res = nlohmann::json::parse(res);
+        } catch (const std::exception& e) {
+            return Option<bool>(400, "Gemini API error: " + res);
+        }
+        if(json_res.count("error") == 0) {
+            return Option<bool>(400, "Gemini API error: " + res);
+        }
+        return Option<bool>(400, "Gemini API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+    }
+
+    try {
+        nlohmann::json json_res = nlohmann::json::parse(res);
+    } catch (const std::exception& e) {
+        return Option<bool>(400, "Got malformed response from Gemini API.");
+    }
+
+    return Option<bool>(true);
+}
+
+Option<std::string> GeminiConversationModel::get_answer(const std::string& context, const std::string& prompt, const std::string& system_prompt, const nlohmann::json& model_config) {
+    auto get_gemini_url_op = get_gemini_url(model_config, false);
+    if(!get_gemini_url_op.ok()) {
+        return Option<std::string>(get_gemini_url_op.code(), get_gemini_url_op.error());
+    }
+
+    std::unordered_map<std::string, std::string> headers;
+    std::map<std::string, std::string> res_headers;
+    headers["Content-Type"] = "application/json";
+
+    nlohmann::json req_body;
+    
+    if(!system_prompt.empty()) {
+        nlohmann::json system_message = nlohmann::json::object();
+        system_message["text"] = system_prompt;
+        req_body["system_instruction"] = nlohmann::json::object();
+        req_body["system_instruction"]["parts"] = nlohmann::json::array();
+        req_body["system_instruction"]["parts"].push_back(system_message);
+    }
+
+    nlohmann::json message = nlohmann::json::object();
+    message["text"] = DATA_STR + context + QUESTION_STR + prompt + ANSWER_STR;
+    req_body["contents"] = nlohmann::json::object();
+    req_body["contents"]["parts"] = nlohmann::json::array();
+    req_body["contents"]["parts"].push_back(message);
+
+    auto url = get_gemini_url_op.get();
+    std::string res;
+
+    auto res_code = RemoteEmbedder::call_remote_api("POST", url, req_body.dump(), res, res_headers, headers);
+
+    if(res_code == 408) {
+        return Option<std::string>(400, "Gemini API timeout.");
+    }
+
+    if(res_code != 200) {
+        nlohmann::json json_res;
+        try {
+            json_res = nlohmann::json::parse(res);
+        } catch (const std::exception& e) {
+            return Option<std::string>(400, "Gemini API error: " + res);
+        }
+        if(json_res.count("error") == 0) {
+            return Option<std::string>(400, "Gemini API error: " + res);
+        }
+        return Option<std::string>(400, "Gemini API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+    }
+
+    nlohmann::json json_res;
+
+    try {
+        json_res = nlohmann::json::parse(res);
+        return Option<std::string>(json_res["candidates"][0]["content"]["parts"][0]["text"].get<std::string>());
+    } catch (const std::exception& e) {
+        return Option<std::string>(400, "Got malformed response from Gemini API.");
+    }
+}
+
+Option<nlohmann::json> GeminiConversationModel::format_question(const std::string& message) {
+    nlohmann::json json = nlohmann::json::object();
+    json["user"] = message;
+    return Option<nlohmann::json>(json);
+}
+
+Option<nlohmann::json> GeminiConversationModel::format_answer(const std::string& message) {
+    nlohmann::json json = nlohmann::json::object();
+    json["assistant"] = message;
+    return Option<nlohmann::json>(json);
+}
+
+Option<std::string> GeminiConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, const std::string& system_prompt, const nlohmann::json& model_config,
+                                                                const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+    auto get_gemini_url_op = GeminiConversationModel::get_gemini_url(model_config, true);
+    if(!get_gemini_url_op.ok()) {
+        return Option<std::string>(get_gemini_url_op.code(), get_gemini_url_op.error());
+    }
+
+    std::unordered_map<std::string, std::string> headers;
+    std::map<std::string, std::string> res_headers;
+    headers["Content-Type"] = "application/json";
+
+    nlohmann::json req_body;
+    
+    if(!system_prompt.empty()) {
+        nlohmann::json system_message = nlohmann::json::object();
+        system_message["text"] = system_prompt;
+        req_body["system_instruction"] = nlohmann::json::object();
+        req_body["system_instruction"]["parts"] = nlohmann::json::array();
+        req_body["system_instruction"]["parts"].push_back(system_message);
+    }
+
+    nlohmann::json message = nlohmann::json::object();
+    message["text"] = DATA_STR + context + QUESTION_STR + prompt + ANSWER_STR;
+    req_body["contents"] = nlohmann::json::object();
+    req_body["contents"]["parts"] = nlohmann::json::array();
+    req_body["contents"]["parts"].push_back(message);
+
+    auto url = get_gemini_url_op.get();
+
+    req->async_res_set_headers_callback = async_res_set_headers_callback;
+    req->async_res_write_callback = async_res_write_callback;
+    req->async_res_done_callback = async_res_done_callback;
+    auto raft_server = RemoteEmbedder::get_raft_server();
+    if(raft_server && !raft_server->get_leader_url().empty()) {
+        auto proxy_url = raft_server->get_leader_url() + "proxy_sse";
+        nlohmann::json proxy_req_body;
+        proxy_req_body["method"] = "POST";
+        proxy_req_body["url"] = url;
+        proxy_req_body["body"] = req_body.dump();
+        proxy_req_body["headers"] = headers;
+        std::unordered_map<std::string, std::string> header_;
+        header_["x-typesense-api-key"] = HttpClient::get_api_key();
+
+        HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
+    } else {
+        HttpClient::get_instance().post_response_sse(url, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
+    }
+    auto& async_conversation = async_conversations[req];
+
+    std::unique_lock<std::mutex> lock(async_conversation.mutex);
+    async_conversation.cv.wait(lock, [&async_conversation] { return async_conversation.ready; });
+
+    if(async_conversation.status_code != 200) {
+        if(async_conversation.status_code == 408) {
+            return Option<std::string>(400, "Gemini API timeout.");
+        }
+        nlohmann::json json_res;
+        try {
+            json_res = nlohmann::json::parse(async_conversation.response);
+        } catch (const std::exception& e) {
+            return Option<std::string>(400, "Gemini API error: " + async_conversation.response);
+        }
+        if(json_res.count("error") == 0) {
+            return Option<std::string>(400, "Gemini API error: " + async_conversation.response);
+        }
+        return Option<std::string>(400, "Gemini API error: " + nlohmann::json::parse(async_conversation.response)["error"]["message"].get<std::string>());
+    }
+
+
+    return Option<std::string>(async_conversation.response);
+}
+
+bool GeminiConversationModel::async_res_set_headers_callback(const std::string& response, const std::shared_ptr<http_req> req, long status_code, std::string& content_type) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return false;
+    }
+    async_conversations[req].status_code = status_code;
+    if(status_code != 200) {
+        async_conversations[req].response = response;
+        return false;
+    }
+    // gemini api returns content-type as application/json even if it is a stream, we have to manipulate it
+    content_type = "text/event-stream";
+    return true;
+}
+
+void GeminiConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return;
+    }
+
+    try {
+        if(!response.empty()) {
+            if(response[0] == '[' || response[0] == ',') {
+                response.erase(0, 1);
+            }
+            if(response.back() == ',' || response.back() == ']') {
+                response.pop_back();
+            }
+        }
+
+        if(response.empty()) {
+            response = "data: \n\n";
+            return;
+        }
+        auto json_res = nlohmann::json::parse(response);
+        if(json_res.count("candidates") == 0 || json_res["candidates"].size() == 0) {
+            return;
+        }
+        if(json_res["candidates"][0].count("content") == 0 || json_res["candidates"][0]["content"].count("parts") == 0) {
+            return;
+        }
+        if(json_res["candidates"][0]["content"]["parts"].size() == 0) {
+            return;
+        }
+        std::string parsed_response = json_res["candidates"][0]["content"]["parts"][0]["text"].get<std::string>();
+        nlohmann::json json_actual_res;
+        json_actual_res["message"] = parsed_response;
+        json_actual_res["conversation_id"] = async_conversations[req].conversation_id;
+        response = "data: " + json_actual_res.dump(-1) + "\n\n";
+        async_conversations[req].response += parsed_response;
+        if(json_res["candidates"][0].count("finishReason") != 0) {
+            if(json_res["candidates"][0]["finishReason"] == "STOP") {
+                response += "data: [DONE]\n\n";
+            }
+        }
+    } catch (const std::exception& e) {
+        LOG(ERROR) << e.what();
+        LOG(ERROR) << "Response: " << response;
+    }
+}
+
+bool GeminiConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return false;
+    }
+
+    async_conversations[req].ready = true;
+    async_conversations[req].cv.notify_one();
+    return false;
+}
+
+Option<std::string> GeminiConversationModel::get_standalone_question(const nlohmann::json& conversation_history, const std::string& question, const nlohmann::json& model_config) {
+    const size_t min_required_bytes = CONVERSATION_HISTORY.size() + QUESTION.size() + STANDALONE_QUESTION_PROMPT.size() + question.size();
+    if(model_config["max_bytes"].get<size_t>() < min_required_bytes) {
+        return Option<std::string>(400, "Max bytes is not enough to generate standalone question.");
+    }
+
+
+    auto get_gemini_url_op = GeminiConversationModel::get_gemini_url(model_config, false);
+    if(!get_gemini_url_op.ok()) {
+        return Option<std::string>(get_gemini_url_op.code(), get_gemini_url_op.error());
+    }
+
+    std::unordered_map<std::string, std::string> headers;
+    std::map<std::string, std::string> res_headers;
+
+    headers["Content-Type"] = "application/json";
+
+    nlohmann::json req_body;
+
+    req_body["contents"] = nlohmann::json::object();
+    req_body["contents"]["parts"] = nlohmann::json::array();
+    nlohmann::json question_obj = nlohmann::json::object();
+    std::string standalone_question = STANDALONE_QUESTION_PROMPT + CONVERSATION_HISTORY;
+    auto conversation = conversation_history["conversation"];
+    auto max_conversation_length = model_config["max_bytes"].get<size_t>() - min_required_bytes;
+    auto truncate_conversation_op = ConversationManager::get_instance().truncate_conversation(conversation, max_conversation_length);
+    if(!truncate_conversation_op.ok()) {
+        return Option<std::string>(400, "Conversation history is not valid");
+    }
+
+    auto truncated_conversation = truncate_conversation_op.get();
+    for(auto& message : truncated_conversation) {
+        if(message.count("user") == 0 && message.count("assistant") == 0) {
+            return Option<std::string>(400, "Conversation history is not valid");
+        }
+        standalone_question += message.dump(-1) + "\n";
+    }
+    standalone_question += "\n\n<Question>\n" + question + "\n\n<Standalone question>\n";
+    question_obj["text"] = standalone_question;
+    req_body["contents"]["parts"].push_back(question_obj);
+    auto url = get_gemini_url_op.get();
+    std::string res;
+
+    auto res_code = RemoteEmbedder::call_remote_api("POST", url, req_body.dump(), res, res_headers, headers);
+    if(res_code == 408) {
+        return Option<std::string>(400, "Gemini API timeout.");
+    }
+
+    if(res_code != 200) {
+        nlohmann::json json_res;
+        try {
+            json_res = nlohmann::json::parse(res);
+        } catch (const std::exception& e) {
+            return Option<std::string>(400, "Gemini API error: " + res);
+        }
+        if(json_res.count("error") == 0) {
+            return Option<std::string>(400, "Gemini API error: " + res);
+        }
+        return Option<std::string>(400, "Gemini API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+    }
+
+    nlohmann::json json_res;
+    try {
+        json_res = nlohmann::json::parse(res);
+        return Option<std::string>(json_res["candidates"][0]["content"]["parts"][0]["text"].get<std::string>());
+    } catch (const std::exception& e) {
+        return Option<std::string>(400, "Got malformed response from Gemini API.");
+    }
 }

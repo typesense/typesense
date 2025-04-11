@@ -304,7 +304,7 @@ struct http_req {
 
     std::atomic<bool> is_write = false;
 
-    bool (*async_res_set_headers_callback)(const std::string&, const std::shared_ptr<http_req>, long, char*) = nullptr;
+    bool (*async_res_set_headers_callback)(const std::string&, const std::shared_ptr<http_req>, long, std::string&) = nullptr;
     void (*async_res_write_callback)(std::string&, const std::shared_ptr<http_req>, const std::shared_ptr<http_res>) = nullptr;
     bool (*async_res_done_callback)(const std::shared_ptr<http_req>, const std::shared_ptr<http_res>) = nullptr;
 
