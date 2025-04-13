@@ -649,9 +649,10 @@ private:
     Option<int64_t> get_geo_distance(const std::string& geo_field_name, const uint32_t& seq_id,
                                      const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
 
-    Option<uint32_t> get_ref_seq_id_helper(const sort_by& sort_field, const uint32_t& seq_id, std::string& prev_coll_name,
-                                           std::map<std::string, reference_filter_result_t> const*& references,
-                                           std::string& ref_coll_name) const;
+    Option<std::vector<uint32_t>> get_ref_seq_ids_helper(const std::vector<uint32_t>& seq_ids_vec,
+                                                         std::string& prev_coll_name,
+                                                         std::map<std::string, reference_filter_result_t> const*& references,
+                                                         std::string& ref_coll_name) const;
 
 public:
     // for limiting number of results on multiple candidates / query rewrites
@@ -894,7 +895,8 @@ public:
                                                  std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                                  const bool& validate_field_names) const;
 
-    int64_t reference_string_sort_score(const std::string& field_name, const uint32_t& seq_id) const;
+    int64_t reference_string_sort_score(const string &field_name,  const std::vector<uint32_t>& seq_ids_vec,
+                                        const bool& is_asc) const;
 
     static void remove_matched_tokens(std::vector<std::string>& tokens, const std::set<std::string>& rule_token_set) ;
 
@@ -1095,7 +1097,7 @@ public:
                                      const std::vector<size_t>& geopoint_indices, uint32_t seq_id,
                                      const std::map<basic_string<char>, reference_filter_result_t>& references,
                                      std::vector<uint32_t>& filter_indexes, int64_t max_field_match_score,
-                                     int64_t* scores, int64_t& match_score_index, bool& should_skip,
+                                     int64_t* scores, int64_t& match_score_index,
                                      float vector_distance = 0) const;
 
     void process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
@@ -1131,16 +1133,16 @@ public:
 
     void aggregate_facet(const size_t group_limit, facet& this_facet, facet& acc_facet) const;
 
-    Option<int64_t> get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
+    Option<int64_t> get_geo_distance_with_lock(const std::string& geo_field_name, const bool& is_asc,
+                                               const std::vector<uint32_t>& seq_ids_vec,
                                                const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
 
-    Option<int64_t> get_referenced_geo_distance(const sort_by& sort_field, uint32_t seq_id,
+    Option<int64_t> get_referenced_geo_distance(const sort_by& sort_field, const bool& is_asc, const uint32_t& seq_id,
                                                 const std::map<basic_string<char>, reference_filter_result_t>& references,
                                                 const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
 
-    Option<uint32_t> get_ref_seq_id(const sort_by& sort_field, const uint32_t& seq_id,
-                                    const std::map<std::string, reference_filter_result_t>& references,
-                                    std::string& ref_collection_name) const;
+    Option<std::vector<uint32_t>> get_ref_seq_ids(const sort_by& sort_field, const uint32_t& seq_id,
+                                                  const std::map<std::string, reference_filter_result_t>& references) const;
 
     void get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<uint32_t>& result_ids) const;
 

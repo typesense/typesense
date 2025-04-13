@@ -1083,7 +1083,8 @@ public:
                                                  std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                                  const bool& validate_field_names = true) const;
 
-    int64_t reference_string_sort_score(const std::string& field_name, const uint32_t& seq_id) const;
+    int64_t reference_string_sort_score(const string &field_name,  const std::vector<uint32_t>& seq_ids,
+                                        const bool& is_asc) const;
 
     bool is_referenced_in(const std::string& collection_name) const;
 
@@ -1133,11 +1134,12 @@ public:
     Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
                                  std::vector<uint32_t>& result) const;
 
-    Option<int64_t> get_referenced_geo_distance_with_lock(const sort_by& sort_field, const uint32_t& seq_id,
+    Option<int64_t> get_referenced_geo_distance_with_lock(const sort_by& sort_field, const bool& is_asc, const uint32_t& seq_id,
                                                           const std::map<basic_string<char>, reference_filter_result_t>& references,
                                                           const S2LatLng& reference_lat_lng, const bool& round_distance) const;
 
-    Option<int64_t> get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
+    Option<int64_t> get_geo_distance_with_lock(const std::string& geo_field_name, const bool& is_asc,
+                                               const std::vector<uint32_t>& seq_ids_vec,
                                                const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
 
     Option<nlohmann::json> get_alter_schema_status() const;
