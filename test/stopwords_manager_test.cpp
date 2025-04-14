@@ -233,6 +233,17 @@ TEST_F(StopwordsManagerTest, StopwordsBasics) {
     nlohmann::json results = nlohmann::json::parse(json_results);
     ASSERT_EQ(0, results["hits"].size());
 
+    json_results.clear();
+    req->params["q"] = "\"village of\"";
+
+    search_op = collectionManager.do_search(req->params, embedded_params, json_results, now_ts);
+    if(!search_op.error().empty()) {
+        LOG(ERROR) << search_op.error();
+    }
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_results);
+    ASSERT_EQ(1, results["hits"].size());
+
     req->params.clear();
     json_results.clear();
 

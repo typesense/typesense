@@ -1864,17 +1864,18 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
     return Option<bool>(true);
 }
 
-Option<int64_t> Collection::get_referenced_geo_distance_with_lock(const sort_by& sort_field, const uint32_t& seq_id,
+Option<int64_t> Collection::get_referenced_geo_distance_with_lock(const sort_by& sort_field, const bool& is_asc, const uint32_t& seq_id,
                                                                   const std::map<basic_string<char>, reference_filter_result_t>& references,
                                                                   const S2LatLng& reference_lat_lng, const bool& round_distance) const {
     std::shared_lock lock(mutex);
-    return index->get_referenced_geo_distance(sort_field, seq_id, references, reference_lat_lng, round_distance);
+    return index->get_referenced_geo_distance(sort_field, is_asc, seq_id, references, reference_lat_lng, round_distance);
 }
 
-Option<int64_t> Collection::get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
+Option<int64_t> Collection::get_geo_distance_with_lock(const std::string& geo_field_name, const bool& is_asc,
+                                                       const std::vector<uint32_t>& seq_ids_vec,
                                                        const S2LatLng& reference_lat_lng, const bool& round_distance) const {
     std::shared_lock lock(mutex);
-    return index->get_geo_distance_with_lock(geo_field_name, seq_id, reference_lat_lng, round_distance);
+    return index->get_geo_distance_with_lock(geo_field_name, is_asc, seq_ids_vec, reference_lat_lng, round_distance);
 }
 
 Option<bool> Collection::init_index_search_args_with_lock(collection_search_args_t& coll_args,
@@ -3064,12 +3065,14 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 if(sort_field.geopoint != 0 && sort_field.geo_precision != 0) {
                     S2LatLng reference_lat_lng;
                     GeoPoint::unpack_lat_lng(sort_field.geopoint, reference_lat_lng);
+                    const bool is_asc = sort_field.order == sort_field_const::asc;
 
                     auto get_geo_distance_op = !sort_field.reference_collection_name.empty() ?
-                                                index->get_referenced_geo_distance(sort_field, field_order_kv->key,
+                                                index->get_referenced_geo_distance(sort_field, is_asc, field_order_kv->key,
                                                                                    field_order_kv->reference_filter_results,
                                                                                    reference_lat_lng, true) :
-                                                   index->get_geo_distance_with_lock(sort_field.name, field_order_kv->key,
+                                                   index->get_geo_distance_with_lock(sort_field.name, is_asc,
+                                                                                     {(uint32_t) field_order_kv->key},
                                                                                      reference_lat_lng, true);
                     if (!get_geo_distance_op.ok()) {
                         return Option<nlohmann::json>(get_geo_distance_op.code(), get_geo_distance_op.error());
@@ -3798,12 +3801,13 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
             if (sort_field.geopoint != 0 && sort_field.geo_precision != 0) {
                 S2LatLng reference_lat_lng;
                 GeoPoint::unpack_lat_lng(sort_field.geopoint, reference_lat_lng);
+                const bool is_asc = sort_field.order == sort_field_const::asc;
 
                 auto get_geo_distance_op = !sort_field.reference_collection_name.empty() ?
-                                           coll->get_referenced_geo_distance_with_lock(sort_field, kv->key,
+                                           coll->get_referenced_geo_distance_with_lock(sort_field, is_asc, kv->key,
                                                                                        kv->reference_filter_results,
                                                                                        reference_lat_lng, true) :
-                                           coll->get_geo_distance_with_lock(sort_field.name, kv->key,
+                                           coll->get_geo_distance_with_lock(sort_field.name, is_asc, {(uint32_t) kv->key},
                                                                             reference_lat_lng, true);
                 if (!get_geo_distance_op.ok()) {
                     return Option<bool>(get_geo_distance_op.code(), get_geo_distance_op.error());
@@ -4316,8 +4320,8 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
     }
 
     if(q_include_tokens.empty()) {
-        if(!stopwords_set.empty()) {
-            //this can happen when all tokens in the include are stopwords
+        if(!stopwords_set.empty() && q_phrases.empty()) {
+            // this can happen when all tokens in the include are stopwords
             q_include_tokens.emplace_back("##hrhdh##");
         } else {
             // this can happen if the only query token is an exclusion token
@@ -6461,6 +6465,16 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
                 auto& f = diff_fields.back();
 
+                // When `reference` field is present in schema, we add a reference helper field. So checking if the
+                // second last field has a reference property or not.
+                if (f.is_reference_helper && diff_fields.size() > 1 &&
+                            !diff_fields[diff_fields.size() - 2].reference.empty()) {
+                    const auto& ref_field = diff_fields[diff_fields.size() - 2];
+                    return Option<bool>(400, "Adding/Modifying reference field `" + ref_field.name +
+                                                "` using alter operation is not yet supported. Workaround is to drop "
+                                                "the whole collection and re-index it.");
+                }
+
                 if(f.is_dynamic()) {
                     new_dynamic_fields[f.name] = f;
                 } else {
@@ -7383,9 +7397,10 @@ Option<bool> Collection::reference_populate_sort_mapping(int *sort_order, std::v
                                                   validate_field_names);
 }
 
-int64_t Collection::reference_string_sort_score(const string &field_name,  const uint32_t& seq_id) const {
+int64_t Collection::reference_string_sort_score(const string &field_name,  const std::vector<uint32_t>& seq_ids,
+                                                const bool& is_asc) const {
     std::shared_lock lock(mutex);
-    return index->reference_string_sort_score(field_name, seq_id);
+    return index->reference_string_sort_score(field_name, seq_ids, is_asc);
 }
 
 bool Collection::is_referenced_in(const std::string& collection_name) const {
