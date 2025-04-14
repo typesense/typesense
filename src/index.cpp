@@ -83,7 +83,7 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
                 geo_array_index.emplace(a_field.name, doc_to_geos);
             }
         } else if(a_field.is_geopolygon()) {
-            field_geopolygon_index.emplace(a_field.name, new GeoPolygonIndex(8, 12, 50));
+            field_geopolygon_index.emplace(a_field.name, new GeoPolygonIndex());
         } else {
             if (a_field.range_index) {
                 auto trie = a_field.is_bool() ? new NumericTrie(8) :

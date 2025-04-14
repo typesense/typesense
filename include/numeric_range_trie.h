@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ids_t.h>
+#include <set>
 
 constexpr short EXPANSE = 256;
 
