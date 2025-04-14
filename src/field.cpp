@@ -7,10 +7,95 @@
 #include <collection_manager.h>
 #include <regex>
 
+void field::add_default_json_values(nlohmann::json& json) {
+    if (!json.contains(fields::name) || !json.contains(fields::type)) {
+        return;
+    }
+
+    if (json.count(fields::facet) == 0) {
+        json[fields::facet] = false;
+    }
+    if(json.count(fields::optional) == 0) {
+        // dynamic type fields are always optional
+        bool is_dynamic = json["name"] == ".*" || field::is_dynamic(json[fields::name], json[fields::type]);
+        json[fields::optional] = is_dynamic;
+    }
+    if (json.count(fields::index) == 0) {
+        json[fields::index] = true;
+    }
+    if (json.count(fields::locale) == 0) {
+        json[fields::locale] = "";
+    }
+    if(json.count(fields::sort) == 0) {
+        if(json["type"] == field_types::INT32 || json["type"] == field_types::INT64 ||
+           json["type"] == field_types::FLOAT || json["type"] == field_types::BOOL ||
+           json["type"] == field_types::GEOPOINT || json["type"] == field_types::GEOPOINT_ARRAY ||
+           json["type"] == field_types::GEOPOLYGON) {
+            if((json.count(fields::num_dim) == 0) || (json[fields::facet])) {
+                json[fields::sort] = true;
+            } else {
+                json[fields::sort] = false;
+            }
+        } else {
+            json[fields::sort] = false;
+        }
+    }
+    if (json.count(fields::infix) == 0) {
+        json[fields::infix] = false;
+    }
+    if (json.count(fields::nested) == 0) {
+        json[fields::nested] = false;
+    }
+    if (json.count(fields::nested_array) == 0) {
+        json[fields::nested_array] = 0;
+    }
+    auto DEFAULT_VEC_DIST_METRIC = magic_enum::enum_name(vector_distance_type_t::cosine);
+    if (json.count(fields::num_dim) == 0) {
+        json[fields::num_dim] = (uint32_t) 0;
+        json[fields::vec_dist] = DEFAULT_VEC_DIST_METRIC;
+    }
+    if (json.count(fields::vec_dist) == 0) {
+        json[fields::vec_dist] = DEFAULT_VEC_DIST_METRIC;
+    }
+    if (json.count(fields::reference) == 0) {
+        json[fields::reference] = "";
+    }
+    if (json.count(fields::embed) == 0) {
+        json[fields::embed] = nlohmann::json();
+    }
+    if (json.count(fields::range_index) == 0) {
+        json[fields::range_index] = false;
+    }
+    if (json.count(fields::store) == 0) {
+        json[fields::store] = true;
+    }
+    if (json.count(fields::stem) == 0) {
+        json[fields::stem] = false;
+    }
+    if (json.count(fields::stem_dictionary) == 0) {
+        json[fields::stem_dictionary] = "";
+    }
+    if (json.count(fields::hnsw_params) == 0) {
+        json[fields::hnsw_params] = R"({
+                                            "M": 16,
+                                            "ef_construction": 200
+                                        })"_json;
+    }
+    if (json.count(fields::async_reference) == 0) {
+        json[fields::async_reference] = false;
+    }
+    if (json.count(fields::token_separators) == 0) {
+        json[fields::token_separators] = nlohmann::json::array();
+    }
+    if (json.count(fields::symbols_to_index) == 0) {
+        json[fields::symbols_to_index] = nlohmann::json::array();
+    }
+}
 
 Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
                                         std::vector<field>& the_fields,
                                         string& fallback_field_type, size_t& num_auto_detect_fields) {
+    add_default_json_values(field_json);
 
     if(!field_json.is_object() ||
        field_json.count(fields::name) == 0 || field_json.count(fields::type) == 0 ||
@@ -20,7 +105,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                                  "`name`, `type`, `optional` and `facet` properties.");
     }
 
-    if(field_json.count("store") != 0 && !field_json.at("store").is_boolean()) {
+    if(!field_json.at("store").is_boolean()) {
         return Option<bool>(400, std::string("The `store` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
     }
@@ -31,53 +116,45 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                                                                                            "during schema update."));
     }
 
-    if(field_json.count(fields::facet) != 0 && !field_json.at(fields::facet).is_boolean()) {
+    if(!field_json.at(fields::facet).is_boolean()) {
         return Option<bool>(400, std::string("The `facet` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
     }
 
-    if(field_json.count(fields::optional) != 0 && !field_json.at(fields::optional).is_boolean()) {
+    if(!field_json.at(fields::optional).is_boolean()) {
         return Option<bool>(400, std::string("The `optional` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
     }
 
-    if(field_json.count(fields::index) != 0 && !field_json.at(fields::index).is_boolean()) {
+    if(!field_json.at(fields::index).is_boolean()) {
         return Option<bool>(400, std::string("The `index` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
     }
 
-    if(field_json.count(fields::sort) != 0 && !field_json.at(fields::sort).is_boolean()) {
+    if(!field_json.at(fields::sort).is_boolean()) {
         return Option<bool>(400, std::string("The `sort` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
     }
 
-    if(field_json.count(fields::infix) != 0 && !field_json.at(fields::infix).is_boolean()) {
+    if(!field_json.at(fields::infix).is_boolean()) {
         return Option<bool>(400, std::string("The `infix` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
     }
 
-    if(field_json.count(fields::locale) != 0){
-        if(!field_json.at(fields::locale).is_string()) {
-            return Option<bool>(400, std::string("The `locale` property of the field `") +
-                                     field_json[fields::name].get<std::string>() + std::string("` should be a string."));
-        }
-
-        if(!field_json[fields::locale].get<std::string>().empty() &&
-           field_json[fields::locale].get<std::string>().size() != 2) {
-            return Option<bool>(400, std::string("The `locale` value of the field `") +
-                                     field_json[fields::name].get<std::string>() + std::string("` is not valid."));
-        }
+    if(!field_json.at(fields::locale).is_string()) {
+        return Option<bool>(400, std::string("The `locale` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a string."));
+    } else if(!field_json[fields::locale].get<std::string>().empty() &&
+                    field_json[fields::locale].get<std::string>().size() != 2) {
+        return Option<bool>(400, std::string("The `locale` value of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` is not valid."));
     }
 
-    if (field_json.count(fields::reference) != 0 && !field_json.at(fields::reference).is_string()) {
+    if (!field_json.at(fields::reference).is_string()) {
         return Option<bool>(400, "Reference should be a string.");
-    } else if (field_json.count(fields::reference) == 0) {
-        field_json[fields::reference] = "";
     }
 
-    if (field_json.count(fields::async_reference) == 0) {
-        field_json[fields::async_reference] = false;
-    } else if (!field_json.at(fields::async_reference).is_boolean()) {
+    if (!field_json.at(fields::async_reference).is_boolean()) {
         return Option<bool>(400, std::string("The `async_reference` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
     } else if (field_json[fields::async_reference].get<bool>() &&
@@ -87,78 +164,40 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                                                                                            "`reference` is specified."));
     }
 
-    if(field_json.count(fields::stem) != 0) {
-        if(!field_json.at(fields::stem).is_boolean()) {
-            return Option<bool>(400, std::string("The `stem` property of the field `") +
-                                     field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
-        }
-
-        if(field_json[fields::stem] && field_json[fields::type] != field_types::STRING && field_json[fields::type] != field_types::STRING_ARRAY) {
-            return Option<bool>(400, std::string("The `stem` property is only allowed for string and string[] fields."));
-        }
-
-        if(field_json[fields::stem].get<bool>()) {
-            std::string locale;
-            if(field_json.count(fields::locale) != 0) {
-                locale = field_json[fields::locale].get<std::string>();
-            }
-            auto stem_validation = StemmerManager::get_instance().validate_language(locale);
-            if(!stem_validation) {
-                return Option<bool>(400, std::string("The `locale` value of the field `") +
-                                         field_json[fields::name].get<std::string>() + std::string("` is not supported for stem."));
-            }
-        }
-    } else {
-        field_json[fields::stem] = false;
+    if(!field_json.at(fields::stem).is_boolean()) {
+        return Option<bool>(400, std::string("The `stem` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
     }
 
-    if(field_json.count(fields::stem_dictionary) == 0) {
-        field_json[fields::stem_dictionary] = "";
+    if(field_json[fields::stem] && field_json[fields::type] != field_types::STRING && field_json[fields::type] != field_types::STRING_ARRAY) {
+        return Option<bool>(400, std::string("The `stem` property is only allowed for string and string[] fields."));
     }
 
-    if (field_json.count(fields::range_index) != 0) {
-        if (!field_json.at(fields::range_index).is_boolean()) {
-            return Option<bool>(400, std::string("The `range_index` property of the field `") +
-                                     field_json[fields::name].get<std::string>() +
-                                     std::string("` should be a boolean."));
-        }
+    if(field_json[fields::stem].get<bool>()) {
+        const auto& locale = field_json[fields::locale].get<std::string>();
 
-        auto const& type = field_json["type"];
-        if (field_json[fields::range_index] &&
-            type != field_types::INT32 && type != field_types::INT32_ARRAY &&
-            type != field_types::INT64 && type != field_types::INT64_ARRAY &&
-            type != field_types::FLOAT && type != field_types::FLOAT_ARRAY) {
-            return Option<bool>(400, std::string("The `range_index` property is only allowed for the numerical fields`"));
+        auto stem_validation = StemmerManager::get_instance().validate_language(locale);
+        if(!stem_validation) {
+            return Option<bool>(400, std::string("The `locale` value of the field `") +
+                                     field_json[fields::name].get<std::string>() + std::string("` is not supported for stem."));
         }
-    } else {
-        field_json[fields::range_index] = false;
+    }
+
+    if (!field_json.at(fields::range_index).is_boolean()) {
+        return Option<bool>(400, std::string("The `range_index` property of the field `") +
+                                 field_json[fields::name].get<std::string>() +
+                                 std::string("` should be a boolean."));
+    }
+
+    auto const& type = field_json["type"];
+    if (field_json[fields::range_index] &&
+        type != field_types::INT32 && type != field_types::INT32_ARRAY &&
+        type != field_types::INT64 && type != field_types::INT64_ARRAY &&
+        type != field_types::FLOAT && type != field_types::FLOAT_ARRAY) {
+        return Option<bool>(400, std::string("The `range_index` property is only allowed for the numerical fields`"));
     }
 
     if(field_json["name"] == ".*") {
-        if(field_json.count(fields::facet) == 0) {
-            field_json[fields::facet] = false;
-        }
-
-        if(field_json.count(fields::optional) == 0) {
-            field_json[fields::optional] = true;
-        }
-
-        if(field_json.count(fields::index) == 0) {
-            field_json[fields::index] = true;
-        }
-
-        if(field_json.count(fields::locale) == 0) {
-            field_json[fields::locale] = "";
-        }
-
-        if(field_json.count(fields::sort) == 0) {
-            field_json[fields::sort] = false;
-        }
-
-        if(field_json.count(fields::infix) == 0) {
-            field_json[fields::infix] = false;
-        }
-
         if(field_json[fields::optional] == false) {
             return Option<bool>(400, "Field `.*` must be an optional field.");
         }
@@ -190,45 +229,12 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         return Option<bool>(true);
     }
 
-    if(field_json.count(fields::facet) == 0) {
-        field_json[fields::facet] = false;
-    }
-
-    if(field_json.count(fields::index) == 0) {
-        field_json[fields::index] = true;
-    }
-
-    if(field_json.count(fields::locale) == 0) {
-        field_json[fields::locale] = "";
-    }
-
-    if(field_json.count(fields::store) == 0) {
-        field_json[fields::store] = true;
-    }
-
-    if(field_json.count(fields::sort) == 0) {
-        if(field_json["type"] == field_types::INT32 || field_json["type"] == field_types::INT64 ||
-           field_json["type"] == field_types::FLOAT || field_json["type"] == field_types::BOOL ||
-           field_json["type"] == field_types::GEOPOINT || field_json["type"] == field_types::GEOPOINT_ARRAY ||
-           field_json["type"] == field_types::GEOPOLYGON) {
-            if((field_json.count(fields::num_dim) == 0) || (field_json[fields::facet])) {
-                field_json[fields::sort] = true;
-            } else {
-                field_json[fields::sort] = false;
-            }
-        } else {
-            field_json[fields::sort] = false;
-        }
-    } else if (!field_json[fields::sort].get<bool>() &&
+    if (!field_json[fields::sort].get<bool>() &&
                 (field_json["type"] == field_types::GEOPOINT || field_json["type"] == field_types::GEOPOINT_ARRAY ||
                 field_json["type"] == field_types::GEOPOLYGON)) {
         return Option<bool>(400, std::string("The `sort` property of the field `") +=
                                  field_json[fields::name].get<std::string>() += "` having `" + field_json["type"].get<std::string>() +=
                                  "` type cannot be `false`. The sort index is used during GeoSearch.");
-    }
-
-    if(field_json.count(fields::infix) == 0) {
-        field_json[fields::infix] = false;
     }
 
     if(field_json[fields::type] == field_types::OBJECT || field_json[fields::type] == field_types::OBJECT_ARRAY) {
@@ -238,7 +244,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
     }
 
-    if(field_json.count(fields::embed) != 0) {
+    if(!field_json[fields::embed].empty()) {
         if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
             return Option<bool>(400, "Fields with the `embed` parameter can only be of type `float[]`.");
         }
@@ -300,14 +306,9 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
     auto DEFAULT_VEC_DIST_METRIC = magic_enum::enum_name(vector_distance_type_t::cosine);
 
-    if(field_json.count(fields::num_dim) == 0) {
-        field_json[fields::num_dim] = 0;
-        field_json[fields::vec_dist] = DEFAULT_VEC_DIST_METRIC;
-    } else {
-        if(!field_json[fields::num_dim].is_number_unsigned() || field_json[fields::num_dim] == 0) {
-            return Option<bool>(400, "Property `" + fields::num_dim + "` must be a positive integer.");
-        }
-
+    if(!field_json[fields::num_dim].is_number_unsigned()) {
+        return Option<bool>(400, "Property `" + fields::num_dim + "` must be a positive integer.");
+    } else if (field_json[fields::num_dim] > 0) {
         if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
             return Option<bool>(400, "Property `" + fields::num_dim + "` is only allowed on a float array field.");
         }
@@ -368,17 +369,6 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         if(field_json[fields::hnsw_params].count("M") == 0) {
             field_json[fields::hnsw_params]["M"] = 16;
         }
-    } else {
-        field_json[fields::hnsw_params] = R"({
-                                            "M": 16,
-                                            "ef_construction": 200
-                                        })"_json;
-    }
-
-    if(field_json.count(fields::optional) == 0) {
-        // dynamic type fields are always optional
-        bool is_dynamic = field::is_dynamic(field_json[fields::name], field_json[fields::type]);
-        field_json[fields::optional] = is_dynamic;
     }
 
     bool is_obj = field_json[fields::type] == field_types::OBJECT || field_json[fields::type] == field_types::OBJECT_ARRAY;
@@ -421,23 +411,15 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
     }
 
-    if(field_json.count(fields::token_separators) == 0) {
-        field_json[fields::token_separators] = nlohmann::json::array();
-    } else {
-        for(const auto& item : field_json[fields::token_separators]) {
-            if(!item.is_string() || item.empty() || item.get<std::string>().size() != 1) {
-                return Option<bool>(400, "The `token_separators` must be an array of characters.");
-            }
+    for(const auto& item : field_json[fields::token_separators]) {
+        if(!item.is_string() || item.empty() || item.get<std::string>().size() != 1) {
+            return Option<bool>(400, "The `token_separators` must be an array of characters.");
         }
     }
 
-    if(field_json.count(fields::symbols_to_index) == 0) {
-        field_json[fields::symbols_to_index] = nlohmann::json::array();
-    } else {
-        for(const auto& item : field_json[fields::symbols_to_index]) {
-            if (!item.is_string() || item.empty() || item.get<std::string>().size() != 1) {
-                return Option<bool>(400, "The `symbols_to_index` must be an array of characters.");
-            }
+    for(const auto& item : field_json[fields::symbols_to_index]) {
+        if (!item.is_string() || item.empty() || item.get<std::string>().size() != 1) {
+            return Option<bool>(400, "The `symbols_to_index` must be an array of characters.");
         }
     }
 

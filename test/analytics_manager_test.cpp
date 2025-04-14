@@ -61,7 +61,10 @@ TEST_F(AnalyticsManagerTest, AddSuggestion) {
             ]
         })"_json;
 
-    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+    auto coll_create_op = collectionManager.create_collection(titles_schema);
+    ASSERT_TRUE(coll_create_op.ok());
+
+    Collection* titles_coll = coll_create_op.get();
 
     nlohmann::json doc;
     doc["title"] = "Cool trousers";
