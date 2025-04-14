@@ -459,8 +459,10 @@ std::string GoogleEmbedder::get_model_key(const nlohmann::json& model_config) {
 
 
 GCPEmbedder::GCPEmbedder(const std::string& project_id, const std::string& model_name, const std::string& access_token, 
-                         const std::string& refresh_token, const std::string& client_id, const std::string& client_secret, const bool has_custom_dims, const size_t num_dims) :
-        project_id(project_id), access_token(access_token), refresh_token(refresh_token), client_id(client_id), client_secret(client_secret), has_custom_dims(has_custom_dims), num_dims(num_dims) {
+                         const std::string& refresh_token, const std::string& client_id, const std::string& client_secret, const bool has_custom_dims, const size_t num_dims,
+                         const std::string& document_task, const std::string& query_task) :
+        project_id(project_id), access_token(access_token), refresh_token(refresh_token), client_id(client_id), client_secret(client_secret), has_custom_dims(has_custom_dims), num_dims(num_dims),
+        document_task(document_task), query_task(query_task) {
     
     this->model_name = EmbedderManager::get_model_name_without_namespace(model_name);
 }
@@ -470,6 +472,14 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, siz
 
     if (!validate_properties.ok()) {
         return validate_properties;
+    }
+
+    if(model_config.count("document_task") > 0 && !model_config["document_task"].is_string()) {
+        return Option<bool>(400, "Property `embed.model_config.document_task` is not a string.");
+    }
+
+    if(model_config.count("query_task") > 0 && !model_config["query_task"].is_string()) {
+        return Option<bool>(400, "Property `embed.model_config.query_task` is not a string.");
     }
     
     auto model_name = model_config["model_name"].get<std::string>();
@@ -564,6 +574,9 @@ embedding_res_t GCPEmbedder::embed_query(const std::string& text, const size_t r
     nlohmann::json req_body;
     req_body["instances"] = nlohmann::json::array();
     nlohmann::json instance;
+    if(!query_task.empty()) {
+        instance["task_type"] = query_task;
+    }
     instance["content"] = text;
     req_body["instances"].push_back(instance);
     if(has_custom_dims) {
@@ -628,6 +641,9 @@ std::vector<embedding_res_t> GCPEmbedder::embed_documents(const std::vector<std:
     for(const auto& input : inputs) {
         nlohmann::json instance;
         instance["content"] = input;
+        if(!document_task.empty()) {
+            instance["task_type"] = document_task;
+        }
         req_body["instances"].push_back(instance);
     }
     if(has_custom_dims) {
