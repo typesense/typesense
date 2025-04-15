@@ -456,5 +456,31 @@ std::vector<std::string> AuthManager::get_api_key_collections(const std::string&
         return api_keys.at(value).collections;
     }
 
+    // If not found, check if it's a scoped key
+    const std::string& key_payload = StringUtils::base64_decode(value);
+    if(key_payload.size() >= HMAC_BASE64_LEN + api_key_t::PREFIX_LEN) {
+        const std::string& custom_params_str = key_payload.substr(HMAC_BASE64_LEN + api_key_t::PREFIX_LEN);
+        try {
+            nlohmann::json custom_params = nlohmann::json::parse(custom_params_str);
+            if(custom_params.is_object() && custom_params.count("collections") != 0 && custom_params["collections"].is_array()) {
+                // Validate that all elements are strings
+                bool all_strings = true;
+                for(const auto& item : custom_params["collections"]) {
+                    if (!item.is_string()) {
+                        all_strings = false;
+                        break;
+                    }
+                }
+                if (all_strings) {
+                    return custom_params["collections"].get<std::vector<std::string>>();
+                }
+            }
+        } catch(const std::exception& e) {
+            // Parsing failed, not a valid scoped key JSON or structure is wrong
+            LOG(WARNING) << "Could not parse embedded params from potential scoped key: " << e.what();
+        }
+    }
+
+    // If not a regular key and not a valid scoped key with collections, return empty
     return std::vector<std::string>();
 }
