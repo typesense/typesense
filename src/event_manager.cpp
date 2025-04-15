@@ -24,7 +24,7 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
         const std::string& event_type = event_type_val.get<std::string>();
         if(event_type == AnalyticsManager::CLICK_EVENT || event_type == AnalyticsManager::CONVERSION_EVENT
            || event_type == AnalyticsManager::VISIT_EVENT || event_type == AnalyticsManager::CUSTOM_EVENT
-           || event_type == AnalyticsManager::SEARCH_EVENT) {
+           || event_type == AnalyticsManager::SEARCH_EVENT || event_type == AnalyticsManager::QUERY_EVENT) {
 
             if(!event.contains(EVENT_DATA)) {
                 return Option<bool>(404, "key `data` not found.");
@@ -49,6 +49,16 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
                 if(!event_data_val.contains("q") || !event_data_val["q"].is_string()) {
                     return Option<bool>(400,
                                         "search event json data fields should contain `q` as string value.");
+                }
+            } else if(event_type == AnalyticsManager::QUERY_EVENT) {
+                if(!event_data_val.contains("user_id") || !event_data_val["user_id"].is_string()) {
+                    return Option<bool>(400,
+                                        "query event json data fields should contain `user_id` as string value.");
+                }
+
+                if(!event_data_val.contains("q") || !event_data_val["q"].is_string()) {
+                    return Option<bool>(400,
+                                        "query event json data fields should contain `q` as string value.");
                 }
             } else {
                 // Check that either doc_id or doc_ids is present, but not both

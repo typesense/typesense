@@ -638,6 +638,11 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         req->params["q"] = query;
     }
 
+    // Check if x-typesense-user-id header is set and add it as personalization_user_id parameter
+    if (req->params.count("x-typesense-user-id") > 0 && !req->params["x-typesense-user-id"].empty()) {
+        req->params["personalization_user_id"] = req->params["x-typesense-user-id"];
+    }
+
     std::string results_json_str;
     Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0],
                                                           results_json_str, req->conn_ts);

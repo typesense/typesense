@@ -2696,3 +2696,73 @@ TEST_F(AnalyticsManagerTest, GetEvents) {
     ASSERT_FALSE(events_op.ok());
     ASSERT_EQ("N cannot be greater than 1000", events_op.error());
 }
+
+TEST_F(AnalyticsManagerTest, QueryEventValidation) {
+    nlohmann::json products_schema = R"({
+            "name": "products",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* products_coll = collectionManager.create_collection(products_schema).get();
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    auto analytics_rule = R"({
+        "name": "product_clicks",
+        "type": "log",
+        "params": {
+            "source": {
+                "collections": ["products"],
+                "events":  [
+                    {"type": "click", "name": "products_click_event"},
+                    {"type": "query", "name": "products_query_event"}
+                ]
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    // Missing user_id
+    nlohmann::json event1 = R"({
+        "type": "query",
+        "name": "products_query_event",
+        "data": {
+            "q": "hello"
+        }
+    })"_json;
+
+    req->body = event1.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"query event json data fields should contain `user_id` as string value.\"}", res->body);
+
+    // Missing q
+    nlohmann::json event2 = R"({
+        "type": "query",
+        "name": "products_query_event",
+        "data": {
+            "user_id": "111112"
+        }
+    })"_json;
+
+    req->body = event2.dump();
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"query event json data fields should contain `q` as string value.\"}", res->body);
+
+    // Correct query event
+    nlohmann::json event3 = R"({
+        "type": "query",
+        "name": "products_query_event",
+        "data": {
+            "q": "hello",
+            "user_id": "111112"
+        }
+    })"_json;
+
+    req->body = event3.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+}
