@@ -220,6 +220,34 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                     }
                 }
 
+                if(param_kv[0] == "image") {
+                    auto search_schema = const_cast<Collection*>(coll)->get_schema();
+                    auto vector_field_it = search_schema.find(vector_query.field_name);
+
+                    if(vector_field_it == search_schema.end()) {
+                        return Option<bool>(400, "Malformed vector query string: could not find a field named "
+                                                 "`" + vector_query.field_name + "`.");
+                    }
+
+                    if(vector_field_it->embed.empty()) {
+                        return Option<bool>(400, "Malformed vector query string: `image` parameter is not supported "
+                                                 "for this field.");
+                    }
+
+                    auto model_config = vector_field_it->embed["model_config"];
+                    auto image_embedder_op = EmbedderManager::get_instance().get_image_embedder(model_config);
+                    if(!image_embedder_op.ok()) {
+                        return Option<bool>(400, "Malformed vector query string: could not get image embedder.");
+                    }
+
+                    auto image_embedder = image_embedder_op.get();
+                    auto res = image_embedder->embed(param_kv[1]);
+                    if(!res.success) {
+                        return Option<bool>(400, "Malformed vector query string: could not embed image.");
+                    }
+                    vector_query.values = res.embedding;
+                }
+
                 if(param_kv[0] == "query_weights") {
                     if(param_kv[1].front() != '[' || param_kv[1].back() != ']') {
                         return Option<bool>(400, "Malformed vector query string: "
