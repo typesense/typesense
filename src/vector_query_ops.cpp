@@ -241,11 +241,11 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                     }
 
                     auto image_embedder = image_embedder_op.get();
-                    auto res = image_embedder->embed(param_kv[1]);
-                    if(!res.success) {
+                    auto res = image_embedder->embed_documents({param_kv[1]});
+                    if(res.empty() || !res[0].success) {
                         return Option<bool>(400, "Malformed vector query string: could not embed image.");
                     }
-                    vector_query.values = res.embedding;
+                    vector_query.values = res[0].embedding;
                 }
 
                 if(param_kv[0] == "query_weights") {
