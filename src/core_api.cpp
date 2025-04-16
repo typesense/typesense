@@ -806,6 +806,10 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     uint64_t req_hash = 0;
 
     in_flight_req_guard_t in_flight_req_guard(req);
+    
+    if (req->params.count("x-typesense-user-id") > 0 && !req->params["x-typesense-user-id"].empty()) {
+        req->params["personalization_user_id"] = req->params["x-typesense-user-id"];
+    }
 
     if(use_cache) {
         // cache enabled, let's check if request is already in the cache

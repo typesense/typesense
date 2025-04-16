@@ -953,7 +953,7 @@ public:
                                   std::string personalization_event_name = "",
                                   size_t personalization_n_events = 0) const;
 
-    Option<bool> parse_and_validate_personalization_query(const std::string& personalization_user_id,
+    Option<bool> parse_and_validate_personalization_recommendation_query(const std::string& personalization_user_id,
                                                           const std::string& personalization_model_id,
                                                           const std::string& personalization_type,
                                                           const std::string& personalization_user_field,
@@ -963,6 +963,13 @@ public:
                                                           vector_query_t& vector_query,
                                                           std::string& filter_query,
                                                           bool& is_wildcard_query) const;
+    
+    Option<bool> parse_and_validate_personalization_search_query(const std::string& personalization_user_id,
+                                                          const std::string& personalization_type,
+                                                          const size_t& personalization_n_events,
+                                                          const std::string& personalization_event_name,
+                                                          std::vector<sort_by>& sort_fields,
+                                                          const std::vector<std::string>& query_by_fields) const;
 
     static Option<bool> do_union(const std::vector<uint32_t>& collection_ids,
                                  std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,
