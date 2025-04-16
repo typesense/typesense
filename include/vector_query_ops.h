@@ -23,8 +23,6 @@ struct vector_query_t {
     std::vector<std::string> queries;
     std::vector<float> query_weights;
 
-    std::string image_query;
-
     void _reset() {
         // used for testing only
         field_name.clear();
