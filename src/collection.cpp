@@ -4276,7 +4276,8 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
         if(already_segmented) {
             StringUtils::split(token, sub_tokens, " ");
         } else {
-            Tokenizer(token, true, false, locale, symbols_to_index, token_separators, stemmer).tokenize(sub_tokens);
+            std::shared_ptr<Stemmer> updated_stemmer = phrase_search_op_prior ? nullptr : stemmer;
+            Tokenizer(token, true, false, locale, symbols_to_index, token_separators, updated_stemmer).tokenize(sub_tokens);
         }
         
         for(auto& sub_token: sub_tokens) {

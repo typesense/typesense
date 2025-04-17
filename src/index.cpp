@@ -1321,6 +1321,8 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
     std::string token;
     std::string last_token;
     size_t token_index = 0;
+    std::set<std::string> token_set;  // required to deal with repeating tokens
+
     while(tokenizer.next(token, token_index)) {
         if(token.empty()) {
             continue;
@@ -1332,6 +1334,27 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
         
         token_to_offsets[token].push_back(token_index + 1);
         last_token = token;
+        token_set.insert(token);
+    }
+
+    if(a_field.get_stemmer() != nullptr) {
+        Tokenizer tokenizer2(text, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators, nullptr);
+        token_index = 0;
+
+        while(tokenizer2.next(token, token_index)) {
+            if(token.empty()) {
+                continue;
+            }
+
+            if(token.size() > 100) {
+                token.erase(100);
+            }
+
+            if(token_set.find(token) == token_set.end()) {
+                token_to_offsets[token].push_back(token_index + 1);
+                token_set.insert(token);
+            }
+        }
     }
 
     if(!token_to_offsets.empty()) {
@@ -1367,6 +1390,26 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
             token_to_offsets[token].push_back(token_index + 1);
             token_set.insert(token);
             last_token = token;
+        }
+
+        if(a_field.get_stemmer() != nullptr) {
+            Tokenizer tokenizer2(str, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators, nullptr);
+            token_index = 0;
+
+            while(tokenizer2.next(token, token_index)) {
+                if(token.empty()) {
+                    continue;
+                }
+
+                if(token.size() > 100) {
+                    token.erase(100);
+                }
+
+                if(token_set.find(token) == token_set.end()) {
+                    token_to_offsets[token].push_back(token_index + 1);
+                    token_set.insert(token);
+                }
+            }
         }
 
         if(token_set.empty()) {

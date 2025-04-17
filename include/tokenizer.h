@@ -40,6 +40,8 @@ private:
     int32_t start_pos = 0;
     int32_t end_pos = 0;
 
+    bool phrase_search_op_prior = false;
+
     char* normalized_text = nullptr;
 
     // non-deletable singletons
