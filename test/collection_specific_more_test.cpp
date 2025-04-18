@@ -3612,38 +3612,5 @@ TEST_F(CollectionSpecificMoreTest, StemmingPhraseSearch) {
 
     // with phrase search
     results = coll1->search(R"(" achievements of ")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
-    ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("<mark>Achievements</mark> <mark>of</mark> Stark Industries", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
-
-    //add irregular plurals
-    json_line = "{\"word\": \"people\", \"root\":\"person\"}";
-    json_lines.clear();
-    json_lines.push_back(json_line);
-
-    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set1", json_lines).ok());
-
-    int inserted_ids = records.size();
-    records = {{"People of America"},
-               {"Person of Interest"},
-    };
-
-    for(size_t i=0; i<records.size(); i++) {
-        nlohmann::json doc;
-        doc["id"] = std::to_string(i + inserted_ids);
-        doc["title"] = records[i][0];
-        ASSERT_TRUE(coll1->add(doc.dump()).ok());
-    }
-
-    //without phrase search
-    results = coll1->search(R"(people)", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
-    ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("4", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("3", results["hits"][1]["document"]["id"].get<std::string>());
-
-    // with phrase search
-    results = coll1->search(R"(" people ")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
-    ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("<mark>People</mark> of America", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ(0, results["hits"].size());
 }
