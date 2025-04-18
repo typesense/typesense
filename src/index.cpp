@@ -1312,6 +1312,32 @@ void Index::update_async_references(const std::string& collection_name, const fi
     }
 }
 
+void Index::tokenize_string_nonstemmed(const std::string& str, const field& a_field,
+                                const std::vector<char>& symbols_to_index,
+                                const std::vector<char>& token_separators,
+                                std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
+                                std::set<std::string>& token_set) {
+
+    Tokenizer tokenizer(str, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators, nullptr);
+    size_t token_index = 0;
+    std::string token;
+
+    while (tokenizer.next(token, token_index)) {
+        if (token.empty()) {
+            continue;
+        }
+
+        if (token.size() > 100) {
+            token.erase(100);
+        }
+
+        if (token_set.find(token) == token_set.end()) {
+            token_to_offsets[token].push_back(token_index + 1);
+            token_set.insert(token);
+        }
+    }
+}
+
 void Index::tokenize_string(const std::string& text, const field& a_field,
                             const std::vector<char>& symbols_to_index,
                             const std::vector<char>& token_separators,
@@ -1337,24 +1363,9 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
         token_set.insert(token);
     }
 
+    //keep non stemmed tokens too for phrase search
     if(a_field.get_stemmer() != nullptr) {
-        Tokenizer tokenizer2(text, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators, nullptr);
-        token_index = 0;
-
-        while(tokenizer2.next(token, token_index)) {
-            if(token.empty()) {
-                continue;
-            }
-
-            if(token.size() > 100) {
-                token.erase(100);
-            }
-
-            if(token_set.find(token) == token_set.end()) {
-                token_to_offsets[token].push_back(token_index + 1);
-                token_set.insert(token);
-            }
-        }
+        tokenize_string_nonstemmed(text, a_field, symbols_to_index, token_separators, token_to_offsets, token_set);
     }
 
     if(!token_to_offsets.empty()) {
@@ -1392,24 +1403,9 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
             last_token = token;
         }
 
+        //keep non stemmed tokens too for phrase search
         if(a_field.get_stemmer() != nullptr) {
-            Tokenizer tokenizer2(str, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators, nullptr);
-            token_index = 0;
-
-            while(tokenizer2.next(token, token_index)) {
-                if(token.empty()) {
-                    continue;
-                }
-
-                if(token.size() > 100) {
-                    token.erase(100);
-                }
-
-                if(token_set.find(token) == token_set.end()) {
-                    token_to_offsets[token].push_back(token_index + 1);
-                    token_set.insert(token);
-                }
-            }
+            tokenize_string_nonstemmed(str, a_field, symbols_to_index, token_separators, token_to_offsets, token_set);
         }
 
         if(token_set.empty()) {

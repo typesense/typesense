@@ -585,6 +585,13 @@ private:
                                       const std::vector<char>& token_separators,
                                       std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets);
 
+    static void tokenize_string_nonstemmed(const std::string& string,
+                                      const field& a_field,
+                                      const std::vector<char>& symbols_to_index,
+                                      const std::vector<char>& token_separators,
+                                      std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
+                                      std::set<std::string>& token_set);
+
     void collate_included_ids(const std::vector<token_t>& q_included_tokens,
                               const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                               Topster<KV>*& curated_topster,
