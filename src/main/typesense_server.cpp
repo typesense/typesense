@@ -133,6 +133,13 @@ void master_server_routes() {
     // for proxying remote embedders
     server->post("/proxy", post_proxy);
     server->post("/proxy_sse", post_proxy_sse, true, true);
+
+    // natural language search models
+    server->post("/nl_search_models", post_nl_search_model);
+    server->get("/nl_search_models", get_nl_search_models);
+    server->get("/nl_search_models/:id", get_nl_search_model);
+    server->put("/nl_search_models/:id", put_nl_search_model);
+    server->del("/nl_search_models/:id", delete_nl_search_model);
 }
 
 void (*backward::SignalHandling::_callback)(int sig, backward::StackTrace&) = nullptr;

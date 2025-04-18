@@ -22,6 +22,8 @@
 #include "conversation_model.h"
 #include "personalization_model_manager.h"
 #include "sole.hpp"
+#include "natural_language_search_model_manager.h"
+#include "natural_language_search_model.h"
 
 using namespace std::chrono_literals;
 
@@ -356,6 +358,10 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         }
         // without this line, response will return full api key without being masked
         req_json["fields"] = alter_payload["fields"];
+
+        // Invalidate schema prompt cache for this collection since schema has changed
+        NaturalLanguageSearchModelManager::clear_schema_prompt(req->params["collection"]);
+        LOG(INFO) << "Invalidated schema prompt cache for collection: " << req->params["collection"];
     }
 
     res->set_200(req_json.dump());
@@ -368,6 +374,10 @@ bool del_drop_collection(const std::shared_ptr<http_req>& req, const std::shared
     if(req->params.count("compact_store") != 0) {
         compact_store = (req->params["compact_store"] == "true");
     }
+
+    // Clear schema prompt cache for this collection before dropping it
+    NaturalLanguageSearchModelManager::clear_schema_prompt(req->params["collection"]);
+    LOG(INFO) << "Invalidated schema prompt cache for collection: " << req->params["collection"];
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Option<nlohmann::json> drop_op = collectionManager.drop_collection(req->params["collection"], true, compact_store);
@@ -523,6 +533,404 @@ uint64_t hash_request(const std::shared_ptr<http_req>& req) {
     return StringUtils::hash_wy(req_str.c_str(), req_str.size());
 }
 
+// Helper function to process natural language query and augment search parameters
+
+NLProcessingResult process_nl_query_and_augment_params(std::map<std::string, std::string>& req_params,
+                                      nlohmann::json& search_obj,
+                                      uint64_t schema_prompt_ttl_seconds) {
+    std::string nl_query;
+    bool has_nl_query = false;
+    auto start_time = std::chrono::high_resolution_clock::now();
+    NLProcessingResult result = {false, 0};
+
+    // Check for nl_query in URL parameters
+    if(req_params.count("nl_query") != 0) {
+        LOG(INFO) << "Found nl_query in URL parameters: " << req_params["nl_query"];
+        nl_query = req_params["nl_query"];
+        has_nl_query = true;
+    }
+
+    // Check for nl_query in JSON body (overrides URL parameter)
+    if(search_obj.count("nl_query") != 0 && search_obj["nl_query"].is_string()) {
+        LOG(INFO) << "Found nl_query in JSON body: " << search_obj["nl_query"].get<std::string>();
+        nl_query = search_obj["nl_query"].get<std::string>();
+        has_nl_query = true;
+    }
+
+    // Store the original nl_query for later use
+    if (has_nl_query) {
+        search_obj["_original_nl_query"] = nl_query;
+        LOG(INFO) << "Storing original nl_query: " << nl_query;
+    }
+
+    if (!has_nl_query) {
+        LOG(INFO) << "No nl_query found in either URL parameters or JSON body";
+        return result;
+    }
+
+    LOG(INFO) << "Starting processing natural language query: " << nl_query;
+
+    // Check for collection_name
+    std::string collection_name;
+    if(search_obj.count("collection") != 0 && search_obj["collection"].is_string()) {
+        collection_name = search_obj["collection"].get<std::string>();
+        LOG(INFO) << "Found collection_name in search_obj: " << collection_name;
+    } else if(req_params.count("collection") != 0) {
+        collection_name = req_params.at("collection");
+        LOG(INFO) << "Found collection_name in req_params: " << collection_name;
+    } else {
+        LOG(ERROR) << "No collection_name found for natural language query";
+        if(search_obj.count("error") == 0) {
+            search_obj["error"] = "Collection name is required for natural language queries.";
+        }
+        return result;
+    }
+
+    // Process the natural language query
+    LOG(INFO) << "Calling NaturalLanguageSearchModelManager::process_natural_language_query";
+    LOG(INFO) << "Parameters - nl_query: " << nl_query << ", collection_name: " << collection_name
+              << ", nl_model_id: " << (req_params.count("nl_model_id") ? req_params.at("nl_model_id") : "default");
+
+    auto params_op = NaturalLanguageSearchModelManager::process_natural_language_query(
+        nl_query,
+        collection_name,
+        req_params.count("nl_model_id") ? req_params.at("nl_model_id") : "default",
+        schema_prompt_ttl_seconds
+    );
+
+    LOG(INFO) << "Returned from NaturalLanguageSearchModelManager::process_natural_language_query";
+    LOG(INFO) << "Status: " << (params_op.ok() ? "SUCCESS" : "FAILED with code: " + std::to_string(params_op.code()));
+
+    if(!params_op.ok()) {
+        LOG(ERROR) << "Error processing natural language query: " << params_op.error();
+        if(search_obj.count("error") == 0) {
+            search_obj["error"] = params_op.error();
+        }
+
+        // Mark that the NL processing failed
+        search_obj["_nl_processing_failed"] = true;
+        LOG(INFO) << "Marking NL processing as failed";
+
+        // Set a fallback query if one doesn't exist
+        if(search_obj.count("q") == 0 && req_params.count("q") == 0) {
+            LOG(INFO) << "Setting fallback query parameter from nl_query";
+            search_obj["q"] = nl_query;
+            search_obj["_fallback_q_used"] = true;
+            LOG(INFO) << "Marking that fallback q is being used";
+        }
+
+        return result;
+    }
+
+    LOG(INFO) << "Successfully processed natural language query, extracting search parameters";
+    nlohmann::json generated_params = params_op.get();
+    // Log the generated parameters
+    LOG(INFO) << "Generated search parameters: " << generated_params.dump();
+
+    // Create a list to track which parameters were actually generated by the LLM
+    search_obj["_llm_generated_params"] = nlohmann::json::array();
+
+    // Extract and set parameters if provided
+    for(auto& param : generated_params.items()) {
+        if(param.key() == "q") {
+            LOG(INFO) << "Setting generated query parameter: " << param.value().dump();
+            search_obj["q"] = param.value();
+            // Track that q was generated by the LLM
+            search_obj["_llm_generated_params"].push_back("q");
+            // Also set the q parameter in the request params to fix the single search case
+            LOG(INFO) << "Also setting 'q' in request params for compatibility";
+            req_params["q"] = param.value();
+        } else if(param.key() == "filter_by") {
+            // Store the original LLM-generated filter_by before potentially combining it
+            // This ensures we can report exactly what the LLM generated in the response
+            search_obj["_original_llm_filter_by"] = param.value();
+            LOG(INFO) << "Storing original LLM-generated filter_by: " << param.value().dump();
+            // Also store in a field that won't be removed before validation
+            search_obj["llm_generated_filter_by"] = param.value();
+            LOG(INFO) << "Also storing in non-internal field llm_generated_filter_by for preservation";
+            // Track that filter_by was generated by the LLM
+            search_obj["_llm_generated_params"].push_back("filter_by");
+            LOG(INFO) << "Added 'filter_by' to _llm_generated_params array";
+
+            // Check if filter_by already exists in the search object
+            if(search_obj.count("filter_by") != 0 && !search_obj["filter_by"].empty()) {
+                std::string existing_filter = search_obj["filter_by"].get<std::string>();
+                std::string generated_filter = param.value().get<std::string>();
+
+                // Trim whitespace from both filters
+                auto trim = [](std::string& s) {
+                    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) {
+                        return !std::isspace(ch);
+                    }));
+                    s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) {
+                        return !std::isspace(ch);
+                    }).base(), s.end());
+                };
+
+                trim(existing_filter);
+                trim(generated_filter);
+
+                // Only combine if both filters are non-empty
+                if(!existing_filter.empty() && !generated_filter.empty()) {
+                    LOG(INFO) << "Concatenating existing filter_by (" << existing_filter
+                              << ") with generated filter_by (" << generated_filter << ") using &&";
+                    search_obj["filter_by"] = existing_filter + " && " + generated_filter;
+                } else if(!existing_filter.empty()) {
+                    LOG(INFO) << "Using only existing filter_by as generated filter is empty: " << existing_filter;
+                    search_obj["filter_by"] = existing_filter;
+                } else if(!generated_filter.empty()) {
+                    LOG(INFO) << "Using only generated filter_by as existing filter is empty: " << generated_filter;
+                    search_obj["filter_by"] = generated_filter;
+                } else {
+                    LOG(INFO) << "Both existing and generated filters are empty, setting filter_by to empty string";
+                    search_obj["filter_by"] = "";
+                }
+            } else {
+                LOG(INFO) << "Setting generated filter_by parameter: " << param.value().dump();
+                search_obj["filter_by"] = param.value();
+            }
+        } else if(param.key() == "sort_by") {
+            LOG(INFO) << "Setting generated sort_by parameter: " << param.value().dump();
+            search_obj["sort_by"] = param.value();
+            // Track that sort_by was generated by the LLM
+            search_obj["_llm_generated_params"].push_back("sort_by");
+        } else if(param.key() != "llm_response") {
+            LOG(INFO) << "Setting other generated parameter " << param.key() << ": " << param.value().dump();
+            search_obj[param.key()] = param.value();
+            // Track that this parameter was generated by the LLM
+            search_obj["_llm_generated_params"].push_back(param.key());
+        }
+    }
+
+    // Mark as processed by natural language model
+    search_obj["processed_by_nl_model"] = true;
+
+    // Preserve LLM response for debugging if available
+    if(generated_params.count("llm_response") != 0) {
+        LOG(INFO) << "Preserving LLM response for debugging";
+        // Convert the llm_response object to a string to avoid parameter validation issues
+        if(generated_params["llm_response"].is_object()) {
+            LOG(INFO) << "Converting llm_response object to string to avoid validation issues";
+            search_obj["llm_response_str"] = generated_params["llm_response"].dump();
+        } else {
+            search_obj["llm_response_str"] = generated_params["llm_response"].dump();
+        }
+        // Keep the original object for internal use, but remove before validation
+        search_obj["_llm_response"] = generated_params["llm_response"];
+
+        // Note: The "generated_params" will be constructed in the add_nl_query_data_to_results helper
+        // from the q, filter_by, and sort_by fields in search_obj
+    }
+
+    LOG(INFO) << "Completed natural language query processing";
+    result.processed = true;
+    auto end_time = std::chrono::high_resolution_clock::now();
+    result.processing_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    LOG(INFO) << "NL query processing took " << result.processing_time_ms << "ms";
+    return result;
+}
+
+// Forward declaration of the helper function
+nlohmann::json build_augmented_params(const nlohmann::json& search_obj);
+
+// Helper function to add natural language query data to search results
+void add_nl_query_data_to_results(nlohmann::json& results_json, const nlohmann::json& search_obj,
+                                 const std::map<std::string, std::string>* req_params,
+                                 uint64_t nl_processing_time_ms) {
+    LOG(INFO) << "Adding NL query data to search results";
+
+    // Check if search parameters were processed by NL model
+    bool has_nl_data = search_obj.contains("processed_by_nl_model") ||
+                        search_obj.contains("q") ||
+                        search_obj.contains("filter_by") ||
+                        search_obj.contains("sort_by") ||
+                        search_obj.contains("_llm_response") ||
+                        search_obj.contains("llm_response_str") ||
+                        search_obj.contains("_original_nl_query");
+
+    if (!has_nl_data) {
+        LOG(INFO) << "No NL query data found in search_obj, skipping";
+        return;
+    }
+
+    // Add nl_query to request_params if it exists
+    if (search_obj.contains("_original_nl_query") && search_obj["_original_nl_query"].is_string()) {
+        if (!results_json.contains("request_params")) {
+            results_json["request_params"] = nlohmann::json::object();
+        }
+        LOG(INFO) << "Adding nl_query to request_params: " << search_obj["_original_nl_query"].get<std::string>();
+        results_json["request_params"]["nl_query"] = search_obj["_original_nl_query"].get<std::string>();
+    } else if (req_params != nullptr && req_params->count("nl_query") > 0) {
+        if (!results_json.contains("request_params")) {
+            results_json["request_params"] = nlohmann::json::object();
+        }
+        LOG(INFO) << "Adding nl_query from req_params to request_params: " << req_params->at("nl_query");
+        results_json["request_params"]["nl_query"] = req_params->at("nl_query");
+    } else if (search_obj.contains("nl_query") && search_obj["nl_query"].is_string()) {
+        if (!results_json.contains("request_params")) {
+            results_json["request_params"] = nlohmann::json::object();
+        }
+        LOG(INFO) << "Adding nl_query from search_obj to request_params: " << search_obj["nl_query"].get<std::string>();
+        results_json["request_params"]["nl_query"] = search_obj["nl_query"].get<std::string>();
+    }
+
+    // Create a new parsed_nl_query object to hold all NL-related data
+    nlohmann::json parsed_nl_query = nlohmann::json::object();
+
+    // Add the parse_time_ms field to parsed_nl_query
+    if (nl_processing_time_ms > 0) {
+        parsed_nl_query["parse_time_ms"] = nl_processing_time_ms;
+        LOG(INFO) << "Added parse_time_ms: " << nl_processing_time_ms << "ms to parsed_nl_query";
+    }
+
+    // Include generated parameters for search
+    if(search_obj.contains("processed_by_nl_model")) {
+        LOG(INFO) << "Adding generated_params to parsed_nl_query - LLM processing was successful";
+        nlohmann::json generated_params = nlohmann::json::object();
+
+        // Only include parameters that were actually generated by the LLM
+        if(search_obj.contains("_llm_generated_params") && search_obj["_llm_generated_params"].is_array()) {
+            LOG(INFO) << "Using _llm_generated_params to determine which parameters to include";
+            LOG(INFO) << "Contents of _llm_generated_params: " << search_obj["_llm_generated_params"].dump();
+
+            for(const auto& param_name : search_obj["_llm_generated_params"]) {
+                if(param_name == "q" && search_obj.contains("q")) {
+                    generated_params["q"] = search_obj["q"];
+                    LOG(INFO) << "Including LLM-generated q parameter";
+                } else if(param_name == "filter_by") {
+                    // Only include the original LLM-generated filter_by in generated_params, never the combined one
+                    if(search_obj.contains("_original_llm_filter_by")) {
+                        generated_params["filter_by"] = search_obj["_original_llm_filter_by"];
+                        LOG(INFO) << "Including LLM-generated filter_by parameter from _original_llm_filter_by";
+                    } else if(search_obj.contains("llm_generated_filter_by")) {
+                        // Use the preserved non-internal field if the internal one was removed
+                        generated_params["filter_by"] = search_obj["llm_generated_filter_by"];
+                        LOG(INFO) << "Including LLM-generated filter_by parameter from llm_generated_filter_by";
+                    } else {
+                        LOG(ERROR) << "Missing _original_llm_filter_by and llm_generated_filter_by even though filter_by is in _llm_generated_params";
+                    }
+                    // Deliberately not falling back to filter_by as that may contain user-provided filters
+                } else if(param_name == "sort_by" && search_obj.contains("sort_by")) {
+                    generated_params["sort_by"] = search_obj["sort_by"];
+                    LOG(INFO) << "Including LLM-generated sort_by parameter";
+                } else if(search_obj.contains(param_name)) {
+                    // Include any other parameters that were generated by the LLM
+                    generated_params[param_name] = search_obj[param_name];
+                    LOG(INFO) << "Including other LLM-generated parameter: " << param_name.get<std::string>();
+                }
+            }
+        } else {
+            // Fallback to previous logic for backward compatibility
+            LOG(INFO) << "No _llm_generated_params found, using fallback logic";
+
+            if(search_obj.contains("q") && !search_obj.contains("_fallback_q_used")) {
+                generated_params["q"] = search_obj["q"];
+                LOG(INFO) << "Including q parameter (fallback logic)";
+            }
+
+            // Only include original LLM-generated filter_by in generated_params
+            if(search_obj.contains("_original_llm_filter_by")) {
+                generated_params["filter_by"] = search_obj["_original_llm_filter_by"];
+                LOG(INFO) << "Including filter_by parameter from _original_llm_filter_by (fallback logic)";
+            } else if(search_obj.contains("llm_generated_filter_by")) {
+                // Use the preserved non-internal field if the internal one was removed
+                generated_params["filter_by"] = search_obj["llm_generated_filter_by"];
+                LOG(INFO) << "Including filter_by parameter from llm_generated_filter_by (fallback logic)";
+            } else if(search_obj.contains("filter_by") && search_obj.contains("_llm_generated_params")) {
+                // If we have filter_by in _llm_generated_params but no _original_llm_filter_by,
+                // we'll use the filter_by value directly as a last resort
+                for(const auto& param : search_obj["_llm_generated_params"]) {
+                    if(param == "filter_by") {
+                        generated_params["filter_by"] = search_obj["filter_by"];
+                        LOG(INFO) << "Including filter_by parameter directly as last resort (fallback logic)";
+                        break;
+                    }
+                }
+            } else {
+                LOG(INFO) << "No filter_by found to include in generated_params (fallback logic)";
+            }
+
+            if(search_obj.contains("sort_by")) {
+                generated_params["sort_by"] = search_obj["sort_by"];
+                LOG(INFO) << "Including sort_by parameter (fallback logic)";
+            }
+        }
+
+        parsed_nl_query["generated_params"] = generated_params;
+
+        // Add augmented_params containing the final set of search parameters after all combinations and overrides
+        parsed_nl_query["augmented_params"] = build_augmented_params(search_obj);
+    } else if(search_obj.contains("_nl_processing_failed")) {
+        LOG(INFO) << "LLM processing failed, adding empty generated_params";
+        parsed_nl_query["generated_params"] = nlohmann::json::object();
+
+        // Include error message if available
+        if(search_obj.contains("error")) {
+            parsed_nl_query["error"] = search_obj["error"];
+            LOG(INFO) << "Adding error message to parsed_nl_query: " << search_obj["error"].get<std::string>();
+        }
+
+        // Add augmented_params even in failure case
+        parsed_nl_query["augmented_params"] = build_augmented_params(search_obj);
+    } else {
+        // For backward compatibility, still include generated_params in other cases
+        // but it should be empty in error cases
+        LOG(INFO) << "Adding default generated_params structure";
+        parsed_nl_query["generated_params"] = nlohmann::json::object();
+
+        // Add augmented_params in default case as well
+        parsed_nl_query["augmented_params"] = build_augmented_params(search_obj);
+    }
+
+    // Check if debug mode is enabled (from search_obj or req_params)
+    bool debug_mode = false;
+
+    // Check in search_obj
+    if (search_obj.contains("nl_query_debug") &&
+        ((search_obj["nl_query_debug"].is_boolean() && search_obj["nl_query_debug"].get<bool>()) ||
+         (search_obj["nl_query_debug"].is_string() &&
+          (search_obj["nl_query_debug"].get<std::string>() == "true" ||
+           search_obj["nl_query_debug"].get<std::string>() == "1")))) {
+        debug_mode = true;
+        LOG(INFO) << "NL query debug mode is enabled from search_obj";
+    }
+
+    // Also check in req_params if provided
+    if (!debug_mode && req_params != nullptr && req_params->count("nl_query_debug") > 0) {
+        const std::string& debug_val = req_params->at("nl_query_debug");
+        if (debug_val == "true" || debug_val == "1") {
+            debug_mode = true;
+            LOG(INFO) << "NL query debug mode is enabled from req_params";
+        }
+    }
+
+    // Include LLM response data only in debug mode
+    if (debug_mode) {
+        if(search_obj.contains("_llm_response")) {
+            LOG(INFO) << "Including _llm_response in parsed_nl_query for debugging";
+            parsed_nl_query["llm_response"] = search_obj["_llm_response"];
+        } else if(search_obj.contains("llm_response_str")) {
+            LOG(INFO) << "Including llm_response_str in parsed_nl_query for debugging";
+            // Try to parse the string back to JSON
+            try {
+                parsed_nl_query["llm_response"] = nlohmann::json::parse(search_obj["llm_response_str"].get<std::string>());
+                LOG(INFO) << "Successfully parsed llm_response_str as JSON";
+            } catch(const std::exception& e) {
+                LOG(INFO) << "Could not parse llm_response_str as JSON, using raw string";
+                parsed_nl_query["llm_response_str"] = search_obj["llm_response_str"];
+            }
+        }
+    }
+
+    // Add parsed_nl_query to results if it has any data
+    if (!parsed_nl_query.empty()) {
+        results_json["parsed_nl_query"] = parsed_nl_query;
+        LOG(INFO) << "Added parsed_nl_query to results: " << parsed_nl_query.dump();
+    }
+
+    LOG(INFO) << "Completed adding NL query data to results";
+}
+
 bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const auto use_cache_it = req->params.find("use_cache");
     bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
@@ -638,6 +1046,45 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         req->params["q"] = query;
     }
 
+    // Process natural language query if present
+    LOG(INFO) << "Before process_nl_query_and_augment_params in get_search, params: "
+              << (req->params.count("q") ? "q=" + req->params["q"] : "no q");
+
+    // Create a search object for process_nl_query_and_augment_params to populate
+    nlohmann::json search_obj = nlohmann::json::object();
+
+    // Pass nl_query from URL params to the search object for processing
+    if(req->params.count("nl_query")) {
+        search_obj["nl_query"] = req->params["nl_query"];
+    }
+
+    // Get the schema prompt cache TTL if provided
+    uint64_t prompt_cache_ttl = NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC;
+    if(req->params.count("nl_query_prompt_cache_ttl")) {
+        try {
+            prompt_cache_ttl = std::stoull(req->params["nl_query_prompt_cache_ttl"]);
+            LOG(INFO) << "Using provided nl_query_prompt_cache_ttl: " << prompt_cache_ttl;
+        } catch(const std::exception& e) {
+            LOG(WARNING) << "Invalid nl_query_prompt_cache_ttl parameter: " << req->params["nl_query_prompt_cache_ttl"]
+                        << ", using default value";
+        }
+    }
+
+    NLProcessingResult result = process_nl_query_and_augment_params(req->params, search_obj, prompt_cache_ttl);
+    LOG(INFO) << "After process_nl_query_and_augment_params in get_search, params: "
+              << (req->params.count("q") ? "q=" + req->params["q"] : "no q");
+
+    // Add debug logging to check if parsed_nl_query exists in search_obj
+    LOG(INFO) << "search_obj contents after NL processing: " << search_obj.dump();
+    if(search_obj.contains("parsed_nl_query")) {
+        LOG(INFO) << "parsed_nl_query found in search_obj: " << search_obj["parsed_nl_query"].dump();
+    } else {
+        LOG(WARNING) << "parsed_nl_query NOT found in search_obj";
+    }
+
+    // Remove internal fields before performing the search to avoid validation errors
+    remove_internal_fields(search_obj, "search_obj before search");
+
     std::string results_json_str;
     Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0],
                                                           results_json_str, req->conn_ts);
@@ -662,7 +1109,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
             return false;
         }
         auto min_required_bytes = min_required_bytes_op.get();
-        if(conversation_model["max_bytes"].get<size_t>() < min_required_bytes + query.size()) { 
+        if(conversation_model["max_bytes"].get<size_t>() < min_required_bytes + query.size()) {
             res->set_400("`max_bytes` of the conversation model is less than the minimum required bytes(" + std::to_string(min_required_bytes) + ").");
             res->final = true;
             stream_response(req, res);
@@ -732,7 +1179,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
             return false;
         }
         auto new_conversation = new_conversation_op.get();
-        
+
         auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation, conversation_model, conversation_id, !conversation_id_created_in_advance);
         if(!add_conversation_op.ok()) {
             res->status_code = add_conversation_op.code();
@@ -765,11 +1212,35 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         return false;
     }
 
-    
+
     // if the response is an event stream, we need to add the data: prefix
     if(conversation_stream) {
         results_json_str = "data: " + results_json_str + "\n\n";
     }
+
+    // Log the original results
+    LOG(INFO) << "Original results_json_str before adding parsed_nl_query: " << results_json_str.substr(0, 200) << "...";
+
+    // Add parsed_nl_query to results if it exists in search_obj
+    if(search_obj.contains("parsed_nl_query") || search_obj.contains("_llm_response") ||
+       search_obj.contains("llm_response_str") || search_obj.contains("processed_by_nl_model")) {
+        LOG(INFO) << "Adding parsed_nl_query to results";
+        // Parse the JSON results and add the parsed_nl_query field
+        nlohmann::json results_json = nlohmann::json::parse(results_json_str);
+
+        // Log parse_time_ms in parsed_nl_query
+        if(result.processed) {
+            LOG(INFO) << "NL query processing time: " << result.processing_time_ms << "ms";
+        }
+
+        // Use the helper function to add NL query data
+        add_nl_query_data_to_results(results_json, search_obj, &(req->params), result.processing_time_ms);
+
+        results_json_str = results_json.dump();
+    } else {
+        LOG(WARNING) << "No NL query data found in search_obj to add to results";
+    }
+
     res->set_200(results_json_str);
     res->final = true;
     stream_response(req, res);
@@ -1003,6 +1474,38 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
     }
 
+    // Process natural language queries for each search
+    std::vector<NLProcessingResult> nl_results;
+    nl_results.reserve(searches.size());
+
+    for(size_t i = 0; i < searches.size(); i++) {
+        LOG(INFO) << "Processing nl_query for search " << i << " in multi_search";
+
+        // Get the schema prompt cache TTL if provided
+        uint64_t prompt_cache_ttl = NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC;
+        if(req->params.count("nl_query_prompt_cache_ttl")) {
+            try {
+                prompt_cache_ttl = std::stoull(req->params["nl_query_prompt_cache_ttl"]);
+                LOG(INFO) << "Using provided nl_query_prompt_cache_ttl: " << prompt_cache_ttl;
+            } catch(const std::exception& e) {
+                LOG(WARNING) << "Invalid nl_query_prompt_cache_ttl parameter: " << req->params["nl_query_prompt_cache_ttl"]
+                            << ", using default value";
+            }
+        }
+
+        NLProcessingResult result = process_nl_query_and_augment_params(req->params, searches[i], prompt_cache_ttl);
+        nl_results.push_back(result);
+
+        LOG(INFO) << "Completed processing nl_query for search " << i
+                  << (result.processed ? " (processed in " + std::to_string(result.processing_time_ms) + "ms)" : " (not processed)");
+    }
+
+    // Remove internal fields before validation
+    for(size_t i = 0; i < searches.size(); i++) {
+        // Remove all internal fields (prefixed with underscore) that we've added
+        remove_internal_fields(searches[i], "search " + std::to_string(i) + " before validation");
+    }
+
     if (searches.size() > 1 && is_union) {
         Option<bool> union_op = CollectionManager::do_union(req->params, req->embedded_params_vec, searches,
                                                             response, req->conn_ts);
@@ -1020,6 +1523,10 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
             auto validate_op = multi_search_validate_and_add_params(req->params, search_params, conversation);
             if (!validate_op.ok()) {
+                LOG(ERROR) << "multi_search parameter validation failed: " << validate_op.error()
+                          << " with code: " << validate_op.code();
+                // Log the problematic search parameters
+                LOG(ERROR) << "Problematic search parameters: " << search_params.dump();
                 res->set_400(validate_op.error());
                 res->final = true;
                 stream_response(req, res);
@@ -1035,6 +1542,15 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 if(conversation) {
                     results_json["request_params"]["q"] = common_query;
                 }
+
+                if(i < nl_results.size() && nl_results[i].processed) {
+                    LOG(INFO) << "NL query processing time for search " << i << ": "
+                              << nl_results[i].processing_time_ms << "ms";
+                }
+
+                // Use the helper function to add NL query data
+                add_nl_query_data_to_results(results_json, search_params, &(req->params), nl_results[i].processing_time_ms);
+
                 response["results"].push_back(results_json);
             } else {
                 if(search_op.code() == 408) {
@@ -1164,7 +1680,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         response["conversation"] = nlohmann::json::object();
         response["conversation"]["query"] = common_query;
         response["conversation"]["answer"] = answer_op.get();
-        
+
         // do not send conversation id as param if streaming, because it is just created in advance for streaming
         auto conversation_history_op = ConversationManager::get_instance().get_full_conversation(common_query, answer_op.get(), conversation_model, conversation_id_created_in_advance ? "" : conversation_id);
         if(!conversation_history_op.ok()) {
@@ -2011,7 +2527,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         if (req->params.count(RETURN_DOC) != 0 && req->params[RETURN_DOC] == "true") {
             deletion_state->return_doc = true;
         }
-        
+
         if (req->params.count(RETURN_ID) != 0 && req->params[RETURN_ID] == "true") {
             deletion_state->return_id = true;
         }
@@ -2058,15 +2574,15 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
             res->final = false;
         } else {
             response["num_deleted"] = deletion_state->num_removed;
-            
+
             if (deletion_state->return_doc && !deletion_state->removed_docs.empty()) {
                 response["documents"] = deletion_state->removed_docs;
             }
-            
+
             if (deletion_state->return_id && !deletion_state->removed_ids.empty()) {
                 response["ids"] = deletion_state->removed_ids;
             }
-            
+
             req->last_chunk_aggregate = true;
             res->body = response.dump();
             res->final = true;
@@ -3678,7 +4194,7 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
         return false;
     }
 
-    try {        
+    try {
         if(req_json.count("body") != 0 && !req_json["body"].is_string()) {
             res->set_400("Body must be a string.");
             res->final = true;
@@ -3708,4 +4224,181 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     }
 
     return proxy.call_sse(url, method, body, headers, req, res);
+}
+
+// Helper function to process natural language query
+Option<nlohmann::json> process_natural_language_query(
+    const std::string& nl_query,
+    const std::string& collection_name,
+    const std::string& nl_model_id
+) {
+    return NaturalLanguageSearchModelManager::process_natural_language_query(nl_query, collection_name, nl_model_id);
+}
+
+// Natural Language Search Models API Endpoints
+
+bool get_nl_search_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto models_op = NaturalLanguageSearchModelManager::get_all_models();
+
+    if(!models_op.ok()) {
+        res->set(models_op.code(), models_op.error());
+        return false;
+    }
+
+    auto models = models_op.get();
+
+     for(auto& model: models) {
+         Collection::hide_credential(model, "api_key");
+     }
+
+    res->set_200(models.dump());
+    return true;
+}
+
+bool get_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+
+    auto model_op = NaturalLanguageSearchModelManager::get_model(model_id);
+
+    if(!model_op.ok()) {
+        res->set(model_op.code(), model_op.error());
+        return false;
+    }
+
+    auto model = model_op.get();
+    Collection::hide_credential(model, "api_key");
+
+    res->set_200(model.dump());
+    return true;
+}
+
+bool post_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json model_json;
+
+    try {
+        model_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    if(!model_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    std::string model_id = req->metadata;
+
+    auto add_model_op = NaturalLanguageSearchModelManager::add_model(model_json, model_id, true);
+
+    if(!add_model_op.ok()) {
+        res->set(add_model_op.code(), add_model_op.error());
+        return false;
+    }
+
+    Collection::hide_credential(model_json, "api_key");
+
+    res->set_200(model_json.dump());
+    return true;
+}
+
+bool put_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    if(!req_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto model_op = NaturalLanguageSearchModelManager::update_model(model_id, req_json);
+
+    if(!model_op.ok()) {
+        res->set(model_op.code(), model_op.error());
+        return false;
+    }
+
+    auto model = model_op.get();
+
+    Collection::hide_credential(model, "api_key");
+
+    res->set_200(model.dump());
+    return true;
+}
+
+bool delete_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+
+    auto model_op = NaturalLanguageSearchModelManager::delete_model(model_id);
+
+    if(!model_op.ok()) {
+        res->set(model_op.code(), model_op.error());
+        return false;
+    }
+
+    auto model = model_op.get();
+
+    Collection::hide_credential(model, "api_key");
+
+    res->set_200(model.dump());
+    return true;
+}
+
+// Helper function to remove internal fields (prefixed with underscore) from a JSON object
+void remove_internal_fields(nlohmann::json& json_obj, const std::string& context = "") {
+    auto it = json_obj.begin();
+    while (it != json_obj.end()) {
+        // Use C++17 compatible way to check if string starts with underscore
+        if (!it.key().empty() && it.key()[0] == '_') {
+            LOG(INFO) << "Removing internal field '" << it.key() << "'"
+                      << (context.empty() ? "" : " from " + context);
+            it = json_obj.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+// Helper function to build augmented_params from search_obj
+nlohmann::json build_augmented_params(const nlohmann::json& search_obj) {
+    LOG(INFO) << "Building augmented_params from search_obj";
+    nlohmann::json augmented_params = nlohmann::json::object();
+
+    // Include important search parameters that were actually used for the search
+    const std::vector<std::string> important_params = {"q", "filter_by", "sort_by", "query_by", "prefix", "infix",
+                                                       "exclude", "include", "limit", "offset", "page"};
+
+    for(const auto& param_name : important_params) {
+        if(search_obj.contains(param_name)) {
+            augmented_params[param_name] = search_obj[param_name];
+            LOG(INFO) << "Including " << param_name << " in augmented_params: " << search_obj[param_name].dump();
+        }
+    }
+
+    // Include any other non-internal parameters from search_obj
+    for(const auto& [key, value] : search_obj.items()) {
+        // Skip parameters that are already added or internal (start with _)
+        if(!key.empty() && key[0] != '_' &&
+           augmented_params.find(key) == augmented_params.end() &&
+           key != "error" && key != "processed_by_nl_model" &&
+           key != "nl_query" && key != "nl_query_debug" &&
+           key != "nl_model_id" && key != "llm_response_str" &&
+           key != "llm_generated_filter_by") {
+
+            augmented_params[key] = value;
+            LOG(INFO) << "Including additional parameter " << key << " in augmented_params: " << value.dump();
+        }
+    }
+
+    return augmented_params;
 }

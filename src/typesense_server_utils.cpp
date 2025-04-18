@@ -26,6 +26,8 @@
 #include "conversation_manager.h"
 #include "vq_model_manager.h"
 #include "stemmer_manager.h"
+#include "natural_language_search_model_manager.h"
+#include "conversation_model.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -511,6 +513,14 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     if(!conversations_init.ok()) {
         LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
+    }
+
+    auto natural_language_search_init = NaturalLanguageSearchModelManager::init(&store);
+
+    if(!natural_language_search_init.ok()) {
+        LOG(INFO) << "Failed to initialize natural language search model manager: " << natural_language_search_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << natural_language_search_init.get() << " natural language search model(s).";
     }
 
     std::thread raft_thread([&replication_state, &store, &config, &state_dir,
