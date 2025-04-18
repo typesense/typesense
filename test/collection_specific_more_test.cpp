@@ -3570,3 +3570,47 @@ TEST_F(CollectionSpecificMoreTest, StemmingNonCyrilic) {
     res = coll_stem->search("Ostar", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(4, res["hits"].size());
 }
+
+TEST_F(CollectionSpecificMoreTest, StemmingPhraseSearch) {
+    nlohmann::json schema = R"({
+         "name": "titles",
+         "fields": [
+           {"name": "title", "type": "string", "stem_dictionary": "set1"}
+         ]
+       })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+
+    auto coll1 = coll_stem_res.get();
+
+    std::string json_line = "{\"word\": \"achievements\", \"root\":\"achievement\"}";
+    std::vector<std::string> json_lines;
+    json_lines.push_back(json_line);
+
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set1", json_lines).ok());
+
+    std::vector<std::vector<std::string>> records = {
+            {"Achievements of Stark Industries"},
+            {"Achievement of Avengers"},
+            {"Achievement of Shield"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    //without phrase search
+    auto results = coll1->search(R"(achievements of)", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+
+    // with phrase search
+    results = coll1->search(R"(" achievements of ")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(0, results["hits"].size());
+}

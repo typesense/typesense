@@ -258,7 +258,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                     continue;
                 }
 
-                if(stemmer) {
+                if(stemmer && !phrase_search_op_prior) {
                     token = stemmer->stem(out);
                 } else {
                     token = out;
@@ -273,6 +273,15 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             } else {
                 if(out.empty()) {
                     start_index = i;
+                }
+
+                if(text[i] == '"') {
+                    if(!phrase_search_op_prior) {
+                        phrase_search_op_prior = true;
+                    } else if(phrase_search_op_prior) {
+                        //end of phrase
+                        phrase_search_op_prior = false;
+                    }
                 }
 
                 out += normalize ? char(std::tolower(text[i])) : text[i];
@@ -334,7 +343,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
         }
     }
 
-    if(stemmer) {
+    if(stemmer && !phrase_search_op_prior) {
         token = stemmer->stem(out);
     } else {
         token = out;
