@@ -4236,8 +4236,6 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
                                 bool& phrase_search_op_prior, std::vector<std::string>& phrase, const std::string& stopwords_set,
                                 const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer) const{
 
-
-
     auto symbols_to_index_has_minus =
             std::find(symbols_to_index.begin(), symbols_to_index.end(), '-') != symbols_to_index.end();
 
@@ -4271,13 +4269,13 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
             }
         }
 
+        // retokenize using collection config (handles hyphens being part of the query)
         std::vector<std::string> sub_tokens;
 
         if(already_segmented) {
             StringUtils::split(token, sub_tokens, " ");
         } else {
-            std::shared_ptr<Stemmer> updated_stemmer = phrase_search_op_prior ? nullptr : stemmer;
-            Tokenizer(token, true, false, locale, symbols_to_index, token_separators, updated_stemmer).tokenize(sub_tokens);
+            Tokenizer(token, true, false, locale, symbols_to_index, token_separators).tokenize(sub_tokens);
         }
         
         for(auto& sub_token: sub_tokens) {
@@ -4363,7 +4361,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             }
         }
 
-        for (const auto val: stopwordStruct.stopwords) {
+        for (const auto& val: stopwordStruct.stopwords) {
             tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
             tokens_non_stemmed.erase(std::remove(tokens_non_stemmed.begin(), tokens_non_stemmed.end(), val), tokens_non_stemmed.end());
         }
@@ -4373,17 +4371,6 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         std::vector<std::string> phrase;
 
         process_tokens(tokens, q_include_tokens, q_exclude_tokens, q_phrases, exclude_operator_prior, phrase_search_op_prior, phrase, stopwords_set, already_segmented, locale, stemmer);
-        
-        if(stemmer) {
-            exclude_operator_prior = false;
-            phrase_search_op_prior = false;
-            phrase.clear();
-            // those are unused
-            std::vector<std::vector<std::string>> q_exclude_tokens_dummy;
-            std::vector<std::vector<std::string>> q_phrases_dummy;
-
-            process_tokens(tokens_non_stemmed, q_unstemmed_tokens, q_exclude_tokens_dummy, q_phrases_dummy, exclude_operator_prior, phrase_search_op_prior, phrase, stopwords_set,  already_segmented, locale, nullptr);
-        }
     }
 }
 
