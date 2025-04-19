@@ -3144,6 +3144,26 @@ TEST_F(CollectionSpecificMoreTest, TestStemmingWithSynonym) {
     ASSERT_EQ("foobar", res["hits"][0]["document"]["word"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, EnsureNoDoubleStemming) {
+    nlohmann::json schema = R"({
+         "name": "words",
+         "fields": [
+           {"name": "word", "type": "string", "stem": true }
+         ]
+       })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+
+    auto coll_stem = coll_stem_res.get();
+    ASSERT_TRUE(coll_stem->add(R"({"word": "oringer foobar"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "ori foobar"})"_json.dump()).ok());
+
+    auto res = coll_stem->search("oringer", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("oringer foobar", res["hits"][0]["document"]["word"].get<std::string>());
+}
+
 TEST_F(CollectionSpecificMoreTest, TestFieldStore) {
     nlohmann::json schema = R"({
          "name": "words",
@@ -3565,7 +3585,15 @@ TEST_F(CollectionSpecificMoreTest, StemmingNonCyrilic) {
     ASSERT_TRUE(coll_stem->add(R"({"word": "Ostsås"})"_json.dump()).ok());
 
     auto res = coll_stem->search("Tomater", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ("Tomater", res["hits"][0]["document"]["word"].get<std::string>());
+    ASSERT_EQ("Tomatsoppa", res["hits"][1]["document"]["word"].get<std::string>());
+
+    res = coll_stem->search("tomat", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(3, res["hits"].size());
+    ASSERT_EQ("Tomat", res["hits"][0]["document"]["word"].get<std::string>());
+    ASSERT_EQ("Tomatsoppa", res["hits"][1]["document"]["word"].get<std::string>());
+    ASSERT_EQ("Tomater", res["hits"][2]["document"]["word"].get<std::string>());
 
     res = coll_stem->search("Ostar", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(4, res["hits"].size());
