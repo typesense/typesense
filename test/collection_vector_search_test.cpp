@@ -5502,29 +5502,15 @@ TEST_F(CollectionVectorTest, TestRankFusionOrdering) {
 }
 
 TEST_F(CollectionVectorTest, TestVectorQueryParsingWithEscape) {
-    nlohmann::json schema = R"({
-    "name": "test",
-    "fields": [
-        {
-            "name": "image",
-            "type": "image",
-            "store": false
-        },
-        {
-            "embed": {
-                "from": [
-                    "image"
-                ],
-                "model_config": {
-                    "model_name": "ts/clip-vit-b-p32"
-                }
-            },
-            "name": "embedding",
-            "type": "float[]"
-        }
-    ]
+        nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 4}
+        ]
     })"_json;
-
+    
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
     std::string vector_query_without_escape = "vec:([], queries: [one, two, three])";
@@ -5583,6 +5569,7 @@ nlohmann::json schema = R"({
     q._reset();
 
     parse_op = VectorQueryOps::parse_vector_query_str(vector_query_with_image, q, true, coll1, false);
+
     ASSERT_TRUE(parse_op.ok());
     ASSERT_FALSE(q.values.empty());
 }
