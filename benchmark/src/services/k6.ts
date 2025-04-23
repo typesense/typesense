@@ -98,7 +98,6 @@ export class K6Benchmarks {
     const command = [
       "run",
       envVarString,
-      "--compatibility-mode=experimental_enhanced",
       scriptPath,
       logger.getLevel() <= LogLevel.DEBUG ? "--quiet" : "",
     ].join(" ");
