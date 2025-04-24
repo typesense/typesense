@@ -98,7 +98,6 @@ export class K6Benchmarks {
     const command = [
       "run",
       envVarString,
-      "--compatibility-mode=experimental_enhanced",
       scriptPath,
       logger.getLevel() <= LogLevel.DEBUG ? "--quiet" : "",
     ].join(" ");
@@ -132,20 +131,46 @@ export class K6Benchmarks {
     errors: string[],
     warnings: string[],
   ): ResultAsync<void, ErrorWithMessage> {
-    // k6 output format is "checks.........................: 100.00% ✓ 21888      ✗ 0"
     // First trim any leading/trailing whitespace
     const cleanOutput = result.out.trim();
 
-    // Find the checks line specifically
-    const checksLine = cleanOutput.split("\n").find((line) => line.trim().startsWith("checks"));
+    const checksLine = cleanOutput.split("\n").find((line) => line.trim().startsWith("checks_succeeded"));
 
     if (!checksLine) {
-      return errAsync({
-        message: "Could not find checks line in output",
-      });
+      // Fallback to the old format that starts with "checks" if checks_succeeded is not found
+      const oldFormatLine = cleanOutput.split("\n").find((line) => line.trim().startsWith("checks"));
+
+      if (!oldFormatLine) {
+        return errAsync({
+          message: "Could not find checks line in output",
+        });
+      }
+
+      // Extract the pass rate from the old format line
+      const checkMatch = /([0-9.]+)%/.exec(oldFormatLine);
+      const checksPassRate = parseFloat(checkMatch?.[1] ?? "0");
+
+      this.config.spinner.stop();
+      logger.info(`Checks pass rate: ${checksPassRate}%`);
+
+      if (errors.length > 0) {
+        logger.error(`Errors: \n\n${errors.join("\n")}`);
+      }
+      if (warnings.length > 0) {
+        logger.warn(`Warnings: \n\n${warnings.join("\n")}`);
+      }
+
+      if (checksPassRate < 100) {
+        return errAsync({
+          message: `k6 tests failed - ${checksPassRate}% checks passed`,
+        });
+      }
+
+      this.config.spinner.succeed("Benchmark complete");
+      return okAsync(undefined);
     }
 
-    // Extract the pass rate from the checks line
+    // Extract the pass rate from the checks_succeeded line (format: "checks_succeeded...................: 100.00% 2 out of 2")
     const checkMatch = /([0-9.]+)%/.exec(checksLine);
     const checksPassRate = parseFloat(checkMatch?.[1] ?? "0");
 
