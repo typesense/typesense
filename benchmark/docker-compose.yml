@@ -45,7 +45,7 @@ services:
       - ./grafana-datasource.yaml:/etc/grafana/provisioning/datasources/datasource.yaml:ro
 
   k6:
-    image: grafana/k6:latest
+    image: grafana/k6:1.0.0-rc1
     networks:
       - k6
     ports:
