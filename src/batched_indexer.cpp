@@ -182,10 +182,12 @@ std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>&
             }
         }
     } else {
-        // Resolves alias if used in schema.
-        auto coll_op = CollectionManager::get_instance().resolve_symlink(coll_name);
-        if(coll_op.ok()) {
-            coll_name = coll_op.get();
+        // `CollectionManager::get_collection` accounts for collection alias being used and provides pointer to the
+        // original collection.
+        auto& cm = CollectionManager::get_instance();
+        auto coll = cm.get_collection(coll_name);
+        if (coll != nullptr) {
+            coll_name = coll->get_name();
         }
     }
 
