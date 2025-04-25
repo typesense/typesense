@@ -231,6 +231,22 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
                 }
             }
 
+            if (event["type"] == QUERY_EVENT) {
+              bool auto_aggregation = true;
+              if (event.contains("enable_auto_aggregation")) {
+                auto_aggregation = event["enable_auto_aggregation"].get<bool>();
+              }
+
+              for (const auto& collection: src_collections) {
+                QueryAnalytics* query_analytics = new QueryAnalytics(limit, auto_aggregation, allowed_meta_fields, true, event["name"], collection);
+                event_type_collection ec{event["type"], destination_collection, std::vector{collection}, log_to_store, suggestion_config_name, query_analytics};
+                event_collection_map.emplace(event["name"], ec);
+                if (query_events.count(collection) == 0) {
+                  query_events.emplace(collection, query_analytics);
+                }
+              }
+            }
+
             event_type_collection ec{event["type"], destination_collection, src_collections, event_log_to_store || log_to_store, suggestion_config_name};
 
             //keep pointer for /events API
@@ -405,6 +421,23 @@ void AnalyticsManager::add_suggestion(const std::string &query_collection,
     }
 }
 
+void AnalyticsManager::add_query_events(const std::string &query_collection,
+                                      const std::string& query, const std::string& expanded_query,
+                                      const bool live_query, const std::string& user_id, const std::string& filter,
+                                      const std::string& analytics_tag) {
+    // look up suggestion collections for the query collection
+    std::unique_lock lock(mutex);
+    const auto& suggestion_collections_it = query_collection_mapping.find(query_collection);
+    if(suggestion_collections_it != query_collection_mapping.end()) {
+        for(const auto& suggestion_collection: suggestion_collections_it->second) {
+            const auto& query_events_it = query_events.find(suggestion_collection);
+            if(query_events_it != query_events.end()) {
+                query_events_it->second->add(query, expanded_query, live_query, user_id, 0, filter, analytics_tag);
+            }
+        }
+    }
+}
+
 Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std::string& event_type,
                                          const std::string& event_name, const nlohmann::json& event_json) {
     std::unique_lock lock(mutex);
@@ -473,7 +506,7 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
         std::string filter_str;
         std::string analytics_tag;
 
-        if(event_type == SEARCH_EVENT) {
+        if(event_type == QUERY_EVENT) {
             query = event_json["q"].get<std::string>();
             user_id = event_json["user_id"].get<std::string>();
 
@@ -729,6 +762,12 @@ void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t pr
             send_http_response(payload.dump());
             events_collection_it.second.clear();
         }
+    }
+
+    for (const auto& query_event_it: query_events) {
+      std::string import_payload;
+      query_event_it.second->serialize_as_events(import_payload);
+      send_http_response(import_payload);
     }
 }
 

@@ -1428,6 +1428,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                                   true, req_params["x-typesense-user-id"],
                                                                   args.filter_query, args.analytics_tag);
             }
+            AnalyticsManager::get_instance().add_query_events(orig_coll_name, analytics_query,
+                                                             true, req_params["x-typesense-user-id"],
+                                                             args.filter_query, args.analytics_tag);
         }
     }
 
