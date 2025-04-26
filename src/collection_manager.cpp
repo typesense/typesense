@@ -5,6 +5,7 @@
 #include <analytics_manager.h>
 #include <event_manager.h>
 #include "collection_manager.h"
+#include "new_analytics_manager.h"
 #include "batched_indexer.h"
 #include "logger.h"
 #include "magic_enum.hpp"
@@ -581,6 +582,17 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     for(const auto& analytics_config_json: analytics_config_jsons) {
         nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
         AnalyticsManager::get_instance().create_rule(analytics_config, false, false);
+    }
+
+    // restore new analytics configs
+    std::vector<std::string> new_analytics_config_jsons;
+    store->scan_fill(NewAnalyticsManager::ANALYTICS_RULE_PREFIX,
+                     std::string(NewAnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
+                     new_analytics_config_jsons);
+
+    for(const auto& new_analytics_config_json: new_analytics_config_jsons) {
+        nlohmann::json new_analytics_config = nlohmann::json::parse(new_analytics_config_json);
+        NewAnalyticsManager::get_instance().create_rule(new_analytics_config, false, false);
     }
 
     LOG(INFO) << "Loaded " << num_collections << " collection(s).";

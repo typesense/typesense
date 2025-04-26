@@ -15,6 +15,7 @@
 #include <ifaddrs.h>
 #include <butil/files/file_enumerator.h>
 #include "analytics_manager.h"
+#include "new_analytics_manager.h"
 #include "housekeeper.h"
 
 #include "core_api.h"
@@ -447,7 +448,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     }
 
     AnalyticsManager::get_instance().init(&store, analytics_store, analytics_minute_rate_limit);
-
+    NewAnalyticsManager::get_instance().init(&store, analytics_store, analytics_minute_rate_limit);
     RemoteEmbedder::cache.capacity(config.get_embedding_cache_num_entries());
 
     curl_global_init(CURL_GLOBAL_SSL);
@@ -522,6 +523,10 @@ int run_server(const Config & config, const std::string & version, void (*master
 
         std::thread event_sink_thread([&replication_state]() {
             AnalyticsManager::get_instance().run(&replication_state);
+        });
+
+        std::thread analytics_sink_thread([&replication_state]() {
+            NewAnalyticsManager::get_instance().run(&replication_state);
         });
 
         std::thread conversation_garbage_collector_thread([]() {
