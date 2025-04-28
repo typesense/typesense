@@ -166,7 +166,8 @@ public:
                                           const std::vector<std::string>& symbols_to_index = {},
                                           const std::vector<std::string>& token_separators = {},
                                           const bool enable_nested_fields = false, std::shared_ptr<VQModel> model = nullptr,
-                                          const nlohmann::json& metadata = {});
+                                          const nlohmann::json& metadata = {},
+                                          const int batch_interval = -1);
 
     locked_resource_view_t<Collection> get_collection(const std::string & collection_name) const;
 

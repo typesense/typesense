@@ -119,6 +119,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
 
     nlohmann::json expected_meta_json = R"(
         {
+          "batch_interval": -1,
           "created_at":1663234047,
           "default_sorting_field":"points",
           "enable_nested_fields":true,
@@ -1662,6 +1663,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
 
     nlohmann::json expected_meta_json = R"(
         {
+            "batch_interval": -1,
             "created_at":1705482381,
             "default_sorting_field":"",
             "enable_nested_fields":true,

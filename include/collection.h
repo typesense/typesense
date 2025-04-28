@@ -451,6 +451,14 @@ private:
 
     std::deque<nlohmann::json> alter_history;
 
+    const int batch_interval = -1;
+
+    std::vector<std::string> single_doc_batch;
+
+    std::chrono::steady_clock::time_point last_batch_flush_secs;
+
+    bool override_batch_flush_secs = false;
+
     // methods
 
     std::string get_doc_id_key(const std::string & doc_id) const;
@@ -718,6 +726,8 @@ public:
 
     static constexpr const char* COLLECTION_METADATA = "metadata";
 
+    static constexpr const char* COLLECTION_BATCH_INTERVAL = "batch_interval";
+
     // methods
 
     Collection() = delete;
@@ -731,7 +741,8 @@ public:
                spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>(),
                const nlohmann::json& metadata = {},
                spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins =
-                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
+                        int batch_interval = -1);
 
     ~Collection();
 
@@ -857,7 +868,8 @@ public:
                             const bool& return_doc=false, const bool& return_id=false,
                             const size_t remote_embedding_batch_size=200,
                             const size_t remote_embedding_timeout_ms=60000,
-                            const size_t remote_embedding_num_tries=2);
+                            const size_t remote_embedding_num_tries=2,
+                            bool is_async_batch_request = false);
 
     Option<nlohmann::json> update_matching_filter(const std::string& filter_query,
                                                   const std::string & json_str,
@@ -1147,6 +1159,22 @@ public:
     Option<size_t> remove_all_docs();
 
     bool check_store_alter_status_msg(bool success, const std::string& msg = "");
+
+    bool handle_single_request_batch(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res,
+                                               const index_operation_t& operation=CREATE, const std::string& id="",
+                                               const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT,
+                                               const bool& return_doc=false, const bool& return_id=false,
+                                               const size_t remote_embedding_batch_size=200,
+                                               const size_t remote_embedding_timeout_ms=60000,
+                                               const size_t remote_embedding_num_tries=2);
+
+    bool is_batch_interval_set() const;
+
+    #ifdef TEST_BUILD
+    void override_batch_flush_timeout(bool val) {
+        override_batch_flush_secs = val;
+    }
+    #endif
 };
 
 template<class T>
