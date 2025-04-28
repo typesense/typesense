@@ -590,12 +590,14 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
                      std::string(NewAnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
                      new_analytics_config_jsons);
 
+    LOG(INFO) << "Loaded " << num_collections << " collection(s).";
+    LOG(INFO) << "Found " << new_analytics_config_jsons.size() << " analytics config(s).";
     for(const auto& new_analytics_config_json: new_analytics_config_jsons) {
         nlohmann::json new_analytics_config = nlohmann::json::parse(new_analytics_config_json);
         NewAnalyticsManager::get_instance().create_rule(new_analytics_config, false, false);
     }
+    LOG(INFO) << "Loaded " << new_analytics_config_jsons.size() << " analytics config(s).";
 
-    LOG(INFO) << "Loaded " << num_collections << " collection(s).";
 
     loading_pool.shutdown();
 

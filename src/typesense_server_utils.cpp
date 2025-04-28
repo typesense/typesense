@@ -559,9 +559,11 @@ int run_server(const Config & config, const std::string & version, void (*master
 
         LOG(INFO) << "Shutting down event sink thread...";
         AnalyticsManager::get_instance().stop();
+        NewAnalyticsManager::get_instance().stop();
 
         LOG(INFO) << "Waiting for event sink thread to be done...";
         event_sink_thread.join();
+        analytics_sink_thread.join();
 
         LOG(INFO) << "Shutting down conversation garbage collector thread...";
         ConversationManager::get_instance().stop();

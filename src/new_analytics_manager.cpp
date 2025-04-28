@@ -9,9 +9,10 @@
 #define EVENTS_RATE_LIMIT_SEC 60
 
 void NewAnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+    // Lock held by caller NewAnalyticsManager::run
     LOG(INFO) << "NewAnalyticsManager::persist_db_events";
 
-    auto update_doc_counter_events = [&](const std::string& import_payload, const std::string& collection) {
+    auto update_counter_events = [&](const std::string& import_payload, const std::string& collection, const std::string& operation) {
         if (raft_server == nullptr) {
             return;
         }
@@ -21,28 +22,59 @@ void NewAnalyticsManager::persist_db_events(ReplicationState *raft_server, uint6
             const std::string &base_url = leader_url + "collections/" + collection;
             std::string res;
 
-            const std::string &update_url = base_url + "/documents/import?action=update";
+            const std::string &update_url = base_url + "/documents/import?action=" + operation;
             std::map<std::string, std::string> res_headers;
             long status_code = HttpClient::post_response(update_url, import_payload,
                                                          res, res_headers, {}, 10 * 1000, true);
 
             if (status_code != 200) {
-                LOG(ERROR) << "Error while sending popular_clicks events to leader. "
+                LOG(ERROR) << "Error while sending update_counter_events to leader. " 
+                           << "Collection: " << collection << ", operation: " << operation
                            << "Status code: " << status_code << ", response: " << res;
             }
         }
     };
 
-    for(auto& counter_event_it : doc_analytics.doc_counter_events) {
+    auto limit_to_top_k = [&](const std::string& collection, const uint32_t limit) {
+      if (raft_server == nullptr) {
+          return;
+      }
+
+      std::string leader_url = raft_server->get_leader_url();
+      if (!leader_url.empty()) {
+        const std::string& base_url = leader_url + "collections/" + collection;
+        const std::string top_k_param = "count:" + std::to_string(limit);
+        const std::string& truncate_topk_url = base_url + "/documents?top_k_by=" + top_k_param;
+        std::string res;
+        std::map<std::string, std::string> res_headers;
+        long status_code = HttpClient::delete_response(truncate_topk_url, res, res_headers, 10*1000, true);
+        if (status_code != 200) {
+          LOG(ERROR) << "Error while limit_to_top_k for collection: " << collection
+                     << "Status code: " << status_code << ", response: " << res;
+        }
+      }
+    };
+
+    for(auto& counter_event_it : doc_analytics.get_doc_counter_events()) {
       const auto& collection = counter_event_it.second.destination_collection;
       std::string docs;
       counter_event_it.second.serialize_as_docs(docs);
-      update_doc_counter_events(docs, collection);
-      counter_event_it.second.docid_counts.clear();
+      update_counter_events(docs, collection, "update");
+      doc_analytics.reset_local_counter(counter_event_it.first);
+    }
+
+    for(auto& counter_event_it : query_analytic.get_query_counter_events()) {
+      const auto& collection = counter_event_it.second.destination_collection;
+      std::string docs;
+      counter_event_it.second.serialize_as_docs(docs);
+      update_counter_events(docs, collection, "emplace");
+      query_analytic.reset_local_counter(counter_event_it.first);
+      limit_to_top_k(collection, counter_event_it.second.limit);
     }
 }
 
 void NewAnalyticsManager::persist_analytics_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+    // Lock held by caller NewAnalyticsManager::run
     LOG(INFO) << "NewAnalyticsManager::persist_analytics_db_events";
     auto send_http_response = [&](const std::string& import_payload) {
         if(raft_server == nullptr) {
@@ -69,8 +101,8 @@ void NewAnalyticsManager::persist_analytics_db_events(ReplicationState *raft_ser
     /* Get the log events from doc_analytics and query_analytics and send them to the leader */
 
     nlohmann::json payload = nlohmann::json::array();
-    for(const auto& log_rule : doc_analytics.doc_log_events) {
-      const auto& collection = doc_analytics.doc_rules.find(log_rule.first)->second.collection;
+    for(const auto& log_rule : doc_analytics.get_doc_log_events()) {
+      const auto& collection = doc_analytics.get_doc_rule(log_rule.first).collection;
       for(const auto& event_data : log_rule.second) {
         nlohmann::json event_json;
         event_data.to_json(event_json, collection);
@@ -79,11 +111,27 @@ void NewAnalyticsManager::persist_analytics_db_events(ReplicationState *raft_ser
       if(!payload.empty()) {
         send_http_response(payload.dump());
         payload.clear();
+        doc_analytics.reset_local_log_events(log_rule.first);
+      }
+    }
+
+    for(const auto& log_rule : query_analytic.get_query_log_events()) {
+      const auto& collection = query_analytic.get_query_rule(log_rule.first).collection;
+      for(const auto& event_data : log_rule.second) {
+        nlohmann::json event_json;
+        event_data.to_json(event_json, collection, log_rule.first);
+        payload.push_back(event_json);
+      }
+      if(!payload.empty()) {
+        send_http_response(payload.dump());
+        payload.clear();
+        query_analytic.reset_local_log_events(log_rule.first);
       }
     }
 }
 
 Option<bool> NewAnalyticsManager::add_external_event(const std::string& client_ip, const nlohmann::json& event_data) {
+    std::unique_lock lock(mutex);
 #ifdef TEST_BUILD
     if (isRateLimitEnabled) {
 #endif
@@ -130,13 +178,22 @@ Option<bool> NewAnalyticsManager::add_external_event(const std::string& client_i
     }
 
     bool is_doc_event = rules_map.find(event_data["name"].get<std::string>()) != rules_map.end() && rules_map.find(event_data["name"].get<std::string>())->second == "doc";
+    bool is_query_event = rules_map.find(event_data["name"].get<std::string>()) != rules_map.end() && rules_map.find(event_data["name"].get<std::string>())->second == "query";
+
+    if(!is_doc_event && !is_query_event) {
+      return Option<bool>(400, "Rule not found");
+    }
+
     if(is_doc_event) {
       auto add_event_op = doc_analytics.add_event(client_ip, event_data);
       if(!add_event_op.ok()) {
         return Option<bool>(400, add_event_op.error());
       }
-    } else {
-      return Option<bool>(400, "Rule not found");
+    } else if(is_query_event) {
+      auto add_event_op = query_analytic.add_event(client_ip, event_data);
+      if(!add_event_op.ok()) {
+        return Option<bool>(400, add_event_op.error());
+      }
     }
     return Option<bool>(true);
 }
@@ -147,6 +204,7 @@ Option<bool> NewAnalyticsManager::add_internal_event(const nlohmann::json& event
 }
 
 Option<nlohmann::json> NewAnalyticsManager::get_events(const std::string& userid, const std::string& event_name, uint32_t N) {
+    std::shared_lock lock(mutex);
     std::vector<std::string> in_memory_values;
     std::vector<std::string> db_values;
     if (N > 1000) {
@@ -154,8 +212,11 @@ Option<nlohmann::json> NewAnalyticsManager::get_events(const std::string& userid
     }
 
     bool is_doc_rule = rules_map.find(event_name) != rules_map.end() && rules_map.find(event_name)->second == "doc";
+    bool is_query_rule = rules_map.find(event_name) != rules_map.end() && rules_map.find(event_name)->second == "query";
     if(is_doc_rule) {
       doc_analytics.get_events(userid, event_name, N, in_memory_values);
+    } else if(is_query_rule) {
+      query_analytic.get_events(userid, event_name, N, in_memory_values);
     } else {
       return Option<nlohmann::json>(400, "Rule not found");
     }
@@ -248,27 +309,62 @@ Option<nlohmann::json> NewAnalyticsManager::get_events(const std::string& userid
 }
 
 Option<nlohmann::json> NewAnalyticsManager::list_rules(const std::string& rule_tag) {
-    auto list_rules_op = doc_analytics.list_rules(rule_tag);
-    if (list_rules_op.ok()) {
-      return Option<nlohmann::json>(list_rules_op.get());
+    std::shared_lock lock(mutex);
+    auto doc_list_rules_op = doc_analytics.list_rules(rule_tag);
+    auto query_list_rules_op = query_analytic.list_rules(rule_tag);
+    if (doc_list_rules_op.ok() && query_list_rules_op.ok()) {
+      nlohmann::json response = nlohmann::json::array();
+      for(const auto& rule: doc_list_rules_op.get()) {
+        response.push_back(rule);
+      }
+      for(const auto& rule: query_list_rules_op.get()) {
+        response.push_back(rule);
+      }
+      return Option<nlohmann::json>(response);
     } else {
-      return Option<nlohmann::json>(400, list_rules_op.error());
+      if(!doc_list_rules_op.ok()) {
+        return Option<nlohmann::json>(400, doc_list_rules_op.error());
+      } else {
+        return Option<nlohmann::json>(400, query_list_rules_op.error());
+      }
     }
 }
 
 
 Option<nlohmann::json> NewAnalyticsManager::get_rule(const std::string& name) {
-    auto get_rule_op = doc_analytics.get_rule(name);
-    if (get_rule_op.ok()) {
-      return Option<nlohmann::json>(get_rule_op.get());
-    } else {
-      return Option<nlohmann::json>(400, get_rule_op.error());
+    std::shared_lock lock(mutex);
+    auto rule_type = rules_map.find(name);
+    if(rule_type == rules_map.end()) {
+      return Option<nlohmann::json>(400, "Rule not found");
     }
+    bool is_doc_rule = rule_type->second == "doc";
+    bool is_query_rule = rule_type->second == "query";
+    Option<nlohmann::json> get_rule_op(500, "Internal server error");
+    if(is_doc_rule) {
+      get_rule_op = doc_analytics.get_rule(name);
+    }
+    if(is_query_rule) {
+      get_rule_op = query_analytic.get_rule(name);
+    }
+    if (get_rule_op.ok()) {
+        return Option<nlohmann::json>(get_rule_op.get());
+    }
+    return Option<nlohmann::json>(400, get_rule_op.error());
 }
 
 Option<bool> NewAnalyticsManager::create_rule(nlohmann::json& payload, bool update, bool write_to_disk) {
+    std::unique_lock lock(mutex);
     std::string name;
     if (!update) {
+      if (!payload.contains("name") || !payload["name"].is_string()) {
+        return Option<bool>(400, "Name is required when creating a new analytics rule");
+      }
+      name = payload["name"].get<std::string>();
+
+      if(rules_map.find(name) != rules_map.end()) {
+        return Option<bool>(400, "Rule already exists");
+      }
+
       if(!payload.contains("event_type") || !payload["event_type"].is_string()) {
         return Option<bool>(400, "Event type is required when creating a new analytics rule");
       }
@@ -278,11 +374,6 @@ Option<bool> NewAnalyticsManager::create_rule(nlohmann::json& payload, bool upda
         return Option<bool>(400, "Type is required when creating a new analytics rule");
       }
       const std::string& type = payload["type"].get<std::string>();
-
-      if (!payload.contains("name") || !payload["name"].is_string()) {
-        return Option<bool>(400, "Name is required when creating a new analytics rule");
-      }
-      name = payload["name"].get<std::string>();
 
       if (!payload.contains("collection") || !payload["collection"].is_string()) {
         return Option<bool>(400, "Collection is required when creating a new analytics rule");
@@ -299,20 +390,26 @@ Option<bool> NewAnalyticsManager::create_rule(nlohmann::json& payload, bool upda
       }
 
       bool is_doc_rule = doc_analytics.check_rule_type(event_type, type);
-      if(!is_doc_rule) {
+      bool is_query_rule = query_analytic.check_rule_type(event_type, type);
+      if(!is_doc_rule && !is_query_rule) {
         return Option<bool>(400, "Event type or type is invalid (or) combination of both is invalid");
       }
 
       Option<nlohmann::json> create_rule_op(500, "Internal server error");
       if(is_doc_rule) {
         create_rule_op = doc_analytics.create_rule(payload, update);
+      } else if(is_query_rule) {
+        create_rule_op = query_analytic.create_rule(payload, update);
       }
 
       if(create_rule_op.ok()) {
         std::string rule_json = create_rule_op.get().dump();
         if(write_to_disk) {
           auto rule_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + name;
-          store->insert(rule_key, rule_json);
+          bool store_op = store->insert(rule_key, rule_json);
+          if(!store_op) {
+              return Option<bool>(500, "Error while storing the config to disk.");
+          }
         }
         rules_map.emplace(name, (is_doc_rule) ? "doc" : "query");
       }
@@ -335,20 +432,26 @@ Option<bool> NewAnalyticsManager::create_rule(nlohmann::json& payload, bool upda
       }
       name = payload["name"].get<std::string>();
       bool is_doc_rule = rules_map.find(name) != rules_map.end() && rules_map.find(name)->second == "doc";
-      if (!is_doc_rule) {
+      bool is_query_rule = rules_map.find(name) != rules_map.end() && rules_map.find(name)->second == "query";
+      if (!is_doc_rule && !is_query_rule) {
         return Option<bool>(400, "Rule not found");
       }
 
       Option<nlohmann::json> update_rule_op(500, "Internal server error");
       if(is_doc_rule) {
         update_rule_op = doc_analytics.create_rule(payload, update);
+      } else if(is_query_rule) {
+        update_rule_op = query_analytic.create_rule(payload, update);
       }
 
       if(update_rule_op.ok()) {
         std::string rule_json = update_rule_op.get().dump();
         if(write_to_disk) {
           auto rule_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + name;
-          store->insert(rule_key, rule_json);
+          bool store_op = store->insert(rule_key, rule_json);
+          if(!store_op) {
+              return Option<bool>(500, "Error while storing the config to disk.");
+          }
         }
       }
 
@@ -361,25 +464,42 @@ Option<bool> NewAnalyticsManager::create_rule(nlohmann::json& payload, bool upda
 }
 
 Option<bool> NewAnalyticsManager::remove_rule(const std::string& name) {
+    std::unique_lock lock(mutex);
     const bool is_doc_rule = rules_map.find(name) != rules_map.end() && rules_map.find(name)->second == "doc";
-    if(!is_doc_rule) {
+    const bool is_query_rule = rules_map.find(name) != rules_map.end() && rules_map.find(name)->second == "query";
+    if(!is_doc_rule && !is_query_rule) {
       return Option<bool>(400, "Rule not found");
     }
-    auto remove_rule_op = doc_analytics.remove_rule(name);
-    if(!remove_rule_op.ok()) {
-      return Option<bool>(400, remove_rule_op.error());
+    if(is_doc_rule) {
+      auto remove_rule_op = doc_analytics.remove_rule(name);
+      if(!remove_rule_op.ok()) {
+        return Option<bool>(400, remove_rule_op.error());
+      }
+    } else if(is_query_rule) {
+      auto remove_rule_op = query_analytic.remove_rule(name);
+      if(!remove_rule_op.ok()) {
+        return Option<bool>(400, remove_rule_op.error());
+      }
+    }
+    auto rule_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + name;
+    bool store_op = store->remove(rule_key);
+    if(!store_op) {
+      return Option<bool>(500, "Error while removing the config from disk.");
     }
     rules_map.erase(name);
+    
     return Option<bool>(true);
 }
 
 void NewAnalyticsManager::remove_all_rules() {
+    std::unique_lock lock(mutex);
     doc_analytics.remove_all_rules();
+    query_analytic.remove_all_rules();
     rules_map.clear();
 }
 
 void NewAnalyticsManager::resetToggleRateLimit(bool toggle) {
-    std::unique_lock lk(mutex);
+    std::unique_lock lock(mutex);
     external_events_cache.clear();
     isRateLimitEnabled = toggle;
 }

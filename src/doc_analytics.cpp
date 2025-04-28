@@ -99,7 +99,7 @@ Option<bool> DocAnalytics::add_event(const std::string& client_ip, const nlohman
       if (data.contains("doc_ids")) {
         log_event_it->second.push_back(doc_event_t{
           data.contains("query") ? data["query"].get<std::string>() : "",
-          LOG_TYPE,
+          event_type,
           uint64_t(now_ts_useconds),
           data["user_id"].get<std::string>(),
           "",
@@ -110,7 +110,7 @@ Option<bool> DocAnalytics::add_event(const std::string& client_ip, const nlohman
       } else if (data.contains("doc_id")) {
         log_event_it->second.push_back(doc_event_t{
           data.contains("query") ? data["query"].get<std::string>() : "",
-          LOG_TYPE,
+          event_type,
           uint64_t(now_ts_useconds),
           data["user_id"].get<std::string>(),
           data["doc_id"].get<std::string>(),
@@ -125,11 +125,7 @@ Option<bool> DocAnalytics::add_event(const std::string& client_ip, const nlohman
 
 Option<nlohmann::json> DocAnalytics::create_rule(nlohmann::json& payload, bool update) {
     std::unique_lock lock(mutex);
-    if (!update) {
-      if(doc_rules.find(payload["name"].get<std::string>()) != doc_rules.end()) {
-        return Option<nlohmann::json>(400, "Rule already exists");
-      }
-    } else {
+    if(update) {
       if(doc_rules.find(payload["name"].get<std::string>()) == doc_rules.end()) {
         return Option<nlohmann::json>(400, "Rule does not exist");
       }
@@ -152,7 +148,7 @@ Option<nlohmann::json> DocAnalytics::create_rule(nlohmann::json& payload, bool u
       payload = existing_rule;
     }
 
-    if(payload.contains("type") && payload["type"] == COUNTER_TYPE) {
+    if(payload["type"] == COUNTER_TYPE) {
         if(
             !payload.contains("params") || 
             !payload["params"].contains("counter_field") || 
@@ -212,12 +208,10 @@ Option<nlohmann::json> DocAnalytics::create_rule(nlohmann::json& payload, bool u
         });
     }
 
-    if(payload.contains("type") && payload["type"] == LOG_TYPE) {
+    if(payload["type"] == LOG_TYPE) {
         if(!update) {
           doc_log_events.emplace(payload["name"].get<std::string> (), std::vector<doc_event_t>());
         }
-        const std::string rule_tag = payload["rule_tag"].get<std::string>();
-        LOG(INFO) << "rule_tag: " << rule_tag << std::endl;
         if (update) {
           auto it = doc_rules.find(payload["name"].get<std::string>());
           doc_rules.erase(it);
@@ -297,6 +291,39 @@ Option<nlohmann::json> DocAnalytics::get_rule(const std::string& name) {
     nlohmann::json obj;
     it->second.to_json(obj);
     return Option(obj);
+}
+
+void DocAnalytics::reset_local_counter(const std::string& event_name) {
+  std::unique_lock lock(mutex);
+  auto it = doc_counter_events.find(event_name);
+  if(it == doc_counter_events.end()) {
+    return;
+  }
+  it->second.docid_counts.clear();
+}
+
+void DocAnalytics::reset_local_log_events(const std::string& event_name) {
+  std::unique_lock lock(mutex);
+  auto it = doc_log_events.find(event_name);
+  if(it == doc_log_events.end()) {
+    return;
+  }
+  it->second.clear();
+}
+
+std::unordered_map<std::string, doc_counter_event_t> DocAnalytics::get_doc_counter_events() {
+  std::unique_lock lock(mutex);
+  return doc_counter_events;
+}
+
+std::unordered_map<std::string, std::vector<doc_event_t>> DocAnalytics::get_doc_log_events() {
+  std::unique_lock lock(mutex);
+  return doc_log_events;
+}
+
+doc_rule_config_t DocAnalytics::get_doc_rule(const std::string& name) {
+  std::shared_lock lock(mutex);
+  return doc_rules.find(name)->second;
 }
 
 void DocAnalytics::remove_all_rules() {

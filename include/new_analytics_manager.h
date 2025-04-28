@@ -1,6 +1,7 @@
 #pragma once
 
 #include "doc_analytics.h"
+#include "query_analytic.h"
 #include <vector>
 #include <string>
 #include <shared_mutex>
@@ -31,6 +32,7 @@ private:
     std::atomic<bool> quit = false;
 
     DocAnalytics& doc_analytics = DocAnalytics::get_instance();
+    QueryAnalytic& query_analytic = QueryAnalytic::get_instance();
     LRU::Cache<std::string, external_event_cache_t> external_events_cache;
     std::unordered_map<std::string, std::string> rules_map;
 

@@ -7,6 +7,34 @@
 #include "json.hpp"
 #include "option.h"
 
+struct doc_rule_config_t {
+    std::string name;
+    std::string type;
+    std::string collection;
+    std::string event_type;
+    std::string counter_field;
+    std::string rule_tag;
+    uint32_t weight;
+    std::string destination_collection;
+
+    void to_json(nlohmann::json& obj) const {
+        obj["name"] = name;
+        obj["type"] = type;
+        obj["collection"] = collection;
+        obj["event_type"] = event_type;
+        obj["rule_tag"] = rule_tag;
+        if (!counter_field.empty()) {
+            obj["params"]["counter_field"] = counter_field;
+        }
+        if(!destination_collection.empty()) {
+            obj["params"]["destination_collection"] = destination_collection;
+        }
+        if(weight > 0) {
+            obj["params"]["weight"] = weight;
+        }
+    }
+};
+
 struct doc_event_t {
     std::string query;
     std::string event_type;
@@ -63,40 +91,11 @@ struct doc_counter_event_t {
 class DocAnalytics {
 private:
     mutable std::shared_mutex mutex;
-public:
-    struct doc_rule_config_t {
-        std::string name;
-        std::string type;
-        std::string collection;
-        std::string event_type;
-        std::string counter_field;
-        std::string rule_tag;
-        uint32_t weight;
-        std::string destination_collection;
-
-        void to_json(nlohmann::json& obj) const {
-            obj["name"] = name;
-            obj["type"] = type;
-            obj["collection"] = collection;
-            obj["event_type"] = event_type;
-            obj["rule_tag"] = rule_tag;
-            if (!counter_field.empty()) {
-                obj["params"]["counter_field"] = counter_field;
-            }
-            if(!destination_collection.empty()) {
-              obj["params"]["destination_collection"] = destination_collection;
-            }
-            if(weight > 0) {
-              obj["params"]["weight"] = weight;
-            }
-        }
-    };
-
     std::unordered_map<std::string, doc_rule_config_t> doc_rules;
     std::unordered_map<std::string, std::vector<doc_event_t>> doc_log_events;
     std::unordered_map<std::string, doc_counter_event_t> doc_counter_events;
 
-
+public:
     DocAnalytics() = default;
 
     ~DocAnalytics() = default;
@@ -123,6 +122,11 @@ public:
     void get_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values);
     Option<nlohmann::json> list_rules(const std::string& rule_tag = "");
     Option<nlohmann::json> get_rule(const std::string& name);
+    void reset_local_counter(const std::string& event_name);
+    void reset_local_log_events(const std::string& event_name);
+    std::unordered_map<std::string, doc_counter_event_t> get_doc_counter_events();
+    std::unordered_map<std::string, std::vector<doc_event_t>> get_doc_log_events();
+    doc_rule_config_t get_doc_rule(const std::string& name);
     void remove_all_rules();
 
     void dispose();
