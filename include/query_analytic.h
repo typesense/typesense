@@ -16,10 +16,6 @@ struct query_event_t {
   std::string filter_str;
   std::string tag_str;
 
-  query_event_t() = delete;
-
-  ~query_event_t() = default;
-
   query_event_t(const std::string& q, const std::string& type, uint64_t ts, const std::string& uid, const std::string& filter, const std::string& tag) {
     query = q;
     event_type = type;
@@ -29,7 +25,7 @@ struct query_event_t {
     tag_str = tag;
   }
 
-  query_event_t& operator=(query_event_t& other) {
+  query_event_t& operator=(const query_event_t& other) {
     if (this != &other) {
       query = other.query;
       event_type = other.event_type;
@@ -52,6 +48,16 @@ struct query_event_t {
   };
 
   void to_json(nlohmann::json& obj, const std::string& coll, const std::string& name) const;
+};
+
+struct query_internal_event_t {
+  std::string type;
+  std::string collection;
+  std::string q;
+  std::string expanded_q;
+  std::string user_id;
+  std::string filter_by;
+  std::string analytics_tag;
 };
 
 struct query_counter_event_t {
@@ -104,7 +110,9 @@ private:
   std::unordered_map<std::string, std::vector<std::string>> collection_rules_map;
   std::unordered_map<std::string, std::vector<query_event_t>> query_log_events;
   std::unordered_map<std::string, query_counter_event_t> query_counter_events;
-  std::unordered_map<std::string, std::unordered_map<std::string, std::vector<query_event_t>>> user_collection_prefix_queries;
+  std::unordered_map<std::string, std::unordered_map<std::string, std::vector<query_event_t>>> popular_user_collection_prefix_queries;
+  std::unordered_map<std::string, std::unordered_map<std::string, std::vector<query_event_t>>> nohits_user_collection_prefix_queries;
+  std::unordered_map<std::string, std::unordered_map<std::string, std::vector<query_event_t>>> log_user_collection_prefix_queries;
 
 public:
   static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
@@ -112,6 +120,7 @@ public:
   static constexpr const char* LOG_TYPE = "log";
   static constexpr const char* QUERY_EVENT = "query";
   static const size_t QUERY_FINALIZATION_INTERVAL_MICROS = 4 * 1000 * 1000;
+  static const size_t MAX_QUERY_LENGTH = 1024;
 
   QueryAnalytic() = default;
   ~QueryAnalytic() = default;
@@ -133,7 +142,8 @@ public:
   void get_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values);
   Option<nlohmann::json> list_rules(const std::string& rule_tag = "");
   Option<nlohmann::json> get_rule(const std::string& name);
-  void compact_single_user_queries(uint64_t now_ts_us);
+  Option<bool> add_internal_event(const query_internal_event_t& event_data);
+  void compact_single_user_queries(uint64_t now_ts_us, const std::string& user_id, const std::string& type, std::unordered_map<std::string, std::vector<query_event_t>>& user_prefix_queries);
   void compact_all_user_queries(uint64_t now_ts_us);
   void reset_local_counter(const std::string& event_name);
   void reset_local_log_events(const std::string& event_name);

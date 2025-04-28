@@ -56,7 +56,7 @@ public:
     void persist_analytics_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
     
     Option<bool> add_external_event(const std::string& client_ip, const nlohmann::json& event_data);
-    Option<bool> add_internal_event(const nlohmann::json& event_data);
+    Option<bool> add_internal_event(const query_internal_event_t& event_data);
 
     Option<nlohmann::json> get_events(const std::string& userid, const std::string& event_name, uint32_t N);
     Option<nlohmann::json> list_rules(const std::string& rule_tag = "");

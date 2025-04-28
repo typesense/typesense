@@ -1430,17 +1430,32 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     if(Config::get_instance().get_enable_search_analytics()) {
         if(args.enable_analytics && result.contains("found")) {
             std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(args.raw_query);
-
+            query_internal_event_t internal_event = {
+                QueryAnalytic::LOG_TYPE,
+                orig_coll_name,
+                analytics_query,
+                "",
+                req_params["x-typesense-user-id"],
+                args.filter_query,
+                args.analytics_tag
+            };
             if(result["found"].get<size_t>() != 0) {
                 const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
                         result["request_params"]["first_q"].get<std::string>());
                 AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query, expanded_query,
                                                                 true, req_params["x-typesense-user-id"],
                                                                 args.filter_query, args.analytics_tag);
+                internal_event.expanded_q = expanded_query;
+                NewAnalyticsManager::get_instance().add_internal_event(internal_event);
+                internal_event.type = QueryAnalytic::POPULAR_QUERIES_TYPE;
+                NewAnalyticsManager::get_instance().add_internal_event(internal_event);
             } else {
                 AnalyticsManager::get_instance().add_nohits_query(orig_coll_name, analytics_query,
                                                                   true, req_params["x-typesense-user-id"],
                                                                   args.filter_query, args.analytics_tag);
+                NewAnalyticsManager::get_instance().add_internal_event(internal_event);
+                internal_event.type = QueryAnalytic::POPULAR_QUERIES_TYPE;
+                NewAnalyticsManager::get_instance().add_internal_event(internal_event);
             }
         }
     }

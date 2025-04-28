@@ -11,6 +11,8 @@
 void NewAnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
     // Lock held by caller NewAnalyticsManager::run
     LOG(INFO) << "NewAnalyticsManager::persist_db_events";
+    const uint64_t now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count();
 
     auto update_counter_events = [&](const std::string& import_payload, const std::string& collection, const std::string& operation) {
         if (raft_server == nullptr) {
@@ -62,7 +64,8 @@ void NewAnalyticsManager::persist_db_events(ReplicationState *raft_server, uint6
       update_counter_events(docs, collection, "update");
       doc_analytics.reset_local_counter(counter_event_it.first);
     }
-
+    
+    query_analytic.compact_all_user_queries(now_ts_us);
     for(auto& counter_event_it : query_analytic.get_query_counter_events()) {
       const auto& collection = counter_event_it.second.destination_collection;
       std::string docs;
@@ -198,9 +201,8 @@ Option<bool> NewAnalyticsManager::add_external_event(const std::string& client_i
     return Option<bool>(true);
 }
 
-Option<bool> NewAnalyticsManager::add_internal_event(const nlohmann::json& event_data) {
-    // TODO: Implement
-    return Option<bool>(true);
+Option<bool> NewAnalyticsManager::add_internal_event(const query_internal_event_t& event_data) {
+    return query_analytic.add_internal_event(event_data);
 }
 
 Option<nlohmann::json> NewAnalyticsManager::get_events(const std::string& userid, const std::string& event_name, uint32_t N) {
