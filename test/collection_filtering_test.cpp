@@ -3737,3 +3737,44 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFilteringMultiple) {
     ASSERT_EQ(1, result["hits"].size());
     ASSERT_EQ("Lasagna", result["hits"][0]["document"]["name"]);
 }
+
+TEST_F(CollectionFilteringTest, FilterOnFieldWithSymbolsToIndex) {
+    // Test filtering with field-level symbols_to_index configuration
+
+    nlohmann::json schema = R"({
+        "name": "symbols_test",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "root", "type": "string", "symbols_to_index": ["~"]}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    Collection* coll = collection_create_op.get();
+
+    nlohmann::json doc1 = R"({
+        "title": "Document one",
+        "root": "~~"
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "title": "Document two",
+        "root": "somethingElse"
+    })"_json;
+
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    auto results = coll->search("*", {"title"}, "root:=~~", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("Document one", results["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ("~~", results["hits"][0]["document"]["root"].get<std::string>());
+
+    results = coll->search("*", {"title"}, "root:=somethingElse", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("Document two", results["hits"][0]["document"]["title"].get<std::string>());
+
+    collectionManager.drop_collection("symbols_test");
+}

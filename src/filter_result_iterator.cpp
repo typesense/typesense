@@ -1667,7 +1667,9 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             // there could be multiple tokens in a filter value, which we have to treat as ANDs
             // e.g. country: South Africa
-            Tokenizer tokenizer(filter_value, true, false, f.locale, index->symbols_to_index, index->token_separators,
+            const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
+            const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
+            Tokenizer tokenizer(filter_value, true, false, f.locale, symbols, separators,
                                 f.get_stemmer());
 
             std::string str_token;
