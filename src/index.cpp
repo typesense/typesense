@@ -3632,6 +3632,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         // In multi-field searches, a record can be matched across different fields, so we use this for aggregation
         //begin = std::chrono::high_resolution_clock::now();
 
+        if(the_fields.empty()) {
+            return Option<bool>(400, "Missing `query_by` parameter.");
+        }
+
         // FIXME: needed?
         std::set<uint64> query_hashes;
 
