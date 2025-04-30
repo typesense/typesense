@@ -1,13 +1,13 @@
 # Build & Run:
-   docker run -p 8108:8108 \
-                -v "$(pwd)":/build/typesense \
-                -v typesense-bazel-cache:/root/.cache/bazel \
-                -v"$(pwd)"/typesense-data:/data \
-                -e TYPESENSE_TARGET=typesense-server \
-                typesense-builder \
-                --data-dir=/data \
-                --api-key=xyz \
-                --enable-cors
+#    docker run -p 8108:8108 \
+#                 -v "$(pwd)":/build/typesense \
+#                 -v typesense-bazel-cache:/root/.cache/bazel \
+#                 -v"$(pwd)"/typesense-data:/data \
+#                 -e TYPESENSE_TARGET=typesense-server \
+#                 typesense-builder \
+#                 --data-dir=/data \
+#                 --api-key=xyz \
+#                 --enable-cors
 #
 # Build & Test:
 #    docker run -v "$(pwd)":/build/typesense \
