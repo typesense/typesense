@@ -151,6 +151,27 @@ struct StringUtils {
         return escaped.str();
     }
 
+    static std::string url_encode(const std::string& text) {
+        std::ostringstream escaped;
+        escaped.fill('0');
+        escaped << std::hex;
+
+        for (auto i = text.begin(), n = text.end(); i != n; ++i) {
+            std::string::value_type c = (*i);
+
+            // Keep alphanumeric and other accepted characters intact
+            if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+                escaped << c;
+                continue;
+            }
+
+            // Any other characters are percent-encoded
+            escaped << '%' << std::setw(2) << int((unsigned char)c);
+        }
+
+        return escaped.str();
+    }
+
     static bool is_float(const std::string &s) {
         try {
             size_t num_chars_processed = 0;

@@ -1,13 +1,13 @@
 # Build & Run:
-#    docker run -p 8108:8108 \
-#                 -v "$(pwd)":/build/typesense \
-#                 -v typesense-bazel-cache:/root/.cache/bazel \
-#                 -v"$(pwd)"/typesense-data:/data \
-#                 -e TYPESENSE_TARGET=typesense-server \
-#                 typesense-builder \
-#                 --data-dir=/data \
-#                 --api-key=xyz \
-#                 --enable-cors
+   docker run -p 8108:8108 \
+                -v "$(pwd)":/build/typesense \
+                -v typesense-bazel-cache:/root/.cache/bazel \
+                -v"$(pwd)"/typesense-data:/data \
+                -e TYPESENSE_TARGET=typesense-server \
+                typesense-builder \
+                --data-dir=/data \
+                --api-key=xyz \
+                --enable-cors
 #
 # Build & Test:
 #    docker run -v "$(pwd)":/build/typesense \
@@ -71,7 +71,7 @@ RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30 && \
     update-alternatives --set c++ /usr/bin/g++
 
 # Install pip
-RUN curl -sSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py \
+RUN curl -sSL https://bootstrap.pypa.io/pip/3.8/get-pip.py -o /tmp/get-pip.py \
     && python3 /tmp/get-pip.py \
     && rm /tmp/get-pip.py
 
