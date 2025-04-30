@@ -3284,12 +3284,16 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             bool is_asc = a_facet.sort_order == "asc";
             std::stable_sort(facet_values.begin(), facet_values.end(),
                              [&] (const auto& fv1, const auto& fv2) {
-                if(is_asc) {
-                    return fv1.sort_field_val < fv2.sort_field_val;
-                }
-
-                return fv1.sort_field_val > fv2.sort_field_val;
-            });
+                                 auto val1 =
+                                         fv1.sort_field_val == fv2.sort_field_val ? fv1.count : fv1.sort_field_val;
+                                 auto val2 =
+                                         fv1.sort_field_val == fv2.sort_field_val ? fv2.count : fv2.sort_field_val;
+                                 if (is_asc) {
+                                     return val1 < val2;
+                                 } else { //desc
+                                     return val1 > val2;
+                                 }
+                             });
         } else {
             std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
         }
