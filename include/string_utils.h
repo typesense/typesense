@@ -13,6 +13,8 @@
 #include <set>
 #include "option.h"
 
+const std::string OBJECT_FILTER_MARKER = ".{";
+
 struct StringUtils {
 
     // non-deletable singleton
