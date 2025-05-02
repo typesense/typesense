@@ -751,8 +751,6 @@ public:
 
     uint32_t get_next_seq_id();
 
-    Option<uint32_t> doc_id_to_seq_id_with_lock(const std::string & doc_id) const;
-
     Option<uint32_t> doc_id_to_seq_id(const std::string & doc_id) const;
 
     std::vector<std::string> get_facet_fields();
