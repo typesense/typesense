@@ -372,7 +372,7 @@ struct StringUtils {
             std::string::value_type c = (*i);
 
             // Keep alphanumeric and other accepted characters intact
-            if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            if (std::isalnum(static_cast<unsigned char>(c)) || c=='-' || c=='_' || c=='.' || c=='~') {
                 escaped << c;
                 continue;
             }
