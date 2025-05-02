@@ -504,3 +504,30 @@ TEST(StringUtilsTest, SplitReferenceIncludeExcludeFields) {
     ASSERT_EQ("$inventory(qty,sku,$retailer(id,title))", token);
     ASSERT_EQ(", foo)", exclude_fields.substr(index));
 }
+
+TEST(StringUtilsTest, ShouldURLEncode) {
+    // Test basic alphanumeric characters (should remain unchanged)
+    ASSERT_STREQ("abc123", StringUtils::url_encode("abc123").c_str());
+    
+    // Test special characters that should be percent-encoded
+    ASSERT_STREQ("Hello%20World%21", StringUtils::url_encode("Hello World!").c_str());
+    ASSERT_STREQ("test%40example.com", StringUtils::url_encode("test@example.com").c_str());
+    ASSERT_STREQ("path%2Fto%2Ffile", StringUtils::url_encode("path/to/file").c_str());
+    
+    // Test characters that should remain unchanged (-_.~)
+    ASSERT_STREQ("test-file.txt", StringUtils::url_encode("test-file.txt").c_str());
+    ASSERT_STREQ("user_name", StringUtils::url_encode("user_name").c_str());
+    ASSERT_STREQ("example.com", StringUtils::url_encode("example.com").c_str());
+    ASSERT_STREQ("~home", StringUtils::url_encode("~home").c_str());
+    
+    // Test empty string
+    ASSERT_STREQ("", StringUtils::url_encode("").c_str());
+    
+    // Test Unicode characters
+    ASSERT_STREQ("%E2%82%AC", StringUtils::url_encode("€").c_str());
+    ASSERT_STREQ("%E6%97%A5%E6%9C%AC%E8%AA%9E", StringUtils::url_encode("日本語").c_str());
+    
+    // Test mixed content
+    ASSERT_STREQ("Hello%20World%21%20%E2%82%AC%20test%40example.com", 
+                 StringUtils::url_encode("Hello World! € test@example.com").c_str());
+}

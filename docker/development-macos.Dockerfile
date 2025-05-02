@@ -1,4 +1,9 @@
-# Build & Run:
+# First time setup:
+# 1) Note: If using Docker Desktop, increase memory limit in Docker Desktop > Settings > Resources > Memory (requires at least 16GB)
+# 2) docker volume create typesense-bazel-cache
+# 3) docker build -t typesense-builder -f docker/development-macos.Dockerfile .
+
+# Build & Run typesense-server:
 #    docker run -p 8108:8108 \
 #                 -v "$(pwd)":/build/typesense \
 #                 -v typesense-bazel-cache:/root/.cache/bazel \
@@ -9,17 +14,19 @@
 #                 --api-key=xyz \
 #                 --enable-cors
 #
-# Build & Test:
+# Build & Test entire test suite:
 #    docker run -v "$(pwd)":/build/typesense \
 #                 -v typesense-bazel-cache:/root/.cache/bazel \
 #                 -e TYPESENSE_TARGET=typesense-test \
 #                 typesense-builder
 #
-
-# First time setup:
-# Note: If using Docker Desktop, increase memory limit in Docker Desktop > Settings > Resources > Memory (requires at least 16GB)
-# docker volume create typesense-bazel-cache
-# docker build -t typesense-builder -f docker/development-macos.Dockerfile .
+# Build & Test single test:
+#    docker run -v "$(pwd)":/build/typesense \
+#                 -v typesense-bazel-cache:/root/.cache/bazel \
+#                 -e TYPESENSE_TARGET=typesense-test \
+#                 typesense-builder \
+#                 --gtest_filter="TestSuiteName.TestName"
+#
 
 FROM ubuntu:20.04
 
