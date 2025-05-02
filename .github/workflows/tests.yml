@@ -39,30 +39,11 @@ jobs:
 
       - name: Set up Bazel
         uses: bazel-contrib/setup-bazel@0.14.0
-
-      - name: Download bazel cache
-        uses: jasonbosco/action-download-artifact@709b71d3729e8980f52a5a2a9ec04261060945c1
         with:
-          name: bazel-cache
-          search_artifacts: true
-          workflow_conclusion: ""
-          if_no_artifact_found: warn
-          skip_unpack: true
-          branch: ${{ github.base_ref || github.head_ref || github.ref_name }}
-
-      - name: Uncompress bazel cache
-        run: |
-          if [ -f "bazel-cache.zip" ]; then
-            unzip bazel-cache.zip
-            mkdir -p ~/.cache/bazel
-            tar_file="bazel-cache.tar.gz" && \
-            [ -f "$tar_file" ] && \
-            tar -xzvf "$tar_file" -C ~/.cache/bazel && \
-            rm bazel-cache.tar.gz
-          else
-            echo "bazel-cache.zip does not exist. Continuing..."
-          fi
-          exit 0
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+          external-cache: true
 
       - name: Build protobuf deps
         run: |
@@ -79,20 +60,6 @@ jobs:
 
       - name: Run tests
         run: bazel test --cache_test_results=no --test_output=all //:typesense-test --test_timeout=900
-
-      - name: Compress bazel cache
-        if: always()
-        run: |
-          tar -czvf bazel-cache.tar.gz -C ~/.cache/bazel .
-
-      - name: Save bazel cache
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: bazel-cache
-          path: bazel-cache.tar.gz
-          if-no-files-found: warn
-          retention-days: 10
 
       # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
       - name: Set BAZEL_BIN_FULL_PATH
