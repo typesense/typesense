@@ -195,6 +195,10 @@ class AzureConversationModel : public ConversationModel {
         // prevent instantiation
         AzureConversationModel() = delete;
         static bool async_res_set_headers_callback(const std::string& response, const std::shared_ptr<http_req> req, long status_code, std::string& content_type);
+        static void _async_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+            // for testing purposes
+            return async_res_write_callback(response, req, res);
+        }
     private:
         static const inline std::string DATA_STR = "<Data>\n";
         static const inline std::string QUESTION_STR = "\n\n<Question>\n";
