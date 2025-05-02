@@ -3632,6 +3632,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         // In multi-field searches, a record can be matched across different fields, so we use this for aggregation
         //begin = std::chrono::high_resolution_clock::now();
 
+        if(the_fields.empty()) {
+            return Option<bool>(400, "Missing `query_by` parameter.");
+        }
+
         // FIXME: needed?
         std::set<uint64> query_hashes;
 
@@ -3785,9 +3789,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 auto curr_direction = drop_tokens_mode.mode;
                 bool drop_both_sides = false;
+                size_t orig_tokens_size = std::min<size_t>(orig_tokens.size(), 20);  // drop only upto N tokens
 
                 if(drop_tokens_mode.mode == both_sides) {
-                    if(orig_tokens.size() <= drop_tokens_mode.token_limit) {
+                    if(orig_tokens_size <= drop_tokens_mode.token_limit) {
                         drop_both_sides = true;
                     } else {
                         curr_direction = right_to_left;
@@ -3799,19 +3804,19 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     std::vector<token_t> truncated_tokens;
                     std::vector<token_t> dropped_tokens;
 
-                    if(num_tokens_dropped >= orig_tokens.size() - 1) {
+                    if(num_tokens_dropped >= orig_tokens_size - 1) {
                         // swap direction and reset counter
                         curr_direction = (curr_direction == right_to_left) ? left_to_right : right_to_left;
                         num_tokens_dropped = 0;
                         total_dirs_done++;
                     }
 
-                    if(orig_tokens.size() > 1 && total_dirs_done < 2) {
+                    if(orig_tokens_size > 1 && total_dirs_done < 2) {
                         bool prefix_search = false;
                         if (curr_direction == right_to_left) {
                             // drop from right
-                            size_t truncated_len = orig_tokens.size() - num_tokens_dropped - 1;
-                            for (size_t i = 0; i < orig_tokens.size(); i++) {
+                            size_t truncated_len = orig_tokens_size - num_tokens_dropped - 1;
+                            for (size_t i = 0; i < orig_tokens_size; i++) {
                                 if(i < truncated_len) {
                                     truncated_tokens.emplace_back(orig_tokens[i]);
                                 } else {
@@ -3822,7 +3827,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             // drop from left
                             prefix_search = true;
                             size_t start_index = (num_tokens_dropped + 1);
-                            for(size_t i = 0; i < orig_tokens.size(); i++) {
+                            for(size_t i = 0; i < orig_tokens_size; i++) {
                                 if(i >= start_index) {
                                     truncated_tokens.emplace_back(orig_tokens[i]);
                                 } else {
