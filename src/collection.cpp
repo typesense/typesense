@@ -5546,11 +5546,6 @@ uint32_t Collection::get_collection_id() const {
     return collection_id.load();
 }
 
-Option<uint32_t> Collection::doc_id_to_seq_id_with_lock(const std::string & doc_id) const {
-    std::shared_lock lock(mutex);
-    return doc_id_to_seq_id(doc_id);
-}
-
 Option<uint32_t> Collection::doc_id_to_seq_id(const std::string & doc_id) const {
     std::string seq_id_str;
     StoreStatus status = store->get(get_doc_id_key(doc_id), seq_id_str);
