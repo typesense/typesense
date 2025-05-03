@@ -6889,18 +6889,20 @@ Index* Collection::init_index() {
             auto dot_index = field.reference.find('.');
             auto ref_coll_name = field.reference.substr(0, dot_index);
             auto ref_field_name = field.reference.substr(dot_index + 1);
+            struct field ref_field;
+            std::set<update_reference_info_t> update_ref_infos{};
 
             auto& collectionManager = CollectionManager::get_instance();
-            auto ref_coll = collectionManager.get_collection(ref_coll_name);
-            std::set<update_reference_info_t> update_ref_infos{};
-            struct field ref_field;
-            if (ref_coll != nullptr) {
-                // `CollectionManager::get_collection` accounts for collection alias being used and provides pointer to
-                // the original collection.
-                ref_coll_name = ref_coll->name;
+            {
+                // NOTE: we scope this operation to avoid lock inversion by
+                // acquiring collection->lifecycle_mutex before collection_manager's mutex in `add_referenced_in`
+                auto ref_coll = collectionManager.get_collection(ref_coll_name); // resolves alias
+                if (ref_coll != nullptr) {
+                    ref_coll_name = ref_coll->name;
 
-                update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
-                                                                    ref_field_name, ref_field);
+                    update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
+                                                                   ref_field_name, ref_field);
+                }
             }
 
             auto ref_info = reference_info_t{name, field.name, field.is_async_reference, ref_field_name};

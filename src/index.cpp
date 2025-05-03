@@ -711,6 +711,7 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
             }
             if(!record.is_update && record.indexed.ok()) {
                 // for updates, the seq_id will already exist
+                std::unique_lock lock(seq_ids_mutex);
                 seq_ids->upsert(record.seq_id);
             }
         }
@@ -739,7 +740,10 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
         std::unordered_map<facet_value_id_t, std::vector<uint32_t>, facet_value_id_t::Hash> fvalue_to_seq_ids;
         std::unordered_map<uint32_t, std::vector<facet_value_id_t>> seq_id_to_fvalues;
 
+        std::shared_lock lock(seq_ids_mutex);
         size_t total_num_docs = seq_ids->num_ids();
+        lock.unlock();
+
         if(afield.facet && total_num_docs > 10*1000) {
             facet_index_v4->check_for_high_cardinality(afield.name, total_num_docs);
         }
