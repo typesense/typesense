@@ -11,6 +11,9 @@ importers:
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
+      zod:
+        specifier: ^3.24.4
+        version: 3.24.4
     devDependencies:
       chalk:
         specifier: ^5.4.1
@@ -521,6 +524,9 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
+  zod@3.24.4:
+    resolution: {integrity: sha512-OdqJE9UDRPwWsrHjLN2F8bPxvwJBK22EHLWtanu0LSYr5YqzsaaW3RMgmjwr8Rypg5k+meEJdSPXJZXE/yqOMg==}
+
 snapshots:
 
   '@esbuild/aix-ppc64@0.25.3':
@@ -917,3 +923,5 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  zod@3.24.4: {}
