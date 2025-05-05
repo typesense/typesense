@@ -203,10 +203,10 @@ void BatchedIndexer::run() {
     LOG(INFO) << "BatchedIndexer skip_index: " << skip_index;
 
     for(size_t i = 0; i < num_threads; i++) {
-        std::deque<uint64_t>& queue = queues[i];
-        await_t& queue_mutex = qmutuxes[i];
+        thread_pool->enqueue([this, i]() {
+            std::deque<uint64_t>& queue = queues[i];
+            await_t& queue_mutex = qmutuxes[i];
 
-        thread_pool->enqueue([&queue, &queue_mutex, this, i]() {
             while(!quit) {
                 std::unique_lock<std::mutex> qlk(queue_mutex.mcv);
                 queue_mutex.cv.wait(qlk, [&] { return quit || !queue.empty(); });
@@ -238,10 +238,10 @@ void BatchedIndexer::run() {
                 const std::string& req_key_start_prefix = req_key_prefix + StringUtils::serialize_uint32_t(
                                                                   orig_req_res.next_chunk_index);
 
-                auto req_key_upper_bound = std::make_shared<std::string>(get_req_suffix_key(req_id));
-                auto upper_slice = std::make_shared<rocksdb::Slice>(*req_key_upper_bound);
-                std::unique_ptr<rocksdb::Iterator> iter{
-                    store->scan(req_key_start_prefix, upper_slice.get())
+                std::string ub_str = get_req_suffix_key(req_id);
+                rocksdb::Slice ub_slice(ub_str);
+                std::unique_ptr<rocksdb::Iterator> iter {
+                    store->scan(req_key_start_prefix, &ub_slice)
                 };
 
                 // used to handle partial JSON documents caused by chunking
