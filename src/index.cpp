@@ -1830,7 +1830,8 @@ Option<bool> Index::search_all_candidates(const size_t num_search_fields,
                                   std::max<size_t>(Index::COMBINATION_MIN_LIMIT, max_candidates);
 
     for(long long n = 0; n < N && n < combination_limit; ++n) {
-        RETURN_CIRCUIT_BREAKER_OP
+        // todo: undo
+//        RETURN_CIRCUIT_BREAKER_OP
 
         std::vector<token_t> query_suggestion(token_candidates_vec.size());
 
@@ -3565,7 +3566,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     // handle exclusion of tokens/phrases
     uint32_t* exclude_token_ids = nullptr;
     size_t exclude_token_ids_size = 0;
-    handle_exclusion(num_search_fields, field_query_tokens, the_fields, exclude_token_ids, exclude_token_ids_size);
+    const auto& exclusion_op = handle_exclusion(num_search_fields, field_query_tokens, the_fields, exclude_token_ids,
+                                                exclude_token_ids_size);
+    if (!exclusion_op.ok()) {
+        return exclusion_op;
+    }
 
     int sort_order[3];  // 1 or -1 based on DESC or ASC respectively
     std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values;
@@ -4857,7 +4862,8 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
     const long long combination_limit = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::COMBINATION_MIN_LIMIT;
 
     while(n < N && n < combination_limit) {
-        RETURN_CIRCUIT_BREAKER_OP
+        // todo: undo
+//        RETURN_CIRCUIT_BREAKER_OP
 
         //LOG(INFO) << "fuzzy_search_fields, n: " << n;
 
@@ -4903,8 +4909,22 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                 std::vector<size_t> popular_field_ids; // fields containing the token most across documents
 
                 if(last_token) {
-                    popular_fields_of_token(search_index,
-                                            token_candidates_vec.back().candidates[0],
+                    std::vector<art_tree*> art_trees;
+                    for(size_t i = 0; i < num_search_fields; i++) {
+                        const auto& field = the_fields[i];
+                        if (field.referenced_collection_name.empty()) {
+                            art_trees.emplace_back(search_index.at(field.name));
+                        } else {
+                            auto op = CollectionManager::get_art_tree(field.referenced_collection_name,
+                                                                      field.name);
+                            if (!op.ok()) {
+                                return Option<bool>(op.code(), op.error());
+                            }
+                            art_trees.emplace_back(op.get());
+                        }
+                    }
+
+                    popular_fields_of_token(art_trees, token_candidates_vec.back().candidates[0],
                                             the_fields, num_search_fields, popular_field_ids);
 
                     if(popular_field_ids.empty()) {
@@ -4925,9 +4945,19 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                     /*LOG(INFO) << "Searching for field: " << the_field.name << ", token:"
                               << token << " - cost: " << costs[token_index] << ", prefix_search: " << prefix_search;*/
 
-                    int64_t field_num_typos = the_fields[field_id].num_typos;
+                    int64_t field_num_typos = the_field.num_typos;
 
-                    const auto& search_field = search_schema.at(the_field.name);
+                    field search_field;
+                    if (the_field.referenced_collection_name.empty()) {
+                        search_field = search_schema.at(the_field.name);
+                    } else {
+                        auto op = CollectionManager::get_collection_field(the_field.referenced_collection_name,
+                                                                          the_field.name);
+                        if (!op.ok()) {
+                            return Option<bool>(op.code(), op.error());
+                        }
+                        search_field = op.get();
+                    }
                     auto& locale = search_field.locale;
                     if(locale != "" && (locale == "zh" || locale == "ko" || locale == "ja")) {
                         // disable fuzzy trie traversal for CJK locales
@@ -4940,11 +4970,21 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
 
                     const auto& prev_token = last_token ? token_candidates_vec.back().candidates[0] : "";
 
+                    art_tree* tree = nullptr;
+                    if (the_field.referenced_collection_name.empty()) {
+                        tree = search_index.at(search_field.faceted_name());
+                    } else {
+                        auto op = CollectionManager::get_art_tree(the_field.referenced_collection_name,
+                                                                  search_field.faceted_name());
+                        if (!op.ok()) {
+                            return Option<bool>(op.code(), op.error());
+                        }
+                        tree = op.get();
+                    }
                     std::vector<art_leaf*> field_leaves;
-                    art_fuzzy_search_i(search_index.at(search_field.faceted_name()),
-                                       (const unsigned char *) token.c_str(), token_len,
-                                     costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
-                                     last_token, prev_token, filter_result_iterator, field_leaves, unique_tokens);
+                    art_fuzzy_search_i(tree, (const unsigned char *) token.c_str(), token_len,
+                                       costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
+                                       last_token, prev_token, filter_result_iterator, field_leaves, unique_tokens);
                     filter_result_iterator->reset();
                     if (filter_result_iterator->validity == filter_result_iterator_t::timed_out) {
                         search_cutoff = true;
@@ -4984,7 +5024,17 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                         const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
                         int64_t field_num_typos = the_fields[field_id].num_typos;
 
-                        const auto& search_field = search_schema.at(the_field.name);
+                        field search_field;
+                        if (the_field.referenced_collection_name.empty()) {
+                            search_field = search_schema.at(the_field.name);
+                        } else {
+                            auto op = CollectionManager::get_collection_field(the_field.referenced_collection_name,
+                                                                              the_field.name);
+                            if (!op.ok()) {
+                                return Option<bool>(op.code(), op.error());
+                            }
+                            search_field = op.get();
+                        }
                         auto& locale = search_field.locale;
                         if(locale != "" && locale != "en" && locale != "th" && !Tokenizer::is_cyrillic(locale)) {
                             // disable fuzzy trie traversal for non-english locales
@@ -4995,8 +5045,19 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                             continue;
                         }
 
+                        art_tree* tree;
+                        if (the_field.referenced_collection_name.empty()) {
+                            tree = search_index.at(the_field.name);
+                        } else {
+                            auto op = CollectionManager::get_art_tree(the_field.referenced_collection_name,
+                                                                      the_field.name);
+                            if (!op.ok()) {
+                                return Option<bool>(op.code(), op.error());
+                            }
+                            tree = op.get();
+                        }
                         std::vector<art_leaf*> field_leaves;
-                        art_fuzzy_search_i(search_index.at(the_field.name), (const unsigned char *) token.c_str(), token_len,
+                        art_fuzzy_search_i(tree, (const unsigned char *) token.c_str(), token_len,
                                          costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
                                          false, "", filter_result_iterator, field_leaves, unique_tokens);
                         filter_result_iterator->reset();
@@ -5103,7 +5164,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
     return Option<bool>(true);
 }
 
-void Index::popular_fields_of_token(const spp::sparse_hash_map<std::string, art_tree*>& search_index,
+void Index::popular_fields_of_token(const std::vector<art_tree*>& art_trees,
                                     const std::string& previous_token,
                                     const std::vector<search_field_t>& the_fields,
                                     const size_t num_search_fields,
@@ -5116,7 +5177,7 @@ void Index::popular_fields_of_token(const spp::sparse_hash_map<std::string, art_
 
     for(size_t i = 0; i < num_search_fields; i++) {
         const std::string& field_name = the_fields[i].name;
-        auto leaf = static_cast<art_leaf*>(art_search(search_index.at(field_name), prev_token_c_str, prev_token_len));
+        auto leaf = static_cast<art_leaf*>(art_search(art_trees[i], prev_token_c_str, prev_token_len));
 
         if(!leaf) {
             continue;
@@ -5232,7 +5293,7 @@ int64_t Index::compute_aggregated_score(const std::vector<or_iterator_t>& its,
                                  const int syn_orig_num_tokens,
                                  const uint32_t seq_id,
                                  const std::vector<sort_by>& sort_fields,
-                                 const tsl::htrie_map<char, field>& search_schema,
+                                 const std::vector<bool>& is_array_search_fields,
                                  const std::vector<std::vector<art_leaf*>>& searched_queries,
                                  const int* sort_order,
                                  int64_t& out_best_field_match_score) {
@@ -5295,7 +5356,6 @@ int64_t Index::compute_aggregated_score(const std::vector<or_iterator_t>& its,
         }
 
         const int64_t field_weight = the_fields[fi].weight;
-        const bool field_is_array = search_schema.at(the_fields[fi].name).is_array();
 
         int64_t field_match_score = 0;
         bool single_exact_query_token = false;
@@ -5305,7 +5365,7 @@ int64_t Index::compute_aggregated_score(const std::vector<or_iterator_t>& its,
             single_exact_query_token = true;
         }
 
-        score_results2(sort_fields, searched_queries.size(), fi, field_is_array,
+        score_results2(sort_fields, searched_queries.size(), fi, is_array_search_fields[fi],
                        total_cost, field_match_score,
                        seq_id, sort_order,
                        prioritize_exact_match, single_exact_query_token, prioritize_token_position,
@@ -5463,6 +5523,20 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
 
     auto group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
 
+    std::vector<bool> is_array_search_fields;
+    for (const auto& f: the_fields) {
+        if (f.referenced_collection_name.empty()) {
+            is_array_search_fields.emplace_back(search_schema.at(f.name).is_array());
+        } else {
+            auto op = CollectionManager::get_collection_field(f.referenced_collection_name,
+                                                              f.name);
+            if (!op.ok()) {
+                return Option<bool>(op.code(), op.error());
+            }
+            is_array_search_fields.emplace_back(op.get().is_array());
+        }
+    }
+
     or_iterator_t::intersect(token_its, istate,
                              [&](single_filter_result_t& filter_result, const std::vector<or_iterator_t>& its) {
         auto& seq_id = filter_result.seq_id;
@@ -5488,7 +5562,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
                                                               syn_orig_num_tokens,
                                                               seq_id,
                                                               sort_fields,
-                                                              search_schema,
+                                                              is_array_search_fields,
                                                               searched_queries,
                                                               sort_order,
                                                               best_field_match_score);
@@ -5610,7 +5684,18 @@ void Index::get_field_token_its(const size_t num_search_fields, std::vector<art_
                 continue;
             }
 
-            art_tree* tree = search_index.at(the_fields[i].str_name);
+            art_tree* tree;
+            if (the_fields[i].referenced_collection_name.empty()) {
+                tree = search_index.at(the_fields[i].str_name);
+            } else {
+                auto op = CollectionManager::get_art_tree(the_fields[i].referenced_collection_name,
+                                                          the_fields[i].str_name);
+                if (!op.ok()) {
+                    return;
+                }
+                tree = op.get();
+            }
+
             art_leaf* leaf = static_cast<art_leaf*>(art_search(tree, token_c_str, token_len));
 
             if(!leaf) {
@@ -5631,6 +5716,8 @@ void Index::get_field_token_its(const size_t num_search_fields, std::vector<art_
                 posting_list_t* full_posting_list = (posting_list_t*)(leaf->values);
                 its.push_back(full_posting_list->new_iterator(nullptr, nullptr, i)); // moved, not copied
             }
+
+            its.back().referenced_collection_name = the_fields[i].referenced_collection_name;
         }
 
         if(its.empty()) {
@@ -6252,12 +6339,26 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
     return Option<bool>(true);
 }
 
-void Index::handle_exclusion(const size_t num_search_fields, std::vector<query_tokens_t>& field_query_tokens,
-                             const std::vector<search_field_t>& search_fields, uint32_t*& exclude_token_ids,
-                             size_t& exclude_token_ids_size) const {
+Option<bool> Index::handle_exclusion(const size_t num_search_fields, std::vector<query_tokens_t>& field_query_tokens,
+                                     const std::vector<search_field_t>& search_fields, uint32_t*& exclude_token_ids,
+                                     size_t& exclude_token_ids_size) const {
     for(size_t i = 0; i < num_search_fields; i++) {
+        if (field_query_tokens[i].q_exclude_tokens.empty()) {
+            continue;
+        }
+
         const std::string & field_name = search_fields[i].name;
-        bool is_array = search_schema.at(field_name).is_array();
+        const auto& ref_collection_name = search_fields[i].referenced_collection_name;
+        bool is_array;
+        if (ref_collection_name.empty()) {
+            is_array = search_schema.at(field_name).is_array();
+        } else {
+            auto op = CollectionManager::get_collection_field(ref_collection_name, field_name);
+            if (!op.ok()) {
+                return Option<bool>(op.code(), op.error());
+            }
+            is_array = op.get().is_array();
+        }
 
         for(const auto& q_exclude_phrase: field_query_tokens[i].q_exclude_tokens) {
             // if phrase has multiple words, then we have to do exclusion of phrase match results
@@ -6302,6 +6403,8 @@ void Index::handle_exclusion(const size_t num_search_fields, std::vector<query_t
             }
         }
     }
+
+    return Option<bool>(true);
 }
 
 Option<bool> Index::compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
@@ -8751,6 +8854,20 @@ void Index::compute_aux_scores(Topster<KV>* topster, const std::vector<search_fi
         int64_t best_field_match_score = 0;
         std::vector<std::vector<art_leaf*>> searched_queries;
 
+        std::vector<bool> is_array_search_fields;
+        for (const auto& f: the_fields) {
+            if (f.referenced_collection_name.empty()) {
+                is_array_search_fields.emplace_back(search_schema.at(f.name).is_array());
+            } else {
+                auto op = CollectionManager::get_collection_field(f.referenced_collection_name,
+                                                                  f.name);
+                if (!op.ok()) {
+                    return;
+                }
+                is_array_search_fields.emplace_back(op.get().is_array());
+            }
+        }
+
         for(auto& kv: result_ids) {
             auto seq_id = kv->key;
             for(size_t i = 0; i < token_its.size(); i++) {
@@ -8770,7 +8887,7 @@ void Index::compute_aux_scores(Topster<KV>* topster, const std::vector<search_fi
                                                                  -1,
                                                                  seq_id,
                                                                  sort_fields_std,
-                                                                 search_schema,
+                                                                 is_array_search_fields,
                                                                  searched_queries,
                                                                  sort_order,
                                                                  best_field_match_score);
@@ -8959,6 +9076,17 @@ GeoPolygonIndex* Index::get_geopolygon_index(const std::string &field_name) cons
     }
 
     return find_it->second;
+}
+
+Option<art_tree*> Index::get_art_tree_with_lock(const std::string& field_name) const {
+    std::shared_lock lock(mutex);
+
+    auto it = search_index.find(field_name);
+    if (it == search_index.end()) {
+        return Option<art_tree*>(400, "Could not find `" + field_name + "` in the `search_index`");
+    }
+
+    return Option<art_tree*>(it->second);
 }
 
 /*

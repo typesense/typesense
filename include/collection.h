@@ -656,6 +656,26 @@ private:
                                                  const size_t remote_embedding_num_tries,
                                                  size_t& per_page) const;
 
+    Option<bool> process_search_fields_with_lock(const std::vector<std::string>& raw_search_fields,
+                                                 const bool& validate_field_names, bool& ignored_missing_fields,
+                                                 size_t& num_embed_fields, vector_query_t& vector_query, std::string& query,
+                                                 const size_t& remote_embedding_timeout_ms, const std::vector<bool>& prefixes,
+                                                 const size_t& remote_embedding_num_tries,
+                                                 const std::vector<uint32_t>& raw_query_by_weights,
+                                                 const std::vector<uint32_t>& num_typos, const std::vector<enable_t>& infixes,
+                                                 std::vector<search_field_t>& processed_search_fields,
+                                                 std::vector<uint32_t>& query_by_weights) const;
+
+    Option<bool> process_search_fields(const std::vector<std::string>& raw_search_fields,
+                                       const bool& validate_field_names, bool& ignored_missing_fields,
+                                       size_t& num_embed_fields, vector_query_t& vector_query, std::string& query,
+                                       const size_t& remote_embedding_timeout_ms, const std::vector<bool>& prefixes,
+                                       const size_t& remote_embedding_num_tries,
+                                       const std::vector<uint32_t>& raw_query_by_weights,
+                                       const std::vector<uint32_t>& num_typos, const std::vector<enable_t>& infixes,
+                                       std::vector<search_field_t>& processed_search_fields,
+                                       std::vector<uint32_t>& query_by_weights) const;
+
     Option<bool> init_index_search_args_with_lock(collection_search_args_t& coll_args,
                                                   std::unique_ptr<search_args>& index_args,
                                                   std::string& query,
@@ -693,6 +713,8 @@ private:
     void reset_alter_status_counters();
 
     std::string get_facet_str_val(const std::string& field_name, uint32_t facet_id);
+
+    Option<field> get_field(const std::string& field_name) const;
 
 public:
 
@@ -1173,6 +1195,10 @@ public:
     bool check_store_alter_status_msg(bool success, const std::string& msg = "");
 
     std::string get_facet_str_val_with_lock(const std::string& field_name, uint32_t facet_id);
+
+    Option<field> get_field_with_lock(const std::string& field_name) const;
+
+    Option<art_tree*> get_art_tree_with_lock(const std::string& field_name) const;
 };
 
 template<class T>

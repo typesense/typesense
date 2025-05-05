@@ -98,6 +98,7 @@ struct search_field_t {
     size_t num_typos;
     bool prefix;
     enable_t infix;
+    std::string referenced_collection_name{};
 
     search_field_t(const std::string& name, const std::string& str_name, size_t weight, size_t num_typos,
                    bool prefix, enable_t infix):
@@ -577,7 +578,7 @@ private:
                                        bool is_group_by_first_pass,
                                        std::set<uint32_t>& group_by_missing_value_ids) const;
 
-    static void popular_fields_of_token(const spp::sparse_hash_map<std::string, art_tree*>& search_index,
+    static void popular_fields_of_token(const std::vector<art_tree*>& art_trees,
                                         const std::string& previous_token,
                                         const std::vector<search_field_t>& the_fields,
                                         const size_t num_search_fields,
@@ -953,9 +954,9 @@ public:
 
     size_t num_seq_ids() const;
 
-    void handle_exclusion(const size_t num_search_fields, std::vector<query_tokens_t>& field_query_tokens,
-                          const std::vector<search_field_t>& search_fields, uint32_t*& exclude_token_ids,
-                          size_t& exclude_token_ids_size) const;
+    Option<bool> handle_exclusion(const size_t num_search_fields, std::vector<query_tokens_t>& field_query_tokens,
+                                  const std::vector<search_field_t>& search_fields, uint32_t*& exclude_token_ids,
+                                  size_t& exclude_token_ids_size) const;
 
     Option<bool> do_infix_search(const size_t num_search_fields, const std::vector<search_field_t>& the_fields,
                                  const std::vector<enable_t>& infixes,
@@ -1113,7 +1114,7 @@ public:
                                      const int syn_orig_num_tokens,
                                      const uint32_t seq_id,
                                      const std::vector<sort_by>& sort_fields,
-                                     const tsl::htrie_map<char, field>& search_schema,
+                                     const std::vector<bool>& is_array_search_fields,
                                      const std::vector<std::vector<art_leaf*>>& searched_queries,
                                      const int* sort_order,
                                      int64_t& out_best_field_match_score);
@@ -1215,6 +1216,8 @@ public:
                                      bool is_group_by_first_pass,
                                      std::set<uint32_t>& group_by_missing_value_ids,
                                      Collection const *const collection) const;
+
+    Option<art_tree*> get_art_tree_with_lock(const std::string& field_name) const;
 };
 
 template<class T>

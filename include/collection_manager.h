@@ -205,4 +205,9 @@ public:
 
     static void remove_internal_fields(std::map<std::string, std::string>& params);
 
+    static Option<field> get_collection_field(const std::string& collection_name,
+                                              const std::string& field_name);
+
+    static Option<art_tree*> get_art_tree(const std::string& collection_name,
+                                          const std::string& field_name);
 };

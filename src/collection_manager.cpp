@@ -2186,3 +2186,25 @@ void CollectionManager::remove_internal_fields(std::map<std::string, std::string
         }
     }
 }
+
+Option<field> CollectionManager::get_collection_field(const std::string& collection_name,
+                                                      const std::string& field_name) {
+    auto& cm = CollectionManager::get_instance();
+    auto ref_collection = cm.get_collection(collection_name);
+    if (ref_collection == nullptr) {
+        return Option<field>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return ref_collection->get_field_with_lock(field_name);
+}
+
+Option<art_tree*> CollectionManager::get_art_tree(const std::string& collection_name,
+                                                  const std::string& field_name) {
+    auto& cm = CollectionManager::get_instance();
+    auto ref_collection = cm.get_collection(collection_name);
+    if (ref_collection == nullptr) {
+        return Option<art_tree*>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return ref_collection->get_art_tree_with_lock(field_name);
+}
