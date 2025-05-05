@@ -6,6 +6,7 @@
 #include "array.h"
 #include "match_score.h"
 #include "thread_local_vars.h"
+#include "filter_result_iterator.h"
 
 typedef uint32_t last_id_t;
 class filter_result_iterator_t;
@@ -76,7 +77,30 @@ public:
         }
     };
 
-    class iterator_t {
+    class base_iterator_t {
+    public:
+        uint32_t field_id = 0;
+
+        base_iterator_t() {}
+        explicit base_iterator_t(uint32_t field_id) : field_id(field_id) {}
+
+        virtual void reset_cache() = 0;
+
+        [[nodiscard]] virtual bool valid() const = 0;
+        virtual void next() = 0;
+        virtual void skip_to(uint32_t id) = 0;
+        virtual void skip_to_rev(uint32_t id) = 0;
+        virtual void set_index(uint32_t index) = 0;
+        [[nodiscard]] virtual uint32_t id() const = 0;
+        [[nodiscard]] virtual uint32_t offset() const = 0;
+        [[nodiscard]] virtual inline uint32_t index() const = 0;
+        [[nodiscard]] uint32_t get_field_id() const {
+            return field_id;
+        }
+        [[nodiscard]] virtual std::unique_ptr<posting_list_t::base_iterator_t> clone() const = 0;
+    };
+
+    class iterator_t : public base_iterator_t {
     private:
         const std::map<last_id_t, block_t*>* id_block_map;
         block_t* curr_block;
@@ -84,7 +108,9 @@ public:
         block_t* end_block;
 
         bool auto_destroy;
-        uint32_t field_id;
+
+        [[nodiscard]] uint32_t last_block_id() const;
+        [[nodiscard]] uint32_t first_block_id() const;
 
     public:
         // uncompressed data structures for performance
@@ -107,15 +133,34 @@ public:
         void set_index(uint32_t index);
         [[nodiscard]] uint32_t id() const;
         [[nodiscard]] uint32_t offset() const;
-        [[nodiscard]] uint32_t last_block_id() const;
-        [[nodiscard]] uint32_t first_block_id() const;
         [[nodiscard]] inline uint32_t index() const;
         [[nodiscard]] inline block_t* block() const;
-        [[nodiscard]] uint32_t get_field_id() const;
-
-        posting_list_t::iterator_t clone() const;
+        std::unique_ptr<posting_list_t::base_iterator_t> clone() const;
     };
 
+    class ref_iterator_t : public base_iterator_t {
+        // In case of query_by referenced collection field, we can't iterate on posting_list of referenced collection
+        // normally since the references might not be ordered.
+        reference_filter_result_t result{};
+        uint32_t curr_index = 0;
+
+    public:
+
+        explicit ref_iterator_t() = default;
+
+        explicit ref_iterator_t(reference_filter_result_t&& result, uint32_t field_id = 0);
+
+        void reset_cache() {}
+        [[nodiscard]] bool valid() const;
+        void next();
+        void skip_to(uint32_t id);
+        void skip_to_rev(uint32_t id) {}
+        void set_index(uint32_t index);
+        [[nodiscard]] uint32_t id() const;
+        [[nodiscard]] uint32_t offset() const { return 0; }
+        [[nodiscard]] inline uint32_t index() const;
+        std::unique_ptr<posting_list_t::base_iterator_t> clone() const;
+    };
 public:
 
     // maximum number of IDs (and associated offsets) to store in each block before another block is created
@@ -132,8 +177,8 @@ public:
     static bool at_end(const std::vector<posting_list_t::iterator_t>& its);
     static bool at_end2(const std::vector<posting_list_t::iterator_t>& its);
 
-    static bool all_ended(const std::vector<posting_list_t::iterator_t>& its);
-    static bool all_ended2(const std::vector<posting_list_t::iterator_t>& its);
+    static bool all_ended(const std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& its);
+    static bool all_ended2(const std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& its);
 
     static bool equals(std::vector<posting_list_t::iterator_t>& its);
     static bool equals2(std::vector<posting_list_t::iterator_t>& its);
@@ -178,6 +223,9 @@ public:
     bool contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size);
 
     iterator_t new_iterator(block_t* start_block = nullptr, block_t* end_block = nullptr, uint32_t field_id = 0);
+
+    std::unique_ptr<posting_list_t::iterator_t> new_iterator_ptr(block_t* start_block = nullptr,
+                                                                 block_t* end_block = nullptr, uint32_t field_id = 0);
 
     iterator_t new_rev_iterator();
 

@@ -5222,7 +5222,7 @@ void Index::find_across_fields(const token_t& previous_token,
     auto& token_str = previous_token_str;
     auto token_c_str = (const unsigned char*) token_str.c_str();
     const size_t token_len = token_str.size() + 1;
-    std::vector<posting_list_t::iterator_t> its;
+    std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> its;
 
     std::vector<std::pair<size_t, size_t>> field_id_doc_counts;
 
@@ -5243,10 +5243,10 @@ void Index::find_across_fields(const token_t& previous_token,
             auto compact_posting_list = COMPACT_POSTING_PTR(leaf->values);
             posting_list_t* full_posting_list = compact_posting_list->to_full_posting_list();
             expanded_plists.push_back(full_posting_list);
-            its.push_back(full_posting_list->new_iterator(nullptr, nullptr, i)); // moved, not copied
+            its.push_back(full_posting_list->new_iterator_ptr(nullptr, nullptr, i)); // moved, not copied
         } else {
             posting_list_t* full_posting_list = (posting_list_t*)(leaf->values);
-            its.push_back(full_posting_list->new_iterator(nullptr, nullptr, i)); // moved, not copied
+            its.push_back(full_posting_list->new_iterator_ptr(nullptr, nullptr, i)); // moved, not copied
         }
 
         field_id_doc_counts.emplace_back(i, posting_t::num_ids(leaf->values));
@@ -5266,7 +5266,7 @@ void Index::find_across_fields(const token_t& previous_token,
         top_prefix_field_ids.push_back(field_id_doc_count.first);
     }
 
-    or_iterator_t token_fields(its);
+    or_iterator_t token_fields(std::move(its));
     token_its.push_back(std::move(token_fields));
 
     or_iterator_t::intersect(token_its, istate,
@@ -5298,19 +5298,19 @@ int64_t Index::compute_aggregated_score(const std::vector<or_iterator_t>& its,
                                  const int* sort_order,
                                  int64_t& out_best_field_match_score) {
     // Convert [token -> fields] orientation to [field -> tokens] orientation
-    std::vector<std::vector<posting_list_t::iterator_t>> field_to_tokens(num_search_fields);
+    std::vector<std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>> field_to_tokens(num_search_fields);
     size_t query_len = 0;
 
     for(size_t ti = 0; ti < its.size(); ti++) {
         const or_iterator_t& token_fields_iters = its[ti];
-        const std::vector<posting_list_t::iterator_t>& field_iters = token_fields_iters.get_its();
+        const std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& field_iters = token_fields_iters.get_its();
         bool found_token = false;
 
         for(size_t fi = 0; fi < field_iters.size(); fi++) {
-            const posting_list_t::iterator_t& field_iter = field_iters[fi];
-            if(field_iter.valid() && field_iter.id() == seq_id && field_iter.get_field_id() < num_search_fields) {
+            const auto& field_iter = field_iters[fi];
+            if(field_iter->valid() && field_iter->id() == seq_id && field_iter->get_field_id() < num_search_fields) {
                 // not all fields might contain a given token
-                field_to_tokens[field_iter.get_field_id()].push_back(field_iter.clone());
+                field_to_tokens[field_iter->get_field_id()].push_back(field_iter->clone());
                 found_token = true;
             }
         }
@@ -5324,13 +5324,13 @@ int64_t Index::compute_aggregated_score(const std::vector<or_iterator_t>& its,
     for(size_t ti = 0; ti < dropped_token_its.size(); ti++) {
         or_iterator_t& token_fields_iters = dropped_token_its[ti];
         if(token_fields_iters.skip_to(seq_id) && token_fields_iters.id() == seq_id) {
-            const std::vector<posting_list_t::iterator_t>& field_iters = token_fields_iters.get_its();
+            const std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& field_iters = token_fields_iters.get_its();
             bool found_token = false;
             for(size_t fi = 0; fi < field_iters.size(); fi++) {
-                const posting_list_t::iterator_t& field_iter = field_iters[fi];
-                if(field_iter.id() == seq_id && field_iter.get_field_id() < num_search_fields) {
+                const auto& field_iter = field_iters[fi];
+                if(field_iter->id() == seq_id && field_iter->get_field_id() < num_search_fields) {
                     // not all fields might contain a given token
-                    field_to_tokens[field_iter.get_field_id()].push_back(field_iter.clone());
+                    field_to_tokens[field_iter->get_field_id()].push_back(field_iter->clone());
                     found_token = true;
                 }
             }
@@ -5350,7 +5350,7 @@ int64_t Index::compute_aggregated_score(const std::vector<or_iterator_t>& its,
     uint32_t num_matching_fields = 0;
 
     for(size_t fi = 0; fi < field_to_tokens.size(); fi++) {
-        const std::vector<posting_list_t::iterator_t>& token_postings = field_to_tokens[fi];
+        const std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& token_postings = field_to_tokens[fi];
         if(token_postings.empty()) {
             continue;
         }
@@ -5477,7 +5477,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
         auto token_c_str = (const unsigned char*) token.c_str();
 
         // convert token from each field into an or_iterator
-        std::vector<posting_list_t::iterator_t> its;
+        std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> its;
 
         for(size_t i = 0; i < the_fields.size(); i++) {
             const std::string& field_name = the_fields[i].name;
@@ -5496,14 +5496,14 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
                 auto compact_posting_list = COMPACT_POSTING_PTR(leaf->values);
                 posting_list_t* full_posting_list = compact_posting_list->to_full_posting_list();
                 expanded_dropped_plists.push_back(full_posting_list);
-                its.push_back(full_posting_list->new_iterator(nullptr, nullptr, i)); // moved, not copied
+                its.push_back(full_posting_list->new_iterator_ptr(nullptr, nullptr, i)); // moved, not copied
             } else {
                 posting_list_t* full_posting_list = (posting_list_t*)(leaf->values);
-                its.push_back(full_posting_list->new_iterator(nullptr, nullptr, i)); // moved, not copied
+                its.push_back(full_posting_list->new_iterator_ptr(nullptr, nullptr, i)); // moved, not copied
             }
         }
 
-        or_iterator_t token_fields(its);
+        or_iterator_t token_fields(std::move(its));
         dropped_token_its.push_back(std::move(token_fields));
     }
 
@@ -5666,7 +5666,7 @@ void Index::get_field_token_its(const size_t num_search_fields, std::vector<art_
         auto& token_str = query_tokens[ti].value;
         auto token_c_str = (const unsigned char*) token_str.c_str();
         const size_t token_len = token_str.size() + 1;
-        std::vector<posting_list_t::iterator_t> its;
+        std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> its;
 
         for(size_t i = 0; i < num_search_fields; i++) {
             const std::string& field_name = the_fields[i].name;
@@ -5711,10 +5711,10 @@ void Index::get_field_token_its(const size_t num_search_fields, std::vector<art_
                 auto compact_posting_list = COMPACT_POSTING_PTR(leaf->values);
                 posting_list_t* full_posting_list = compact_posting_list->to_full_posting_list();
                 expanded_plists.push_back(full_posting_list);
-                its.push_back(full_posting_list->new_iterator(nullptr, nullptr, i)); // moved, not copied
+                its.push_back(full_posting_list->new_iterator_ptr(nullptr, nullptr, i)); // moved, not copied
             } else {
                 posting_list_t* full_posting_list = (posting_list_t*)(leaf->values);
-                its.push_back(full_posting_list->new_iterator(nullptr, nullptr, i)); // moved, not copied
+                its.push_back(full_posting_list->new_iterator_ptr(nullptr, nullptr, i)); // moved, not copied
             }
 
             its.back().referenced_collection_name = the_fields[i].referenced_collection_name;
@@ -5726,7 +5726,7 @@ void Index::get_field_token_its(const size_t num_search_fields, std::vector<art_
             continue;
         }
 
-        or_iterator_t token_fields(its);
+        or_iterator_t token_fields(std::move(its));
         token_its.push_back(std::move(token_fields));
     }
 }
@@ -7058,7 +7058,7 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
                               const bool prioritize_token_position,
                               size_t num_query_tokens,
                               int syn_orig_num_tokens,
-                              const std::vector<posting_list_t::iterator_t>& posting_lists) {
+                              const std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& posting_lists) {
 
     //auto begin = std::chrono::high_resolution_clock::now();
     //const std::string first_token((const char*)query_suggestion[0]->key, query_suggestion[0]->key_len-1);

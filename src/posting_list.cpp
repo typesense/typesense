@@ -1,5 +1,6 @@
 #include "posting_list.h"
 #include <bitset>
+#include <utility>
 #include "for.h"
 #include "array_utils.h"
 #include "filter_result_iterator.h"
@@ -993,6 +994,13 @@ posting_list_t::iterator_t posting_list_t::new_iterator(block_t* start_block, bl
     return posting_list_t::iterator_t(&id_block_map, start_block, end_block, true, field_id);
 }
 
+std::unique_ptr<posting_list_t::iterator_t> posting_list_t::new_iterator_ptr(block_t* start_block,
+                                                                             block_t* end_block, uint32_t field_id) {
+    start_block = (start_block == nullptr) ? &root_block : start_block;
+    return std::make_unique<posting_list_t::iterator_t>(posting_list_t::iterator_t(&id_block_map, start_block, end_block,
+                                                                                   true, field_id));
+}
+
 posting_list_t::iterator_t posting_list_t::new_rev_iterator() {
     block_t* start_block = nullptr;
     if(!id_block_map.empty()) {
@@ -1862,10 +1870,10 @@ void posting_list_t::get_matching_array_indices(uint32_t id, std::vector<iterato
     }
 }
 
-bool posting_list_t::all_ended(const std::vector<posting_list_t::iterator_t>& its) {
+bool posting_list_t::all_ended(const std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& its) {
     // if all iterators are at end, we return true
     for(const auto& it : its) {
-        if(it.valid()) {
+        if(it->valid()) {
             return false;
         }
     }
@@ -1873,9 +1881,9 @@ bool posting_list_t::all_ended(const std::vector<posting_list_t::iterator_t>& it
     return true;
 }
 
-bool posting_list_t::all_ended2(const std::vector<posting_list_t::iterator_t>& its) {
+bool posting_list_t::all_ended2(const std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& its) {
     // if both iterators are at end, we return true
-    return !its[0].valid() && !its[1].valid();
+    return !its[0]->valid() && !its[1]->valid();
 }
 
 size_t posting_list_t::get_last_offset(const posting_list_t::iterator_t& it, bool field_is_array) {
@@ -1937,8 +1945,8 @@ size_t posting_list_t::get_last_offset(const posting_list_t::iterator_t& it, boo
 posting_list_t::iterator_t::iterator_t(const std::map<last_id_t, block_t*>* id_block_map,
                                        posting_list_t::block_t* start, posting_list_t::block_t* end,
                                        bool auto_destroy, uint32_t field_id, bool reverse):
-        id_block_map(id_block_map), curr_block(start), curr_index(0), end_block(end),
-        auto_destroy(auto_destroy), field_id(field_id) {
+        base_iterator_t(field_id), id_block_map(id_block_map), curr_block(start), curr_index(0), end_block(end),
+        auto_destroy(auto_destroy) {
 
     if(curr_block != end_block) {
         ids = curr_block->ids.uncompress();
@@ -2135,22 +2143,18 @@ void posting_list_t::iterator_t::set_index(uint32_t index) {
     curr_index = index;
 }
 
-posting_list_t::iterator_t posting_list_t::iterator_t::clone() const {
-    posting_list_t::iterator_t it(nullptr, nullptr, nullptr);
-    it.id_block_map = id_block_map;
-    it.curr_block = curr_block;
-    it.curr_index = curr_index;
-    it.end_block = end_block;
-    it.ids = ids;
-    it.offsets = offsets;
-    it.offset_index = offset_index;
-    it.auto_destroy = false;
-    it.field_id = field_id;
+std::unique_ptr<posting_list_t::base_iterator_t> posting_list_t::iterator_t::clone() const {
+    auto it = std::make_unique<posting_list_t::iterator_t>(nullptr, nullptr, nullptr);
+    it->id_block_map = id_block_map;
+    it->curr_block = curr_block;
+    it->curr_index = curr_index;
+    it->end_block = end_block;
+    it->ids = ids;
+    it->offsets = offsets;
+    it->offset_index = offset_index;
+    it->auto_destroy = false;
+    it->field_id = field_id;
     return it;
-}
-
-uint32_t posting_list_t::iterator_t::get_field_id() const {
-    return field_id;
 }
 
 bool result_iter_state_t::is_filter_provided() const {
@@ -2179,4 +2183,39 @@ uint32_t result_iter_state_t::get_filter_id() const {
     }
 
     return 0;
+}
+
+posting_list_t::ref_iterator_t::ref_iterator_t(reference_filter_result_t&& result, uint32_t field_id) :
+        base_iterator_t(field_id), result(result) {}
+
+bool posting_list_t::ref_iterator_t::valid() const {
+    return curr_index < result.count;
+}
+
+void posting_list_t::ref_iterator_t::next() {
+    curr_index++;
+}
+
+void posting_list_t::ref_iterator_t::skip_to(uint32_t id) {
+    ArrayUtils::skip_index_to_id(curr_index, result.docs, result.count, id);
+}
+
+void posting_list_t::ref_iterator_t::set_index(uint32_t index) {
+    curr_index = index;
+}
+
+uint32_t posting_list_t::ref_iterator_t::id() const {
+    return result.docs[curr_index];
+}
+
+uint32_t posting_list_t::ref_iterator_t::index() const {
+    return curr_index;
+}
+
+std::unique_ptr<posting_list_t::base_iterator_t> posting_list_t::ref_iterator_t::clone() const {
+    auto it = std::unique_ptr<posting_list_t::ref_iterator_t>();
+    it->field_id = field_id;
+    it->result = result;
+    it->curr_index = curr_index;
+    return it;
 }

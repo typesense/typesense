@@ -721,7 +721,7 @@ public:
                            const bool prioritize_token_position,
                            size_t num_query_tokens,
                            int syn_orig_num_tokens,
-                           const std::vector<posting_list_t::iterator_t>& posting_lists);
+                           const std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& posting_lists);
 
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
 
