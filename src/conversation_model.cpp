@@ -1844,6 +1844,11 @@ Option<std::string> AzureConversationModel::get_answer(const std::string& contex
 }
 
 Option<std::string> AzureConversationModel::get_standalone_question(const nlohmann::json& conversation_history, const std::string& question, const nlohmann::json& model_config) {
+    const size_t min_required_bytes = CONVERSATION_HISTORY.size() + QUESTION.size() + STANDALONE_QUESTION_PROMPT.size() + question.size();
+    if(model_config["max_bytes"].get<size_t>() < min_required_bytes) {
+        return Option<std::string>(400, "Max bytes is not enough to generate standalone question.");
+    }
+
     auto url_op = get_azure_url(model_config);
     if (!url_op.ok()) {
         return Option<std::string>(url_op.code(), url_op.error());
@@ -1858,23 +1863,33 @@ Option<std::string> AzureConversationModel::get_standalone_question(const nlohma
     nlohmann::json request_body;
     request_body["model"] = model_name;
     request_body["messages"] = nlohmann::json::array();
+    
+    std::string standalone_question = STANDALONE_QUESTION_PROMPT;
 
-    for (const auto& message : conversation_history) {
-        request_body["messages"].push_back({
-            {"role", message["role"].get<std::string>()},
-            {"content", message["content"].get<std::string>()}
-        });
+    standalone_question += "\n\n<Conversation history>\n";
+    auto conversation = conversation_history["conversation"];
+    auto max_conversation_length = model_config["max_bytes"].get<size_t>() - min_required_bytes;
+    auto truncate_conversation_op = ConversationManager::get_instance().truncate_conversation(conversation, max_conversation_length);
+    if(!truncate_conversation_op.ok()) {
+        return Option<std::string>(400, truncate_conversation_op.error());
     }
 
-    request_body["messages"].push_back({
-        {"role", "system"},
-        {"content", STANDALONE_QUESTION_PROMPT}
-    });
+    auto truncated_conversation = truncate_conversation_op.get();
 
-    request_body["messages"].push_back({
-        {"role", "user"},
-        {"content", question}
-    });
+
+    
+    for(auto& message : truncated_conversation) {
+        standalone_question += message.dump(0) + "\n";
+    }
+
+    standalone_question += "\n\n<Question>\n" + question;
+    standalone_question += "\n\n<Standalone question>\n";
+
+    nlohmann::json message = nlohmann::json::object();
+    message["role"] = "user";
+    message["content"] = standalone_question;
+
+    request_body["messages"].push_back(message);
 
     std::string response;
     std::map<std::string, std::string> res_headers;
@@ -1882,22 +1897,38 @@ Option<std::string> AzureConversationModel::get_standalone_question(const nlohma
     headers["api-key"] = api_key;
     headers["Content-Type"] = "application/json";
 
-    long status_code = HttpClient::post_response(url, request_body.dump(), response, res_headers, headers);
+    long status_code = RemoteEmbedder::call_remote_api("POST", url, request_body.dump(), response, res_headers, headers);
+
+    if (status_code == 408) {
+        return Option<std::string>(400, "Azure API timeout.");
+    }
 
     if (status_code != 200) {
-        return Option<std::string>(status_code, "Failed to get response from Azure API: " + response);
+        nlohmann::json json_res;
+        try {
+            json_res = nlohmann::json::parse(response);
+        } catch (const std::exception& e) {
+            return Option<std::string>(400, "Azure API error: " + response);
+        }
+        if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
+            return Option<std::string>(400, "Azure API error: " + response);
+        }
+        return Option<std::string>(400, "Azure API error: " + json_res["error"]["message"].get<std::string>());
     }
 
     try {
         nlohmann::json response_json = nlohmann::json::parse(response);
-        if (response_json.contains("choices") && !response_json["choices"].empty() && 
-            response_json["choices"][0].contains("message") && 
-            response_json["choices"][0]["message"].contains("content")) {
-            return Option<std::string>(response_json["choices"][0]["message"]["content"].get<std::string>());
+        if(response_json.count("choices") == 0 || response_json["choices"].size() == 0) {
+            return Option<std::string>(400, "Got malformed response from Azure API.");
         }
-        return Option<std::string>(500, "Invalid response format from Azure API");
+
+        if(response_json["choices"][0].count("message") == 0 || response_json["choices"][0]["message"].count("content") == 0) {
+            return Option<std::string>(400, "Got malformed response from Azure API.");
+        }
+
+        return Option<std::string>(response_json["choices"][0]["message"]["content"].get<std::string>());
     } catch (const std::exception& e) {
-        return Option<std::string>(500, "Failed to parse Azure API response: " + std::string(e.what()));
+        return Option<std::string>(400, "Got malformed response from Azure API.");
     }
 }
 
