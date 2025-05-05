@@ -11,5 +11,8 @@
   "license": "ISC",
   "devDependencies": {
     "vitest": "3.1.2"
+  },
+  "dependencies": {
+    "neverthrow": "^8.2.0"
   }
 }
