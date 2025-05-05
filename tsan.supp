@@ -15,3 +15,6 @@ race:rocksdb
 # Suppress data race in brpc thread creation and mutex lock
 race:bthread::TaskControl::create_group
 race:pthread_mutex_lock:brpc::GetGlobalEventDispatcher
+
+race:rocksdb::Arena::AllocateNewBlock
+race:std::__cxx11::basic_string::_M_mutate

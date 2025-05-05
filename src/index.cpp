@@ -664,7 +664,7 @@ batch_memory_index(Index *index,
 
         num_queued++;
 
-        index->thread_pool->enqueue([&]() {
+        index->thread_pool->enqueue([&, field_name]() {
             write_log_index = local_write_log_index;
 
             const field& f = (field_name == "id") ?
