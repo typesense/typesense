@@ -11,6 +11,7 @@
   "license": "ISC",
   "devDependencies": {
     "@eslint/js": "^9.26.0",
+    "@ianvs/prettier-plugin-sort-imports": "^4.4.1",
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^22.15.3",
     "chalk": "^5.4.1",
