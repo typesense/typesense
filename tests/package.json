@@ -14,6 +14,7 @@
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^22.15.3",
     "chalk": "^5.4.1",
+    "dotenv": "^16.5.0",
     "eslint": "^9.26.0",
     "fs-extra": "^11.3.0",
     "typescript": "^5.8.3",
