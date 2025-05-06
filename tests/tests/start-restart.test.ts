@@ -1,0 +1,118 @@
+import path from "path";
+import type { CollectionSchema } from "typesense/lib/Typesense/Collection";
+import type { CollectionCreateSchema } from "typesense/lib/Typesense/Collections";
+
+import { expect, test } from "vitest";
+
+import { env, fetchNode, restartTypesenseServerFresh, startTypesenseServer } from "@/global-typesense-manager";
+import { delay } from "@/utils";
+
+test("start typesense server", async () => {
+  const res = await startTypesenseServer();
+
+  if (res.isErr()) {
+    throw new Error(res.error.message);
+  }
+
+  const nodes = res.value;
+
+  expect(nodes.length).toBe(3);
+  expect(nodes[0]).toMatchObject({
+    dataDir: path.join(env.TYPESENSE_WORKING_DIRECTORY, "typesense-data-1"),
+    grpc: 8107,
+    http: 8108,
+  });
+
+  expect(nodes[1]).toMatchObject({
+    dataDir: path.join(env.TYPESENSE_WORKING_DIRECTORY, "typesense-data-2"),
+    grpc: 7107,
+    http: 7108,
+  });
+
+  expect(nodes[2]).toMatchObject({
+    dataDir: path.join(env.TYPESENSE_WORKING_DIRECTORY, "typesense-data-3"),
+    grpc: 9107,
+    http: 9108,
+  });
+
+  const createCollectionResult = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+    port: 8108,
+    endpoint: "collections",
+    method: "POST",
+    body: {
+      name: "test",
+      fields: [
+        {
+          name: "title",
+          type: "string",
+        },
+        {
+          name: "content",
+          type: "string",
+        },
+      ],
+    },
+  });
+
+  if (createCollectionResult.isErr()) {
+    throw new Error(createCollectionResult.error.message);
+  }
+
+  expect(createCollectionResult.value.name).toBe("test");
+
+  await delay(10_000);
+
+  const getCollectionResult = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+    port: 8108,
+    endpoint: "collections/test",
+    method: "GET",
+  });
+
+  if (getCollectionResult.isErr()) {
+    throw new Error(getCollectionResult.error.message);
+  }
+
+  expect(getCollectionResult.value.name).toBe("test");
+});
+
+test("restart typesense server", async () => {
+  const res = await restartTypesenseServerFresh();
+
+  if (res.isErr()) {
+    throw new Error(res.error.message);
+  }
+
+  const nodes = res.value;
+
+  expect(nodes.length).toBe(3);
+  expect(nodes[0]).toMatchObject({
+    dataDir: path.join(env.TYPESENSE_WORKING_DIRECTORY, "typesense-data-1"),
+    grpc: 8107,
+    http: 8108,
+  });
+
+  expect(nodes[1]).toMatchObject({
+    dataDir: path.join(env.TYPESENSE_WORKING_DIRECTORY, "typesense-data-2"),
+    grpc: 7107,
+    http: 7108,
+  });
+
+  expect(nodes[2]).toMatchObject({
+    dataDir: path.join(env.TYPESENSE_WORKING_DIRECTORY, "typesense-data-3"),
+    grpc: 9107,
+    http: 9108,
+  });
+
+  const getAllCollectionResults = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+    port: 8108,
+    endpoint: "collections",
+    method: "GET",
+  });
+
+  if (getAllCollectionResults.isErr()) {
+    throw new Error(getAllCollectionResults.error.message);
+  }
+
+  // Should be empty, since we restarted the server fresh
+  expect(getAllCollectionResults.value).toStrictEqual([]);
+});
