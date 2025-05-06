@@ -17,6 +17,7 @@
     "vitest": "3.1.2"
   },
   "dependencies": {
+    "execa": "^9.5.2",
     "neverthrow": "^8.2.0",
     "zod": "^3.24.4"
   }
