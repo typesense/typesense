@@ -25,6 +25,10 @@ interface AddressError {
   type: "address";
 }
 
+export interface SetupNodesOptions {
+  skipCleanup?: boolean;
+}
+
 export interface NodeConfig {
   grpc: number;
   http: (typeof TypesenseProcessManager.nodeToPortMap)[number]["http"];
@@ -318,9 +322,15 @@ export class TypesenseProcessManager {
       );
   }
 
-  setupNodes(): ResultAsync<NodeConfig[], ErrorWithMessage> {
+  setupNodes(options?: SetupNodesOptions): ResultAsync<NodeConfig[], ErrorWithMessage> {
     return this.writeToNodesFile()
-      .andThen(() => this.createDataDirectories())
+      .andThen(() => {
+        if (options?.skipCleanup) {
+          return okAsync(this.mapNodesToDirectories());
+        }
+
+        return this.createDataDirectories();
+      })
       .andThen((directories) => {
         if (!this.verifyDataDirectories(directories)) {
           return errAsync({ message: "Number of directories does not match number of nodes" });
