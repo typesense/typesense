@@ -232,3 +232,6 @@ bool del_personalization_model(const std::shared_ptr<http_req>& req, const std::
 bool get_personalization_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool put_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+//async doc requests
+bool get_async_req_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

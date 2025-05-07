@@ -22,6 +22,7 @@
 #include "conversation_model.h"
 #include "personalization_model_manager.h"
 #include "sole.hpp"
+#include "async_doc_request.h"
 
 using namespace std::chrono_literals;
 
@@ -3718,4 +3719,22 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     }
 
     return proxy.call_sse(url, method, body, headers, req, res);
+}
+
+bool get_async_req_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if(req->params.count("req_id") == 0) {
+        res->set_400("Bad Request. Must contain `req_id`");
+        return false;
+    }
+
+    auto req_id = req->params["req_id"];
+    auto op = AsyncDocRequestHandler::get_instance().get_req_status(req_id);
+    if(!op.ok()) {
+        res->set(op.code(), op.error());
+        return false;
+    }
+
+    res->status_code = 200;
+    res->body = op.get();
+    return true;
 }

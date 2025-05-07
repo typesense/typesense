@@ -3239,7 +3239,7 @@ TEST_F(CollectionFilteringTest, FilterOnObjectFields) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"].count("26"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"]["26"].size());
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"]["26"].count("rec"));
-    ASSERT_FALSE(res_obj["hits"][0]["document"]["stocks"]["26"]["rec"]);
+    ASSERT_FALSE(res_obj["hits"][0]["document"]["stocks"]["26"]["rec"].get<bool>());
 }
 
 TEST_F(CollectionFilteringTest, IgnoreFieldValidation) {

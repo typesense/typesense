@@ -2311,7 +2311,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"].count("26"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"]["26"].size());
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["stocks"]["26"].count("rec"));
-    ASSERT_TRUE(res_obj["hits"][0]["document"]["stocks"]["26"]["rec"]);
+    ASSERT_TRUE(res_obj["hits"][0]["document"]["stocks"]["26"]["rec"].get<bool>());
 
     ASSERT_EQ("product_d", res_obj["hits"][1]["document"]["product_id"]);
     ASSERT_EQ(1, res_obj["hits"][1]["document"].count("stocks"));
@@ -2319,7 +2319,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     ASSERT_EQ(1, res_obj["hits"][1]["document"]["stocks"].count("26"));
     ASSERT_EQ(1, res_obj["hits"][1]["document"]["stocks"]["26"].size());
     ASSERT_EQ(1, res_obj["hits"][1]["document"]["stocks"]["26"].count("rec"));
-    ASSERT_FALSE(res_obj["hits"][1]["document"]["stocks"]["26"]["rec"]);
+    ASSERT_FALSE(res_obj["hits"][1]["document"]["stocks"]["26"]["rec"].get<bool>());
 
     ASSERT_EQ("product_b", res_obj["hits"][2]["document"]["product_id"]);
     ASSERT_EQ(1, res_obj["hits"][2]["document"].count("stocks"));
@@ -2327,7 +2327,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     ASSERT_EQ(1, res_obj["hits"][2]["document"]["stocks"].count("26"));
     ASSERT_EQ(1, res_obj["hits"][2]["document"]["stocks"]["26"].size());
     ASSERT_EQ(1, res_obj["hits"][2]["document"]["stocks"]["26"].count("rec"));
-    ASSERT_FALSE(res_obj["hits"][2]["document"]["stocks"]["26"]["rec"]);
+    ASSERT_FALSE(res_obj["hits"][2]["document"]["stocks"]["26"]["rec"].get<bool>());
 
     ASSERT_EQ("product_c", res_obj["hits"][3]["document"]["product_id"]);
     ASSERT_EQ(1, res_obj["hits"][3]["document"].count("stocks"));

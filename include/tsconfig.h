@@ -89,6 +89,8 @@ private:
   
     uint32_t max_group_limit;
 
+    int async_batch_interval = -1;
+
 protected:
 
     Config() {
@@ -129,6 +131,8 @@ protected:
         this->filter_by_max_ops = FILTER_BY_DEFAULT_OPERATIONS;
         
         this->max_group_limit = 99;
+
+        this->async_batch_interval = -1;
     }
 
     Config(Config const&) {
@@ -245,6 +249,9 @@ public:
         this->max_group_limit = max_group_limit;
     }
 
+    void set_async_batch_interval(int interval) {
+        this->async_batch_interval = interval;
+    }
     // getters
 
     std::string get_data_dir() const {
@@ -262,6 +269,7 @@ public:
     int32_t get_analytics_db_ttl() const {
         return this->analytics_db_ttl;
     }
+
     int32_t get_analytics_minute_rate_limit() const {
         return this->analytics_minute_rate_limit;
     }
@@ -443,6 +451,9 @@ public:
         return this->max_group_limit;
     }
 
+    int get_async_batch_interval() const {
+        return this->async_batch_interval;
+    }
     // loaders
 
     std::string get_env(const char *name) {

@@ -516,6 +516,10 @@ void Config::load_config_file(cmdline::parser& options) {
     if(reader.Exists("server", "filter-by-max-ops")) {
         this->filter_by_max_ops = (uint16_t) reader.GetInteger("server", "filter-by-max-ops", FILTER_BY_DEFAULT_OPERATIONS);
     }
+
+    if(reader.Exists("server", "async-batch-interval")) {
+        this->async_batch_interval = reader.GetInteger("server", "async-batch-interval", -1);
+    }
 }
 
 void Config::load_config_cmd_args(cmdline::parser& options)  {
@@ -711,6 +715,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("filter-by-max-ops")) {
         this->filter_by_max_ops = options.get<uint16_t>("filter-by-max-ops");
+    }
+
+    if(options.exist("async-batch-interval")) {
+        this->async_batch_interval = options.get<int>("async-batch-interval");
     }
 }
 

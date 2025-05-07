@@ -4,6 +4,11 @@
 #include "cached_resource_stat.h"
 #include "collection_manager.h"
 
+std::string hash_req_id(uint64_t req_id) {
+    static std::hash<uint64_t> hasher;
+    return std::to_string(hasher(req_id));
+}
+
 BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, Store* meta_store, const size_t num_threads,
                                const Config& config, const std::atomic<bool>& skip_writes):
                                server(server), store(store), meta_store(meta_store), num_threads(num_threads),
@@ -201,9 +206,10 @@ void BatchedIndexer::run() {
     populate_skip_index();
 
     LOG(INFO) << "BatchedIndexer skip_index: " << skip_index;
+    bool is_async_doc_request_enabled = AsyncDocRequestHandler::get_instance().is_enabled();
 
     for(size_t i = 0; i < num_threads; i++) {
-        thread_pool->enqueue([this, i]() {
+        thread_pool->enqueue([this, i, is_async_doc_request_enabled]() {
             std::deque<uint64_t>& queue = queues[i];
             await_t& queue_mutex = qmutuxes[i];
 
@@ -298,7 +304,15 @@ void BatchedIndexer::run() {
 
                             async_res = found_rpath->async_res;
                             try {
-                                found_rpath->handler(orig_req, orig_res);
+                                if(orig_req->params["async"] == "true" && is_async_doc_request_enabled
+                                    && found_rpath->handler == &post_add_document) {
+                                    //should batch only post_add_document requests
+                                    auto hash = hash_req_id(req_id);
+                                    AsyncDocRequestHandler::get_instance().enqueue(orig_req, hash);
+                                    orig_res->set_200("Queued the request with id : " + hash);
+                                } else {
+                                    found_rpath->handler(orig_req, orig_res);
+                                }
                             } catch(const std::exception& e) {
                                 const std::string& api_action = found_rpath->_get_action();
                                 LOG(ERROR) << "Exception while calling handler " << api_action;
@@ -477,6 +491,10 @@ void BatchedIndexer::run() {
             }
 
             last_gc_run = std::chrono::high_resolution_clock::now();
+        }
+
+        if(is_async_doc_request_enabled) {
+            AsyncDocRequestHandler::get_instance().check_handle_async_doc_request();
         }
     }
 

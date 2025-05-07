@@ -26,6 +26,7 @@
 #include "conversation_manager.h"
 #include "vq_model_manager.h"
 #include "stemmer_manager.h"
+#include "async_doc_request.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -122,6 +123,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<int>("max-per-page", '\0', "Max number of hits per page", false, 250);
     options.add<uint32_t>("max-group-limit", '\0', "Max number of results to be returned per group", false, 99);
+    options.add<int>("async-batch-interval", '\0', "batch interval at which batched post_add_document request will be flushed", false);
 
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
@@ -406,6 +408,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     int32_t analytics_db_ttl = config.get_analytics_db_ttl();
     uint32_t analytics_minute_rate_limit = config.get_analytics_minute_rate_limit();
 
+    int async_batch_interval = config.get_async_batch_interval();
+
     size_t thread_pool_size = config.get_thread_pool_size();
 
     const size_t proc_count = std::max<size_t>(1, std::thread::hardware_concurrency());
@@ -447,6 +451,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     }
 
     AnalyticsManager::get_instance().init(&store, analytics_store, analytics_minute_rate_limit);
+
+    AsyncDocRequestHandler::get_instance().init(&store, async_batch_interval);
 
     RemoteEmbedder::cache.capacity(config.get_embedding_cache_num_entries());
 
