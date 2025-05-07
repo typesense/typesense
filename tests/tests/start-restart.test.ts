@@ -66,7 +66,7 @@ test("start typesense server", async () => {
 
   expect(createCollectionResult.value.name).toBe("test");
 
-  await delay(10_000);
+  await delay(300);
 
   const getCollectionResult = await fetchNode<CollectionSchema, CollectionCreateSchema>({
     port: 8108,
@@ -176,7 +176,7 @@ test("restart typesense server with skip cleanup", async () => {
 
   expect(createCollectionResult.value.name).toBe("test_after_restart");
 
-  await delay(10_000);
+  await delay(300);
 
   const getCollectionResult = await fetchNode<CollectionSchema, CollectionCreateSchema>({
     port: 8108,
