@@ -453,11 +453,15 @@ export class TypesenseProcessManager {
     this.hasSetupExitHandler = true;
   }
 
+  private mapNodesToDirectories() {
+    return Array.from({ length: 3 }, (_, i) => path.join(this.workingDirectory, `typesense-data-${i + 1}`));
+  }
+
   private createDataDirectories(): ResultAsync<string[], ErrorWithMessage> {
     return ResultAsync.combine(
-      Array.from({ length: 3 }, (_, i) =>
+      this.mapNodesToDirectories().map((directory) =>
         safeMakeOrEmptyDir({
-          directory: path.join(this.workingDirectory, `typesense-data-${i + 1}`),
+          directory,
           options: { recursive: true },
         }),
       ),
