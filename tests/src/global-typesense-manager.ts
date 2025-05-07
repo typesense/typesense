@@ -56,7 +56,7 @@ function startTypesenseServer(options?: SetupNodesOptions): ResultAsync<NodeConf
  * @param {number} options.waitForSeconds - The number of seconds to wait for the server to be ready.
  * @example
  */
-function restartTypesenseServer({ waitForSeconds = 10 }: { waitForSeconds?: number } = {}): ResultAsync<
+function restartTypesenseServer({ waitForSeconds = 0 }: { waitForSeconds?: number } = {}): ResultAsync<
   NodeConfig[],
   ErrorWithMessage
 > {
