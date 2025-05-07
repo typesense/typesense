@@ -46,10 +46,6 @@ function startTypesenseServer(options?: SetupNodesOptions): ResultAsync<NodeConf
       return ResultAsync.combine(nodes.map((node) => globalTypesenseManager.startProcess(node))).map(() => nodes);
     })
     .andThen((nodes) => {
-      ora().start("Waiting for 8 seconds");
-      return delay(8_000).map(() => nodes);
-    })
-    .andThen((nodes) => {
       return ResultAsync.combine(nodes.map((node) => globalTypesenseManager.getHealth(node.http))).map(() => nodes);
     });
 }
