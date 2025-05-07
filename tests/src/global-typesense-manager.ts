@@ -46,7 +46,10 @@ function startTypesenseServer(options?: SetupNodesOptions): ResultAsync<NodeConf
     });
 }
 
-function restartTypesenseServer(): ResultAsync<NodeConfig[], ErrorWithMessage> {
+function restartTypesenseServer({ waitForSeconds = 10 }: { waitForSeconds?: number } = {}): ResultAsync<
+  NodeConfig[],
+  ErrorWithMessage
+> {
   const cleanupResults = Array.from(globalTypesenseManager.processes.values()).map((process) =>
     process.dispose().asyncAndThen(() => {
       globalTypesenseManager.processes.delete(process.http);
@@ -56,16 +59,19 @@ function restartTypesenseServer(): ResultAsync<NodeConfig[], ErrorWithMessage> {
 
   return ResultAsync.combine(cleanupResults)
     .andThen(() => {
-      ora().start("Waiting for 10 seconds for cleanup");
+      ora().start(`Waiting for ${waitForSeconds} seconds for cleanup`);
 
-      return delay(10_000).map(() => {
+      return delay(waitForSeconds * 1_000).map(() => {
         ora().succeed("Cleanup complete");
       });
     })
     .andThen(() => startTypesenseServer({ skipCleanup: true }));
 }
 
-function restartTypesenseServerFresh(): ResultAsync<NodeConfig[], ErrorWithMessage> {
+function restartTypesenseServerFresh({ waitForSeconds = 10 }: { waitForSeconds?: number } = {}): ResultAsync<
+  NodeConfig[],
+  ErrorWithMessage
+> {
   const cleanupResults = Array.from(globalTypesenseManager.processes.values()).map((process) =>
     process.dispose().asyncAndThen(() => {
       globalTypesenseManager.processes.delete(process.http);
@@ -75,9 +81,9 @@ function restartTypesenseServerFresh(): ResultAsync<NodeConfig[], ErrorWithMessa
 
   return ResultAsync.combine(cleanupResults)
     .andThen(() => {
-      ora().start("Waiting for 10 seconds for cleanup");
+      ora().start(`Waiting for ${waitForSeconds} seconds for cleanup`);
 
-      return delay(10_000).map(() => {
+      return delay(waitForSeconds * 1_000).map(() => {
         ora().succeed("Cleanup complete");
       });
     })
