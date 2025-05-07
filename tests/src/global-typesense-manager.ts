@@ -19,6 +19,7 @@ const env = createEnv({
     TYPESENSE_BINARY: z.string(),
     TYPESENSE_WORKING_DIRECTORY: z.string(),
     TYPESENSE_SNAPSHOT_PATH: z.string().optional(),
+    TYPESENSE_IP_ADDRESS: z.string().optional(),
   },
   runtimeEnv: process.env,
 });
@@ -29,6 +30,7 @@ const globalTypesenseManager = new TypesenseProcessManager(
   "xyz",
   env.TYPESENSE_WORKING_DIRECTORY,
   env.TYPESENSE_SNAPSHOT_PATH,
+  env.TYPESENSE_IP_ADDRESS,
 );
 
 /**
