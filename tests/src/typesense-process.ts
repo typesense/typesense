@@ -5,11 +5,11 @@ import path from "path";
 import type { ErrorWithMessage } from "@/error";
 import type { ChildProcess } from "child_process";
 import type { Options as ExecaOptions } from "execa";
+import type { Result } from "neverthrow";
 import type { Ora } from "ora";
 import type { HealthResponse } from "typesense/lib/Typesense/Health";
 
 import { execa } from "execa";
-import type { Result} from "neverthrow";
 import { err, errAsync, ok, okAsync, ResultAsync } from "neverthrow";
 import ora from "ora";
 import { Client } from "typesense";
@@ -17,7 +17,7 @@ import { Client } from "typesense";
 import { toErrorWithMessage } from "@/error";
 import { exists, safeEmptyDir, safeMakeOrEmptyDir } from "@/fs";
 import { logger } from "@/logger";
-import { delay, isStringifiable } from "@/utils";
+import { isStringifiable } from "@/utils";
 
 export const DEFAULT_IP_ADDRESS = "192.168.2.25";
 
@@ -188,13 +188,10 @@ export class TypesenseProcessManager {
 
     return process.value.dispose().map(() => {
       this.processes.delete(process.value.http);
-      this.spinner.start(`Waiting for 10 seconds for Process on ${process.value.http}`);
-      return delay(10_000).andThen(() =>
-        this.startProcess(process.value.node).map((newProcess) => {
-          this.processes.set(newProcess.http, newProcess);
-          this.spinner.succeed(`Restarted Process on ${newProcess.http}`);
-        }),
-      );
+      return this.startProcess(process.value.node).map((newProcess) => {
+        this.processes.set(newProcess.http, newProcess);
+        this.spinner.succeed(`Restarted Process on ${newProcess.http}`);
+      });
     });
   }
 
