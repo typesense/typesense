@@ -61,7 +61,7 @@ function restartTypesenseServer({ waitForSeconds = 10 }: { waitForSeconds?: numb
   ErrorWithMessage
 > {
   const cleanupResults = Array.from(globalTypesenseManager.processes.values()).map((process) =>
-    process.dispose().asyncAndThen(() => {
+    process.dispose().andThen(() => {
       globalTypesenseManager.processes.delete(process.http);
       return okAsync<void, ErrorWithMessage>(undefined);
     }),
@@ -88,7 +88,7 @@ function restartTypesenseServerFresh({ waitForSeconds = 10 }: { waitForSeconds?:
   ErrorWithMessage
 > {
   const cleanupResults = Array.from(globalTypesenseManager.processes.values()).map((process) =>
-    process.dispose().asyncAndThen(() => {
+    process.dispose().andThen(() => {
       globalTypesenseManager.processes.delete(process.http);
       return okAsync<void, ErrorWithMessage>(undefined);
     }),
