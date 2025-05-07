@@ -31,6 +31,12 @@ const globalTypesenseManager = new TypesenseProcessManager(
   env.TYPESENSE_SNAPSHOT_PATH,
 );
 
+/**
+ * Start the Typesense server and wait for it to be ready.
+ * @param {Object} options
+ * @param {boolean} options.skipCleanup - Whether to skip the cleanup of the data directories.
+ * @example
+ */
 function startTypesenseServer(options?: SetupNodesOptions): ResultAsync<NodeConfig[], ErrorWithMessage> {
   return globalTypesenseManager
     .setupNodes(options)
@@ -46,6 +52,12 @@ function startTypesenseServer(options?: SetupNodesOptions): ResultAsync<NodeConf
     });
 }
 
+/**
+ * Restart the Typesense server and wait for it to be ready.
+ * @param {Object} options
+ * @param {number} options.waitForSeconds - The number of seconds to wait for the server to be ready.
+ * @example
+ */
 function restartTypesenseServer({ waitForSeconds = 10 }: { waitForSeconds?: number } = {}): ResultAsync<
   NodeConfig[],
   ErrorWithMessage
@@ -68,6 +80,11 @@ function restartTypesenseServer({ waitForSeconds = 10 }: { waitForSeconds?: numb
     .andThen(() => startTypesenseServer({ skipCleanup: true }));
 }
 
+/**
+ * Restart the Typesense server, delete all data and wait for it to be ready.
+ * @param {Object} options
+ * @param {number} options.waitForSeconds - The number of seconds to wait for the server to be ready.
+ */
 function restartTypesenseServerFresh({ waitForSeconds = 10 }: { waitForSeconds?: number } = {}): ResultAsync<
   NodeConfig[],
   ErrorWithMessage
@@ -90,6 +107,9 @@ function restartTypesenseServerFresh({ waitForSeconds = 10 }: { waitForSeconds?:
     .andThen(() => startTypesenseServer());
 }
 
+/**
+ * Perform a request to a node.
+ */
 function fetchNode<T, const Body, const QueryParams = Record<string, string>>({
   port,
   endpoint,
