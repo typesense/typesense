@@ -335,13 +335,10 @@ struct collection_search_args_t {
                              collection_search_args_t& args);
 };
 
-class Collection {
+class Collection: std::enable_shared_from_this<Collection> {
 private:
 
     mutable std::shared_mutex mutex;
-
-    // ensures that a Collection* is not destructed while in use by multiple threads
-    mutable std::shared_mutex lifecycle_mutex;
 
     static const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
@@ -1117,8 +1114,6 @@ public:
     static void hide_credential(nlohmann::json& json, const std::string& credential_name);
 
     friend class filter_result_iterator_t;
-
-    std::shared_mutex& get_lifecycle_mutex();
 
     static void expand_search_query(const tsl::htrie_map<char, field>& search_schema, const std::vector<char>& symbols_to_index,const std::vector<char>& token_separators,
                                     const std::string& raw_query, size_t offset, size_t total, const search_args* search_params,

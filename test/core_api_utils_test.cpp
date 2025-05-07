@@ -1064,7 +1064,7 @@ TEST_F(CoreAPIUtilsTest, ExportWithJoin) {
     export_state_t export_state;
     auto coll1 = collectionManager.get_collection_unsafe("Products");
     coll1->get_filter_ids("$Customers(customer_id:customer_a)", export_state.filter_result);
-    export_state.collection = coll1;
+    export_state.collection = coll1.get();
     export_state.res_body = &res_body;
     export_state.include_fields.insert("product_name");
     export_state.ref_include_exclude_fields_vec.emplace_back(ref_include_exclude_fields{"Customers", {"product_price"}, "",

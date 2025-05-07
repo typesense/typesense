@@ -571,28 +571,26 @@ void Index::validate_and_preprocess(Index *index,
     }
 }
 
-size_t Index::
-batch_memory_index(Index *index,
-                 std::vector<index_record>& iter_batch,
-                 const std::string & default_sorting_field,
-                 const tsl::htrie_map<char, field> & actual_search_schema,
-                 const tsl::htrie_map<char, field> & embedding_fields,
-                 const std::string& fallback_field_type,
-                 const std::vector<char>& token_separators,
-                 const std::vector<char>& symbols_to_index,
-                 const bool do_validation, const size_t remote_embedding_batch_size,
-                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
-                 const bool generate_embeddings,
-                 const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
-                 const std::string& collection_name,
-                 const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
+size_t Index::batch_memory_index(Index *index,
+                                 std::vector<index_record>& iter_batch,
+                                 const std::string & default_sorting_field,
+                                 const tsl::htrie_map<char, field> & actual_search_schema,
+                                 const tsl::htrie_map<char, field> & embedding_fields,
+                                 const std::string& fallback_field_type,
+                                 const std::vector<char>& token_separators,
+                                 const std::vector<char>& symbols_to_index,
+                                 const bool do_validation, const size_t remote_embedding_batch_size,
+                                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
+                                 const bool generate_embeddings,
+                                 const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
+                                 const std::string& collection_name,
+                                 const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
     const size_t concurrency = 4;
     const size_t num_threads = std::min(concurrency, iter_batch.size());
     const size_t window_size = (num_threads == 0) ? 0 :
                                (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
     const auto& indexable_schema = use_addition_fields ? addition_fields : actual_search_schema;
     
-
     size_t num_indexed = 0;
     size_t num_processed = 0;
     std::mutex m_process;
