@@ -11,7 +11,7 @@ import ora from "ora";
 import { z } from "zod";
 
 import { TypesenseProcessManager } from "@/typesense-process";
-import { constructUrl, delay } from "@/utils";
+import { constructUrl } from "@/utils";
 
 const env = createEnv({
   clientPrefix: "TYPESENSE_",
@@ -56,10 +56,7 @@ function startTypesenseServer(options?: SetupNodesOptions): ResultAsync<NodeConf
  * @param {number} options.waitForSeconds - The number of seconds to wait for the server to be ready.
  * @example
  */
-function restartTypesenseServer({ waitForSeconds = 0 }: { waitForSeconds?: number } = {}): ResultAsync<
-  NodeConfig[],
-  ErrorWithMessage
-> {
+function restartTypesenseServer(): ResultAsync<NodeConfig[], ErrorWithMessage> {
   const cleanupResults = Array.from(globalTypesenseManager.processes.values()).map((process) =>
     process.dispose().andThen(() => {
       globalTypesenseManager.processes.delete(process.http);
@@ -67,15 +64,7 @@ function restartTypesenseServer({ waitForSeconds = 0 }: { waitForSeconds?: numbe
     }),
   );
 
-  return ResultAsync.combine(cleanupResults)
-    .andThen(() => {
-      ora().start(`Waiting for ${waitForSeconds} seconds for cleanup`);
-
-      return delay(waitForSeconds * 1_000).map(() => {
-        ora().succeed("Cleanup complete");
-      });
-    })
-    .andThen(() => startTypesenseServer({ skipCleanup: true }));
+  return ResultAsync.combine(cleanupResults).andThen(() => startTypesenseServer({ skipCleanup: true }));
 }
 
 /**
@@ -83,10 +72,7 @@ function restartTypesenseServer({ waitForSeconds = 0 }: { waitForSeconds?: numbe
  * @param {Object} options
  * @param {number} options.waitForSeconds - The number of seconds to wait for the server to be ready.
  */
-function restartTypesenseServerFresh({ waitForSeconds = 10 }: { waitForSeconds?: number } = {}): ResultAsync<
-  NodeConfig[],
-  ErrorWithMessage
-> {
+function restartTypesenseServerFresh(): ResultAsync<NodeConfig[], ErrorWithMessage> {
   const cleanupResults = Array.from(globalTypesenseManager.processes.values()).map((process) =>
     process.dispose().andThen(() => {
       globalTypesenseManager.processes.delete(process.http);
@@ -94,15 +80,7 @@ function restartTypesenseServerFresh({ waitForSeconds = 10 }: { waitForSeconds?:
     }),
   );
 
-  return ResultAsync.combine(cleanupResults)
-    .andThen(() => {
-      ora().start(`Waiting for ${waitForSeconds} seconds for cleanup`);
-
-      return delay(waitForSeconds * 1_000).map(() => {
-        ora().succeed("Cleanup complete");
-      });
-    })
-    .andThen(() => startTypesenseServer());
+  return ResultAsync.combine(cleanupResults).andThen(() => startTypesenseServer());
 }
 
 /**
