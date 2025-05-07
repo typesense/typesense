@@ -28,4 +28,24 @@ function safeExeca(
   return ResultAsync.fromPromise(execa(command, args, opts), toErrorWithMessage);
 }
 
-export { delay, isStringifiable, safeExeca };
+type Protocol = "http" | "https";
+type Domain = `${string}.${string}` | `localhost`;
+type Port = `:${number}`;
+type Path = `/${string}${string}`;
+
+type UrlString = `${Protocol}://${Domain}${Port | ""}${Path | ""}`;
+
+function constructUrl({
+  baseUrl,
+  params,
+  endpoint,
+}: {
+  baseUrl: UrlString;
+  params?: URLSearchParams;
+  endpoint?: `/${string}`;
+}) {
+  const urlWithEndpoint = endpoint ? `${baseUrl}${endpoint}` : baseUrl;
+  return params && Array.from(params.entries()).length > 0 ? `${urlWithEndpoint}?${params}` : urlWithEndpoint;
+}
+
+export { constructUrl, delay, isStringifiable, safeExeca };
