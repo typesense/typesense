@@ -9,7 +9,8 @@ import type { Ora } from "ora";
 import type { HealthResponse } from "typesense/lib/Typesense/Health";
 
 import { execa } from "execa";
-import { err, errAsync, ok, okAsync, Result, ResultAsync } from "neverthrow";
+import type { Result} from "neverthrow";
+import { err, errAsync, ok, okAsync, ResultAsync } from "neverthrow";
 import ora from "ora";
 import { Client } from "typesense";
 
@@ -74,6 +75,14 @@ export class TypesenseProcessController extends EventEmitter {
       numRetries: 6,
     });
 
+    this.process.on("close", (code, signal) => {
+      this.exitCode = code;
+      const logLevel = code === 0 ? "info" : "error";
+      logger[logLevel](`[Node on port ${this.http}] Process exited with code=${code} signal=${signal}`);
+      this.exitCode = code;
+      this.emit("exit", { code, http: this.http });
+    });
+
     this.process.on("exit", (code, signal) => {
       this.exitCode = code;
       const logLevel = code === 0 ? "info" : "error";
@@ -89,38 +98,56 @@ export class TypesenseProcessController extends EventEmitter {
     });
   }
 
-  public dispose(): Result<void, ErrorWithMessage> {
+  public dispose(): ResultAsync<void, ErrorWithMessage> {
     if (!this.process || this.process.killed) {
-      return ok(undefined);
+      return okAsync(undefined);
     }
 
-    return Result.fromThrowable(() => {
-      try {
-        this.process!.kill("SIGTERM");
-        this.process!.removeAllListeners();
-        this.removeAllListeners();
+    return ResultAsync.fromPromise(
+      new Promise<void>((resolve, reject) => {
+        try {
+          this.process!.kill("SIGTERM");
+          this.process!.removeAllListeners();
+          this.removeAllListeners();
 
-        // Set up SIGKILL fallback
-        setTimeout(() => {
-          if (this.process && !this.process.killed) {
-            this.process.kill("SIGKILL");
-            this.process.removeAllListeners();
-          }
-        }, 20_000);
+          const killTimeout = setTimeout(() => {
+            if (this.process && !this.process.killed) {
+              this.process.kill("SIGKILL");
+              this.process.removeAllListeners();
+            }
+          }, 20_000);
 
-        // Clean up resources
-        this.process = null;
-        this.error = null;
-        this.exitCode = null;
-      } catch (error) {
-        if (error instanceof Error && "signal" in error) {
-          if (error.signal === "SIGTERM" || error.signal === "SIGKILL") {
-            return;
+          this.process!.once("exit", () => {
+            clearTimeout(killTimeout);
+            this.process = null;
+            this.error = null;
+            this.exitCode = null;
+            logger.info(`[Node on port ${this.http}] Process killed`);
+            resolve();
+          });
+
+          this.process!.once("error", (error) => {
+            clearTimeout(killTimeout);
+            if (error instanceof Error && "signal" in error) {
+              if (error.signal === "SIGTERM" || error.signal === "SIGKILL") {
+                resolve();
+                return;
+              }
+            }
+            reject(new Error(error instanceof Error ? error.message : String(error)));
+          });
+        } catch (error) {
+          if (error instanceof Error && "signal" in error) {
+            if (error.signal === "SIGTERM" || error.signal === "SIGKILL") {
+              resolve();
+              return;
+            }
           }
+          reject(new Error(error instanceof Error ? error.message : String(error)));
         }
-        throw error;
-      }
-    }, toErrorWithMessage)();
+      }),
+      toErrorWithMessage,
+    );
   }
 }
 
@@ -171,19 +198,22 @@ export class TypesenseProcessManager {
     });
   }
 
-  stopProcess(port: (typeof TypesenseProcessManager.nodeToPortMap)[number]["http"]): Result<void, ErrorWithMessage> {
+  stopProcess(
+    port: (typeof TypesenseProcessManager.nodeToPortMap)[number]["http"],
+  ): ResultAsync<void, ErrorWithMessage> {
     const process = this.getProcessByHttpPort(port);
 
     if (process.isErr()) {
-      return err(process.error);
+      return errAsync(process.error);
     }
 
     this.spinner.start("Stopping Typesense process");
     return process.value
       .dispose()
-      .map(() => {
+      .andThen(() => {
         this.processes.delete(process.value.http);
         this.spinner.succeed(`Stopped Typesense process on port ${process.value.http}`);
+        return okAsync(undefined);
       })
       .mapErr((error) => {
         this.spinner.fail(`Failed to stop Typesense process: ${error.message}`);
