@@ -11,7 +11,7 @@ import ora from "ora";
 import { z } from "zod";
 
 import { TypesenseProcessManager } from "@/typesense-process";
-import { delay } from "@/utils";
+import { constructUrl, delay } from "@/utils";
 
 const env = createEnv({
   clientPrefix: "TYPESENSE_",
@@ -84,28 +84,48 @@ function restartTypesenseServerFresh(): ResultAsync<NodeConfig[], ErrorWithMessa
     .andThen(() => startTypesenseServer());
 }
 
-function fetchNode<T, const B>({
+function fetchNode<T, const Body, const QueryParams = Record<string, string>>({
   port,
   endpoint,
   method,
   body,
+  queryParams,
 }: {
   port: (typeof TypesenseProcessManager.nodeToPortMap)[number]["http"];
-  endpoint: string;
+  endpoint: `${string}`;
   method: "GET" | "POST" | "PUT" | "DELETE";
-  body?: B;
+  body?: Body;
+  queryParams?: QueryParams;
 }): ResultAsync<T, ErrorWithMessage> {
+  const urlParams = queryParams ? new URLSearchParams(queryParams) : undefined;
+
+  const url = constructUrl({
+    baseUrl: `http://localhost:${port}`,
+    endpoint: `/${endpoint}`,
+    params: urlParams,
+  });
+
   return ResultAsync.fromPromise(
-    fetch(`http://localhost:${port}/${endpoint}`, {
+    fetch(url, {
       method,
       headers: {
         "Content-Type": "application/json",
         "X-Typesense-Api-Key": "xyz",
       },
       body: body ? JSON.stringify(body) : undefined,
-    }).then((res) => res.json() as T),
+    }),
     toErrorWithMessage,
-  );
+  ).andThen((res) => {
+    if (!res.ok) {
+      return ResultAsync.fromPromise(res.text(), toErrorWithMessage).andThen((text) => {
+        return errAsync({
+          message: `HTTP error! status: ${res.status}, message: ${text}`,
+        });
+      });
+    }
+
+    return ResultAsync.fromPromise(res.json() as Promise<T>, toErrorWithMessage);
+  });
 }
 
 export {
