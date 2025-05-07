@@ -1,12 +1,12 @@
 import type { ErrorWithMessage } from "@/error";
-import type { NodeConfig } from "@/typesense-process";
+import type { NodeConfig, SetupNodesOptions } from "@/typesense-process";
 
 import { toErrorWithMessage } from "@/error";
 
 import "dotenv/config";
 
 import { createEnv } from "@t3-oss/env-core";
-import { okAsync, ResultAsync } from "neverthrow";
+import { errAsync, okAsync, ResultAsync } from "neverthrow";
 import ora from "ora";
 import { z } from "zod";
 
@@ -31,9 +31,9 @@ const globalTypesenseManager = new TypesenseProcessManager(
   env.TYPESENSE_SNAPSHOT_PATH,
 );
 
-function startTypesenseServer(): ResultAsync<NodeConfig[], ErrorWithMessage> {
+function startTypesenseServer(options?: SetupNodesOptions): ResultAsync<NodeConfig[], ErrorWithMessage> {
   return globalTypesenseManager
-    .setupNodes()
+    .setupNodes(options)
     .andThen((nodes) => {
       return ResultAsync.combine(nodes.map((node) => globalTypesenseManager.startProcess(node))).map(() => nodes);
     })
@@ -44,6 +44,25 @@ function startTypesenseServer(): ResultAsync<NodeConfig[], ErrorWithMessage> {
     .andThen((nodes) => {
       return ResultAsync.combine(nodes.map((node) => globalTypesenseManager.getHealth(node.http))).map(() => nodes);
     });
+}
+
+function restartTypesenseServer(): ResultAsync<NodeConfig[], ErrorWithMessage> {
+  const cleanupResults = Array.from(globalTypesenseManager.processes.values()).map((process) =>
+    process.dispose().asyncAndThen(() => {
+      globalTypesenseManager.processes.delete(process.http);
+      return okAsync<void, ErrorWithMessage>(undefined);
+    }),
+  );
+
+  return ResultAsync.combine(cleanupResults)
+    .andThen(() => {
+      ora().start("Waiting for 10 seconds for cleanup");
+
+      return delay(10_000).map(() => {
+        ora().succeed("Cleanup complete");
+      });
+    })
+    .andThen(() => startTypesenseServer({ skipCleanup: true }));
 }
 
 function restartTypesenseServerFresh(): ResultAsync<NodeConfig[], ErrorWithMessage> {
@@ -89,4 +108,11 @@ function fetchNode<T, const B>({
   );
 }
 
-export { globalTypesenseManager, startTypesenseServer, restartTypesenseServerFresh, env, fetchNode };
+export {
+  globalTypesenseManager,
+  startTypesenseServer,
+  restartTypesenseServerFresh,
+  restartTypesenseServer,
+  env,
+  fetchNode,
+};
