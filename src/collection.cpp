@@ -3304,12 +3304,12 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             bool is_asc = a_facet.sort_order == "asc";
             std::stable_sort(facet_values.begin(), facet_values.end(),
                              [&] (const auto& fv1, const auto& fv2) {
-                if(is_asc) {
-                    return fv1.sort_field_val < fv2.sort_field_val;
-                }
-
-                return fv1.sort_field_val > fv2.sort_field_val;
-            });
+                                 if (is_asc) {
+                                     return std::tie(fv1.sort_field_val, fv1.count) < std::tie(fv2.sort_field_val, fv2.count);
+                                 } else { //desc
+                                     return std::tie(fv1.sort_field_val, fv1.count) > std::tie(fv2.sort_field_val, fv2.count);
+                                 }
+                             });
         } else {
             std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
         }
@@ -4053,16 +4053,17 @@ void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_s
     info["score"] = std::to_string(match_score);
     info["tokens_matched"] = tokens_matched;
     info["fields_matched"] = extract_bits(match_score, 0, 3);
+    int64_t token_diff = int64_t(total_tokens) - int64_t(tokens_matched);  // could be -ve due to split tokens
 
     if(match_type == max_score) {
         info["best_field_score"] = std::to_string(extract_bits(match_score, 11, 48));
         info["best_field_weight"] = extract_bits(match_score, 3, 8);
-        info["num_tokens_dropped"] = total_tokens - tokens_matched;
+        info["num_tokens_dropped"] = std::max<int64_t>(0, token_diff);
         info["typo_prefix_score"] = 255 - extract_bits(match_score, 35, 8);
     } else {
         info["best_field_weight"] = extract_bits(match_score, 51, 8);
         info["best_field_score"] = std::to_string(extract_bits(match_score, 3, 48));
-        info["num_tokens_dropped"] = total_tokens - tokens_matched;
+        info["num_tokens_dropped"] = std::max<int64_t>(0, token_diff);
         info["typo_prefix_score"] = 255 - extract_bits(match_score, 27, 8);
     }
 }
@@ -5565,11 +5566,6 @@ uint32_t Collection::get_collection_id() const {
     return collection_id.load();
 }
 
-Option<uint32_t> Collection::doc_id_to_seq_id_with_lock(const std::string & doc_id) const {
-    std::shared_lock lock(mutex);
-    return doc_id_to_seq_id(doc_id);
-}
-
 Option<uint32_t> Collection::doc_id_to_seq_id(const std::string & doc_id) const {
     std::string seq_id_str;
     StoreStatus status = store->get(get_doc_id_key(doc_id), seq_id_str);
@@ -6913,18 +6909,20 @@ Index* Collection::init_index() {
             auto dot_index = field.reference.find('.');
             auto ref_coll_name = field.reference.substr(0, dot_index);
             auto ref_field_name = field.reference.substr(dot_index + 1);
+            struct field ref_field;
+            std::set<update_reference_info_t> update_ref_infos{};
 
             auto& collectionManager = CollectionManager::get_instance();
-            auto ref_coll = collectionManager.get_collection(ref_coll_name);
-            std::set<update_reference_info_t> update_ref_infos{};
-            struct field ref_field;
-            if (ref_coll != nullptr) {
-                // `CollectionManager::get_collection` accounts for collection alias being used and provides pointer to
-                // the original collection.
-                ref_coll_name = ref_coll->name;
+            {
+                // NOTE: we scope this operation to avoid lock inversion by
+                // acquiring collection->lifecycle_mutex before collection_manager's mutex in `add_referenced_in`
+                auto ref_coll = collectionManager.get_collection(ref_coll_name); // resolves alias
+                if (ref_coll != nullptr) {
+                    ref_coll_name = ref_coll->name;
 
-                update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
-                                                                    ref_field_name, ref_field);
+                    update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
+                                                                   ref_field_name, ref_field);
+                }
             }
 
             auto ref_info = reference_info_t{name, field.name, field.is_async_reference, ref_field_name};
