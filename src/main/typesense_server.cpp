@@ -133,6 +133,9 @@ void master_server_routes() {
     // for proxying remote embedders
     server->post("/proxy", post_proxy);
     server->post("/proxy_sse", post_proxy_sse, false, true);
+
+    //async doc request error status
+    server->get("/asyncdoc/:req_id", get_async_req_status);
 }
 
 void (*backward::SignalHandling::_callback)(int sig, backward::StackTrace&) = nullptr;

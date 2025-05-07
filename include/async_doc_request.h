@@ -31,6 +31,5 @@ public:
     void check_handle_async_doc_request();
     void enqueue(const std::shared_ptr<http_req>& req, const std::string& req_hash);
     Option<std::string> get_req_status(const std::string& req);
-    std::string get_last_n_req_status(int n);
     bool is_enabled();
 };
