@@ -61,8 +61,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model,
                        spp::sparse_hash_map<std::string, std::string> referenced_in,
                        const nlohmann::json& metadata,
-                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins,
-                       int coll_batch_interval) :
+                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins) :
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
@@ -71,14 +70,12 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
         index(init_index()), vq_model(vq_model),
         referenced_in(std::move(referenced_in)),
-        metadata(metadata), async_referenced_ins(std::move(async_referenced_ins)), batch_interval(coll_batch_interval) {
+        metadata(metadata), async_referenced_ins(std::move(async_referenced_ins)) {
     
     if (vq_model) {
         vq_model->inc_collection_ref_count();
     }
     this->num_documents = 0;
-
-    this->last_batch_flush_secs = std::chrono::steady_clock::now();
 }
 
 Collection::~Collection() {
@@ -500,13 +497,12 @@ bool Collection::check_and_add_nested_field(tsl::htrie_map<char, field>& nested_
     return true;
 }
 
-nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohmann::json& ret_document,
+nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                                     const index_operation_t& operation, const std::string& id,
                                     const DIRTY_VALUES& dirty_values, const bool& return_doc, const bool& return_id,
                                     const size_t remote_embedding_batch_size,
                                     const size_t remote_embedding_timeout_ms,
-                                    const size_t remote_embedding_num_tries,
-                                    bool is_async_batch_request) {
+                                    const size_t remote_embedding_num_tries) {
     std::vector<index_record> index_records;
 
     const size_t index_batch_size = 1000;
@@ -516,7 +512,6 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
     // ensures that document IDs are not repeated within the same batch
     std::set<std::string> batch_doc_ids;
     bool found_batch_new_field = false;
-    nlohmann::json document;
 
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
@@ -606,24 +601,9 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             // to return the document for the single doc add cases
             if(index_records.size() == 1) {
                 const auto& rec = index_records[0];
-                ret_document = rec.is_update ? rec.new_doc : rec.doc;
-                remove_flat_fields(ret_document);
-                remove_reference_helper_fields(ret_document);
-            }
-
-            if(is_async_batch_request) {
-                for(const auto& rec : index_records) {
-                    //ret_document will be passed as json array
-                    nlohmann::json doc;
-                    if(rec.indexed.ok()) {
-                        doc = rec.is_update ? rec.new_doc : rec.doc;
-                        remove_flat_fields(doc);
-                        remove_reference_helper_fields(doc);
-                    } else {
-                        doc["message"] = rec.indexed.error();
-                    }
-                    ret_document.push_back(doc);
-                }
+                document = rec.is_update ? rec.new_doc : rec.doc;
+                remove_flat_fields(document);
+                remove_reference_helper_fields(document);
             }
 
             index_records.clear();
@@ -8320,49 +8300,4 @@ union_global_params_t::union_global_params_t(const std::map<std::string, std::st
     }
 
     fetch_size = std::min<size_t>(offset + per_page, limit_hits);
-}
-
-bool Collection::is_batch_interval_set() const {
-    return batch_interval > 0;
-}
-
-bool Collection::handle_single_request_batch(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res,
-                                             const index_operation_t& operation,
-                                             const std::string& id, const DIRTY_VALUES& dirty_values,
-                                             const bool& return_doc, const bool& return_id,
-                                             const size_t remote_embedding_batch_size,
-                                             const size_t remote_embedding_timeout_ms,
-                                             const size_t remote_embedding_num_tries) {
-
-    std::vector<std::string> docs;
-
-    single_doc_batch.push_back(req->body);
-
-    auto now = std::chrono::steady_clock::now();
-    auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_batch_flush_secs).count();
-    if (time_elapsed > batch_interval || override_batch_flush_secs) {
-        //flush the current batch
-        nlohmann::json docs = nlohmann::json::array();
-        nlohmann::json result = add_many(single_doc_batch, docs, operation, id, dirty_values, return_doc, return_id,
-                                         remote_embedding_batch_size, remote_embedding_timeout_ms,
-                                         remote_embedding_num_tries, true);
-
-        std::stringstream response_stream;
-        for (auto i = 0; i < docs.size(); ++i) {
-            if (i == 0) {
-                response_stream << docs[i].dump();
-            } else {
-                response_stream << "\n" << docs[i].dump();
-            }
-        }
-
-        single_doc_batch.clear();
-        last_batch_flush_secs = std::chrono::steady_clock::now();
-
-        res->set_201(response_stream.str());
-        return true;
-    }
-
-    res->set_200("");
-    return true;
 }

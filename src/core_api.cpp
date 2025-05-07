@@ -1643,7 +1643,6 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
 bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const char *ACTION = "action";
     const char *DIRTY_VALUES_PARAM = "dirty_values";
-    bool is_async = false;
 
     if(req->params.count(ACTION) == 0) {
         req->params[ACTION] = "create";
@@ -1680,15 +1679,6 @@ bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_p
 
     if(req->params.count("remote_embedding_num_tries") != 0) {
         remote_embedding_num_tries = std::stoul(req->params["remote_embedding_num_tries"]);
-    }
-
-    if(req->params.count("async") != 0 && req->params["async"] == "true") {
-        is_async = true;
-    }
-
-    if(collection->is_batch_interval_set() && is_async) {
-        return collection->handle_single_request_batch(req, res, operation, "", dirty_values, false, false, 200,
-                                                           remote_embedding_timeout_ms, remote_embedding_num_tries);
     }
 
     nlohmann::json document;

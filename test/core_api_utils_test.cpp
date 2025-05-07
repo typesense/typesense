@@ -2143,7 +2143,6 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
 
     nlohmann::json expected_meta_json = R"(
         {
-            "batch_interval": -1,
             "created_at":1705482381,
             "default_sorting_field":"",
             "enable_nested_fields":true,
@@ -2243,7 +2242,6 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
 
     expected_meta_json = R"(
         {
-            "batch_interval": -1,
             "created_at":1705482381,
             "default_sorting_field":"",
             "enable_nested_fields":true,
@@ -2848,81 +2846,4 @@ TEST_F(CoreAPIUtilsTest, RemoveDocumentsWithReturnValues) {
     ASSERT_FALSE(res_json.contains("ids"));
 
     collectionManager.drop_collection("coll1");
-}
-
-TEST_F(CoreAPIUtilsTest, BatchAsyncSingleDocs) {
-    nlohmann::json schema1 = R"({
-        "name": "batch_async_coll",
-        "fields": [
-          {"name": "title", "type": "string"},
-          {"name": "points", "type": "int32"}
-        ],
-        "batch_interval": 60
-    })"_json;
-
-    auto op = collectionManager.create_collection(schema1);
-    ASSERT_TRUE(op.ok());
-    Collection* coll = op.get();
-
-    std::shared_ptr<http_req> req = std::make_shared<http_req>();
-    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
-
-    req->params["collection"] = "batch_async_coll";
-
-    //normal request
-    nlohmann::json body = R"({"title":"How to train a dragon", "points":70})"_json;
-    req->body = body.dump();
-
-    ASSERT_TRUE(post_add_document(req, res));
-    ASSERT_EQ("{\"id\":\"0\",\"points\":70,\"title\":\"How to train a dragon\"}", res->body);
-
-    //batch request
-    req->params["async"] = "true";
-    body = R"({"title":"Multiverse of Madness", "points":90})"_json;
-    req->body = body.dump();
-
-    ASSERT_TRUE(post_add_document(req, res));
-    ASSERT_TRUE(res->body.empty());  //response will be received later after batch is flushed
-
-    body = R"({"title":"Lenged of six rings", "points":80})"_json;
-    req->body = body.dump();
-
-    ASSERT_TRUE(post_add_document(req, res));
-    ASSERT_TRUE(res->body.empty());  //response will be received later after batch is flushed
-
-    body = R"({"title":"End Game", "points":100})"_json;
-    req->body = body.dump();
-
-    ASSERT_TRUE(post_add_document(req, res));
-    ASSERT_TRUE(res->body.empty());  //response will be received later after batch is flushed
-
-    coll->override_batch_flush_timeout(true); //simulate batch timeout
-
-    body = R"({"title":"Infinity War", "points":100})"_json;
-    req->body = body.dump();
-
-    ASSERT_TRUE(post_add_document(req, res));
-    ASSERT_EQ("{\"id\":\"1\",\"points\":90,\"title\":\"Multiverse of Madness\"}\n"
-              "{\"id\":\"2\",\"points\":80,\"title\":\"Lenged of six rings\"}\n"
-              "{\"id\":\"3\",\"points\":100,\"title\":\"End Game\"}\n"
-              "{\"id\":\"4\",\"points\":100,\"title\":\"Infinity War\"}", res->body);
-
-    //batch invalid docs
-    coll->override_batch_flush_timeout(false);
-
-    body = R"({"title":"Halo 4", "points":120})"_json;
-    req->body = body.dump();
-
-    ASSERT_TRUE(post_add_document(req, res));
-    ASSERT_TRUE(res->body.empty());  //response will be received later after batch is flushed
-
-
-    coll->override_batch_flush_timeout(true);
-
-    body = R"({"name":"Dark Knight", "points":120})"_json;
-    req->body = body.dump();
-
-    ASSERT_TRUE(post_add_document(req, res));
-    ASSERT_EQ("{\"id\":\"5\",\"points\":120,\"title\":\"Halo 4\"}\n"
-              "{\"message\":\"Field `title` has been declared in the schema, but is not found in the document.\"}", res->body);
 }

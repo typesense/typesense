@@ -646,8 +646,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::vector<std::string>& symbols_to_index,
                                                          const std::vector<std::string>& token_separators,
                                                          const bool enable_nested_fields, std::shared_ptr<VQModel> model,
-                                                         const nlohmann::json& metadata,
-                                                         const int batch_interval) {
+                                                         const nlohmann::json& metadata) {
     std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -684,7 +683,6 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX] = symbols_to_index;
     collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
     collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS] = enable_nested_fields;
-    collection_meta[Collection::COLLECTION_BATCH_INTERVAL] = batch_interval;
 
     if(model != nullptr) {
         collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL] = nlohmann::json::object();
@@ -713,8 +711,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                 symbols_to_index, token_separators,
                                                 enable_nested_fields, model,
                                                 spp::sparse_hash_map<std::string, std::string>(),
-                                                metadata, spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
-                                                batch_interval);
+                                                metadata, spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
 
     add_to_collections(new_collection);
 
@@ -1617,7 +1614,6 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     const char* ENABLE_NESTED_FIELDS = "enable_nested_fields";
     const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
     const char* METADATA = "metadata";
-    const char* BATCH_INTERVAL = "batch_interval";
 
     // validate presence of mandatory fields
 
@@ -1706,14 +1702,6 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         req_json[METADATA] = {};
     }
 
-    if(req_json.contains(BATCH_INTERVAL)) {
-        if(!req_json[BATCH_INTERVAL].is_number_unsigned()) {
-            return Option<Collection *>(400, "The `batch_interval` value should be positive integer.");
-        }
-    } else {
-        req_json[BATCH_INTERVAL] = -1;
-    }
-
     const std::string& default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
 
     if(default_sorting_field == "id") {
@@ -1764,8 +1752,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                                                                 req_json[SYMBOLS_TO_INDEX],
                                                                 req_json[TOKEN_SEPARATORS],
                                                                 req_json[ENABLE_NESTED_FIELDS],
-                                                                model, req_json[METADATA],
-                                                                req_json[BATCH_INTERVAL]);
+                                                                model, req_json[METADATA]);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
