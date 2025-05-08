@@ -22,5 +22,6 @@ export default defineConfig({
       shuffle: false,
       concurrent: false,
     },
+    globalSetup: ["./test/setup.ts"],
   },
 });
