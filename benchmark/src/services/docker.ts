@@ -8,8 +8,8 @@ import chalk from "chalk";
 import { err, errAsync, ok, ResultAsync } from "neverthrow";
 import ora from "ora";
 
-import { getPlatform } from "@/services/fs";
 import { safeExeca as execaAsync } from "@/utils/execa";
+import { getPlatform } from "@/utils/fs";
 import { logger } from "@/utils/logger";
 
 export class DockerService {
