@@ -99,10 +99,6 @@ jobs:
           npm install -g pnpm
           pnpm install
 
-      - name: Build CLI
-        working-directory: benchmark
-        run: pnpm build
-
       - name: Run Integration Tests
         working-directory: benchmark
         env:
