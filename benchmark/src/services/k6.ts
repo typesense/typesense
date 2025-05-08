@@ -214,14 +214,15 @@ export class K6Benchmarks {
   private createBenchmarkCollection(): ResultAsync<void, ErrorWithMessage> {
     this.config.spinner.start("Creating benchmark collection");
 
-    const process = this.config.typesenseProcessManager.processes.get(this.config.port);
-    if (!process) {
-      return errAsync({
-        message: `Process not found for port ${this.config.port}`,
-      });
+    const process = this.config.typesenseProcessManager.getProcessByHttpPort(this.config.port);
+    if (!process.isOk()) {
+      return errAsync(process.error);
     }
 
-    return this.config.typesenseProcessManager.createCollection(process, K6Benchmarks.COLLECTION_SCHEMA).map(() => {
+    return ResultAsync.fromPromise(
+      process.value.client.collections().create(K6Benchmarks.COLLECTION_SCHEMA),
+      toErrorWithMessage,
+    ).map(() => {
       this.config.spinner.succeed("Benchmark collection created");
     });
   }
