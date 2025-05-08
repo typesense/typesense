@@ -39,6 +39,8 @@ const globalTypesenseManager = new TypesenseProcessManager(
   env.TYPESENSE_IP_ADDRESS,
 );
 
+const openAIProxy = new OpenAIProxy(spinner, env.TYPESENSE_WORKING_DIRECTORY, env.TYPESENSE_NUM_DIM);
+
 /**
  * Start the Typesense server and wait for it to be ready.
  * @param {Object} options
@@ -143,4 +145,5 @@ export {
   restartTypesenseServer,
   env,
   fetchNode,
+  openAIProxy,
 };
