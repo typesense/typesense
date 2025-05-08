@@ -23,6 +23,7 @@ const env = createEnv({
     TYPESENSE_NUM_DIM: z.number().default(256),
   },
   runtimeEnv: process.env,
+  emptyStringAsUndefined: true,
 });
 
 const globalTypesenseManager = new TypesenseProcessManager(
