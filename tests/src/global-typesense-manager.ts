@@ -20,6 +20,7 @@ const env = createEnv({
     TYPESENSE_WORKING_DIRECTORY: z.string(),
     TYPESENSE_SNAPSHOT_PATH: z.string().optional(),
     TYPESENSE_IP_ADDRESS: z.string().optional(),
+    TYPESENSE_NUM_DIM: z.number().default(256),
   },
   runtimeEnv: process.env,
 });
