@@ -55,6 +55,7 @@
   },
   "dependencies": {
     "@influxdata/influxdb3-client": "^0.12.0",
+    "@t3-oss/env-core": "^0.13.4",
     "@types/asciichart": "^1.5.8",
     "asciichart": "^1.5.25",
     "chalk": "^5.4.1",
