@@ -254,7 +254,7 @@ class Benchmarks {
   private readonly isInCi: boolean;
   private readonly commitHashes: [string, string];
   private readonly percentagesForFailure: BenchmarkConfig["failureThresholds"];
-  private readonly port: number;
+  private readonly port: (typeof TypesenseProcessManager.nodeToPortMap)[number]["http"];
   private readonly spinner: Ora;
   private readonly benchmarkGroupsByCommitHash: Record<string, BenchmarkGroup>;
   private readonly reproductionService: ReproductionService;
@@ -264,7 +264,7 @@ class Benchmarks {
     batchSize: number;
     duration: string;
     apiKey: string;
-    port: number;
+    port: (typeof TypesenseProcessManager.nodeToPortMap)[number]["http"];
     services: ServiceContainer;
     spinner: Ora;
     workingDirectory: string;
@@ -989,20 +989,8 @@ const benchmark = new Command()
         logger.debug("Starting Typesense process");
 
         const typesenseProcessManagers = [
-          new TypesenseProcessManager(
-            spinner,
-            options.binaries[0],
-            options.apiKey,
-            options.workingDirectory,
-            services.get("fs"),
-          ),
-          new TypesenseProcessManager(
-            spinner,
-            options.binaries[1],
-            options.apiKey,
-            options.workingDirectory,
-            services.get("fs"),
-          ),
+          new TypesenseProcessManager(spinner, options.binaries[0], options.apiKey, options.workingDirectory),
+          new TypesenseProcessManager(spinner, options.binaries[1], options.apiKey, options.workingDirectory),
         ] as [TypesenseProcessManager, TypesenseProcessManager];
 
         const benchmark = new Benchmarks({
