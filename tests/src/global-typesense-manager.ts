@@ -10,8 +10,9 @@ import { errAsync, okAsync, ResultAsync } from "neverthrow";
 import ora from "ora";
 import { z } from "zod";
 
+import { OpenAIProxy } from "@/openai";
 import { TypesenseProcessManager } from "@/typesense-process";
-import { constructUrl } from "@/utils";
+import { constructUrl, delay } from "@/utils";
 
 const env = createEnv({
   clientPrefix: "TYPESENSE_",
@@ -23,6 +24,7 @@ const env = createEnv({
     TYPESENSE_NUM_DIM: z.number().default(256),
   },
   runtimeEnv: process.env,
+  skipValidation: process.env.NODE_ENV === "test",
   emptyStringAsUndefined: true,
 });
 
@@ -102,24 +104,25 @@ function restartTypesenseServerFresh(): ResultAsync<NodeConfig[], ErrorWithMessa
   return ResultAsync.combine(cleanupResults).andThen(() => startTypesenseServer());
 }
 
-/**
- * Perform a request to a node.
- */
-function fetchNode<T, const Body, const QueryParams = Record<string, string>>({
-  port,
-  endpoint,
-  method,
-  body,
-  queryParams,
-}: {
+interface FetchNodeParams<Body, QueryParams> {
   port: (typeof TypesenseProcessManager.nodeToPortMap)[number]["http"];
   endpoint: `${string}`;
   method: "GET" | "POST" | "PUT" | "DELETE";
   body?: Body;
   queryParams?: QueryParams;
-}): ResultAsync<T, ErrorWithMessage> {
-  const urlParams = queryParams ? new URLSearchParams(queryParams) : undefined;
+  numRetries?: number;
+  retryDelayMs?: number;
+}
 
+function fetchNode<T, const Body = string, const QueryParams = Record<string, string>>(
+  params: FetchNodeParams<Body, QueryParams>,
+  _retriesLeft?: number,
+): ResultAsync<T, ErrorWithMessage> {
+  const { port, endpoint, method, body, queryParams, numRetries = 3, retryDelayMs = 5_000 } = params;
+
+  const currentRetriesLeft = _retriesLeft ?? numRetries;
+
+  const urlParams = queryParams ? new URLSearchParams(queryParams) : undefined;
   const url = constructUrl({
     baseUrl: `http://localhost:${port}`,
     endpoint: `/${endpoint}`,
@@ -136,17 +139,43 @@ function fetchNode<T, const Body, const QueryParams = Record<string, string>>({
       body: body ? JSON.stringify(body) : undefined,
     }),
     toErrorWithMessage,
-  ).andThen((res) => {
-    if (!res.ok) {
-      return ResultAsync.fromPromise(res.text(), toErrorWithMessage).andThen((text) => {
-        return errAsync({
-          message: `HTTP error! status: ${res.status}, message: ${text}`,
-        });
+  )
+    .andThen((res) => {
+      if (!res.ok) {
+        return ResultAsync.fromPromise(res.text(), toErrorWithMessage)
+          .andThen((errorText) => {
+            if (currentRetriesLeft > 0) {
+              return ResultAsync.fromPromise(delay(retryDelayMs), toErrorWithMessage).andThen(() =>
+                fetchNode<T, Body, QueryParams>(params, currentRetriesLeft - 1),
+              );
+            }
+            return errAsync({
+              message: `HTTP error! status: ${res.status}, message: ${errorText} (no retries left)`,
+            });
+          })
+          .orElse((getTextError) => {
+            if (currentRetriesLeft > 0) {
+              return ResultAsync.fromPromise(delay(retryDelayMs), toErrorWithMessage).andThen(() =>
+                fetchNode<T, Body, QueryParams>(params, currentRetriesLeft - 1),
+              );
+            }
+            return errAsync({
+              message: `HTTP error! status: ${res.status}, failed to get error body: ${getTextError.message} (no retries left)`,
+            });
+          });
+      }
+      return ResultAsync.fromPromise(res.json() as Promise<T>, toErrorWithMessage);
+    })
+    .orElse((networkOrFetchError) => {
+      if (currentRetriesLeft > 0) {
+        return ResultAsync.fromPromise(delay(retryDelayMs), toErrorWithMessage).andThen(() =>
+          fetchNode<T, Body, QueryParams>(params, currentRetriesLeft - 1),
+        );
+      }
+      return errAsync({
+        message: `Request failed: ${networkOrFetchError.message} (no retries left)`,
       });
-    }
-
-    return ResultAsync.fromPromise(res.json() as Promise<T>, toErrorWithMessage);
-  });
+    });
 }
 
 export {
