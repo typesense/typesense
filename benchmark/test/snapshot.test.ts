@@ -3,14 +3,8 @@ import type { CollectionCreateSchema } from "typesense/lib/Typesense/Collections
 
 import { afterAll, beforeAll, expect, test } from "vitest";
 
-import { exists } from "@/fs";
-import {
-  closeDownTypesenseServer,
-  env,
-  fetchNode,
-  globalTypesenseManager,
-  startTypesenseServer,
-} from "@/global-typesense-manager";
+import { closeDownTypesenseServer, env, fetchNode, globalTypesenseManager, startTypesenseServer } from "@/global";
+import { exists } from "@/utils/fs";
 
 const collectionName = "snapshot_test";
 
