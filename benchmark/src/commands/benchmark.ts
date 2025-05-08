@@ -857,7 +857,7 @@ class Benchmarks {
     return okAsync({ searchResults: formatedSearchResults, indexingResults: formattedIndexResult });
   }
 
-  benchmark() {
+  perform() {
     logger.info("Running benchmarks");
 
     return this.startContainers()
@@ -1008,7 +1008,7 @@ const benchmark = new Command()
 
         return ok(benchmark);
       })
-      .andThen((benchmark) => benchmark.benchmark())
+      .andThen((benchmark) => benchmark.perform())
       .then((result) => {
         if (result.isErr()) {
           spinner.fail();
