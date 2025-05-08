@@ -123,7 +123,7 @@ Option<bool> DocAnalytics::add_event(const std::string& client_ip, const nlohman
     return Option<bool>(true);
 }
 
-Option<nlohmann::json> DocAnalytics::create_rule(nlohmann::json& payload, bool update) {
+Option<nlohmann::json> DocAnalytics::create_rule(nlohmann::json& payload, bool update, bool is_live_req) {
     std::unique_lock lock(mutex);
     if(update) {
       if(doc_rules.find(payload["name"].get<std::string>()) == doc_rules.end()) {
@@ -173,10 +173,12 @@ Option<nlohmann::json> DocAnalytics::create_rule(nlohmann::json& payload, bool u
             return Option<nlohmann::json>(400, "Weight should be a number greater than 0");
           }
 
-        if(payload.contains("params") && payload["params"].contains("destination_collection")) {
-          auto collection_ptr = CollectionManager::get_instance().get_collection(payload["params"]["destination_collection"].get<std::string>());
-          if(collection_ptr == nullptr) {
-            return Option<nlohmann::json>(400, "Destination collection does not exist");
+        if (is_live_req) {
+          if(payload.contains("params") && payload["params"].contains("destination_collection")) {
+            auto collection_ptr = CollectionManager::get_instance().get_collection(payload["params"]["destination_collection"].get<std::string>());
+            if(collection_ptr == nullptr) {
+              return Option<nlohmann::json>(400, "Destination collection does not exist");
+            }
           }
         }
         doc_counter_event_t counter_event;

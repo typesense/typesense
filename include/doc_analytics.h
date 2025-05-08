@@ -117,7 +117,7 @@ public:
 
     bool check_rule_type(const std::string& event_type, const std::string& type);
     Option<bool> add_event(const std::string& client_ip, const nlohmann::json& event_data);
-    Option<nlohmann::json> create_rule(nlohmann::json& payload, bool upsert);
+    Option<nlohmann::json> create_rule(nlohmann::json& payload, bool upsert, bool is_live_req);
     Option<bool> remove_rule(const std::string& name);
     void get_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values);
     Option<nlohmann::json> list_rules(const std::string& rule_tag = "");

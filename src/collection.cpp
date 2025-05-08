@@ -25,6 +25,7 @@
 #include "conversation_model_manager.h"
 #include "personalization_model_manager.h"
 #include "analytics_manager.h"
+#include "analytics_manager.h"
 #include "field.h"
 #include "join.h"
 #include "sole.hpp"
@@ -7689,35 +7690,20 @@ Option<bool> Collection::parse_and_validate_personalization_query(const std::str
     }
     auto personalization_model = personalization_model_op.get();
 
-    std::vector<std::string> user_events;
-    auto check_event_op = AnalyticsManager::get_instance().is_event_exists(personalization_event_name);
-    if (!check_event_op.ok()) {
-        return Option<bool>(400, "Analytics event not found");
+    auto user_events_op = AnalyticsManager::get_instance().get_events(personalization_user_id, personalization_event_name, personalization_n_events);
+    if(!user_events_op.ok()) {
+        return Option<bool>(400, user_events_op.error());
     }
-    AnalyticsManager::get_instance().get_last_N_events(
-        personalization_user_id, 
-        get_name(),
-        personalization_event_name, 
-        personalization_n_events, 
-        user_events
-    );
+    auto user_events = user_events_op.get()["events"];
     if(user_events.empty()) {
         return Option<bool>(400, "No events found for the user.");
     }
 
     std::vector<std::string> doc_ids;
-    for (const auto& event : user_events) {
-        nlohmann::json event_json;
-        try {
-            event_json = nlohmann::json::parse(event);
-        } catch (const std::exception& e) {
-            return Option<bool>(400, "Invalid event format: " + std::string(e.what()));
-        }
-
+    for (const auto& event_json : user_events) {
         if (event_json.count("doc_ids") > 0) {
             return Option<bool>(400, "Try using an event only with doc_id instead of doc_ids");
         }
-
         doc_ids.push_back(event_json["doc_id"]);
     }
 

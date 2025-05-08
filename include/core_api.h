@@ -167,7 +167,7 @@ bool get_analytics_rule(const std::shared_ptr<http_req>& req, const std::shared_
 
 bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool put_upsert_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool patch_update_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
@@ -232,13 +232,3 @@ bool del_personalization_model(const std::shared_ptr<http_req>& req, const std::
 bool get_personalization_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool put_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
-// New Analytics
-bool post_create_new_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-bool get_new_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-bool get_new_analytics_rule(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-bool post_create_new_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-bool patch_update_new_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-bool del_new_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-bool post_write_new_analytics_to_db(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-bool get_new_analytics_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

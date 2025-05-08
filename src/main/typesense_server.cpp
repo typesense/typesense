@@ -75,25 +75,15 @@ void master_server_routes() {
     server->put("/stopwords/:name", put_upsert_stopword);
     server->del("/stopwords/:name", del_stopword);
 
-    // analytics
+    // new analytics
     server->get("/analytics/rules", get_analytics_rules);
     server->get("/analytics/rules/:name", get_analytics_rule);
     server->post("/analytics/rules", post_create_analytics_rules);
-    server->put("/analytics/rules/:name", put_upsert_analytics_rules);
+    server->patch("/analytics/rules/:name", patch_update_analytics_rules);
     server->del("/analytics/rules/:name", del_analytics_rules);
     server->post("/analytics/events", post_create_event);
     server->post("/analytics/aggregate_events", post_write_analytics_to_db);
     server->get("/analytics/events", get_analytics_events);
-
-    // new analytics
-    server->get("/new_analytics/rules", get_new_analytics_rules);
-    server->get("/new_analytics/rules/:name", get_new_analytics_rule);
-    server->post("/new_analytics/rules", post_create_new_analytics_rules);
-    server->patch("/new_analytics/rules/:name", patch_update_new_analytics_rules);
-    server->del("/new_analytics/rules/:name", del_new_analytics_rules);
-    server->post("/new_analytics/events", post_create_new_event);
-    server->post("/new_analytics/aggregate_events", post_write_new_analytics_to_db);
-    server->get("/new_analytics/events", get_new_analytics_events);
 
     // for plurals, nouns
     server->post("/stemming/dictionaries/import", post_import_stemming_dictionary, true, true);

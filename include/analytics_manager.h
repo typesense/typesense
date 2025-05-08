@@ -1,86 +1,22 @@
 #pragma once
+
+#include "doc_analytics.h"
 #include "query_analytics.h"
-#include "option.h"
-#include "raft_server.h"
 #include <vector>
 #include <string>
-#include <unordered_map>
 #include <shared_mutex>
 #include "lru/lru.hpp"
+#include "raft_server.h"
 
-struct event_type_collection {
-    std::string event_type;
-    std::string destination_collection;
-    std::vector<std::string> src_collections;
-    bool log_to_store = false;
-    std::string analytic_rule;
-    QueryAnalytics* queries_ptr = nullptr;
-};
-
-struct event_t {
-    std::string query;
-    std::string event_type;
-    uint64_t timestamp;
-    std::string user_id;
-    std::string doc_id;
-    std::vector<std::string> doc_ids;
-    std::string name;
-    std::vector<std::pair<std::string, std::string>> data;
-    bool log_to_store;
-
-    event_t() = delete;
-
-    ~event_t() = default;
-
-    event_t(const std::string& q, const std::string& type, uint64_t ts, const std::string& uid, 
-            const std::string& id, const std::vector<std::string>& ids,
-            const std::string& event_name, bool should_log_to_store, 
-            const std::vector<std::pair<std::string, std::string>> datavec) {
-        query = q;
-        event_type = type;
-        timestamp = ts;
-        user_id = uid;
-        doc_id = id;
-        doc_ids = ids;
-        name = event_name;
-        log_to_store = should_log_to_store;
-        data = datavec;
-    }
-
-    event_t& operator=(event_t& other) {
-        if (this != &other) {
-            query = other.query;
-            event_type = other.event_type;
-            timestamp = other.timestamp;
-            user_id = other.user_id;
-            doc_id = other.doc_id;
-            doc_ids = other.doc_ids;
-            name = other.name;
-            data = other.data;
-            return *this;
-        }
-    }
-
-    void to_json(nlohmann::json& obj, const std::string& coll) const;
-};
-
-struct counter_event_t {
-    std::string counter_field;
-    std::map<std::string, uint64_t> docid_counts;
-    std::map<std::string, uint16_t> event_weight_map;
-
-    void serialize_as_docs(std::string& docs);
-};
-
-struct event_cache_t {
+struct external_event_cache_t {
     uint64_t last_update_time;
     uint64_t count;
 
-    bool operator == (const event_cache_t& res) const {
+    bool operator == (const external_event_cache_t& res) const {
         return last_update_time == res.last_update_time;
     }
 
-    bool operator != (const event_cache_t& res) const {
+    bool operator != (const external_event_cache_t& res) const {
         return last_update_time != res.last_update_time;
     }
 };
@@ -90,91 +26,24 @@ private:
     mutable std::shared_mutex mutex;
     std::condition_variable_any cv;
     const size_t QUERY_COMPACTION_INTERVAL_S = 30;
+    bool isRateLimitEnabled = true;
+    uint32_t analytics_minute_rate_limit = 5;
 
     std::atomic<bool> quit = false;
-    struct suggestion_config_t {
-        std::string name;
-        std::string destination_collection;
-        std::vector<std::string> src_collections;
-        size_t limit;
-        std::string rule_type;
-        bool expand_query = false;
-        nlohmann::json events;
-        std::string counter_field;
 
-        void to_json(nlohmann::json& obj) const {
-            obj["name"] = name;
-            obj["type"] = rule_type;
-            obj["params"] = nlohmann::json::object();
-            obj["params"]["limit"] = limit;
-            obj["params"]["source"]["collections"] = src_collections;
-            obj["params"]["destination"]["collection"] = destination_collection;
-
-            if(rule_type == POPULAR_QUERIES_TYPE) {
-                obj["params"]["expand_query"] = expand_query;
-            }
-
-            if(!events.empty()) {
-                obj["params"]["source"]["events"] = events;
-                obj["params"]["destination"]["counter_field"] = counter_field;
-            }
-        }
-    };
-
-    // config name => config
-    std::unordered_map<std::string, suggestion_config_t> suggestion_configs;
-
-    // query collection => suggestion collections
-    std::unordered_map<std::string, std::vector<std::string>> query_collection_mapping;
-
-    // suggestion collection => popular queries
-    std::unordered_map<std::string, QueryAnalytics*> popular_queries;
-
-    // suggestion collection => nohits queries
-    std::unordered_map<std::string, QueryAnalytics*> nohits_queries;
-
-    // collection => popular clicks
-    std::unordered_map<std::string, counter_event_t> counter_events;
-
-    //query collection => events
-    std::unordered_map<std::string, std::vector<event_t>> query_collection_events;
-
-    //event_name  => collection
-    std::unordered_map<std::string, event_type_collection> event_collection_map;
-
-    // per_ip cache for rate limiting
-    LRU::Cache<std::string, event_cache_t> events_cache;
+    DocAnalytics& doc_analytics = DocAnalytics::get_instance();
+    QueryAnalytic& query_analytics = QueryAnalytic::get_instance();
+    LRU::Cache<std::string, external_event_cache_t> external_events_cache;
+    std::unordered_map<std::string, std::string> rules_map;
 
     Store* store = nullptr;
     Store* analytics_store = nullptr;
 
-    bool isRateLimitEnabled = true;
-
-    uint32_t analytics_minute_rate_limit;
-
     AnalyticsManager() {}
-
     ~AnalyticsManager();
 
-    Option<bool> remove_index(const std::string& name);
-
-    Option<bool> create_index(nlohmann::json &payload,
-                              bool upsert,
-                              bool write_to_disk);
-
 public:
-
-    static constexpr const char* ANALYTICS_RULE_PREFIX = "$AR";
-    static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
-    static constexpr const char* NOHITS_QUERIES_TYPE = "nohits_queries";
-    static constexpr const char* COUNTER_TYPE = "counter";
-    static constexpr const char* LOG_TYPE = "log";
-    static constexpr const char* CLICK_EVENT = "click";
-    static constexpr const char* CONVERSION_EVENT = "conversion";
-    static constexpr const char* VISIT_EVENT = "visit";
-    static constexpr const char* CUSTOM_EVENT = "custom";
-    static constexpr const char* SEARCH_EVENT = "search";
-
+    static constexpr const char* ANALYTICS_RULE_PREFIX = "$NAR";
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
         return instance;
@@ -183,60 +52,26 @@ public:
     AnalyticsManager(AnalyticsManager const&) = delete;
     void operator=(AnalyticsManager const&) = delete;
 
-    void init(Store* store, Store* analytics_store, uint32_t analytics_minute_rate_limit);
+    void persist_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    void persist_analytics_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    
+    Option<bool> add_external_event(const std::string& client_ip, const nlohmann::json& event_data);
+    Option<bool> add_internal_event(const query_internal_event_t& event_data);
 
-    void run(ReplicationState* raft_server);
-
-    Option<nlohmann::json> list_rules();
-
+    Option<nlohmann::json> get_events(const std::string& userid, const std::string& event_name, uint32_t N);
+    Option<nlohmann::json> list_rules(const std::string& rule_tag = "");
     Option<nlohmann::json> get_rule(const std::string& name);
-
-    Option<bool> create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk);
-
+    Option<bool> create_rule(nlohmann::json& payload, bool update, bool write_to_disk, bool is_live_req);
     Option<bool> remove_rule(const std::string& name);
-
-    Option<bool> remove_all_rules();
-
-    void add_suggestion(const std::string& query_collection,
-                        const std::string& query, const std::string& expanded_query,
-                        bool live_query, const std::string& user_id, const std::string& filter="", const std::string& tag="");
-
-    void stop();
-
-    void dispose();
-
-    void persist_query_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
-
-    std::unordered_map<std::string, QueryAnalytics*> get_popular_queries();
-
-    Option<bool> add_event(const std::string& client_ip, const std::string& event_type,
-                           const std::string& event_name, const nlohmann::json& event_data);
-
-    void persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
-
-    void persist_popular_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
-
-    std::unordered_map<std::string, counter_event_t> get_popular_clicks();
-
-    void add_nohits_query(const std::string& query_collection,
-                          const std::string& query, bool live_query, const std::string& user_id,
-                          const std::string& filter = "", const std::string& tag = "");
-
-    std::unordered_map<std::string, QueryAnalytics*> get_nohits_queries();
+    void remove_all_rules();
 
     void resetToggleRateLimit(bool toggle);
-
     bool write_to_db(const nlohmann::json& payload);
 
-    void get_last_N_events(const std::string& userid, const std::string& collection_name, const std::string& event_name, uint32_t N, std::vector<std::string>& values);
-
-    Option<bool> is_event_exists(const std::string& event_name);
-
-    Option<nlohmann::json> get_events(uint32_t N);
-
-#ifdef TEST_BUILD
-    std::unordered_map<std::string, std::vector<event_t>> get_log_events() {
-        return query_collection_events;
-    }
-#endif
+    void run(ReplicationState* raft_server);
+    void init(Store* store, Store* analytics_store, uint32_t analytics_minute_rate_limit);
+    Option<nlohmann::json> process_create_rule_request(const nlohmann::json& payload, bool is_live_req);
+    void restore_old_analytics_rule(nlohmann::json& analytics_config);
+    void stop();
+    void dispose();
 };
