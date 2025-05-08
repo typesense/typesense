@@ -106,6 +106,6 @@ jobs:
       - name: Run Integration Tests
         working-directory: benchmark
         env:
-          TYPESENSE_BINARY: $(pwd)/../typesense-server-binary/typesense-server
-          TYPESENSE_WORKING_DIRECTORY: $(pwd)/../tmp/test
+          TYPESENSE_BINARY: ${{ github.workspace }}/typesense-server-binary/typesense-server
+          TYPESENSE_WORKING_DIRECTORY: ${{ github.workspace }}/tmp/test
         run: pnpm test
