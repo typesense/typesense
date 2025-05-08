@@ -10,8 +10,8 @@ import {
   openAIProxy,
   restartTypesenseServer,
   startTypesenseServer,
-} from "@/global-typesense-manager";
-import { delay } from "@/utils";
+} from "@/global";
+import { delay } from "@/utils/base";
 
 const collectionName = "openai_collection";
 
@@ -84,7 +84,7 @@ test("OpenAI embedding num_dimensions", async () => {
     throw new Error(fetchCollectionRes.error.message);
   }
 
-  expect(fetchCollectionRes.value.fields.find((field) => field.name === "embedding")?.num_dim).toBe(
+  expect(fetchCollectionRes.value.fields?.find((field) => field.name === "embedding")?.num_dim).toBe(
     env.TYPESENSE_NUM_DIM,
   );
 
@@ -102,7 +102,7 @@ test("OpenAI embedding num_dimensions", async () => {
     throw new Error(fetchCollectionRes.error.message);
   }
 
-  expect(fetchCollectionRes.value.fields.find((field) => field.name === "embedding")?.num_dim).toBe(
+  expect(fetchCollectionRes.value.fields?.find((field) => field.name === "embedding")?.num_dim).toBe(
     env.TYPESENSE_NUM_DIM,
   );
 });

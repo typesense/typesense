@@ -1,4 +1,4 @@
-import type { NodeConfig } from "@/typesense-process";
+import type { NodeConfig } from "@/services/typesense-process";
 import type { CollectionSchema } from "typesense/lib/Typesense/Collection";
 import type { CollectionCreateSchema } from "typesense/lib/Typesense/Collections";
 import type { ConversationModelSchema } from "typesense/lib/Typesense/ConversationModel";
@@ -11,7 +11,7 @@ import {
   globalTypesenseManager,
   openAIProxy,
   startTypesenseServer,
-} from "@/global-typesense-manager";
+} from "@/global";
 
 const collectionName = "base_collection";
 const conversationStoreName = "conversation_store";

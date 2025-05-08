@@ -11,8 +11,8 @@ import {
   restartTypesenseServer,
   restartTypesenseServerFresh,
   startTypesenseServer,
-} from "@/global-typesense-manager";
-import { delay } from "@/utils";
+} from "@/global";
+import { delay } from "@/utils/base";
 
 afterAll(async () => {
   const res = await closeDownTypesenseServer();
