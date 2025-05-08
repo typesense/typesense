@@ -26,12 +26,14 @@ const env = createEnv({
   emptyStringAsUndefined: true,
 });
 
+const snapshotPath = env.TYPESENSE_SNAPSHOT_PATH ?? `${env.TYPESENSE_WORKING_DIRECTORY}/snapshot`;
+
 const globalTypesenseManager = new TypesenseProcessManager(
   ora(),
   env.TYPESENSE_BINARY,
   "xyz",
   env.TYPESENSE_WORKING_DIRECTORY,
-  env.TYPESENSE_SNAPSHOT_PATH,
+  snapshotPath,
   env.TYPESENSE_IP_ADDRESS,
 );
 
