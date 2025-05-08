@@ -28,8 +28,10 @@ const env = createEnv({
 
 const snapshotPath = env.TYPESENSE_SNAPSHOT_PATH ?? `${env.TYPESENSE_WORKING_DIRECTORY}/snapshot`;
 
+const spinner = ora();
+
 const globalTypesenseManager = new TypesenseProcessManager(
-  ora(),
+  spinner,
   env.TYPESENSE_BINARY,
   "xyz",
   env.TYPESENSE_WORKING_DIRECTORY,
