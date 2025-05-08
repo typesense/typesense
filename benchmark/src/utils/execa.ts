@@ -14,12 +14,8 @@ function safeExeca(
   return ResultAsync.fromPromise(execa(command, args, opts), toErrorWithMessage);
 }
 
-function delay(ms: number): ResultAsync<void, ErrorWithMessage> {
-  return ResultAsync.fromPromise(new Promise((resolve) => setTimeout(resolve, ms)), toErrorWithMessage);
-}
-
 type StdOut = ExecaResult["stdout"];
 
-export { safeExeca, delay };
+export { safeExeca };
 
 export type { StdOut };
