@@ -99,6 +99,9 @@ importers:
       '@types/tar-stream':
         specifier: ^3.1.3
         version: 3.1.3
+      dotenv:
+        specifier: ^16.5.0
+        version: 16.5.0
       eslint:
         specifier: ^9.17.0
         version: 9.17.0
@@ -1187,6 +1190,10 @@ packages:
   docker-compose@1.1.0:
     resolution: {integrity: sha512-VrkQJNafPQ5d6bGULW0P6KqcxSkv3ZU5Wn2wQA19oB71o7+55vQ9ogFe2MMeNbK+jc9rrKVy280DnHO5JLMWOQ==}
     engines: {node: '>= 6.0.0'}
+
+  dotenv@16.5.0:
+    resolution: {integrity: sha512-m/C+AwOAr9/W1UOIZUo232ejMNnJAJtYQjUbHoNTBNTJSvqzzDh7vnrei3o3r3m9blf6ZoDkvcw0VmozNRFJxg==}
+    engines: {node: '>=12'}
 
   duplexify@3.7.1:
     resolution: {integrity: sha512-07z8uv2wMyS51kKhD1KsdXJg5WQ6t93RneqRxUHnskXVtlYYkLqM0gqStQZ3pj073g687jPCHrqNfCzawLYh5g==}
@@ -3264,6 +3271,8 @@ snapshots:
   docker-compose@1.1.0:
     dependencies:
       yaml: 2.7.0
+
+  dotenv@16.5.0: {}
 
   duplexify@3.7.1:
     dependencies:
