@@ -14,8 +14,13 @@ export default defineConfig({
     environment: "node",
     hookTimeout: 180000,
     testTimeout: 180000,
+    fileParallelism: false,
     env: {
       LOG_LEVEL: "4",
+    },
+    sequence: {
+      shuffle: false,
+      concurrent: false,
     },
   },
 });
