@@ -105,7 +105,7 @@ jobs:
 
       - name: Run Integration Tests
         working-directory: benchmark
-        run: |
-          ./dist/index.js test \
-            --binary $(pwd)/../typesense-server-binary/typesense-server \
-            --working-directory $(pwd)/../tmp/test -y -v
+        env:
+          TYPESENSE_BINARY: $(pwd)/../typesense-server-binary/typesense-server
+          TYPESENSE_WORKING_DIRECTORY: $(pwd)/../tmp/test
+        run: pnpm test
