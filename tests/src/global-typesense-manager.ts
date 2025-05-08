@@ -75,6 +75,17 @@ function restartTypesenseServer(): ResultAsync<NodeConfig[], ErrorWithMessage> {
   return ResultAsync.combine(cleanupResults).andThen(() => startTypesenseServer({ skipCleanup: true }));
 }
 
+function closeDownTypesenseServer(): ResultAsync<void[], ErrorWithMessage> {
+  return ResultAsync.combine(
+    Array.from(globalTypesenseManager.processes.values()).map((process) =>
+      process.dispose().andThen(() => {
+        globalTypesenseManager.processes.delete(process.http);
+        return okAsync<void, ErrorWithMessage>(undefined);
+      }),
+    ),
+  );
+}
+
 /**
  * Restart the Typesense server, delete all data and wait for it to be ready.
  * @param {Object} options
@@ -146,4 +157,5 @@ export {
   env,
   fetchNode,
   openAIProxy,
+  closeDownTypesenseServer,
 };
