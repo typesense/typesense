@@ -2,9 +2,10 @@ import path from "path";
 import type { CollectionSchema } from "typesense/lib/Typesense/Collection";
 import type { CollectionCreateSchema } from "typesense/lib/Typesense/Collections";
 
-import { expect, test } from "vitest";
+import { afterAll, expect, test } from "vitest";
 
 import {
+  closeDownTypesenseServer,
   env,
   fetchNode,
   restartTypesenseServer,
@@ -12,6 +13,14 @@ import {
   startTypesenseServer,
 } from "@/global-typesense-manager";
 import { delay } from "@/utils";
+
+afterAll(async () => {
+  const res = await closeDownTypesenseServer();
+
+  if (res.isErr()) {
+    throw new Error(res.error.message);
+  }
+});
 
 test("start typesense server", async () => {
   const res = await startTypesenseServer();
