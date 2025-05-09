@@ -4742,3 +4742,84 @@ TEST_F(CollectionOverrideTest, OverridesWithSemanticSearch) {
     ASSERT_EQ(results["hits"][4]["document"]["id"], "2");
     ASSERT_EQ(results["hits"][5]["document"]["id"], "3");
 }
+
+TEST_F(CollectionOverrideTest, NestedObjectOverride) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "nested", "type": "object", "facet": true},
+            {"name": "nested.brand", "type": "string", "facet": true},
+            {"name": "nested.category", "type": "string", "facet": true}
+        ],
+        "enable_nested_fields": true
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    // Add documents with nested objects
+    nlohmann::json doc1 = R"({
+        "id": "0",
+        "name": "Amazing Shoes",
+        "nested": {
+            "brand": "Nike",
+            "category": "shoes"
+        }
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "id": "1",
+        "name": "Track Shoes",
+        "nested": {
+            "brand": "Adidas",
+            "category": "shoes"
+        }
+    })"_json;
+
+    nlohmann::json doc3 = R"({
+        "id": "2",
+        "name": "Running Shoes",
+        "nested": {
+            "brand": "Nike",
+            "category": "sports"
+        }
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC") };
+
+    // Test dynamic filtering with nested object fields
+    nlohmann::json override_json = {
+        {"id", "nested-dynamic-filter"},
+        {
+            "rule", {
+                {"query", "{nested.brand} shoes"},
+                {"match", override_t::MATCH_CONTAINS}
+            }
+        },
+        {"remove_matched_tokens", true},
+        {"filter_by", "nested.brand:{nested.brand} && nested.category: shoes"},
+        {"metadata", {{"filtered", true}}}
+    };
+
+    override_t override;
+    auto op_override = override_t::parse(override_json, "nested-dynamic-filter", override);
+    ASSERT_TRUE(op_override.ok());
+    coll1->add_override(override);
+
+    // Search with brand name
+    auto results = coll1->search("nike shoes", {"name", "nested.brand", "nested.category"}, "",
+                                {}, sort_fields, {2, 2, 2}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_TRUE(results.contains("metadata"));
+    ASSERT_TRUE(results["metadata"]["filtered"].get<bool>());
+
+    collectionManager.drop_collection("coll1");
+}
