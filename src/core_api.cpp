@@ -328,7 +328,7 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -1240,7 +1240,7 @@ bool get_collection_summary(const std::shared_ptr<http_req>& req, const std::sha
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -1258,7 +1258,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
     if(collection == nullptr) {
         req->last_chunk_aggregate = true;
         res->final = true;
-        res->set_404();
+        res->set_404("Collection not found");
         stream_response(req, res);
         return false;
     }
@@ -1553,7 +1553,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     if(collection == nullptr) {
         //LOG(INFO) << "collection == nullptr, for collection: " << req->params["collection"];
         res->final = true;
-        res->set_404();
+        res->set_404("Collection not found");
         stream_response(req, res);
         return false;
     }
@@ -1662,7 +1662,7 @@ bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_p
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -1728,7 +1728,7 @@ bool patch_update_document(const std::shared_ptr<http_req>& req, const std::shar
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -1763,7 +1763,7 @@ bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::sha
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -1802,7 +1802,7 @@ bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -1855,7 +1855,7 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -1905,7 +1905,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
     if(collection == nullptr) {
         req->last_chunk_aggregate = true;
         res->final = true;
-        res->set_404();
+        res->set_404("Collection not found");
         stream_response(req, res);
         return false;
     }
@@ -2105,7 +2105,7 @@ bool get_alias(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
     Option<std::string> collection_name_op = collectionManager.resolve_symlink(alias);
 
     if(!collection_name_op.ok()) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -2155,7 +2155,7 @@ bool del_alias(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
 
     Option<std::string> collection_name_op = collectionManager.resolve_symlink(alias);
     if(!collection_name_op.ok()) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -2178,7 +2178,7 @@ bool get_overrides(const std::shared_ptr<http_req>& req, const std::shared_ptr<h
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -2225,7 +2225,7 @@ bool get_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -2249,7 +2249,7 @@ bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     std::string override_id = req->params["id"];
 
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -2290,7 +2290,7 @@ bool del_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -2542,7 +2542,7 @@ bool get_synonyms(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -2588,7 +2588,7 @@ bool get_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -2614,7 +2614,7 @@ bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     std::string synonym_id = req->params["id"];
 
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -2671,7 +2671,7 @@ bool del_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
     if(collection == nullptr) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 
@@ -3300,7 +3300,7 @@ bool get_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::sh
     nlohmann::json dictionary;
 
     if(!StemmerManager::get_instance().get_stemming_dictionary(id, dictionary)) {
-        res->set_404();
+        res->set_404("Collection not found");
         return false;
     }
 

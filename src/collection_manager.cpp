@@ -1391,7 +1391,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     auto collection = collectionManager.get_collection(orig_coll_name);
 
     if(collection == nullptr) {
-        return Option<bool>(404, "Not found.");
+        return Option<bool>(404, "Collection not found");
     }
 
     collection_search_args_t args;

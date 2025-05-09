@@ -98,6 +98,22 @@ TEST_F(CollectionTest, VerifyCountOfDocuments) {
     ASSERT_EQ(DIRTY_VALUES::REJECT, collection->parse_dirty_values_option(empty_dirty_values));
 }
 
+TEST_F(CollectionTest, CollectionNotFoundError) {
+    // Try to get a non-existent collection
+    auto non_existent_collection = collectionManager.get_collection("non_existent_collection");
+    ASSERT_FALSE(non_existent_collection.ok());
+    ASSERT_EQ(404, non_existent_collection.code());
+    ASSERT_STREQ("Collection not found", non_existent_collection.error().c_str());
+
+    // Try to search in a non-existent collection
+    std::vector<std::string> query_fields = {"title"};
+    std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
+    auto search_op = non_existent_collection.get()->search("test", query_fields, "", {}, sort_fields, {0}, 10);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(404, search_op.code());
+    ASSERT_STREQ("Collection not found", search_op.error().c_str());
+}
+
 TEST_F(CollectionTest, RetrieveADocumentById) {
     Option<nlohmann::json> doc_option = collection->get("1");
     ASSERT_TRUE(doc_option.ok());
