@@ -3728,3 +3728,23 @@ bool get_async_req_status(const std::shared_ptr<http_req>& req, const std::share
     res->body = op.get();
     return true;
 }
+
+bool get_last_n_async_req_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const char* N = "n";
+
+    uint32_t n = 10;
+    if(req->params.count(N) != 0 && !StringUtils::is_uint32_t(req->params[N])) {
+        res->set_400("Parameter `n` must be a positive integer.");
+        return false;
+    }
+
+    if (req->params.count(N)) {
+        n = std::stoi(req->params[N]);
+    }
+
+    nlohmann::json result;
+    AsyncDocRequestHandler::get_instance().get_last_n_req_status(n, result);
+
+    res->set_200(result.dump());
+    return true;
+}

@@ -4,11 +4,6 @@
 #include "cached_resource_stat.h"
 #include "collection_manager.h"
 
-std::string hash_req_id(uint64_t req_id) {
-    static std::hash<uint64_t> hasher;
-    return std::to_string(hasher(req_id));
-}
-
 BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, Store* meta_store, const size_t num_threads,
                                const Config& config, const std::atomic<bool>& skip_writes):
                                server(server), store(store), meta_store(meta_store), num_threads(num_threads),
@@ -307,9 +302,9 @@ void BatchedIndexer::run() {
                                 if(orig_req->params["async"] == "true" && is_async_doc_request_enabled
                                     && found_rpath->handler == &post_add_document) {
                                     //should batch only post_add_document requests
-                                    auto hash = hash_req_id(req_id);
-                                    AsyncDocRequestHandler::get_instance().enqueue(orig_req, hash);
-                                    orig_res->set_200("Queued the request with id : " + hash);
+                                    auto reqid = std::to_string(req_id);
+                                    auto resp = AsyncDocRequestHandler::get_instance().enqueue(orig_req, reqid);
+                                    orig_res->set_200(resp.dump());
                                 } else {
                                     found_rpath->handler(orig_req, orig_res);
                                 }

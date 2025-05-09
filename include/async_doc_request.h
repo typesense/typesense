@@ -11,6 +11,7 @@ private:
     int async_batch_interval = -1;
     std::vector<std::pair<std::shared_ptr<http_req>, std::string>> async_request_batch;
     std::chrono::steady_clock::time_point last_batch_flush_secs;
+    std::chrono::steady_clock::time_point last_db_size_check_secs;
     Store* async_req_store; //to store failed single doc async request status
 
     AsyncDocRequestHandler() {}
@@ -29,7 +30,8 @@ public:
 
     void init(Store* async_store, int batch_interval);
     void check_handle_async_doc_request();
-    void enqueue(const std::shared_ptr<http_req>& req, const std::string& req_hash);
+    nlohmann::json enqueue(const std::shared_ptr<http_req>& req, const std::string& reqid);
     Option<std::string> get_req_status(const std::string& req);
+    void get_last_n_req_status(int n, nlohmann::json& res);
     bool is_enabled();
 };
