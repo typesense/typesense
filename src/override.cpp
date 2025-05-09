@@ -132,6 +132,9 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
         symbols.push_back('{');
         symbols.push_back('}');
         symbols.push_back('*');
+        symbols.push_back('.');
+
+
         Tokenizer tokenizer(override.rule.query, true, false, locale, symbols, token_separators);
         std::vector<std::string> tokens;
         tokenizer.tokenize(tokens);
