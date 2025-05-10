@@ -571,28 +571,26 @@ void Index::validate_and_preprocess(Index *index,
     }
 }
 
-size_t Index::
-batch_memory_index(Index *index,
-                 std::vector<index_record>& iter_batch,
-                 const std::string & default_sorting_field,
-                 const tsl::htrie_map<char, field> & actual_search_schema,
-                 const tsl::htrie_map<char, field> & embedding_fields,
-                 const std::string& fallback_field_type,
-                 const std::vector<char>& token_separators,
-                 const std::vector<char>& symbols_to_index,
-                 const bool do_validation, const size_t remote_embedding_batch_size,
-                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
-                 const bool generate_embeddings,
-                 const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
-                 const std::string& collection_name,
-                 const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
+size_t Index::batch_memory_index(Index *index,
+                                 std::vector<index_record>& iter_batch,
+                                 const std::string & default_sorting_field,
+                                 const tsl::htrie_map<char, field> & actual_search_schema,
+                                 const tsl::htrie_map<char, field> & embedding_fields,
+                                 const std::string& fallback_field_type,
+                                 const std::vector<char>& token_separators,
+                                 const std::vector<char>& symbols_to_index,
+                                 const bool do_validation, const size_t remote_embedding_batch_size,
+                                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
+                                 const bool generate_embeddings,
+                                 const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
+                                 const std::string& collection_name,
+                                 const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
     const size_t concurrency = 4;
     const size_t num_threads = std::min(concurrency, iter_batch.size());
     const size_t window_size = (num_threads == 0) ? 0 :
                                (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
     const auto& indexable_schema = use_addition_fields ? addition_fields : actual_search_schema;
     
-
     size_t num_indexed = 0;
     size_t num_processed = 0;
     std::mutex m_process;
@@ -664,7 +662,7 @@ batch_memory_index(Index *index,
 
         num_queued++;
 
-        index->thread_pool->enqueue([&]() {
+        index->thread_pool->enqueue([&, field_name]() {
             write_log_index = local_write_log_index;
 
             const field& f = (field_name == "id") ?
@@ -711,6 +709,7 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
             }
             if(!record.is_update && record.indexed.ok()) {
                 // for updates, the seq_id will already exist
+                std::unique_lock lock(seq_ids_mutex);
                 seq_ids->upsert(record.seq_id);
             }
         }
@@ -739,7 +738,10 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
         std::unordered_map<facet_value_id_t, std::vector<uint32_t>, facet_value_id_t::Hash> fvalue_to_seq_ids;
         std::unordered_map<uint32_t, std::vector<facet_value_id_t>> seq_id_to_fvalues;
 
+        std::shared_lock lock(seq_ids_mutex);
         size_t total_num_docs = seq_ids->num_ids();
+        lock.unlock();
+
         if(afield.facet && total_num_docs > 10*1000) {
             facet_index_v4->check_for_high_cardinality(afield.name, total_num_docs);
         }
@@ -3632,6 +3634,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         // In multi-field searches, a record can be matched across different fields, so we use this for aggregation
         //begin = std::chrono::high_resolution_clock::now();
 
+        if(the_fields.empty()) {
+            return Option<bool>(400, "Missing `query_by` parameter.");
+        }
+
         // FIXME: needed?
         std::set<uint64> query_hashes;
 
@@ -3785,9 +3791,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 auto curr_direction = drop_tokens_mode.mode;
                 bool drop_both_sides = false;
+                size_t orig_tokens_size = std::min<size_t>(orig_tokens.size(), 20);  // drop only upto N tokens
 
                 if(drop_tokens_mode.mode == both_sides) {
-                    if(orig_tokens.size() <= drop_tokens_mode.token_limit) {
+                    if(orig_tokens_size <= drop_tokens_mode.token_limit) {
                         drop_both_sides = true;
                     } else {
                         curr_direction = right_to_left;
@@ -3799,19 +3806,19 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     std::vector<token_t> truncated_tokens;
                     std::vector<token_t> dropped_tokens;
 
-                    if(num_tokens_dropped >= orig_tokens.size() - 1) {
+                    if(num_tokens_dropped >= orig_tokens_size - 1) {
                         // swap direction and reset counter
                         curr_direction = (curr_direction == right_to_left) ? left_to_right : right_to_left;
                         num_tokens_dropped = 0;
                         total_dirs_done++;
                     }
 
-                    if(orig_tokens.size() > 1 && total_dirs_done < 2) {
+                    if(orig_tokens_size > 1 && total_dirs_done < 2) {
                         bool prefix_search = false;
                         if (curr_direction == right_to_left) {
                             // drop from right
-                            size_t truncated_len = orig_tokens.size() - num_tokens_dropped - 1;
-                            for (size_t i = 0; i < orig_tokens.size(); i++) {
+                            size_t truncated_len = orig_tokens_size - num_tokens_dropped - 1;
+                            for (size_t i = 0; i < orig_tokens_size; i++) {
                                 if(i < truncated_len) {
                                     truncated_tokens.emplace_back(orig_tokens[i]);
                                 } else {
@@ -3822,7 +3829,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             // drop from left
                             prefix_search = true;
                             size_t start_index = (num_tokens_dropped + 1);
-                            for(size_t i = 0; i < orig_tokens.size(); i++) {
+                            for(size_t i = 0; i < orig_tokens_size; i++) {
                                 if(i >= start_index) {
                                     truncated_tokens.emplace_back(orig_tokens[i]);
                                 } else {

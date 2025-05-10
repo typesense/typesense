@@ -454,14 +454,16 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
                 if (c == ')' && is_geo_value) {
                     is_geo_value = false;
                 }
-                if (!preceding_colon && c == '{' && i > 0 && filter_query[i - 1] == '.') { // Object filter
+                if (!inBacktick && !preceding_colon && c == '{' && i > 0 && filter_query[i - 1] == '.') { // Object filter
                     std::string value;
                     auto op = parse_object_filter(filter_query, value, i);
                     if (!op.ok()) {
                         return op;
                     }
 
-                    ss << value;
+                    const std::string object_field_name = ss.str();
+                    ss.str(std::string());
+                    ss << OBJECT_FILTER_MARKER << object_field_name << value;
                     break;
                 }
 

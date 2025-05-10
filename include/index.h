@@ -464,6 +464,7 @@ private:
 
     // this is used for wildcard queries
     id_list_t* seq_ids;
+    mutable std::shared_mutex seq_ids_mutex;
 
     std::vector<char> symbols_to_index;
 

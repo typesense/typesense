@@ -167,7 +167,7 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                     }
 
                     auto id = object_array[i].at(keys[1]).get<std::string>();
-                    auto ref_doc_id_op = ref_collection->doc_id_to_seq_id_with_lock(id);
+                    auto ref_doc_id_op = ref_collection->doc_id_to_seq_id(id);
                     if (!ref_doc_id_op.ok() && is_async_reference) {
                         auto const& value = nlohmann::json::array({i, Index::reference_helper_sentinel_value});
                         document[reference_helper_field] += value;
@@ -193,7 +193,7 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                     }
 
                     auto id = item.value().get<std::string>();
-                    auto ref_doc_id_op = ref_collection->doc_id_to_seq_id_with_lock(id);
+                    auto ref_doc_id_op = ref_collection->doc_id_to_seq_id(id);
                     if (!ref_doc_id_op.ok() && is_async_reference) {
                         document[reference_helper_field] += Index::reference_helper_sentinel_value;
                     } else if (!ref_doc_id_op.ok()) {
@@ -208,7 +208,7 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
                 document[fields::reference_helper_fields] += reference_helper_field;
 
                 auto id = document[field_name].get<std::string>();
-                auto ref_doc_id_op = ref_collection->doc_id_to_seq_id_with_lock(id);
+                auto ref_doc_id_op = ref_collection->doc_id_to_seq_id(id);
                 if (!ref_doc_id_op.ok() && is_async_reference) {
                     document[reference_helper_field] = Index::reference_helper_sentinel_value;
                 } else if (!ref_doc_id_op.ok()) {

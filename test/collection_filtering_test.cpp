@@ -2205,7 +2205,7 @@ TEST_F(CollectionFilteringTest, FilteringAfterUpsertOnArrayWithSymbolsToIndex) {
                                  field("tags", field_types::STRING_ARRAY, false),
                                  field("tag", field_types::STRING, false)};
 
-    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, "", {"-"}, {}).get();
+    auto coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, "", {"-"}, {}).get();
 
     nlohmann::json doc1;
     doc1["id"] = "0";
@@ -2352,14 +2352,14 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
     }
     ASSERT_TRUE(load_op.ok());
 
-    coll = collectionManager.get_collection_unsafe("ComplexFilterQueryCollection");
-    search_op = coll->search("Jeremy", {"name"}, extreme_filter,
+    auto coll2 = collectionManager.get_collection_unsafe("ComplexFilterQueryCollection");
+    search_op = coll2->search("Jeremy", {"name"}, extreme_filter,
                                   {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(1, search_op.get()["hits"].size());
 
     extreme_filter += "|| (years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5)))";
-    search_op = coll->search("Jeremy", {"name"}, extreme_filter,
+    search_op = coll2->search("Jeremy", {"name"}, extreme_filter,
                              {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("`filter_by` has too many operations. Maximum allowed: 109. Use `--filter-by-max-ops` command line "
@@ -3736,4 +3736,45 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFilteringMultiple) {
     ASSERT_EQ(1, result["found"].get<size_t>());
     ASSERT_EQ(1, result["hits"].size());
     ASSERT_EQ("Lasagna", result["hits"][0]["document"]["name"]);
+}
+
+TEST_F(CollectionFilteringTest, FilterOnFieldWithSymbolsToIndex) {
+    // Test filtering with field-level symbols_to_index configuration
+
+    nlohmann::json schema = R"({
+        "name": "symbols_test",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "root", "type": "string", "symbols_to_index": ["~"]}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    Collection* coll = collection_create_op.get();
+
+    nlohmann::json doc1 = R"({
+        "title": "Document one",
+        "root": "~~"
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "title": "Document two",
+        "root": "somethingElse"
+    })"_json;
+
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    auto results = coll->search("*", {"title"}, "root:=~~", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("Document one", results["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ("~~", results["hits"][0]["document"]["root"].get<std::string>());
+
+    results = coll->search("*", {"title"}, "root:=somethingElse", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("Document two", results["hits"][0]["document"]["title"].get<std::string>());
+
+    collectionManager.drop_collection("symbols_test");
 }

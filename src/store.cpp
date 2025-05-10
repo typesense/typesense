@@ -302,7 +302,7 @@ rocksdb::Status Store::create_check_point(rocksdb::Checkpoint** checkpoint_ptr, 
 }
 
 rocksdb::Status Store::delete_range(const std::string& begin_key, const std::string& end_key) {
-    std::shared_lock lock(mutex);
+    std::unique_lock lock(mutex);
     return db->DeleteRange(rocksdb::WriteOptions(), db->DefaultColumnFamily(), begin_key, end_key);
 }
 
