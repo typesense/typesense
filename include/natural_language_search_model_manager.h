@@ -33,6 +33,8 @@ public:
     static void clear_schema_prompt(const std::string& collection_name);
     static void clear_all_schema_prompts();
     static bool has_cached_schema_prompt(const std::string& collection_name);
+    static Option<uint64_t> process_nl_query_and_augment_params(std::map<std::string, std::string>& req_params, nlohmann::json& search_obj, uint64_t schema_prompt_ttl_seconds);
+    static void add_nl_query_data_to_results(nlohmann::json& results_json, const nlohmann::json& search_obj, const std::map<std::string, std::string>* req_params, uint64_t nl_search_time_ms);
 
     static Option<nlohmann::json> process_natural_language_query(
         const std::string& nl_query, 
@@ -106,6 +108,7 @@ private:
     static const std::string get_model_key(const std::string& model_id);
     static Option<nlohmann::json> delete_model_unsafe(const std::string& model_id);
     static Option<std::string> generate_schema_prompt(const std::string& collection_name);
+    static nlohmann::json build_augmented_params(const nlohmann::json& search_obj);
 
     // For testing: mock time variables
     static inline bool use_mock_time = false;

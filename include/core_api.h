@@ -242,28 +242,3 @@ bool post_nl_search_model(const std::shared_ptr<http_req>& req, const std::share
 bool put_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool delete_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
-struct NLProcessingResult {
-    bool processed;
-    uint64_t processing_time_ms;
-};
-
-NLProcessingResult process_nl_query_and_augment_params(
-    std::map<std::string, std::string>& params,
-    nlohmann::json& search_obj,
-    uint64_t schema_prompt_ttl_seconds = 86400 // 24 hours default TTL
-);
-
-void add_nl_query_data_to_results(
-    nlohmann::json& results_json,
-    const nlohmann::json& search_obj,
-    const std::map<std::string, std::string>* req_params = nullptr,
-    uint64_t nl_processing_time_ms = 0
-);
-
-// Helper function to remove internal fields (prefixed with underscore) from a JSON object
-void remove_internal_fields(nlohmann::json& json_obj, const std::string& context);
-
-Option<nlohmann::json> process_natural_language_query(const std::string& nl_query,
-                                                     const std::string& collection_name,
-                                                     const std::string& nl_model_id);
