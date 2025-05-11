@@ -648,19 +648,15 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         req->params["q"] = query;
     }
 
-    // Process natural language query if present
     LOG(INFO) << "Before process_nl_query_and_augment_params in get_search, params: "
               << (req->params.count("q") ? "q=" + req->params["q"] : "no q");
 
-    // Create a search object for process_nl_query_and_augment_params to populate
     nlohmann::json search_obj = nlohmann::json::object();
 
-    // Pass nl_query from URL params to the search object for processing
     if(req->params.count("nl_query")) {
         search_obj["nl_query"] = req->params["nl_query"];
     }
 
-    // Get the schema prompt cache TTL if provided
     uint64_t prompt_cache_ttl = NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC;
     if(req->params.count("nl_query_prompt_cache_ttl")) {
         try {

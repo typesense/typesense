@@ -5,29 +5,40 @@
 #include "json.hpp"
 
 class NaturalLanguageSearchModel {
-public:
-    static Option<bool> validate_model(const nlohmann::json& model_config);
+private:
+    static bool use_mock_response;
+    static std::string mock_response_body;
+    static long mock_status_code;
+    static std::map<std::string, std::string> mock_response_headers;
 
-    // Generate search parameters from a natural language query
+public:
+    static Option<nlohmann::json> extract_search_params_from_content(const std::string& content, const std::string& model_name_without_namespace);
+    static Option<bool> validate_model(const nlohmann::json& model_config);
     static Option<nlohmann::json> generate_search_params(const std::string& query, 
                                                         const std::string& collection_schema_prompt,
                                                         const nlohmann::json& model_config);
 
-    // OpenAI implementation
     static Option<bool> validate_openai_model(const nlohmann::json& model_config);
     static Option<nlohmann::json> openai_generate_search_params(const std::string& query, 
                                                                const std::string& collection_schema_prompt,
                                                                const nlohmann::json& model_config);
 
-    // Cloudflare implementation
     static Option<bool> validate_cloudflare_model(const nlohmann::json& model_config);
     static Option<nlohmann::json> cloudflare_generate_search_params(const std::string& query, 
                                                                   const std::string& collection_schema_prompt,
                                                                   const nlohmann::json& model_config);
 
-    // vLLM implementation
     static Option<bool> validate_vllm_model(const nlohmann::json& model_config);
     static Option<nlohmann::json> vllm_generate_search_params(const std::string& query, 
                                                             const std::string& collection_schema_prompt,
                                                             const nlohmann::json& model_config);
+
+    static long post_response(const std::string& url, const std::string& body, std::string& response,
+                                    std::map<std::string, std::string>& res_headers,
+                                    const std::unordered_map<std::string, std::string>& headers = {},
+                                    long timeout_ms = 4000,
+                                    bool send_ts_api_header = false);
+
+    static void set_mock_response(const std::string& response_body, long status_code = 200, const std::map<std::string, std::string>& response_headers = {});
+    static void clear_mock_response();
 }; 

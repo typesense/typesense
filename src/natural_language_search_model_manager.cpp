@@ -497,7 +497,7 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
   LOG(INFO) << "Parameters - nl_query: " << nl_query << ", collection_name: " << collection_name
             << ", nl_model_id: " << (req_params.count("nl_model_id") ? req_params.at("nl_model_id") : "default");
 
-  auto params_op = NaturalLanguageSearchModelManager::process_natural_language_query(
+  auto params_op = process_natural_language_query(
       nl_query,
       collection_name,
       req_params.count("nl_model_id") ? req_params.at("nl_model_id") : "default",
@@ -525,7 +525,7 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
           LOG(INFO) << "Marking that fallback q is being used";
       }
 
-      return Option<uint64_t>(400, "Marking that fallback q is being used");
+      return Option<uint64_t>(400, "Error processing natural language query");
   }
 
   LOG(INFO) << "Successfully processed natural language query, extracting search parameters";
