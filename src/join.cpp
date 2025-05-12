@@ -846,7 +846,7 @@ int8_t skip_index_to_join(const std::string& filter_query, size_t& i) {
                 return 1;
             } else {
                 std::string token;
-                filter::parse_filter_string(filter_query, token, i);
+                parse_filter_string(filter_query, token, i);
             }
         }
     }

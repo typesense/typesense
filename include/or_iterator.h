@@ -1,7 +1,6 @@
 #pragma once
 
 #include <vector>
-#include <filter_result_iterator.h>
 #include "posting_list.h"
 
 /*

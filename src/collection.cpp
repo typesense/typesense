@@ -1218,9 +1218,9 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     return Option<bool>(400, "The eval expression in sort_by is empty.");
                 }
 
-                Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
-                                                                          store, "", sort_field_std.eval.filter_trees[j],
-                                                                          validate_field_names);
+                Option<bool> parse_filter_op = parse_filter_query(filter_exp, search_schema,
+                                                                  store, "", sort_field_std.eval.filter_trees[j],
+                                                                  validate_field_names);
                 if (!parse_filter_op.ok()) {
                     return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
                 }
@@ -2345,8 +2345,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
-    Option<bool> parse_filter_op = filter::parse_filter_query(filter_query, search_schema,
-                                                              store, doc_id_prefix, filter_tree_root, validate_field_names);
+    Option<bool> parse_filter_op = parse_filter_query(filter_query, search_schema, store, doc_id_prefix, filter_tree_root,
+                                                      validate_field_names);
     std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
     if(!parse_filter_op.ok()) {
@@ -4634,8 +4634,8 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
-    Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
-                                                        store, doc_id_prefix, filter_tree_root, validate_field_names);
+    Option<bool> filter_op = parse_filter_query(filter_query, search_schema, store, doc_id_prefix, filter_tree_root,
+                                                validate_field_names);
     std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
     if(!filter_op.ok()) {
@@ -4665,8 +4665,8 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
-    Option<bool> parse_op = filter::parse_filter_query(filter_query, search_schema,
-                                                       store, doc_id_prefix, filter_tree_root);
+    Option<bool> parse_op = parse_filter_query(filter_query, search_schema, store, doc_id_prefix, filter_tree_root,
+                                               validate_field_names);
     std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
     if(!parse_op.ok()) {
@@ -8678,4 +8678,13 @@ Option<art_tree*> Collection::get_art_tree_with_lock(const std::string& field_na
     std::shared_lock lock(mutex);
 
     return index->get_art_tree_with_lock(field_name);
+}
+
+std::unique_ptr<posting_list_t::ref_iterator_t> Collection::get_ref_iterator(const std::string& referencing_collection_name,
+                                                                             const std::string& field_name,
+                                                                             const std::string& token_str,
+                                                                             uint32_t field_id) const {
+    std::shared_lock lock(mutex);
+
+    return index->get_ref_iterator(referencing_collection_name, field_name, token_str, field_id);
 }

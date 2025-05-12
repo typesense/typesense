@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 #include <or_iterator.h>
-#include <posting_list.h>
 #include <posting.h>
 #include <filter_result_iterator.h>
 #include "logger.h"
@@ -38,18 +37,18 @@ TEST(OrIteratorTest, IntersectTwoListsWith3SubLists) {
         }
     }
 
-    std::vector<posting_list_t::iterator_t> pits1;
+    std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> pits1;
     for(auto& posting_list: postings1) {
-        pits1.push_back(posting_list->new_iterator());
+        pits1.push_back(posting_list->new_iterator_ptr());
     }
 
-    std::vector<posting_list_t::iterator_t> pits2;
+    std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> pits2;
     for(auto& posting_list: postings2) {
-        pits2.push_back(posting_list->new_iterator());
+        pits2.push_back(posting_list->new_iterator_ptr());
     }
 
-    or_iterator_t it1(pits1);
-    or_iterator_t it2(pits2);
+    or_iterator_t it1(std::move(pits1));
+    or_iterator_t it2(std::move(pits2));
 
     std::vector<or_iterator_t> or_its;
     or_its.push_back(std::move(it1));
@@ -116,18 +115,18 @@ TEST(OrIteratorTest, IntersectTwoListsWith4SubLists) {
         }
     }
 
-    std::vector<posting_list_t::iterator_t> pits1;
+    std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> pits1;
     for(auto& posting_list: postings1) {
-        pits1.push_back(posting_list->new_iterator());
+        pits1.push_back(posting_list->new_iterator_ptr());
     }
 
-    std::vector<posting_list_t::iterator_t> pits2;
+    std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> pits2;
     for(auto& posting_list: postings2) {
-        pits2.push_back(posting_list->new_iterator());
+        pits2.push_back(posting_list->new_iterator_ptr());
     }
 
-    or_iterator_t it1(pits1);
-    or_iterator_t it2(pits2);
+    or_iterator_t it1(std::move(pits1));
+    or_iterator_t it2(std::move(pits2));
 
     std::vector<or_iterator_t> or_its;
     or_its.push_back(std::move(it1));
@@ -184,16 +183,16 @@ TEST(OrIteratorTest, IntersectAndFilterThreeIts) {
         p3->upsert(id, offsets);
     }
 
-    std::vector<posting_list_t::iterator_t> pits1;
-    std::vector<posting_list_t::iterator_t> pits2;
-    std::vector<posting_list_t::iterator_t> pits3;
-    pits1.push_back(p1->new_iterator());
-    pits2.push_back(p2->new_iterator());
-    pits3.push_back(p3->new_iterator());
+    std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> pits1;
+    std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> pits2;
+    std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> pits3;
+    pits1.push_back(p1->new_iterator_ptr());
+    pits2.push_back(p2->new_iterator_ptr());
+    pits3.push_back(p3->new_iterator_ptr());
 
-    or_iterator_t it1(pits1);
-    or_iterator_t it2(pits2);
-    or_iterator_t it3(pits3);
+    or_iterator_t it1(std::move(pits1));
+    or_iterator_t it2(std::move(pits2));
+    or_iterator_t it3(std::move(pits3));
 
     std::vector<or_iterator_t> or_its;
     or_its.push_back(std::move(it1));
@@ -236,13 +235,13 @@ TEST(OrIteratorTest, IntersectAndFilterTwoIts) {
         p2->upsert(id, offsets);
     }
 
-    std::vector<posting_list_t::iterator_t> pits1;
-    std::vector<posting_list_t::iterator_t> pits2;
-    pits1.push_back(p1->new_iterator());
-    pits2.push_back(p2->new_iterator());
+    std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> pits1;
+    std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> pits2;
+    pits1.push_back(p1->new_iterator_ptr());
+    pits2.push_back(p2->new_iterator_ptr());
 
-    or_iterator_t it1(pits1);
-    or_iterator_t it2(pits2);
+    or_iterator_t it1(std::move(pits1));
+    or_iterator_t it2(std::move(pits2));
 
     std::vector<or_iterator_t> or_its;
     or_its.push_back(std::move(it1));

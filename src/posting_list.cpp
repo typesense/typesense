@@ -1,6 +1,5 @@
 #include "posting_list.h"
 #include <bitset>
-#include <utility>
 #include "for.h"
 #include "array_utils.h"
 #include "filter_result_iterator.h"
@@ -809,6 +808,15 @@ bool posting_list_t::take_id(result_iter_state_t& istate, uint32_t id) {
     return true;
 }
 
+bool posting_list_t::get_offsets(const std::vector<std::unique_ptr<base_iterator_t>>& its,
+                                 std::map<size_t, std::vector<token_positions_t>>& array_token_pos) {
+    for(size_t j = 0; j < its.size(); j++) {
+        its[j]->get_offsets(array_token_pos);
+    }
+
+    return true;
+}
+
 void posting_list_t::get_offsets(iterator_t& iter, std::vector<uint32_t>& positions) {
     block_t* curr_block = iter.block();
     uint32_t curr_index = iter.index();
@@ -916,16 +924,12 @@ bool posting_list_t::get_offsets(const std::vector<iterator_t>& its,
     return true;
 }
 
-bool posting_list_t::is_single_token_verbatim_match(const posting_list_t::iterator_t& it, bool field_is_array) {
-    block_t* curr_block = it.block();
-    uint32_t curr_index = it.index();
-
+bool posting_list_t::iterator_t::is_single_token_verbatim_match(bool field_is_array) {
     if(curr_block == nullptr || curr_index == UINT32_MAX) {
         return false;
     }
 
-    uint32_t* offsets = it.offsets;
-    uint32_t start_offset = it.offset_index[curr_index];
+    uint32_t start_offset = offset_index[curr_index];
 
     if(!field_is_array && offsets[start_offset] != 1) {
         // allows us to skip other computes fast
@@ -934,7 +938,7 @@ bool posting_list_t::is_single_token_verbatim_match(const posting_list_t::iterat
 
     uint32_t end_offset = (curr_index == curr_block->size() - 1) ?
                           curr_block->offsets.getLength() :
-                          it.offset_index[curr_index + 1];
+                          offset_index[curr_index + 1];
 
     if(field_is_array) {
        int prev_pos = -1;
@@ -1296,7 +1300,7 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
         for(size_t i = 0; i < num_ids; i++) {
             uint32_t id = ids[i];
             its[0].skip_to(id);
-            if(is_single_token_verbatim_match(its[0], field_is_array)) {
+            if(its[0].is_single_token_verbatim_match(field_is_array)) {
                 exact_ids[exact_id_index++] = id;
             }
         }
@@ -1587,7 +1591,7 @@ bool posting_list_t::has_prefix_match(std::vector<posting_list_t::iterator_t>& p
 bool posting_list_t::has_exact_match(std::vector<posting_list_t::iterator_t>& posting_list_iterators,
                                        const bool field_is_array) {
     if(posting_list_iterators.size() == 1) {
-        return is_single_token_verbatim_match(posting_list_iterators[0], field_is_array);
+        return posting_list_iterators[0].is_single_token_verbatim_match(field_is_array);
     } else {
 
         if (!field_is_array) {
@@ -1886,21 +1890,17 @@ bool posting_list_t::all_ended2(const std::vector<std::unique_ptr<posting_list_t
     return !its[0]->valid() && !its[1]->valid();
 }
 
-size_t posting_list_t::get_last_offset(const posting_list_t::iterator_t& it, bool field_is_array) {
-    block_t* curr_block = it.block();
-    uint32_t curr_index = it.index();
-    uint32_t* offsets = it.offsets;
-
+size_t posting_list_t::iterator_t::get_last_offset(bool field_is_array) const {
     if(curr_block == nullptr || curr_index == UINT32_MAX) {
         return 0;
     }
 
     uint32_t end_offset = (curr_index == curr_block->size() - 1) ?
                           curr_block->offsets.getLength() :
-                          it.offset_index[curr_index + 1];
+                          offset_index[curr_index + 1];
 
     if(field_is_array) {
-        uint32_t start_offset = it.offset_index[curr_index];
+        uint32_t start_offset = offset_index[curr_index];
         int prev_pos = -1;
         size_t max_offset = 0;
 
@@ -1938,6 +1938,79 @@ size_t posting_list_t::get_last_offset(const posting_list_t::iterator_t& it, boo
     }
 
     return 0;
+}
+
+void posting_list_t::iterator_t::get_offsets(std::map<size_t, std::vector<token_positions_t>>& array_token_pos) {
+    // Plain string format:
+    // offset1, offset2, ... , 0 (if token is the last offset for the document)
+
+    // Array string format:
+    // offset1, ... , offsetn, offsetn, array_index, 0 (if token is the last offset for the document)
+    // NOTE 1: last offset is repeated to indicate end of offsets for a given array index)
+    // NOTE 2: offsets are 1-index based (since 0 is used as last offset marking)
+
+    // For each result ID and for each block it is contained in, calculate offsets
+
+    if(curr_block == nullptr || curr_index == UINT32_MAX) {
+        return;
+    }
+
+    uint32_t start_offset = offset_index[curr_index];
+    uint32_t end_offset = (curr_index == curr_block->size() - 1) ?
+                          curr_block->offsets.getLength() :
+                          offset_index[curr_index + 1];
+
+    std::vector<uint16_t> positions;
+    int prev_pos = -1;
+    bool is_last_token = false;
+
+    /*LOG(INFO) << "id: " << its[j].id() << ", start_offset: " << start_offset << ", end_offset: " << end_offset;
+    for(size_t x = 0; x < end_offset; x++) {
+        LOG(INFO) << "x: " << x << ", pos: " << offsets[x];
+    }*/
+
+    while(start_offset < end_offset) {
+        int pos = offsets[start_offset];
+        start_offset++;
+
+        if(pos == 0) {
+            // indicates that token is the last token on the doc
+            is_last_token = true;
+            start_offset++;
+            continue;
+        }
+
+        if(pos == prev_pos) {  // indicates end of array index
+            if(!positions.empty()) {
+                size_t array_index = (size_t) offsets[start_offset];
+                is_last_token = false;
+
+                if(start_offset+1 < end_offset) {
+                    size_t next_offset = (size_t) offsets[start_offset + 1];
+                    if(next_offset == 0) {
+                        // indicates that token is the last token on the doc
+                        is_last_token = true;
+                        start_offset++;
+                    }
+                }
+
+                array_token_pos[array_index].push_back(token_positions_t{is_last_token, positions});
+                positions.clear();
+            }
+
+            start_offset++;  // skip current value which is the array index or flag for last index
+            prev_pos = -1;
+            continue;
+        }
+
+        prev_pos = pos;
+        positions.push_back((uint16_t)pos - 1);
+    }
+
+    if(!positions.empty()) {
+        // for plain string fields
+        array_token_pos[0].push_back(token_positions_t{is_last_token, positions});
+    }
 }
 
 /* iterator_t operations */
@@ -2185,8 +2258,8 @@ uint32_t result_iter_state_t::get_filter_id() const {
     return 0;
 }
 
-posting_list_t::ref_iterator_t::ref_iterator_t(reference_filter_result_t&& result, uint32_t field_id) :
-        base_iterator_t(field_id), result(result) {}
+posting_list_t::ref_iterator_t::ref_iterator_t(filter_result_t&& result, art_leaf* leaf, uint32_t field_id) :
+        base_iterator_t(field_id), result(result), leaf(leaf) {}
 
 bool posting_list_t::ref_iterator_t::valid() const {
     return curr_index < result.count;

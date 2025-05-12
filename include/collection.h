@@ -1199,6 +1199,11 @@ public:
     Option<field> get_field_with_lock(const std::string& field_name) const;
 
     Option<art_tree*> get_art_tree_with_lock(const std::string& field_name) const;
+
+    std::unique_ptr<posting_list_t::ref_iterator_t> get_ref_iterator(const std::string& referencing_collection_name,
+                                                                     const std::string& field_name,
+                                                                     const std::string& token_str,
+                                                                     uint32_t field_id) const;
 };
 
 template<class T>

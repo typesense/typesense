@@ -4,7 +4,7 @@
 #include <stack>
 #include "filter.h"
 
-Option<bool> filter::validate_numerical_filter_value(field _field, const string &raw_value) {
+Option<bool> validate_numerical_filter_value(field _field, const string &raw_value) {
     if(_field.is_int32()) {
         if (!StringUtils::is_integer(raw_value)) {
             return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int32.");
@@ -26,7 +26,7 @@ Option<bool> filter::validate_numerical_filter_value(field _field, const string 
     return Option<bool>(true);
 }
 
-Option<NUM_COMPARATOR> filter::extract_num_comparator(string &comp_and_value) {
+Option<NUM_COMPARATOR> extract_num_comparator(string &comp_and_value) {
     auto num_comparator = EQUALS;
 
     if(StringUtils::is_integer(comp_and_value) || StringUtils::is_float(comp_and_value)) {
@@ -75,11 +75,11 @@ Option<NUM_COMPARATOR> filter::extract_num_comparator(string &comp_and_value) {
     return Option<NUM_COMPARATOR>(num_comparator);
 }
 
-Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
-                                                 const std::string& format_err_msg,
-                                                 std::string& processed_filter_val,
-                                                 NUM_COMPARATOR& num_comparator,
-                                                 bool is_geopolygon) {
+Option<bool> parse_geopoint_filter_value(std::string& raw_value,
+                                         const std::string& format_err_msg,
+                                         std::string& processed_filter_val,
+                                         NUM_COMPARATOR& num_comparator,
+                                         bool is_geopolygon) {
 
     num_comparator = LESS_THAN_EQUALS;
 
@@ -183,7 +183,7 @@ Option<bool> validate_geofilter_distance(std::string& raw_value, const string& f
     return Option<bool>(true);
 }
 
-Option<bool> filter::parse_geopoint_filter_value(string& raw_value, const string& format_err_msg, filter& filter_exp) {
+Option<bool> parse_geopoint_filter_value(string& raw_value, const string& format_err_msg, filter& filter_exp) {
     // FORMAT:
     // [ ([48.853, 2.344], radius: 1km, exact_filter_radius: 100km),
     //   ([48.8662, 2.3255, 48.8581, 2.3209, 48.8561, 2.3448, 48.8641, 2.3469], exact_filter_radius: 100km) ]
@@ -380,16 +380,16 @@ Option<bool> toMultiValueNumericFilter(std::string& raw_value, filter& filter_ex
     StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
     filter_exp = {_field.name, {}, {}};
     for (std::string& filter_value: filter_values) {
-        Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(filter_value);
+        Option<NUM_COMPARATOR> op_comparator = extract_num_comparator(filter_value);
         if (!op_comparator.ok()) {
             return Option<bool>(400, "Error with filter field `" + _field.name + "`: " + op_comparator.error());
         }
         if (op_comparator.get() == RANGE_INCLUSIVE) {
             // split the value around range operator to extract bounds
             std::vector<std::string> range_values;
-            StringUtils::split(filter_value, range_values, filter::RANGE_OPERATOR());
+            StringUtils::split(filter_value, range_values, RANGE_OPERATOR);
             for (const std::string& range_value: range_values) {
-                auto validate_op = filter::validate_numerical_filter_value(_field, range_value);
+                auto validate_op = validate_numerical_filter_value(_field, range_value);
                 if (!validate_op.ok()) {
                     return validate_op;
                 }
@@ -397,7 +397,7 @@ Option<bool> toMultiValueNumericFilter(std::string& raw_value, filter& filter_ex
                 filter_exp.comparators.push_back(op_comparator.get());
             }
         } else {
-            auto validate_op = filter::validate_numerical_filter_value(_field, filter_value);
+            auto validate_op = validate_numerical_filter_value(_field, filter_value);
             if (!validate_op.ok()) {
                 return validate_op;
             }
@@ -526,17 +526,17 @@ Option<bool> toFilter(const std::string& expression,
                 return op;
             }
         } else {
-            Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(raw_value);
+            Option<NUM_COMPARATOR> op_comparator = extract_num_comparator(raw_value);
             if (!op_comparator.ok()) {
                 return Option<bool>(400, "Error with filter field `" + _field.name + "`: " + op_comparator.error());
             }
             if (op_comparator.get() == RANGE_INCLUSIVE) {
                 // split the value around range operator to extract bounds
                 std::vector<std::string> range_values;
-                StringUtils::split(raw_value, range_values, filter::RANGE_OPERATOR());
+                StringUtils::split(raw_value, range_values, RANGE_OPERATOR);
                 filter_exp.field_name = field_name;
                 for (const std::string& range_value: range_values) {
-                    auto validate_op = filter::validate_numerical_filter_value(_field, range_value);
+                    auto validate_op = validate_numerical_filter_value(_field, range_value);
                     if (!validate_op.ok()) {
                         return validate_op;
                     }
@@ -550,7 +550,7 @@ Option<bool> toFilter(const std::string& expression,
                 }
                 filter_exp.apply_not_equals = true;
             } else {
-                auto validate_op = filter::validate_numerical_filter_value(_field, raw_value);
+                auto validate_op = validate_numerical_filter_value(_field, raw_value);
                 if (!validate_op.ok()) {
                     return validate_op;
                 }
@@ -612,7 +612,7 @@ Option<bool> toFilter(const std::string& expression,
                                                 "`([-44.50, 170.29], radius: 0.75 km, exact_filter_radius: 5 km)` or "
                                                 "([56.33, -65.97, 23.82, -127.82], exact_filter_radius: 7 km) format.";
 
-            auto parse_op = filter::parse_geopoint_filter_value(raw_value, format_err_msg, filter_exp);
+            auto parse_op = parse_geopoint_filter_value(raw_value, format_err_msg, filter_exp);
             return parse_op;
         }
 
@@ -626,8 +626,8 @@ Option<bool> toFilter(const std::string& expression,
             for (std::string& filter_value: filter_values) {
                 filter_value += ")";
                 std::string processed_filter_val;
-                auto parse_op = filter::parse_geopoint_filter_value(filter_value, format_err_msg, processed_filter_val,
-                                                                    num_comparator, _field.is_geopolygon());
+                auto parse_op = parse_geopoint_filter_value(filter_value, format_err_msg, processed_filter_val,
+                                                            num_comparator, _field.is_geopolygon());
                 if (!parse_op.ok()) {
                     return parse_op;
                 }
@@ -637,8 +637,8 @@ Option<bool> toFilter(const std::string& expression,
         } else {
             // single value, e.g. (10.45, 34.56, 2 km)
             std::string processed_filter_val;
-            auto parse_op = filter::parse_geopoint_filter_value(raw_value, format_err_msg, processed_filter_val,
-                                                                num_comparator, _field.is_geopolygon());
+            auto parse_op = parse_geopoint_filter_value(raw_value, format_err_msg, processed_filter_val,
+                                                        num_comparator, _field.is_geopolygon());
             if (!parse_op.ok()) {
                 return parse_op;
             }
@@ -685,6 +685,14 @@ Option<bool> toFilter(const std::string& expression,
     return Option<bool>(true);
 }
 
+Option<bool> parse_filter_query(const std::string& filter_query,
+                                const tsl::htrie_map<char, field>& search_schema,
+                                const Store* store,
+                                const std::string& doc_id_prefix,
+                                filter_node_t*& root,
+                                const bool& validate_field_names,
+                                const std::string& object_field_prefix);
+
 // https://stackoverflow.com/a/423914/11218270
 Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                          const tsl::htrie_map<char, field>& search_schema,
@@ -729,7 +737,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             const std::regex join_pattern(R"(^(\$|(\!\$)).+\(.+\)$)");
             bool is_referenced_filter = std::regex_match(expression, join_pattern);
 
-            // We prepend ".{" to an object filter in `StringUtils::tokenize_filter_query`.
+            // We prepend ".{" to an object filter in `tokenize_filter_query()`.
             bool is_object_filter = expression.size() > OBJECT_FILTER_MARKER.size()
                                             && expression.substr(0, OBJECT_FILTER_MARKER.size()) == OBJECT_FILTER_MARKER;
 
@@ -760,10 +768,10 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                                                                           object_expression.size() - curly_pos - 2);
                 const auto object_prefix = object_expression.substr(0, curly_pos);
 
-                Option<bool> parse_filter_op = filter::parse_filter_query(object_filter_query, search_schema,
-                                                                          store, doc_id_prefix, filter_node,
-                                                                          validate_field_names,
-                                                                          object_prefix);
+                Option<bool> parse_filter_op = parse_filter_query(object_filter_query, search_schema,
+                                                                  store, doc_id_prefix, filter_node,
+                                                                  validate_field_names,
+                                                                  object_prefix);
                 if (!parse_filter_op.ok()) {
                     return parse_filter_op;
                 }
@@ -808,7 +816,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
     return Option<bool>(true);
 }
 
-Option<bool> filter::parse_filter_query(const std::string& filter_query,
+Option<bool> parse_filter_query(const std::string& filter_query,
                                         const tsl::htrie_map<char, field>& search_schema,
                                         const Store* store,
                                         const std::string& doc_id_prefix,
@@ -855,7 +863,7 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
     return Option<bool>(true);
 }
 
-Option<bool> filter::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
+Option<bool> tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
     auto size = filter_query.size();
 
     for (size_t i = 0; i < size;) {
@@ -970,7 +978,7 @@ bool is_multi_valued_geopoint_filter(const std::string& filter_query, size_t ind
     return filter_query[index] == '(';
 }
 
-Option<bool> filter::parse_filter_string(const std::string& filter_query, std::string& token, size_t& index) {
+Option<bool> parse_filter_string(const std::string& filter_query, std::string& token, size_t& index) {
     const auto size = filter_query.size();
     const auto token_start_index = index;
     bool inBacktick = false;

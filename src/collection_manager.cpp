@@ -2208,3 +2208,17 @@ Option<art_tree*> CollectionManager::get_art_tree(const std::string& collection_
 
     return ref_collection->get_art_tree_with_lock(field_name);
 }
+
+std::unique_ptr<posting_list_t::ref_iterator_t> CollectionManager::get_ref_iterator(const std::string& collection_name,
+                                                                                    const std::string& ref_coll_name,
+                                                                                    const std::string& ref_field_name,
+                                                                                    const std::string& token_str,
+                                                                                    uint32_t field_id) {
+    auto& cm = CollectionManager::get_instance();
+    auto ref_collection = cm.get_collection(ref_coll_name);
+    if (ref_collection == nullptr) {
+        return std::make_unique<posting_list_t::ref_iterator_t>();
+    }
+
+    return ref_collection->get_ref_iterator(collection_name, ref_field_name, token_str, field_id);
+}

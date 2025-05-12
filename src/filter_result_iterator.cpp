@@ -1,3 +1,4 @@
+#include "filter_result_iterator.h"
 #include <memory>
 #include <queue>
 #include <id_list.h>
@@ -9,7 +10,6 @@
 #include <s2/s2loop.h>
 #include <s2/s2builder.h>
 #include <timsort.hpp>
-#include "filter_result_iterator.h"
 #include "index.h"
 #include "posting.h"
 #include "collection_manager.h"
@@ -1622,7 +1622,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             // Skip exact filtering step if query radius is greater than the threshold.
             if (fi < a_filter.params.size() &&
-                query_radius_meters > a_filter.params[fi][filter::EXACT_GEO_FILTER_RADIUS_KEY].get<double>()) {
+                query_radius_meters > a_filter.params[fi][EXACT_GEO_FILTER_RADIUS_KEY].get<double>()) {
                 uint32_t* out = nullptr;
                 filter_result.count = ArrayUtils::or_scalar(geo_result_ids.data(), geo_result_ids.size(),
                                                             filter_result.docs, filter_result.count, &out);

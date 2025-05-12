@@ -6,7 +6,7 @@
 #include "array.h"
 #include "match_score.h"
 #include "thread_local_vars.h"
-#include "filter_result_iterator.h"
+#include "art.h"
 
 typedef uint32_t last_id_t;
 class filter_result_iterator_t;
@@ -81,8 +81,10 @@ public:
     public:
         uint32_t field_id = 0;
 
-        base_iterator_t() {}
+        base_iterator_t() = default;
         explicit base_iterator_t(uint32_t field_id) : field_id(field_id) {}
+
+        virtual ~base_iterator_t() = default;
 
         virtual void reset_cache() = 0;
 
@@ -98,6 +100,9 @@ public:
             return field_id;
         }
         [[nodiscard]] virtual std::unique_ptr<posting_list_t::base_iterator_t> clone() const = 0;
+        virtual bool is_single_token_verbatim_match(bool field_is_array) = 0;
+        virtual size_t get_last_offset(bool field_is_array) const = 0;
+        virtual void get_offsets(std::map<size_t, std::vector<token_positions_t>>& array_token_pos) = 0;
     };
 
     class iterator_t : public base_iterator_t {
@@ -136,19 +141,23 @@ public:
         [[nodiscard]] inline uint32_t index() const;
         [[nodiscard]] inline block_t* block() const;
         std::unique_ptr<posting_list_t::base_iterator_t> clone() const;
+        bool is_single_token_verbatim_match(bool field_is_array);
+        size_t get_last_offset(bool field_is_array) const;
+        void get_offsets(std::map<size_t, std::vector<token_positions_t>>& array_token_pos);
     };
 
     class ref_iterator_t : public base_iterator_t {
         // In case of query_by referenced collection field, we can't iterate on posting_list of referenced collection
         // normally since the references might not be ordered.
-        reference_filter_result_t result{};
+        filter_result_t result{};
         uint32_t curr_index = 0;
+        art_leaf* leaf = nullptr;
 
     public:
 
         explicit ref_iterator_t() = default;
 
-        explicit ref_iterator_t(reference_filter_result_t&& result, uint32_t field_id = 0);
+        explicit ref_iterator_t(filter_result_t&& result, art_leaf* leaf = nullptr, uint32_t field_id = 0);
 
         void reset_cache() {}
         [[nodiscard]] bool valid() const;
@@ -160,6 +169,9 @@ public:
         [[nodiscard]] uint32_t offset() const { return 0; }
         [[nodiscard]] inline uint32_t index() const;
         std::unique_ptr<posting_list_t::base_iterator_t> clone() const;
+        bool is_single_token_verbatim_match(bool field_is_array) { return false; }
+        size_t get_last_offset(bool field_is_array) const { return 0; }
+        void get_offsets(std::map<size_t, std::vector<token_positions_t>>& array_token_pos) {}
     };
 public:
 
@@ -251,7 +263,10 @@ public:
         std::map<size_t, std::vector<token_positions_t>>& array_token_pos
     );
 
-    static bool is_single_token_verbatim_match(const posting_list_t::iterator_t& it, bool field_is_array);
+    static bool get_offsets(
+        const std::vector<std::unique_ptr<base_iterator_t>>& its,
+        std::map<size_t, std::vector<token_positions_t>>& array_token_pos
+    );
 
     static bool is_single_token_prefix_match(const posting_list_t::iterator_t& it, bool field_is_array);
 
@@ -280,8 +295,6 @@ public:
 
     static void get_matching_array_indices(uint32_t id, std::vector<iterator_t>& its,
                                            std::vector<size_t>& indices);
-
-    static size_t get_last_offset(const posting_list_t::iterator_t& it, bool field_is_array);
 };
 
 template<class T>
@@ -297,7 +310,7 @@ bool posting_list_t::block_intersect(std::vector<posting_list_t::iterator_t>& it
             while(its[0].valid()) {
                 num_processed++;
                 if (num_processed % 65536 == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
+                        std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
                     search_cutoff = true;
                     break;
                 }
@@ -313,7 +326,7 @@ bool posting_list_t::block_intersect(std::vector<posting_list_t::iterator_t>& it
             while(!at_end2(its)) {
                 num_processed++;
                 if (num_processed % 65536 == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
+                        std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
                     search_cutoff = true;
                     break;
                 }
@@ -333,7 +346,7 @@ bool posting_list_t::block_intersect(std::vector<posting_list_t::iterator_t>& it
             while(!at_end(its)) {
                 num_processed++;
                 if (num_processed % 65536 == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
+                        std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
                     search_cutoff = true;
                     break;
                 }

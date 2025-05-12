@@ -672,6 +672,18 @@ private:
                                                          std::map<std::string, reference_filter_result_t> const*& references,
                                                          std::string& ref_coll_name) const;
 
+    static inline void get_related_ids(num_tree_t& ref_index, const uint32_t& reference_doc_id,
+                                       std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
+                                       std::set<uint32_t>& unique_doc_ids, const bool& is_normal_join = true);
+
+    static inline void get_related_ids(const spp::sparse_hash_map<uint32_t, int64_t, Hasher32>& ref_index,
+                                       const uint32_t& reference_doc_id,
+                                       std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
+                                       std::set<uint32_t>& unique_doc_ids, const bool& is_normal_join = true);
+
+    inline void process_related_ids(std::vector<std::pair<uint32_t, uint32_t>> id_pairs, const size_t& unique_doc_ids_size,
+                                    filter_result_t& filter_result) const;
+
 public:
     // for limiting number of results on multiple candidates / query rewrites
     enum {TYPO_TOKENS_THRESHOLD = 1};
@@ -1218,6 +1230,11 @@ public:
                                      Collection const *const collection) const;
 
     Option<art_tree*> get_art_tree_with_lock(const std::string& field_name) const;
+
+    std::unique_ptr<posting_list_t::ref_iterator_t> get_ref_iterator(const std::string& referencing_collection_name,
+                                                                     const std::string& field_name,
+                                                                     const std::string& token_str,
+                                                                     uint32_t field_id) const;
 };
 
 template<class T>

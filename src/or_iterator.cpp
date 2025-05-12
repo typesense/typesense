@@ -1,5 +1,6 @@
 #include "or_iterator.h"
 #include "filter.h"
+#include "filter_result_iterator.h"
 
 bool or_iterator_t::at_end(const std::vector<or_iterator_t>& its) {
     // if any iterator is invalid, we stop
