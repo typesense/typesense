@@ -1474,6 +1474,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
     }
 
+<<<<<<< HEAD
     // Process natural language queries for each search
     std::vector<NLProcessingResult> nl_results;
     nl_results.reserve(searches.size());
@@ -1506,7 +1507,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         remove_internal_fields(searches[i], "search " + std::to_string(i) + " before validation");
     }
 
-    if (searches.size() > 1 && is_union) {
+    if (is_union) {
         Option<bool> union_op = CollectionManager::do_union(req->params, req->embedded_params_vec, searches,
                                                             response, req->conn_ts);
         if(!union_op.ok() && union_op.code() == 408) {
@@ -1897,7 +1898,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 }
 
                 auto const& coll = export_state->collection;
-                auto const seq_id_op = coll->doc_id_to_seq_id_with_lock(doc.at("id"));
+                auto const seq_id_op = coll->doc_id_to_seq_id(doc.at("id"));
                 if (!seq_id_op.ok()) {
                     res->set(seq_id_op.code(), seq_id_op.error());
                     req->last_chunk_aggregate = true;

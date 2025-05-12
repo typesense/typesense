@@ -1,0 +1,20 @@
+# Suppress races in CalcGmtOffset function which appears in both stacks
+race:google::LogMessageTime::CalcGmtOffset
+
+# Suppress races in bthread's TaskControl create_group
+race:bthread::TaskControl::create_group
+race:pthread_mutex_lock:bthread::TaskControl
+
+# brpc time updates
+race:brpc::GlobalUpdate
+race:clock_gettime
+
+# RocksDB has plenty of false positives
+race:rocksdb
+
+# Suppress data race in brpc thread creation and mutex lock
+race:bthread::TaskControl::create_group
+race:pthread_mutex_lock:brpc::GetGlobalEventDispatcher
+
+race:rocksdb::Arena::AllocateNewBlock
+race:std::__cxx11::basic_string::_M_mutate

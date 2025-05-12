@@ -889,6 +889,65 @@ TEST_F(CollectionOverrideTest, ReplaceQuery) {
     ASSERT_TRUE(op.ok());
 }
 
+TEST_F(CollectionOverrideTest, ReplaceWildcardQueryWithKeyword) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["points"] = 30;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Fast Shoes";
+    doc2["points"] = 50;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Comfortable Socks";
+    doc3["points"] = 1;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_json = R"({
+       "id": "rule-1",
+       "rule": {
+            "query": "*",
+            "match": "exact"
+        },
+        "replace_query": "shoes"
+    })"_json;
+
+    override_t override_rule;
+    auto op = override_t::parse(override_json, "rule-1", override_rule);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule);
+
+    auto results = coll1->search("*", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+     // should return an error message when query_by is not sent
+    auto res_op = coll1->search("*", {}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Missing `query_by` parameter.", res_op.error());
+}
+
 TEST_F(CollectionOverrideTest, BothFilterByAndQueryMatch) {
     Collection* coll1;
 
@@ -4682,4 +4741,85 @@ TEST_F(CollectionOverrideTest, OverridesWithSemanticSearch) {
     ASSERT_EQ(results["hits"][3]["document"]["id"], "5");
     ASSERT_EQ(results["hits"][4]["document"]["id"], "2");
     ASSERT_EQ(results["hits"][5]["document"]["id"], "3");
+}
+
+TEST_F(CollectionOverrideTest, NestedObjectOverride) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "nested", "type": "object", "facet": true},
+            {"name": "nested.brand", "type": "string", "facet": true},
+            {"name": "nested.category", "type": "string", "facet": true}
+        ],
+        "enable_nested_fields": true
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    // Add documents with nested objects
+    nlohmann::json doc1 = R"({
+        "id": "0",
+        "name": "Amazing Shoes",
+        "nested": {
+            "brand": "Nike",
+            "category": "shoes"
+        }
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "id": "1",
+        "name": "Track Shoes",
+        "nested": {
+            "brand": "Adidas",
+            "category": "shoes"
+        }
+    })"_json;
+
+    nlohmann::json doc3 = R"({
+        "id": "2",
+        "name": "Running Shoes",
+        "nested": {
+            "brand": "Nike",
+            "category": "sports"
+        }
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC") };
+
+    // Test dynamic filtering with nested object fields
+    nlohmann::json override_json = {
+        {"id", "nested-dynamic-filter"},
+        {
+            "rule", {
+                {"query", "{nested.brand} shoes"},
+                {"match", override_t::MATCH_CONTAINS}
+            }
+        },
+        {"remove_matched_tokens", true},
+        {"filter_by", "nested.brand:{nested.brand} && nested.category: shoes"},
+        {"metadata", {{"filtered", true}}}
+    };
+
+    override_t override;
+    auto op_override = override_t::parse(override_json, "nested-dynamic-filter", override);
+    ASSERT_TRUE(op_override.ok());
+    coll1->add_override(override);
+
+    // Search with brand name
+    auto results = coll1->search("nike shoes", {"name", "nested.brand", "nested.category"}, "",
+                                {}, sort_fields, {2, 2, 2}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_TRUE(results.contains("metadata"));
+    ASSERT_TRUE(results["metadata"]["filtered"].get<bool>());
+
+    collectionManager.drop_collection("coll1");
 }
