@@ -490,6 +490,7 @@ void BatchedIndexer::run() {
 
         if(is_async_doc_request_enabled) {
             AsyncDocRequestHandler::get_instance().check_handle_async_doc_request();
+            AsyncDocRequestHandler::get_instance().check_handle_db_size();
         }
     }
 
