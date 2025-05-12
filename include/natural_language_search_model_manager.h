@@ -19,8 +19,7 @@ public:
     NaturalLanguageSearchModelManager& operator=(const NaturalLanguageSearchModelManager&) = delete;
 
     static Option<nlohmann::json> get_model(const std::string& model_id);
-    static Option<bool> add_model(nlohmann::json& model, const std::string& model_id,
-                                 const bool write_to_disk);
+    static Option<bool> add_model(nlohmann::json& model, const std::string& model_id, const bool write_to_disk);
     static Option<nlohmann::json> delete_model(const std::string& model_id);
     static Option<nlohmann::json> get_all_models();
     static Option<nlohmann::json> update_model(const std::string& model_id, nlohmann::json model);
@@ -28,25 +27,20 @@ public:
     static bool migrate_model(nlohmann::json& model);
 
     static void init_schema_prompts_cache(uint32_t capacity);
-    static Option<std::string> get_schema_prompt(const std::string& collection_name);
-    static Option<std::string> get_schema_prompt(const std::string& collection_name, uint64_t ttl_seconds);
+    static Option<std::string> get_schema_prompt(const std::string& collection_name, uint64_t ttl_seconds = DEFAULT_SCHEMA_PROMPT_TTL_SEC);
     static void clear_schema_prompt(const std::string& collection_name);
     static void clear_all_schema_prompts();
     static bool has_cached_schema_prompt(const std::string& collection_name);
+    
     static Option<uint64_t> process_nl_query_and_augment_params(std::map<std::string, std::string>& req_params, nlohmann::json& search_obj, uint64_t schema_prompt_ttl_seconds);
     static void add_nl_query_data_to_results(nlohmann::json& results_json, const nlohmann::json& search_obj, const std::map<std::string, std::string>* req_params, uint64_t nl_search_time_ms);
-
     static Option<nlohmann::json> process_natural_language_query(
         const std::string& nl_query, 
         const std::string& collection_name, 
         const std::string& nl_model_id = "default",
         uint64_t prompt_cache_ttl_seconds = DEFAULT_SCHEMA_PROMPT_TTL_SEC);
 
-    // For testing only
-    static void insert_model_for_testing(const std::string& model_id, nlohmann::json model) {
-        std::unique_lock lock(models_mutex);
-        models[model_id] = model;
-    }
+    static void dispose();
 
     static inline const uint64_t DEFAULT_SCHEMA_PROMPT_TTL_SEC = 86400;
 

@@ -325,3 +325,135 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsRegexJSONFailure) {
   ASSERT_EQ(result.code(), 500);
   ASSERT_EQ(result.error(), "Regex JSON parse failed on content");
 }
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateModelSuccess) {
+  nlohmann::json model_config = {
+    {"model_name", "openai/gpt-3.5-turbo"},
+    {"api_key", "sk-test"},
+    {"max_bytes", size_t(1024)}
+  };
+
+  auto result = NaturalLanguageSearchModel::validate_model(model_config);
+  ASSERT_TRUE(result.ok());
+
+  model_config = {
+    {"model_name", "cloudflare/@cf/meta/llama-2-7b-chat-int8"},
+    {"api_key", "YOUR_CLOUDFLARE_API_KEY"},
+    {"account_id", "YOUR_CLOUDFLARE_ACCOUNT_ID"},
+    {"max_bytes", size_t(16000)}
+  };
+
+  result = NaturalLanguageSearchModel::validate_model(model_config);
+  ASSERT_TRUE(result.ok());
+
+  model_config = {
+    {"model_name", "vllm/mistral-7b-instruct"},
+    {"api_url", "http://your-vllm-server:8000/generate"},
+    {"max_bytes", size_t(16000)},
+    {"temperature", 0.0}
+  };
+
+  result = NaturalLanguageSearchModel::validate_model(model_config);
+  ASSERT_TRUE(result.ok());
+}
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateModelFailure) {
+  nlohmann::json model_config = {
+    {"api_key", "sk-test"},
+    {"max_bytes", size_t(1024)}
+  };
+
+  auto result = NaturalLanguageSearchModel::validate_model(model_config);
+  ASSERT_FALSE(result.ok());
+  ASSERT_EQ(result.code(), 400);
+  ASSERT_EQ(result.error(), "Property `model_name` is not provided or not a string.");
+
+  model_config = {
+    {"model_name", "openai/gpt-3.5-turbo"},
+    {"max_bytes", size_t(1024)}
+  };
+
+  result = NaturalLanguageSearchModel::validate_model(model_config);
+  ASSERT_FALSE(result.ok());
+  ASSERT_EQ(result.code(), 400);
+  ASSERT_EQ(result.error(), "Property `api_key` is missing or is not a non-empty string.");
+
+  model_config = {
+    {"model_name", "openai/gpt-3.5-turbo"},
+    {"api_key", "sk-test"},
+    {"max_bytes", -1}
+  };
+
+  result = NaturalLanguageSearchModel::validate_model(model_config);
+  ASSERT_FALSE(result.ok());
+  ASSERT_EQ(result.code(), 400);
+  ASSERT_EQ(result.error(), "Property `max_bytes` is not provided or not a positive integer.");
+
+  model_config = {
+    {"model_name", "openai/gpt-3.5-turbo"},
+    {"api_key", "sk-test"},
+    {"max_bytes", size_t(1024)},
+    {"temperature", -1.0}
+  };
+
+  result = NaturalLanguageSearchModel::validate_model(model_config);
+  ASSERT_FALSE(result.ok());
+  ASSERT_EQ(result.code(), 400);
+  ASSERT_EQ(result.error(), "Property `temperature` must be a number between 0 and 2.");
+
+  model_config = {
+    {"model_name", "cloudflare/@cf/meta/llama-2-7b-chat-int8"},
+    {"api_key", "YOUR_CLOUDFLARE_API_KEY"},
+    {"max_bytes", size_t(16000)}
+  };
+
+  result = NaturalLanguageSearchModel::validate_model(model_config);
+  ASSERT_FALSE(result.ok());
+  ASSERT_EQ(result.code(), 400);
+  ASSERT_EQ(result.error(), "Property `account_id` is missing or is not a non-empty string.");
+
+  model_config = {
+    {"model_name", "cloudflare/@cf/meta/llama-2-7b-chat-int8"},
+    {"account_id", "YOUR_CLOUDFLARE_ACCOUNT_ID"},
+    {"max_bytes", size_t(16000)}
+  };
+
+  result = NaturalLanguageSearchModel::validate_model(model_config);
+  ASSERT_FALSE(result.ok());
+  ASSERT_EQ(result.code(), 400);
+  ASSERT_EQ(result.error(), "Property `api_key` is missing or is not a non-empty string.");
+
+  model_config = {
+    {"model_name", "cloudflare/@cf/meta/llama-2-7b-chat-int8"},
+    {"api_key", "YOUR_CLOUDFLARE_API_KEY"},
+    {"account_id", "YOUR_CLOUDFLARE_ACCOUNT_ID"}
+  };
+
+  result = NaturalLanguageSearchModel::validate_model(model_config);
+  ASSERT_FALSE(result.ok());
+  ASSERT_EQ(result.code(), 400);
+  ASSERT_EQ(result.error(), "Property `max_bytes` is not provided or not a positive integer.");
+
+  model_config = {
+    {"model_name", "vllm/mistral-7b-instruct"},
+    {"max_bytes", size_t(16000)},
+    {"temperature", 0.0}
+  };
+
+  result = NaturalLanguageSearchModel::validate_model(model_config);
+  ASSERT_FALSE(result.ok());
+  ASSERT_EQ(result.code(), 400);
+  ASSERT_EQ(result.error(), "Property `api_url` is missing or is not a non-empty string.");
+
+  model_config = {
+    {"model_name", "vllm/mistral-7b-instruct"},
+    {"api_url", "http://your-vllm-server:8000/generate"},
+    {"temperature", -1.0},
+    {"max_bytes", size_t(16000)}
+  };
+
+  result = NaturalLanguageSearchModel::validate_model(model_config);
+  ASSERT_FALSE(result.ok());
+  ASSERT_EQ(result.code(), 400);
+  ASSERT_EQ(result.error(), "Property `temperature` must be a number between 0 and 2.");
+}

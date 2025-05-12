@@ -250,46 +250,42 @@ Option<bool> NaturalLanguageSearchModel::validate_vllm_model(const nlohmann::jso
         return Option<bool>(400, "Property `api_url` is missing or is not a non-empty string.");
     }
 
+    if(model_config.count("temperature") != 0 && 
+       (!model_config["temperature"].is_number() || 
+        model_config["temperature"].get<float>() < 0 || 
+        model_config["temperature"].get<float>() > 2)) {
+        return Option<bool>(400, "Property `temperature` must be a number between 0 and 2.");
+    }
+
     return Option<bool>(true);
 }
 
 Option<nlohmann::json> NaturalLanguageSearchModel::vllm_generate_search_params(
-    const std::string& query, 
+    const std::string& query,
     const std::string& system_prompt,
     const nlohmann::json& model_config) {
     
     const std::string& api_url = model_config["api_url"].get<std::string>();
+    const std::string& model_name_without_namespace = model_config["model_name"].get<std::string>().substr(model_config["model_name"].get<std::string>().find("/") + 1);
     size_t max_bytes = model_config["max_bytes"].get<size_t>();
-    float temperature = 0.0;
-    
-    if(model_config.count("temperature") != 0 && model_config["temperature"].is_number()) {
-        temperature = model_config["temperature"].get<float>();
-    }
+    float temperature = model_config.value("temperature", 0.0f);
 
-    // Create the prompt by combining system prompt and user query
-    std::string full_prompt = "[SYSTEM]\n" + system_prompt + "\n\n[USER]\n" + query + "\n\n[ASSISTANT]\n";
-
-    nlohmann::json request_body;
-    request_body["prompt"] = full_prompt;
-    request_body["temperature"] = temperature;
-    request_body["max_tokens"] = max_bytes;
-
-    // Set up headers for vLLM request
-    std::unordered_map<std::string, std::string> headers;
-    headers["Content-Type"] = "application/json";
-
+    std::string prompt = "[SYSTEM]\n" + system_prompt + "\n\n[USER]\n" + query + "\n\n[ASSISTANT]\n";
+    nlohmann::json request_body{
+        {"prompt", prompt},
+        {"temperature", temperature},
+        {"max_tokens", max_bytes}
+    };
+    std::unordered_map<std::string, std::string> headers{
+        {"Content-Type", "application/json"}
+    };
     std::string response;
     std::map<std::string, std::string> response_headers;
-    
-    // Make HTTP request to vLLM
-    long status_code = post_response(api_url, request_body.dump(), response,
-                                           response_headers, headers, max_bytes);
+    long status = post_response(api_url, request_body.dump(), response, response_headers, headers, max_bytes);
 
-    if(status_code != 200) {
-        return Option<nlohmann::json>(status_code, "vLLM API request failed: " + response);
-    }
+    if(status != 200)
+        return Option<nlohmann::json>(status, "vLLM API request failed: " + response);
 
-    // Parse vLLM response
     nlohmann::json response_json;
     try {
         response_json = nlohmann::json::parse(response);
@@ -297,14 +293,10 @@ Option<nlohmann::json> NaturalLanguageSearchModel::vllm_generate_search_params(
         return Option<nlohmann::json>(500, "Failed to parse vLLM response: " + std::string(e.what()));
     }
 
-    if(response_json.count("text") == 0 || !response_json["text"].is_string()) {
+    if(!response_json.contains("text") || !response_json["text"].is_string())
         return Option<nlohmann::json>(500, "Invalid response from vLLM API");
-    }
 
-    std::string content = response_json["text"].get<std::string>();
-    
-    // Parse LLM response into search parameters
-    return extract_search_params_from_content(content, "vllm");
+    return extract_search_params_from_content(response_json["text"].get<std::string>(), model_name_without_namespace);
 }
 
 long NaturalLanguageSearchModel::post_response(const std::string& url, const std::string& body, std::string& response,
@@ -320,7 +312,6 @@ long NaturalLanguageSearchModel::post_response(const std::string& url, const std
     return HttpClient::post_response(url, body, response, res_headers, headers, timeout_ms, send_ts_api_header);
 }
 
-// Mock response functions
 void NaturalLanguageSearchModel::set_mock_response(const std::string& response_body, long status_code, const std::map<std::string, std::string>& response_headers) {
     use_mock_response = true;
     mock_response_body = response_body;

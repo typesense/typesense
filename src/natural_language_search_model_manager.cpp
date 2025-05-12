@@ -20,8 +20,7 @@ Option<nlohmann::json> NaturalLanguageSearchModelManager::get_model(const std::s
     return Option<nlohmann::json>(it->second);
 }
 
-Option<bool> NaturalLanguageSearchModelManager::add_model(nlohmann::json& model, const std::string& model_id,
-                                                 const bool write_to_disk) {
+Option<bool> NaturalLanguageSearchModelManager::add_model(nlohmann::json& model, const std::string& model_id, const bool write_to_disk) {
     std::unique_lock lock(models_mutex);
 
     if (models.find(model_id) != models.end()) {
@@ -153,11 +152,6 @@ bool NaturalLanguageSearchModelManager::migrate_model(nlohmann::json& model) {
 
 
     return has_model_change;
-}
-
-Option<std::string> NaturalLanguageSearchModelManager::get_schema_prompt(const std::string& collection_name) {
-    // Default TTL of 24 hours
-    return get_schema_prompt(collection_name, DEFAULT_SCHEMA_PROMPT_TTL_SEC);
 }
 
 Option<std::string> NaturalLanguageSearchModelManager::get_schema_prompt(const std::string& collection_name, uint64_t ttl_seconds) {
@@ -358,7 +352,6 @@ void NaturalLanguageSearchModelManager::clear_schema_prompt(const std::string& c
 void NaturalLanguageSearchModelManager::clear_all_schema_prompts() {
     std::unique_lock lock(schema_prompts_mutex);
     schema_prompts.clear();
-    LOG(INFO) << "Cleared all schema prompts from cache";
 }
 
 bool NaturalLanguageSearchModelManager::has_cached_schema_prompt(const std::string& collection_name) {
@@ -672,7 +665,6 @@ nlohmann::json NaturalLanguageSearchModelManager::build_augmented_params(const n
 void NaturalLanguageSearchModelManager::add_nl_query_data_to_results(nlohmann::json& results_json, const nlohmann::json& search_obj,
                                  const std::map<std::string, std::string>* req_params,
                                  uint64_t nl_processing_time_ms) {
-    LOG(INFO) << "Adding NL query data to search results";
 
     // Check if search parameters were processed by NL model
     bool has_nl_data = search_obj.contains("processed_by_nl_model") ||
@@ -864,4 +856,10 @@ void NaturalLanguageSearchModelManager::add_nl_query_data_to_results(nlohmann::j
     }
 
     LOG(INFO) << "Completed adding NL query data to results";
+}
+
+void NaturalLanguageSearchModelManager::dispose() {
+    std::unique_lock lock(models_mutex);
+    models.clear();
+    schema_prompts.clear();
 }

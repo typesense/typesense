@@ -356,12 +356,9 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
             res->set(alter_op.code(), alter_op.error());
             return false;
         }
-        // without this line, response will return full api key without being masked
         req_json["fields"] = alter_payload["fields"];
 
-        // Invalidate schema prompt cache for this collection since schema has changed
         NaturalLanguageSearchModelManager::clear_schema_prompt(req->params["collection"]);
-        LOG(INFO) << "Invalidated schema prompt cache for collection: " << req->params["collection"];
     }
 
     res->set_200(req_json.dump());
