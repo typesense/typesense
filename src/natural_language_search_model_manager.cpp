@@ -155,38 +155,24 @@ bool NaturalLanguageSearchModelManager::migrate_model(nlohmann::json& model) {
 }
 
 Option<std::string> NaturalLanguageSearchModelManager::get_schema_prompt(const std::string& collection_name, uint64_t ttl_seconds) {
-    LOG(INFO) << "Getting schema prompt for collection: " << collection_name << " with TTL: " << ttl_seconds << " seconds";
-    
-    // If TTL is 0, bypass the cache
     if (ttl_seconds == 0) {
-        LOG(INFO) << "TTL is 0, bypassing schema prompt cache for collection: " << collection_name;
         return generate_schema_prompt(collection_name);
     }
-    
-    // First, check if we have this prompt in the cache
-    {
-        std::shared_lock lock(schema_prompts_mutex);
-        
-        if (schema_prompts.contains(collection_name)) {
-            auto cached_entry = schema_prompts.lookup(collection_name);
-            
-            // Check if the entry is expired
-            if (ttl_seconds > 0) {
-                auto now = NaturalLanguageSearchModelManager::now();
-                auto age_seconds = std::chrono::duration_cast<std::chrono::seconds>(
-                    now - cached_entry.created_at).count();
-                
-                if (age_seconds > ttl_seconds) {
-                    return Option<std::string>(404, "Schema prompt for collection `" + collection_name + "` has expired.");
-                }
+
+    std::shared_lock lock(schema_prompts_mutex);
+    auto it = schema_prompts.find(collection_name);
+    if (it != schema_prompts.end()) {
+        const auto& cached_entry = it.value();
+        if (ttl_seconds > 0) {
+            auto now = NaturalLanguageSearchModelManager::now();
+            auto age_seconds = std::chrono::duration_cast<std::chrono::seconds>(
+                now - cached_entry.created_at).count();
+            if (age_seconds <= static_cast<int64_t>(ttl_seconds)) {
+                return Option<std::string>(cached_entry.prompt);
             }
-            
-            return Option<std::string>(cached_entry.prompt);
         }
     }
-    
-    LOG(INFO) << "Cache miss for schema prompt, generating for collection: " << collection_name;
-    
+    lock.unlock();
     return generate_schema_prompt(collection_name);
 }
 
@@ -862,4 +848,28 @@ void NaturalLanguageSearchModelManager::dispose() {
     std::unique_lock lock(models_mutex);
     models.clear();
     schema_prompts.clear();
+}
+
+void NaturalLanguageSearchModelManager::reset_mock_time() {
+    use_mock_time = false;
+}
+
+std::chrono::time_point<std::chrono::system_clock> NaturalLanguageSearchModelManager::now() {
+    if (use_mock_time) {
+        return mock_time_for_testing;
+    }
+    return std::chrono::system_clock::now();
+}
+
+void NaturalLanguageSearchModelManager::set_mock_time_for_testing(std::chrono::time_point<std::chrono::system_clock> mock_time) {
+    mock_time_for_testing = mock_time;
+    use_mock_time = true;
+}
+
+void NaturalLanguageSearchModelManager::advance_mock_time_for_testing(uint64_t seconds) {
+    if (!use_mock_time) {
+        mock_time_for_testing = std::chrono::system_clock::now();
+        use_mock_time = true;
+    }
+    mock_time_for_testing += std::chrono::seconds(seconds);
 }

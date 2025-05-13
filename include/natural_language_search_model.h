@@ -6,10 +6,11 @@
 
 class NaturalLanguageSearchModel {
 private:
-    static bool use_mock_response;
-    static std::string mock_response_body;
-    static long mock_status_code;
-    static std::map<std::string, std::string> mock_response_headers;
+    static inline bool use_mock_response = false;
+    static inline std::string mock_response_body = "";
+    static inline long mock_status_code = 200;
+    static inline std::map<std::string, std::string> mock_response_headers = {};
+    static constexpr const size_t DEFAULT_TIMEOUT_MS = 200000;
 
 public:
     static Option<nlohmann::json> extract_search_params_from_content(const std::string& content, const std::string& model_name_without_namespace);
@@ -36,7 +37,7 @@ public:
     static long post_response(const std::string& url, const std::string& body, std::string& response,
                                     std::map<std::string, std::string>& res_headers,
                                     const std::unordered_map<std::string, std::string>& headers = {},
-                                    long timeout_ms = 4000,
+                                    long timeout_ms = DEFAULT_TIMEOUT_MS,
                                     bool send_ts_api_header = false);
 
     static void set_mock_response(const std::string& response_body, long status_code = 200, const std::map<std::string, std::string>& response_headers = {});

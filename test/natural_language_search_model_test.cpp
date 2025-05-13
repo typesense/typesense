@@ -228,6 +228,109 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIInvalidContentR
   ASSERT_EQ(result.error(), "No valid response content from OpenAI");
 }
 
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareSuccess) {
+    NaturalLanguageSearchModel::set_mock_response(R"({
+      "result": {
+        "response": "To extract the relevant SQL-like query parameters from the user's search query, let's analyze the given information:\n\n- The make can be Honda or BMW.\n- The engine_hp should be at least 200.\n- The driven_wheels should be rear wheel drive.\n- The price range (msrp) is from 20K to 50K.\n- The year should be newer than 2014.\n\nBased on the provided database schema and the Typesense Query Syntax, here's how we can map the user's search query:\n\n### Query Parameters:\n\n- **Make**: Honda or BMW\n- **Engine HP**: at least 200\n- **Driven Wheels**: rear-wheel drive\n- **Price Range (MSRP)**: 20K to 50K\n- **Year**: newer than 2014\n\n### Typesense Query:\n\n```json\n{\n  \"q\": \"test\",\n  \"filter_by\": \"make:[Honda, BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014\",\n  \"sort_by\": \"\"\n}\n```\n\n### Explanation:\n\n- **Make**: We use `make:[Honda, BMW]` to filter by Honda or BMW.\n- **Engine HP**: We use `engine_hp:>=200` to filter by at least 200hp.\n- **Driven Wheels**: We use `driven_wheels:rear wheel drive` to filter by rear-wheel drive.\n- **Price Range (MSRP)**: We assume `20K` and `50K` are in dollars and map them to `msrp:[20000..50000]`.\n- **Year**: We use `year:>2014` to filter by cars newer than 2014.\n\nSince there are no specific sorting criteria mentioned in the query, we leave `sort_by` empty. The query string `q` is also left empty as the user's query can be adequately represented using `filter_by`. \n\nThis query will return results that match the specified criteria.",
+        "tool_calls": [],
+        "usage": {
+          "prompt_tokens": 912,
+          "completion_tokens": 415,
+          "total_tokens": 1327
+        }
+      },
+      "success": true,
+      "errors": [],
+      "messages": []
+    })", 200, {});
+
+    std::string query = "Find expensive laptops";
+    std::string collection_schema_prompt = "Fields: price, name, ...";
+    nlohmann::json model_config = {
+        {"model_name", "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct"},
+        {"api_key", "sk-test"},
+        {"account_id", "test"},
+        {"max_bytes", 1024}
+    };
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+    ASSERT_TRUE(result.ok());
+    auto params = result.get();
+    ASSERT_EQ(params["filter_by"], "make:[Honda, BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
+    ASSERT_EQ(params["q"], "test");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareResponseFailure) {
+    NaturalLanguageSearchModel::set_mock_response("No response", 200, {});
+
+    std::string query = "Find expensive laptops";
+    std::string collection_schema_prompt = "Fields: price, name, ...";
+    nlohmann::json model_config = {
+        {"model_name", "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct"},
+        {"api_key", "sk-test"},
+        {"account_id", "test"},
+        {"max_bytes", 1024}
+    };
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 500);
+    ASSERT_EQ(result.error(), "Cloudflare API response JSON parse error: Invalid JSON");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareInvalidResponse) {
+  NaturalLanguageSearchModel::set_mock_response(R"({
+    "result": {
+      "response1": "To extract the relevant SQL-like query parameters from the user's search query, let's analyze the given information:\n\n- The make can be Honda or BMW.\n- The engine_hp should be at least 200.\n- The driven_wheels should be rear wheel drive.\n- The price range (msrp) is from 20K to 50K.\n- The year should be newer than 2014.\n\nBased on the provided database schema and the Typesense Query Syntax, here's how we can map the user's search query:\n\n### Query Parameters:\n\n- **Make**: Honda or BMW\n- **Engine HP**: at least 200\n- **Driven Wheels**: rear-wheel drive\n- **Price Range (MSRP)**: 20K to 50K\n- **Year**: newer than 2014\n\n### Typesense Query:\n\n```json\n{\n  \"q\": \"test\",\n  \"filter_by\": \"make:[Honda, BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014\",\n  \"sort_by\": \"\"\n}\n```\n\n### Explanation:\n\n- **Make**: We use `make:[Honda, BMW]` to filter by Honda or BMW.\n- **Engine HP**: We use `engine_hp:>=200` to filter by at least 200hp.\n- **Driven Wheels**: We use `driven_wheels:rear wheel drive` to filter by rear-wheel drive.\n- **Price Range (MSRP)**: We assume `20K` and `50K` are in dollars and map them to `msrp:[20000..50000]`.\n- **Year**: We use `year:>2014` to filter by cars newer than 2014.\n\nSince there are no specific sorting criteria mentioned in the query, we leave `sort_by` empty. The query string `q` is also left empty as the user's query can be adequately represented using `filter_by`. \n\nThis query will return results that match the specified criteria.",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 912,
+        "completion_tokens": 415,
+        "total_tokens": 1327
+      }
+    },
+    "success": true,
+    "errors": [],
+    "messages": []
+  })", 200, {});
+
+  std::string query = "Find expensive laptops";
+  std::string collection_schema_prompt = "Fields: price, name, ...";
+  nlohmann::json model_config = {
+      {"model_name", "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct"},
+      {"api_key", "sk-test"},
+      {"account_id", "test"},
+      {"max_bytes", 1024}
+  };
+
+  auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+  ASSERT_FALSE(result.ok());
+  ASSERT_EQ(result.code(), 500);
+  ASSERT_EQ(result.error(), "Invalid format from Cloudflare API");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareFailure) {
+  NaturalLanguageSearchModel::set_mock_response("No response", 400, {});
+
+  std::string query = "Find expensive laptops";
+  std::string collection_schema_prompt = "Fields: price, name, ...";
+  nlohmann::json model_config = {
+      {"model_name", "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct"},
+      {"api_key", "sk-test"},
+      {"account_id", "test"},
+      {"max_bytes", 1024}
+  };
+
+  auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+  ASSERT_FALSE(result.ok());
+  ASSERT_EQ(result.code(), 500);
+  ASSERT_EQ(result.error(), "Cloudflare API error: HTTP 400");
+}
+
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsJSONFailure) {
   NaturalLanguageSearchModel::set_mock_response(R"({
     "object": "chat.completion",

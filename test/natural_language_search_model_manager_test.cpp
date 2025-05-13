@@ -3,21 +3,28 @@
 #include "json.hpp"
 #include "store.h"
 #include "natural_language_search_model_manager.h"
+#include "collection_manager.h"
+#include "field.h"
 
 class NaturalLanguageSearchModelManagerTest : public ::testing::Test {
 protected:
     Store *store;
     std::string state_dir_path;
+    std::atomic<bool> quit = false;
+    CollectionManager& collectionManager = CollectionManager::get_instance();
 
     void SetUp() override {
         state_dir_path = "/tmp/typesense_test/nls_model_manager_test";
         system(("rm -rf " + state_dir_path + " && mkdir -p " + state_dir_path).c_str());
         store = new Store(state_dir_path);
+        collectionManager.init(store, 1.0, "auth_key", quit);
+        collectionManager.load(8, 1000);
         NaturalLanguageSearchModelManager::init(store);
     }
 
     void TearDown() override {
         NaturalLanguageSearchModelManager::dispose();
+        collectionManager.dispose();
         delete store;
     }
 };
@@ -151,4 +158,298 @@ TEST_F(NaturalLanguageSearchModelManagerTest, UpdateModelFailure) {
   auto update_result = NaturalLanguageSearchModelManager::update_model(model_id, model_config);
   ASSERT_EQ(update_result.error(), "Property `account_id` is missing or is not a non-empty string.");
   ASSERT_FALSE(update_result.ok());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, GetSchemaPromptSuccess) {
+  nlohmann::json titles_schema = R"({
+    "name": "titles",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "price", "type": "int32"},
+      {"name": "category", "type": "string", "facet": true},
+      {"name": "tags", "type": "string[]", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(titles_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  nlohmann::json insert_doc;
+  auto docs = std::vector<std::string>{
+    R"({"title": "Cool trousers", "price": 100, "category": "clothing", "tags": ["trousers", "cool"]})",
+    R"({"title": "Expensive trousers", "price": 200, "category": "clothing", "tags": ["trousers", "expensive"]})",
+    R"({"title": "Utensils", "price": 10, "category": "home", "tags": ["utensils", "tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7"]})"
+  };
+  auto import_op = coll_create_op.get()->add_many(docs,insert_doc, UPSERT);
+  ASSERT_EQ(import_op["num_imported"], 3);
+
+  auto schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name());
+  ASSERT_TRUE(schema_prompt.ok());
+  ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
+
+Database Schema:
+Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Enum Values]
+
+| Field Name | Data Type | Is Indexed | Is Faceted | Enum Values |
+|------------|-----------|------------|------------|-------------|
+| price | int32 | Yes | No | N/A |
+| category | string | Yes | Yes | [clothing, home] |
+| title | string | Yes | No | N/A |
+| tags | string[] | Yes | Yes | [trousers, tag7, tag6, tag5, tag4, tag3, tag2, tag1, cool, utensils, ...] |
+
+Instructions:
+1. Find all search terms that match fields in the schema.
+2. Find filter values for faceted fields. Map user intent to the appropriate value when possible.
+3. Ensure that filter terms are properly associated with their fields.
+4. For faceted fields, use the example values to interpret user intent even if the exact value isn't specified.
+5. Infer query parameters from context, even if not explicitly mentioned.
+
+Typesense Query Syntax:
+
+Filtering:
+- Matching values: {fieldName}:{value} or {fieldName}:[value1,value2] for OR conditions
+- Numeric filters: {fieldName}:[min..max] for ranges, or {fieldName}:>, {fieldName}:<, {fieldName}:>=, {fieldName}:<=, {fieldName}:=
+- Multiple conditions: {condition1} && {condition2}
+- OR conditions across fields: {fieldName1}:{value1} || {fieldName2}:{value2}
+- Negation: {fieldName}:!= or {fieldName}:!=[value1,value2]
+- For values with parentheses, surround with backticks: {fieldName}:`value (with parentheses)`
+
+Sorting:
+- Format: {fieldName}:asc or {fieldName}:desc, maximum 3 fields
+- Multiple sort fields: {fieldName1}:asc,{fieldName2}:desc
+
+The output should be in JSON format like this:
+{
+  "q": "Include query only if both filter_by and sort_by are inadequate, remove any other text converted into filter_by or sort_by from the query",
+  "filter_by": "typesense filter syntax explained above",
+  "sort_by": "typesense sort syntax explained above"
+}
+)");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptCacheExpiryOnCollectionAlter) {
+  nlohmann::json titles_schema = R"({
+    "name": "titles",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "price", "type": "int32"},
+      {"name": "category", "type": "string", "facet": true},
+      {"name": "tags", "type": "string[]", "facet": true}
+    ]
+  })"_json;
+
+  NaturalLanguageSearchModelManager::set_mock_time_for_testing(std::chrono::system_clock::now());
+  auto coll_create_op = collectionManager.create_collection(titles_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  auto schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name());
+  ASSERT_TRUE(schema_prompt.ok());
+  ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
+
+Database Schema:
+Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Enum Values]
+
+| Field Name | Data Type | Is Indexed | Is Faceted | Enum Values |
+|------------|-----------|------------|------------|-------------|
+| price | int32 | Yes | No | N/A |
+| category | string | Yes | Yes | [Faceted field with unique values] |
+| title | string | Yes | No | N/A |
+| tags | string[] | Yes | Yes | [Faceted field with unique values] |
+
+Instructions:
+1. Find all search terms that match fields in the schema.
+2. Find filter values for faceted fields. Map user intent to the appropriate value when possible.
+3. Ensure that filter terms are properly associated with their fields.
+4. For faceted fields, use the example values to interpret user intent even if the exact value isn't specified.
+5. Infer query parameters from context, even if not explicitly mentioned.
+
+Typesense Query Syntax:
+
+Filtering:
+- Matching values: {fieldName}:{value} or {fieldName}:[value1,value2] for OR conditions
+- Numeric filters: {fieldName}:[min..max] for ranges, or {fieldName}:>, {fieldName}:<, {fieldName}:>=, {fieldName}:<=, {fieldName}:=
+- Multiple conditions: {condition1} && {condition2}
+- OR conditions across fields: {fieldName1}:{value1} || {fieldName2}:{value2}
+- Negation: {fieldName}:!= or {fieldName}:!=[value1,value2]
+- For values with parentheses, surround with backticks: {fieldName}:`value (with parentheses)`
+
+Sorting:
+- Format: {fieldName}:asc or {fieldName}:desc, maximum 3 fields
+- Multiple sort fields: {fieldName1}:asc,{fieldName2}:desc
+
+The output should be in JSON format like this:
+{
+  "q": "Include query only if both filter_by and sort_by are inadequate, remove any other text converted into filter_by or sort_by from the query",
+  "filter_by": "typesense filter syntax explained above",
+  "sort_by": "typesense sort syntax explained above"
+}
+)");
+
+  auto has_cached_schema_prompt = NaturalLanguageSearchModelManager::has_cached_schema_prompt(coll_create_op.get()->get_name());
+  ASSERT_TRUE(has_cached_schema_prompt);
+
+  nlohmann::json update_schema = R"({
+    "fields": [
+      {"name": "tags", "drop": true}
+    ]
+  })"_json;
+
+  auto update_op = coll_create_op.get()->alter(update_schema);
+  ASSERT_TRUE(update_op.ok());
+
+  NaturalLanguageSearchModelManager::clear_schema_prompt(coll_create_op.get()->get_name());
+
+  schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name());
+  ASSERT_TRUE(schema_prompt.ok());
+  ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
+
+Database Schema:
+Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Enum Values]
+
+| Field Name | Data Type | Is Indexed | Is Faceted | Enum Values |
+|------------|-----------|------------|------------|-------------|
+| price | int32 | Yes | No | N/A |
+| category | string | Yes | Yes | [Faceted field with unique values] |
+| title | string | Yes | No | N/A |
+
+Instructions:
+1. Find all search terms that match fields in the schema.
+2. Find filter values for faceted fields. Map user intent to the appropriate value when possible.
+3. Ensure that filter terms are properly associated with their fields.
+4. For faceted fields, use the example values to interpret user intent even if the exact value isn't specified.
+5. Infer query parameters from context, even if not explicitly mentioned.
+
+Typesense Query Syntax:
+
+Filtering:
+- Matching values: {fieldName}:{value} or {fieldName}:[value1,value2] for OR conditions
+- Numeric filters: {fieldName}:[min..max] for ranges, or {fieldName}:>, {fieldName}:<, {fieldName}:>=, {fieldName}:<=, {fieldName}:=
+- Multiple conditions: {condition1} && {condition2}
+- OR conditions across fields: {fieldName1}:{value1} || {fieldName2}:{value2}
+- Negation: {fieldName}:!= or {fieldName}:!=[value1,value2]
+- For values with parentheses, surround with backticks: {fieldName}:`value (with parentheses)`
+
+Sorting:
+- Format: {fieldName}:asc or {fieldName}:desc, maximum 3 fields
+- Multiple sort fields: {fieldName1}:asc,{fieldName2}:desc
+
+The output should be in JSON format like this:
+{
+  "q": "Include query only if both filter_by and sort_by are inadequate, remove any other text converted into filter_by or sort_by from the query",
+  "filter_by": "typesense filter syntax explained above",
+  "sort_by": "typesense sort syntax explained above"
+}
+)");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptCacheExpiryOnTTL) {
+  NaturalLanguageSearchModelManager::set_mock_time_for_testing(std::chrono::system_clock::now());
+
+  nlohmann::json titles_schema = R"({
+    "name": "titles",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "price", "type": "int32"},
+      {"name": "category", "type": "string", "facet": true},
+      {"name": "tags", "type": "string[]", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(titles_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  auto schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name());
+  ASSERT_TRUE(schema_prompt.ok());
+  ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
+
+Database Schema:
+Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Enum Values]
+
+| Field Name | Data Type | Is Indexed | Is Faceted | Enum Values |
+|------------|-----------|------------|------------|-------------|
+| price | int32 | Yes | No | N/A |
+| category | string | Yes | Yes | [Faceted field with unique values] |
+| title | string | Yes | No | N/A |
+| tags | string[] | Yes | Yes | [Faceted field with unique values] |
+
+Instructions:
+1. Find all search terms that match fields in the schema.
+2. Find filter values for faceted fields. Map user intent to the appropriate value when possible.
+3. Ensure that filter terms are properly associated with their fields.
+4. For faceted fields, use the example values to interpret user intent even if the exact value isn't specified.
+5. Infer query parameters from context, even if not explicitly mentioned.
+
+Typesense Query Syntax:
+
+Filtering:
+- Matching values: {fieldName}:{value} or {fieldName}:[value1,value2] for OR conditions
+- Numeric filters: {fieldName}:[min..max] for ranges, or {fieldName}:>, {fieldName}:<, {fieldName}:>=, {fieldName}:<=, {fieldName}:=
+- Multiple conditions: {condition1} && {condition2}
+- OR conditions across fields: {fieldName1}:{value1} || {fieldName2}:{value2}
+- Negation: {fieldName}:!= or {fieldName}:!=[value1,value2]
+- For values with parentheses, surround with backticks: {fieldName}:`value (with parentheses)`
+
+Sorting:
+- Format: {fieldName}:asc or {fieldName}:desc, maximum 3 fields
+- Multiple sort fields: {fieldName1}:asc,{fieldName2}:desc
+
+The output should be in JSON format like this:
+{
+  "q": "Include query only if both filter_by and sort_by are inadequate, remove any other text converted into filter_by or sort_by from the query",
+  "filter_by": "typesense filter syntax explained above",
+  "sort_by": "typesense sort syntax explained above"
+}
+)");
+  NaturalLanguageSearchModelManager::advance_mock_time_for_testing(86440);
+  nlohmann::json insert_doc;
+  auto docs = std::vector<std::string>{
+    R"({"title": "Cool trousers", "price": 100, "category": "clothing", "tags": ["trousers", "cool"]})",
+    R"({"title": "Expensive trousers", "price": 200, "category": "clothing", "tags": ["trousers", "expensive"]})",
+    R"({"title": "Utensils", "price": 10, "category": "home", "tags": ["utensils", "tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7"]})"
+  };
+  auto import_op = coll_create_op.get()->add_many(docs,insert_doc, UPSERT);
+  ASSERT_EQ(import_op["num_imported"], 3);
+
+  schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name());
+  ASSERT_TRUE(schema_prompt.ok());
+  ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
+
+Database Schema:
+Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Enum Values]
+
+| Field Name | Data Type | Is Indexed | Is Faceted | Enum Values |
+|------------|-----------|------------|------------|-------------|
+| price | int32 | Yes | No | N/A |
+| category | string | Yes | Yes | [clothing, home] |
+| title | string | Yes | No | N/A |
+| tags | string[] | Yes | Yes | [trousers, tag7, tag6, tag5, tag4, tag3, tag2, tag1, cool, utensils, ...] |
+
+Instructions:
+1. Find all search terms that match fields in the schema.
+2. Find filter values for faceted fields. Map user intent to the appropriate value when possible.
+3. Ensure that filter terms are properly associated with their fields.
+4. For faceted fields, use the example values to interpret user intent even if the exact value isn't specified.
+5. Infer query parameters from context, even if not explicitly mentioned.
+
+Typesense Query Syntax:
+
+Filtering:
+- Matching values: {fieldName}:{value} or {fieldName}:[value1,value2] for OR conditions
+- Numeric filters: {fieldName}:[min..max] for ranges, or {fieldName}:>, {fieldName}:<, {fieldName}:>=, {fieldName}:<=, {fieldName}:=
+- Multiple conditions: {condition1} && {condition2}
+- OR conditions across fields: {fieldName1}:{value1} || {fieldName2}:{value2}
+- Negation: {fieldName}:!= or {fieldName}:!=[value1,value2]
+- For values with parentheses, surround with backticks: {fieldName}:`value (with parentheses)`
+
+Sorting:
+- Format: {fieldName}:asc or {fieldName}:desc, maximum 3 fields
+- Multiple sort fields: {fieldName1}:asc,{fieldName2}:desc
+
+The output should be in JSON format like this:
+{
+  "q": "Include query only if both filter_by and sort_by are inadequate, remove any other text converted into filter_by or sort_by from the query",
+  "filter_by": "typesense filter syntax explained above",
+  "sort_by": "typesense sort syntax explained above"
+}
+)");
 }

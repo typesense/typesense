@@ -61,33 +61,13 @@ public:
         }
     };
 
-    // For testing: mock the current time used for TTL expiration
-    static void set_mock_time_for_testing(std::chrono::time_point<std::chrono::system_clock> mock_time) {
-        mock_time_for_testing = mock_time;
-        use_mock_time = true;
-    }
+    static void set_mock_time_for_testing(std::chrono::time_point<std::chrono::system_clock> mock_time);
 
-    // For testing: advance mock time by a specific number of seconds
-    static void advance_mock_time_for_testing(uint64_t seconds) {
-        if (!use_mock_time) {
-            mock_time_for_testing = std::chrono::system_clock::now();
-            use_mock_time = true;
-        }
-        mock_time_for_testing += std::chrono::seconds(seconds);
-    }
+    static void advance_mock_time_for_testing(uint64_t seconds);
 
-    // For testing: disable mock time
-    static void reset_mock_time() {
-        use_mock_time = false;
-    }
+    static void reset_mock_time();
 
-    // For testing: get current time (real or mocked)
-    static std::chrono::time_point<std::chrono::system_clock> now() {
-        if (use_mock_time) {
-            return mock_time_for_testing;
-        }
-        return std::chrono::system_clock::now();
-    }
+    static std::chrono::time_point<std::chrono::system_clock> now();
 
 private:
     static inline std::unordered_map<std::string, nlohmann::json> models;
@@ -104,7 +84,6 @@ private:
     static Option<std::string> generate_schema_prompt(const std::string& collection_name);
     static nlohmann::json build_augmented_params(const nlohmann::json& search_obj);
 
-    // For testing: mock time variables
     static inline bool use_mock_time = false;
     static inline std::chrono::time_point<std::chrono::system_clock> mock_time_for_testing = std::chrono::system_clock::now();
 }; 

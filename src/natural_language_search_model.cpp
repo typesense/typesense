@@ -5,11 +5,6 @@
 #include "string_utils.h"
 #include "logger.h"
 
-bool NaturalLanguageSearchModel::use_mock_response = false;
-std::string NaturalLanguageSearchModel::mock_response_body;
-long NaturalLanguageSearchModel::mock_status_code = 200;
-std::map<std::string, std::string> NaturalLanguageSearchModel::mock_response_headers;
-
 Option<nlohmann::json> NaturalLanguageSearchModel::extract_search_params_from_content(
     const std::string& content,
     const std::string& model_name_without_namespace) {
@@ -144,10 +139,9 @@ Option<nlohmann::json> NaturalLanguageSearchModel::openai_generate_search_params
 
     std::string response;
     std::map<std::string, std::string> response_headers;
-    long timeout_ms = 10000;
     nlohmann::json fallback{{"q", query}};
 
-    long status_code = post_response(api_url, request_body.dump(), response, response_headers, headers, timeout_ms);
+    long status_code = post_response(api_url, request_body.dump(), response, response_headers, headers, DEFAULT_TIMEOUT_MS);
 
     if(status_code != 200) {
         return Option<nlohmann::json>(500, "Failed to get response from OpenAI: " + response);
@@ -218,25 +212,22 @@ Option<nlohmann::json> NaturalLanguageSearchModel::cloudflare_generate_search_pa
 
     std::string response;
     std::map<std::string, std::string> response_headers;
-    long status = post_response(api_url, request_body.dump(), response, response_headers, headers, max_bytes);
+    long status = post_response(api_url, request_body.dump(), response, response_headers, headers, DEFAULT_TIMEOUT_MS);
 
     if(status != 200) {
-        return Option<nlohmann::json>(status, "Cloudflare API error: HTTP " + std::to_string(status) + ", response: " + response);
+        return Option<nlohmann::json>(500, "Cloudflare API error: HTTP " + std::to_string(status));
     }
 
     nlohmann::json response_json;
     try {
         response_json = nlohmann::json::parse(response);
     } catch(const std::exception& e) {
-        LOG(ERROR) << "Failed to parse Cloudflare API JSON response: " << e.what()
-                   << ", raw response: " << response;
-        return Option<nlohmann::json>(500, "Cloudflare API response JSON parse error: " + std::string(e.what()) + ", response: " + response);
+        return Option<nlohmann::json>(500, "Cloudflare API response JSON parse error: Invalid JSON");
     }
 
     if(!response_json.contains("result") || !response_json["result"].is_object() ||
        !response_json["result"].contains("response") || !response_json["result"]["response"].is_string()) {
-        LOG(ERROR) << "Invalid Cloudflare API response format. JSON: " << response_json.dump();
-        return Option<nlohmann::json>(500, "Invalid format from Cloudflare API. JSON: " + response_json.dump());
+        return Option<nlohmann::json>(500, "Invalid format from Cloudflare API");
     }
 
     std::string content = response_json["result"]["response"].get<std::string>();
@@ -281,7 +272,7 @@ Option<nlohmann::json> NaturalLanguageSearchModel::vllm_generate_search_params(
     };
     std::string response;
     std::map<std::string, std::string> response_headers;
-    long status = post_response(api_url, request_body.dump(), response, response_headers, headers, max_bytes);
+    long status = post_response(api_url, request_body.dump(), response, response_headers, headers, DEFAULT_TIMEOUT_MS);
 
     if(status != 200)
         return Option<nlohmann::json>(status, "vLLM API request failed: " + response);
