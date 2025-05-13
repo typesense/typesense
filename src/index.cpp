@@ -2635,6 +2635,7 @@ Option<bool> Index::run_search(search_args* search_params) {
         delete search_params->curated_topster;
 
         search_params->groups_processed.clear();
+        search_params->all_result_ids_len = 0;
         group_by_missing_value_ids.clear();
     }
 
