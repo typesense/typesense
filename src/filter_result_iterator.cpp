@@ -1001,6 +1001,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             filter_result = op.get();
         }
 
+        is_filter_result_initialized = true;
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
@@ -1012,7 +1014,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             reference.insert(ref.begin(), ref.end());
         }
 
-        is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
         return;
     }
@@ -1059,6 +1060,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         }
 
         is_filter_result_initialized = true;
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
@@ -1122,13 +1124,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                  filter_result.docs, filter_result.count);
             }
 
+            is_filter_result_initialized = true;
+
             if (filter_result.count == 0) {
                 validity = invalid;
                 return;
             }
 
             seq_id = filter_result.docs[result_index];
-            is_filter_result_initialized = true;
             approx_filter_ids_length = filter_result.count;
         } else {
             auto const& filter_values_count = a_filter.values.size();
@@ -1225,13 +1228,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                      filter_result.docs, filter_result.count);
                 }
 
+                is_filter_result_initialized = true;
+
                 if (filter_result.count == 0) {
                     validity = invalid;
                     return;
                 }
 
                 seq_id = filter_result.docs[result_index];
-                is_filter_result_initialized = true;
                 approx_filter_ids_length = filter_result.count;
             }
         }
@@ -1277,13 +1281,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                  filter_result.docs, filter_result.count);
             }
 
+            is_filter_result_initialized = true;
+
             if (filter_result.count == 0) {
                 validity = invalid;
                 return;
             }
 
             seq_id = filter_result.docs[result_index];
-            is_filter_result_initialized = true;
             approx_filter_ids_length = filter_result.count;
         } else {
             auto const& filter_values_count = a_filter.values.size();
@@ -1381,13 +1386,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                      filter_result.docs, filter_result.count);
                 }
 
+                is_filter_result_initialized = true;
+
                 if (filter_result.count == 0) {
                     validity = invalid;
                     return;
                 }
 
                 seq_id = filter_result.docs[result_index];
-                is_filter_result_initialized = true;
                 approx_filter_ids_length = filter_result.count;
             }
         }
@@ -1457,13 +1463,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                              filter_result.docs, filter_result.count);
         }
 
+        is_filter_result_initialized = true;
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
         }
 
         seq_id = filter_result.docs[result_index];
-        is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_geopoint()) {
@@ -1608,13 +1615,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             filter_result.docs = out;
         }
 
+        is_filter_result_initialized = true;
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
         }
 
         seq_id = filter_result.docs[result_index];
-        is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_geopolygon()) {
