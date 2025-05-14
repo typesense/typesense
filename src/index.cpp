@@ -3290,6 +3290,10 @@ void process_results_hnsw_index(filter_result_iterator_t* filter_result_iterator
     }
 }
 
+#ifdef TEST_BUILD
+    bool testing_not_equals_bug = false;
+#endif
+
 Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                    const text_match_type_t match_type,
                    std::unique_ptr<filter_node_t>& filter_tree_root, std::vector<facet>& facets, facet_query_t facet_query,
@@ -3350,7 +3354,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
 #ifdef TEST_BUILD
 
-    if (filter_result_iterator->approx_filter_ids_length > 20) {
+    if (testing_not_equals_bug || filter_result_iterator->approx_filter_ids_length > 20) {
         filter_result_iterator->compute_iterators();
     }
 #else

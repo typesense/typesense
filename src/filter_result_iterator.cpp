@@ -1615,13 +1615,13 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             filter_result.docs = out;
         }
 
-        is_filter_result_initialized = true;
 
         if (filter_result.count == 0) {
             validity = invalid;
             return;
         }
 
+        is_filter_result_initialized = true;
         seq_id = filter_result.docs[result_index];
         approx_filter_ids_length = filter_result.count;
         return;

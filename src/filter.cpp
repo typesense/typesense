@@ -576,9 +576,14 @@ Option<bool> toFilter(const std::string& expression,
                                      "`: Filter value cannot be empty.");
         }
         if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+            filter_exp = {field_name, {}, {}};
+            if (bool_comparator == NOT_EQUALS) {
+                filter_exp.apply_not_equals = true;
+                bool_comparator = EQUALS;
+            }
+
             std::vector<std::string> filter_values;
             StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
-            filter_exp = {field_name, {}, {}};
             for (std::string& filter_value: filter_values) {
                 if (filter_value != "true" && filter_value != "false") {
                     return Option<bool>(400, "Values of filter field `" + _field.name +
