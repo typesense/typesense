@@ -2591,6 +2591,9 @@ Option<bool> Index::run_search(search_args* search_params) {
 
             filter_by += (field_name + ": [");
             for (const auto& value: values) {
+                if(value.empty()) {
+                    continue;
+                }
                 filter_by += (value + ",");
             }
             filter_by[filter_by.size() - 1] = ']';
@@ -2633,6 +2636,9 @@ Option<bool> Index::run_search(search_args* search_params) {
 
         delete search_params->topster;
         delete search_params->curated_topster;
+
+        search_params->topster = nullptr;
+        search_params->curated_topster = nullptr;
 
         search_params->groups_processed.clear();
         search_params->all_result_ids_len = 0;
