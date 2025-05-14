@@ -407,6 +407,10 @@ struct pair_hash {
     }
 };
 
+#ifdef TEST_BUILD
+    extern bool testing_not_equals_bug;
+#endif
+
 class Index {
 private:
     mutable std::shared_mutex mutex;

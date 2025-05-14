@@ -852,7 +852,50 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     results = coll_array_fields->search("Jeremy", query_fields, "timestamps:>1591091288061", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
 
+    testing_not_equals_bug = true;
+    results = coll_array_fields->search("Jeremy", query_fields, "age:!= [21, 24, 63, 44, 32]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
     collectionManager.drop_collection("coll_array_fields");
+
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "quantity", "type": "int32", "range_index": true}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "quantity": 20
+            })"_json,
+            R"({
+                "quantity": 45
+            })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "quantity: !=[20, 45]"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"]);
 }
 
 TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
@@ -1038,7 +1081,50 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    testing_not_equals_bug = true;
+    results = coll_array_fields->search("Jeremy", query_fields, "rating:!= [1.09, 7.812, 9.999, 0.0, 5.5]", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
     collectionManager.drop_collection("coll_array_fields");
+
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "price", "type": "float", "range_index": true}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "price": 9.99
+            })"_json,
+            R"({
+                "price": 15.80
+            })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "price: !=[15.8, 9.99]"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"]);
 }
 
 TEST_F(CollectionFilteringTest, FilterOnNegativeNumericalFields) {
@@ -1911,6 +1997,12 @@ TEST_F(CollectionFilteringTest, QueryBoolFields) {
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Error with filter field `bool_array`: Filter value cannot be empty.", res_op.error());
+
+    testing_not_equals_bug = true;
+    results = coll_bool->search("the", query_fields, "popular: !=[true, false]", facets,
+                                sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll_bool");
 }
