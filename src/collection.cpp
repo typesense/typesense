@@ -2939,9 +2939,13 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
         bool is_cyrillic = Tokenizer::is_cyrillic(fq_field.locale);
         bool normalise = is_cyrillic ? false : true;
 
+        // Use field-level symbols/separators if available, otherwise fall back to collection-level
+        const auto& symbols = fq_field.symbols_to_index.empty() ? symbols_to_index : fq_field.symbols_to_index;
+        const auto& separators = fq_field.token_separators.empty() ? token_separators : fq_field.token_separators;
+
         std::vector<std::string> facet_query_tokens;
         Tokenizer(facet_query.query, normalise, !fq_field.is_string(), fq_field.locale,
-                  symbols_to_index, token_separators, fq_field.get_stemmer()).tokenize(facet_query_tokens);
+                  symbols, separators, fq_field.get_stemmer()).tokenize(facet_query_tokens);
 
         facet_query_num_tokens = facet_query_tokens.size();
         facet_query_last_token = facet_query_tokens.empty() ? "" : facet_query_tokens.back();
@@ -3187,9 +3191,13 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                     bool use_word_tokenizer = Tokenizer::has_word_tokenizer(the_field.locale);
                     bool normalise = !use_word_tokenizer;
 
+                    // Use field-level symbols/separators if available, otherwise fall back to collection-level
+                    const auto& symbols = the_field.symbols_to_index.empty() ? symbols_to_index : the_field.symbols_to_index;
+                    const auto& separators = the_field.token_separators.empty() ? token_separators : the_field.token_separators;
+
                     std::vector<std::string> fquery_tokens;
-                    Tokenizer(facet_query.query, true, false, the_field.locale, symbols_to_index,
-                              token_separators, the_field.get_stemmer()).tokenize(fquery_tokens);
+                    Tokenizer(facet_query.query, true, false, the_field.locale, symbols,
+                              separators, the_field.get_stemmer()).tokenize(fquery_tokens);
 
                     if(fquery_tokens.empty()) {
                         continue;
@@ -3210,8 +3218,8 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                             }
                         }
 
-                        Tokenizer(facet_query.query, true, false, the_field.locale, symbols_to_index,
-                                  token_separators, the_field.get_stemmer()).tokenize(ftokens[ti]);
+                        Tokenizer(facet_query.query, true, false, the_field.locale, symbols,
+                                  separators, the_field.get_stemmer()).tokenize(ftokens[ti]);
 
                         const std::string& resolved_token = ftokens[ti];
                         size_t root_len = (fquery_tokens.size() == ftokens.size()) ?
@@ -3223,8 +3231,8 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                     }
 
                     std::vector<std::string> raw_fquery_tokens;
-                    Tokenizer(facet_query.query, normalise, false, the_field.locale, symbols_to_index,
-                              token_separators, the_field.get_stemmer()).tokenize(raw_fquery_tokens);
+                    Tokenizer(facet_query.query, normalise, false, the_field.locale, symbols,
+                              separators, the_field.get_stemmer()).tokenize(raw_fquery_tokens);
 
                     if(raw_fquery_tokens.empty()) {
                         continue;
@@ -3238,11 +3246,11 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                     match_index_t match_index(Match(), 0, 0);
 
                     uint8_t index_symbols[256] = {};
-                    for(char c: symbols_to_index) {
+                    for(char c: symbols) {
                         index_symbols[uint8_t(c)] = 1;
                     }
 
-                    handle_highlight_text(value, normalise, the_field, false, symbols_to_index, token_separators,
+                    handle_highlight_text(value, normalise, the_field, false, symbols, separators,
                                           highlight, string_utils, use_word_tokenizer,
                                           highlight_affix_num_tokens, qtoken_leaves, last_valid_offset_index,
                                           prefix_token_num_chars, false, snippet_threshold, false, ftokens,
