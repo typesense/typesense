@@ -13,7 +13,7 @@ void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
     }
 
     // hard cap to prevent run-away memory usage
-    constexpr std::size_t kMaxExpansionsPerCell = 1'000;
+    constexpr std::size_t kMaxExpansionsPerCell = 200;
     auto capped_insert = [&](std::set<std::vector<std::string>>& cell,
                              std::vector<std::string>&& candidate) {
         if (cell.size() < kMaxExpansionsPerCell) {
