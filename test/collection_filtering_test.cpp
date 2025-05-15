@@ -3870,3 +3870,136 @@ TEST_F(CollectionFilteringTest, FilterOnFieldWithSymbolsToIndex) {
 
     collectionManager.drop_collection("symbols_test");
 }
+
+TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
+    auto schema_json =
+            R"({
+                "name": "menu_nested",
+                "fields": [
+                    {"name": "main", "type": "object"},
+                    {"name": "main.name", "type": "string", "infix": true},
+                    {"name": "main.ingredients", "type": "object[]"},
+                    {"name": "main.ingredients.*", "type": "auto", "optional": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+
+    std::vector<nlohmann::json> documents = {
+            R"({"main": {
+                            "name": "Pasta",
+                            "ingredients": [{"name": "cheese", "concentration": 40}, {"name" : "spinach", "concentration": 10},
+                                            {"name": "jalepeno", "concentration": 20}]
+                }
+            })"_json,
+            R"({"main": {
+                            "name": "Pizza",
+                            "ingredients": [{"name": "cheese", "concentration": 30}, {"name": "pizza sauce", "concentration": 30},
+                                            {"name": "olives", "concentration": 30}]
+                }
+            })"_json,
+            R"({"main": {
+                            "name": "Lasagna",
+                            "ingredients": [{"name": "cheese", "concentration": 60}, {"name": "jalepeno", "concentration": 20},
+                                            {"name": "olives", "concentration": 20}]
+                }
+            })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection",     "menu_nested"},
+            {"q",              "*"},
+            {"filter_by",      "main.name: p* && main.ingredients.{name : cheese && concentration :<50}"},
+            {"include_fields", "main.name, main.ingredients"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("Pizza", result["hits"][0]["document"]["main"]["name"]);
+    ASSERT_EQ("Pasta", result["hits"][1]["document"]["main"]["name"]);
+
+    //deep nested field
+    schema_json =
+            R"({
+                "name": "menu_nested_deep",
+                "fields": [
+                    {"name": "root", "type": "object"},
+                    {"name": "root.main", "type": "object"},
+                    {"name": "root.main.name", "type": "string", "infix": true},
+                    {"name": "root.main.ingredients", "type": "object[]"},
+                    {"name": "root.main.ingredients.*", "type": "auto", "optional": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+
+    documents = {
+            R"({"root" : {
+                            "main": {
+                                        "name": "Pasta",
+                                        "ingredients": [{"name": "cheese", "concentration": 40}, {"name" : "spinach", "concentration": 10},
+                                                        {"name": "jalepeno", "concentration": 20}]
+                            }
+                }
+            })"_json,
+            R"({"root": {
+                            "main": {
+                                        "name": "Pizza",
+                                        "ingredients": [{"name": "cheese", "concentration": 30}, {"name": "pizza sauce", "concentration": 30},
+                                                        {"name": "olives", "concentration": 30}]
+                            }
+                }
+            })"_json,
+            R"({"root": {
+                            "main": {
+                                        "name": "Lasagna",
+                                        "ingredients": [{"name": "cheese", "concentration": 60}, {"name": "jalepeno", "concentration": 20},
+                                                        {"name": "olives", "concentration": 20}]
+                            }
+                }
+            })"_json
+    };
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection",     "menu_nested_deep"},
+            {"q",              "*"},
+            {"filter_by",      "root.main.name: p* && root.main.ingredients.{name : cheese && concentration :<50}"},
+            {"include_fields", "root.main.name, root.main.ingredients"}
+    };
+    json_res.clear();
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("Pizza", result["hits"][0]["document"]["root"]["main"]["name"]);
+    ASSERT_EQ("Pasta", result["hits"][1]["document"]["root"]["main"]["name"]);
+}
