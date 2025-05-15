@@ -14,6 +14,10 @@ Option<bool> EmbedderManager::validate_and_init_model(const nlohmann::json& mode
         LOG(INFO) << "Validating and initializing remote model: " << model_name;
         return validate_and_init_remote_model(model_config, num_dims);
     } else {
+        if (model_config.count("personalization_type") > 0) {
+            LOG(INFO) << "Skipping initialization for personalization model: " << model_name;
+            return Option<bool>(true);
+        }
         LOG(INFO) << "Validating and initializing local model: " << model_name;
         auto op = validate_and_init_local_model(model_config, num_dims);
         if(op.ok()) {
@@ -29,29 +33,25 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
                                                                  size_t& num_dims) {
     const std::string& model_name = model_config["model_name"].get<std::string>();
     auto model_namespace = EmbedderManager::get_model_namespace(model_name);
-    bool has_custom_dims = false;
+    bool has_custom_dims = num_dims > 0;
     if(model_namespace == "openai") {
-        auto num_dims_before = num_dims;
-        auto op = OpenAIEmbedder::is_model_valid(model_config, num_dims);
+        auto op = OpenAIEmbedder::is_model_valid(model_config, num_dims, has_custom_dims);
         // if the dimensions did not change, it means the model has custom dimensions
-        has_custom_dims = num_dims_before == num_dims;
         if(!op.ok()) {
             return op;
         }
     } else if(model_namespace == "google") {
-        auto op = GoogleEmbedder::is_model_valid(model_config, num_dims);
+        auto op = GoogleEmbedder::is_model_valid(model_config, num_dims, has_custom_dims);
         if(!op.ok()) {
             return op;
         }
     } else if(model_namespace == "gcp") {
-        auto op = GCPEmbedder::is_model_valid(model_config, num_dims);
+        auto op = GCPEmbedder::is_model_valid(model_config, num_dims, has_custom_dims);
         if(!op.ok()) {
             return op;
         }
     } else if(model_namespace == "azure") {
-        auto num_dims_before = num_dims;
-        auto op = AzureEmbedder::is_model_valid(model_config, num_dims);
-        has_custom_dims = num_dims_before == num_dims;
+        auto op = AzureEmbedder::is_model_valid(model_config, num_dims, has_custom_dims);
         if(!op.ok()) {
             return op;
         }

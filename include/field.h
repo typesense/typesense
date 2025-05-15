@@ -64,6 +64,7 @@ namespace fields {
     static const std::string async_reference = "async_reference";
     static const std::string embed = "embed";
     static const std::string from = "from";
+    static const std::string mapping = "mapping";
     static const std::string model_name = "model_name";
     static const std::string range_index = "range_index";
     static const std::string stem = "stem";
@@ -77,6 +78,7 @@ namespace fields {
     static const std::string query_prefix = "query_prefix";
     static const std::string api_key = "api_key";
     static const std::string model_config = "model_config";
+    static const std::string personalization_type = "personalization_type";
 
     static const std::string reference_helper_fields = ".ref";
     static const std::string REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
@@ -380,6 +382,34 @@ struct field {
         return false;
     }
 
+    static void add_default_json_values(nlohmann::json& json);
+
+    static field field_from_json(nlohmann::json json) {
+        add_default_json_values(json);
+
+        return field(json[fields::name].get<std::string>(), json[fields::type].get<std::string>(),
+                     json[fields::facet].get<bool>(),
+                     json[fields::optional].get<bool>(),
+                     json[fields::index].get<bool>(),
+                     json[fields::locale].get<std::string>(),
+                     json[fields::sort].get<int>(),
+                     json[fields::infix].get<int>(),
+                     json[fields::nested].get<bool>(),
+                     json[fields::nested_array].get<int>(),
+                     json[fields::num_dim].get<size_t>(),
+                     json[fields::vec_dist].get<std::string>() == "ip" ? ip : cosine,
+                     json[fields::reference].get<std::string>(),
+                     json[fields::embed].get<nlohmann::json>(),
+                     json[fields::range_index].get<bool>(),
+                     json[fields::store].get<bool>(),
+                     json[fields::stem].get<bool>(),
+                     json[fields::stem_dictionary].get<std::string>(),
+                     json[fields::hnsw_params].get<nlohmann::json>(),
+                     json[fields::async_reference].get<bool>(),
+                     json[fields::token_separators].get<nlohmann::json>(),
+                     json[fields::symbols_to_index].get<nlohmann::json>());
+    }
+
     static Option<bool> fields_to_json_fields(const std::vector<field> & fields,
                                               const std::string & default_sorting_field,
                                               nlohmann::json& fields_json);
@@ -415,6 +445,8 @@ struct field {
                                     bool is_update, std::vector<field>& flattened_fields);
 
     static void compact_nested_fields(tsl::htrie_map<char, field>& nested_fields);
+
+    static nlohmann::json field_to_json_field(const struct field& field);
 };
 
 enum index_operation_t {
@@ -576,6 +608,10 @@ struct sort_by {
     uint32_t text_match_buckets;
     uint32_t text_match_bucket_size;
 
+    uint32_t vector_search_buckets = 0;
+    uint32_t vector_search_bucket_size = 0;
+
+
     // geo related fields
     int64_t geopoint;
     uint32_t exclude_radius;
@@ -629,6 +665,8 @@ struct sort_by {
         order = other.order;
         text_match_buckets = other.text_match_buckets;
         text_match_bucket_size = other.text_match_bucket_size;
+        vector_search_buckets = other.vector_search_buckets;
+        vector_search_bucket_size = other.vector_search_bucket_size;
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;
@@ -651,12 +689,13 @@ struct sort_by {
         if (&other == this) {
             return *this;
         }
-
         name = other.name;
         eval_expressions = other.eval_expressions;
         order = other.order;
         text_match_buckets = other.text_match_buckets;
         text_match_bucket_size = other.text_match_bucket_size;
+        vector_search_buckets = other.vector_search_buckets;
+        vector_search_bucket_size = other.vector_search_bucket_size;
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;

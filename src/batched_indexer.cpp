@@ -181,6 +181,14 @@ std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>&
                 coll_name = obj["history_collection"];
             }
         }
+    } else {
+        // `CollectionManager::get_collection` accounts for collection alias being used and provides pointer to the
+        // original collection.
+        auto& cm = CollectionManager::get_instance();
+        auto coll = cm.get_collection(coll_name);
+        if (coll != nullptr) {
+            coll_name = coll->get_name();
+        }
     }
 
     return coll_name;
@@ -195,10 +203,10 @@ void BatchedIndexer::run() {
     LOG(INFO) << "BatchedIndexer skip_index: " << skip_index;
 
     for(size_t i = 0; i < num_threads; i++) {
-        std::deque<uint64_t>& queue = queues[i];
-        await_t& queue_mutex = qmutuxes[i];
+        thread_pool->enqueue([this, i]() {
+            std::deque<uint64_t>& queue = queues[i];
+            await_t& queue_mutex = qmutuxes[i];
 
-        thread_pool->enqueue([&queue, &queue_mutex, this, i]() {
             while(!quit) {
                 std::unique_lock<std::mutex> qlk(queue_mutex.mcv);
                 queue_mutex.cv.wait(qlk, [&] { return quit || !queue.empty(); });
@@ -230,9 +238,11 @@ void BatchedIndexer::run() {
                 const std::string& req_key_start_prefix = req_key_prefix + StringUtils::serialize_uint32_t(
                                                                   orig_req_res.next_chunk_index);
 
-                const std::string& req_key_upper_bound = get_req_suffix_key(req_id);  // cannot inline this
-                rocksdb::Slice upper_bound(req_key_upper_bound);
-                rocksdb::Iterator* iter = store->scan(req_key_start_prefix, &upper_bound);
+                std::string ub_str = get_req_suffix_key(req_id);
+                rocksdb::Slice ub_slice(ub_str);
+                std::unique_ptr<rocksdb::Iterator> iter {
+                    store->scan(req_key_start_prefix, &ub_slice)
+                };
 
                 // used to handle partial JSON documents caused by chunking
                 std::string& prev_body = orig_req_res.prev_req_body;
@@ -324,8 +334,6 @@ void BatchedIndexer::run() {
                         break;
                     }
                 }
-
-                delete iter;
 
                 //LOG(INFO) << "Erasing request data from disk and memory for request " << req_id;
 
@@ -638,4 +646,9 @@ void BatchedIndexer::clear_skip_indices() {
     }
 
     meta_store->flush();
+}
+
+size_t BatchedIndexer::get_reference_q_size() {
+    std::lock_guard lk(refq_wait.mcv);
+    return reference_q.size();
 }

@@ -487,14 +487,13 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     }
 
     const std::string& root_resource = (path_parts.empty()) ? "" : path_parts[0];
-    //LOG(INFO) << "root_resource is: " << root_resource;
 
     bool needs_readiness_check = (root_resource == "collections") ||
          !(
              root_resource == "health" || root_resource == "debug" || root_resource == "proxy" ||
              root_resource == "stats.json" || root_resource == "metrics.json" ||
              root_resource == "sequence" || root_resource == "operations" ||
-             root_resource == "config" || root_resource == "status"
+             root_resource == "config" || root_resource == "status" || root_resource == "proxy_sse"
          );
 
     bool use_meta_thread_pool = (root_resource == "status");
@@ -549,7 +548,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
             // ignore params map of multi_search since it is mutated for every search object in the POST body
             for(const auto& kv: query_map) {
                 if(kv.first != http_req::AUTH_HEADER) {
-                    query_string += kv.first + "=" + kv.second + "&";
+                    query_string += kv.first + "=" + StringUtils::url_encode(kv.second) + "&";
                 }
             }
 
@@ -663,7 +662,8 @@ bool HttpServer::is_write_request(const std::string& root_resource, const std::s
     }
 
     bool write_free_request = (root_resource == "multi_search" || root_resource == "proxy" ||
-                               root_resource == "operations" || root_resource == "config");
+                               root_resource == "operations" || root_resource == "config"  || 
+                               root_resource == "proxy_sse");
 
     if(!write_free_request &&
        (http_method == "POST" || http_method == "PUT" ||
@@ -780,6 +780,8 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
 
     bool is_write = is_write_request(root_resource, rpath->http_method, rpath->handler);
 
+    request->is_write = is_write;
+
     if(is_write) {
         handler->http_server->get_replication_state()->write(request, response);
         return 0;
@@ -839,7 +841,7 @@ void HttpServer::on_deferred_process_request(h2o_timer_t *entry) {
 void HttpServer::defer_processing(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res,
                                   size_t timeout_ms) {
     //LOG(INFO) << "defer_processing, exit_loop: " << exit_loop << ", req: " << req.get() << ", use count: " << req.use_count();
-
+    
     if(req->defer_timer.data == nullptr) {
         //LOG(INFO) << "req->defer_timer.data is null";
         auto deferred_req_res = new deferred_req_res_t(req, res, this, false);
@@ -919,7 +921,7 @@ void HttpServer::stream_response(stream_response_state_t& state) {
     // Check `async_req_res_t` constructor for overlapping writes.
 
     h2o_req_t* req = state.get_req();
-
+    
     bool start_of_res = (req->res.status == 0);
 
     if(start_of_res) {

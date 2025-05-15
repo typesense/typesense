@@ -401,6 +401,27 @@ TEST(StringUtilsTest, TokenizeFilterQuery) {
     filter_query = "$Customers(customer_id:=customer_a) || !$Customers_2(customer_id:=customer_a)";
     tokenList = {"$Customers(customer_id:=customer_a)", "||", "!$Customers_2(customer_id:=customer_a)"};
     tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "name: `ingredients.{name: spinach}`";
+    tokenList = {"name: `ingredients.{name: spinach}`"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "ingredients.{name: != spinach && concentration: >50}";
+    // Prepend ".{" for easy identification.
+    tokenList = {".{ingredients.{name: != spinach && concentration: >50}"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "name: p* && ingredients.{name : cheese && concentration : [25..45]}";
+    tokenList = {"name: p*", "&&", ".{ingredients.{name : cheese && concentration : [25..45]}"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "ingredients.{name : cheese && concentration : >50} || ingredients.{name : cheese && concentration : [25..45]}";
+    tokenList = {".{ingredients.{name : cheese && concentration : >50}", "||", ".{ingredients.{name : cheese && concentration : [25..45]}"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "ingredients.{(name : olives && concentration :<50) || (name : cheese && concentration :>50)}";
+    tokenList = {".{ingredients.{(name : olives && concentration :<50) || (name : cheese && concentration :>50)}"};
+    tokenizeTestHelper(filter_query, tokenList);
 }
 
 void splitIncludeExcludeTestHelper(const std::string& include_exclude_fields, const std::vector<std::string>& expected) {
@@ -482,4 +503,31 @@ TEST(StringUtilsTest, SplitReferenceIncludeExcludeFields) {
     ASSERT_TRUE(tokenize_op.ok());
     ASSERT_EQ("$inventory(qty,sku,$retailer(id,title))", token);
     ASSERT_EQ(", foo)", exclude_fields.substr(index));
+}
+
+TEST(StringUtilsTest, ShouldURLEncode) {
+    // Test basic alphanumeric characters (should remain unchanged)
+    ASSERT_STREQ("abc123", StringUtils::url_encode("abc123").c_str());
+    
+    // Test special characters that should be percent-encoded
+    ASSERT_STREQ("Hello%20World%21", StringUtils::url_encode("Hello World!").c_str());
+    ASSERT_STREQ("test%40example.com", StringUtils::url_encode("test@example.com").c_str());
+    ASSERT_STREQ("path%2Fto%2Ffile", StringUtils::url_encode("path/to/file").c_str());
+    
+    // Test characters that should remain unchanged (-_.~)
+    ASSERT_STREQ("test-file.txt", StringUtils::url_encode("test-file.txt").c_str());
+    ASSERT_STREQ("user_name", StringUtils::url_encode("user_name").c_str());
+    ASSERT_STREQ("example.com", StringUtils::url_encode("example.com").c_str());
+    ASSERT_STREQ("~home", StringUtils::url_encode("~home").c_str());
+    
+    // Test empty string
+    ASSERT_STREQ("", StringUtils::url_encode("").c_str());
+    
+    // Test Unicode characters
+    ASSERT_STREQ("%E2%82%AC", StringUtils::url_encode("€").c_str());
+    ASSERT_STREQ("%E6%97%A5%E6%9C%AC%E8%AA%9E", StringUtils::url_encode("日本語").c_str());
+    
+    // Test mixed content
+    ASSERT_STREQ("Hello%20World%21%20%E2%82%AC%20test%40example.com", 
+                 StringUtils::url_encode("Hello World! € test@example.com").c_str());
 }

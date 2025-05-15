@@ -5,6 +5,7 @@
 #include "stackprinter.h"
 #include "backward.hpp"
 #include "butil/at_exit.h"
+#include "text_embedder_remote.h"
 
 #ifndef ASAN_BUILD
 extern "C" {
@@ -21,8 +22,8 @@ extern "C" {
 void master_server_routes() {
     // collection operations
     // NOTE: placing this first to score an immediate hit on O(N) route search
-    server->get("/collections/:collection/documents/search", get_search);
-    server->post("/multi_search", post_multi_search);
+    server->get("/collections/:collection/documents/search", get_search, false, true);
+    server->post("/multi_search", post_multi_search, false, true);
 
     // document management
     // NOTE:`/documents/:id` end-points must be placed last in the list
@@ -88,6 +89,7 @@ void master_server_routes() {
     server->post("/stemming/dictionaries/import", post_import_stemming_dictionary, true, true);
     server->get("/stemming/dictionaries", get_stemming_dictionaries);
     server->get("/stemming/dictionaries/:id", get_stemming_dictionary);
+    server->del("/stemming/dictionaries/:id", del_stemming_dictionary);
 
     // meta
     server->get("/metrics.json", get_metrics_json);
@@ -130,6 +132,7 @@ void master_server_routes() {
 
     // for proxying remote embedders
     server->post("/proxy", post_proxy);
+    server->post("/proxy_sse", post_proxy_sse, false, true);
 }
 
 void (*backward::SignalHandling::_callback)(int sig, backward::StackTrace&) = nullptr;

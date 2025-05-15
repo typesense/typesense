@@ -112,7 +112,8 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<bool>("reset-peers-on-error", '\0', "Reset node's peers on clustering error. Default: false.", false, false);
 
     options.add<int>("log-slow-searches-time-ms", '\0', "When >= 0, searches that take longer than this duration are logged.", false, 30*1000);
-    options.add<int>("cache-num-entries", '\0', "Number of entries to cache.", false, 1000);
+    options.add<uint32_t>("cache-num-entries", '\0', "Number of entries to cache.", false, 1000);
+    options.add<uint32_t>("embedding-cache-num-entries", '\0', "Number of entries to cache for embeddings.", false, 100);
     options.add<uint32_t>("analytics-flush-interval", '\0', "Frequency of persisting analytics data to disk (in seconds).", false, 3600);
     options.add<uint32_t>("housekeeping-interval", '\0', "Frequency of housekeeping background job (in seconds).", false, 1800);
     options.add<bool>("enable-lazy-filter", '\0', "Filter clause will be evaluated lazily.", false, false);
@@ -120,6 +121,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<uint16_t>("filter-by-max-ops", '\0', "Maximum number of operations permitted in filtery_by.", false, Config::FILTER_BY_DEFAULT_OPERATIONS);
 
     options.add<int>("max-per-page", '\0', "Max number of hits per page", false, 250);
+    options.add<uint32_t>("max-group-limit", '\0', "Max number of results to be returned per group", false, 99);
 
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
@@ -416,10 +418,13 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
             } else {
                 const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
                                                                                     refreshed_nodes_op.get());
-                replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
-
-                if(raft_counter % 60 == 0) {
-                    replication_state.do_snapshot(nodes_config);
+                if(nodes_config.empty()) {
+                    LOG(WARNING) << "No nodes resolved from peer configuration.";
+                } else {
+                    replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
+                    if(raft_counter % 60 == 0) {
+                        replication_state.do_snapshot(nodes_config);
+                    }
                 }
             }
         }
@@ -548,6 +553,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     }
 
     AnalyticsManager::get_instance().init(&store, analytics_store, analytics_minute_rate_limit);
+
+    RemoteEmbedder::cache.capacity(config.get_embedding_cache_num_entries());
 
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();

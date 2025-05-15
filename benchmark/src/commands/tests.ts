@@ -91,6 +91,30 @@ class IntegrationTests {
     });
   }
 
+  private findDefaultNetworkAddress(): string | null {
+    const interfaces = networkInterfaces();
+
+    if (!this.isInCi) {
+      return DEFAULT_IP_ADDRESS;
+    }
+
+    // First try to find a 10.1.0.* address
+    const preferredAddress = Object.values(interfaces)
+      .flatMap((interfaceInfo) => interfaceInfo ?? [])
+      .find((info) => info.family === "IPv4" && info.address.startsWith("10.1.0."))?.address;
+
+    if (preferredAddress) {
+      return preferredAddress;
+    }
+
+    // Fallback: find any non-internal IPv4 address
+    return (
+      Object.values(interfaces)
+        .flatMap((interfaceInfo) => interfaceInfo ?? [])
+        .find((info) => info.family === "IPv4" && !info.internal)?.address ?? null
+    );
+  }
+
   private mapNodesToDirectories(dataDirs: [string, string, string]): Result<NodeConfig[], ErrorWithMessage> {
     const nodes: NodeConfig[] = [];
 

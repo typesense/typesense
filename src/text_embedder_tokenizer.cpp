@@ -100,7 +100,9 @@ CLIPTokenizerWrapper::CLIPTokenizerWrapper(const std::string& vocab_path) {
 }
 
 encoded_input_t CLIPTokenizerWrapper::Encode(const std::string& text) {
+    std::unique_lock<std::mutex> lock(mutex_);
     auto res = clip_tokenizer_->tokenize({text});
+    lock.unlock();
 
     // convert vector int to vector int64_t
     std::vector<int64_t> input_ids(res.tokens[0].begin(), res.tokens[0].end());

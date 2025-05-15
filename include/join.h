@@ -7,24 +7,54 @@
 #include "tsl/htrie_set.h"
 #include "filter_result_iterator.h"
 
-struct reference_info_t {
+struct base_reference_info_t {
     std::string collection;
     std::string field;
-    bool is_async;
 
-    std::string referenced_field_name;
+    base_reference_info_t(std::string collection, std::string field) :
+    collection(std::move(collection)), field(std::move(field)) {}
 
-    reference_info_t(std::string collection, std::string field, bool is_async, std::string referenced_field_name = "") :
-            collection(std::move(collection)), field(std::move(field)), is_async(is_async),
-            referenced_field_name(std::move(referenced_field_name)) {}
-
-    bool operator < (const reference_info_t& other) const noexcept {
+    bool operator < (const base_reference_info_t& other) const noexcept {
         if (collection == other.collection) {
             return field < other.field;
         }
 
         return collection < other.collection;
     }
+};
+
+struct reference_info_t: base_reference_info_t {
+    bool is_async;
+    std::string referenced_field_name;
+    struct field referenced_field{};
+
+    reference_info_t(std::string collection, std::string field, bool is_async, std::string referenced_field_name = "") :
+            base_reference_info_t(std::move(collection), std::move(field)), is_async(is_async),
+            referenced_field_name(std::move(referenced_field_name)) {}
+
+    reference_info_t(const nlohmann::json& json): reference_info_t(json["collection"],
+                                                                   json["field"],
+                                                                   json["is_async"],
+                                                                   json["referenced_field_name"]) {
+        referenced_field = field::field_from_json(json["referenced_field"]);
+    }
+
+    static nlohmann::json to_json(const reference_info_t& ref_info) {
+        nlohmann::json json;
+        json["collection"] = ref_info.collection;
+        json["field"] = ref_info.field;
+        json["is_async"] = ref_info.is_async;
+        json["referenced_field_name"] = ref_info.referenced_field_name;
+        json["referenced_field"] = field::field_to_json_field(ref_info.referenced_field);
+        return json;
+    }
+};
+
+struct update_reference_info_t: base_reference_info_t {
+    struct field referenced_field;
+
+    update_reference_info_t(std::string collection, std::string field, struct field referenced_field) :
+            base_reference_info_t(std::move(collection), std::move(field)), referenced_field(std::move(referenced_field)) {}
 };
 
 struct ref_include_collection_names_t {
@@ -72,4 +102,8 @@ public:
                                                                   std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec);
 
     [[nodiscard]] static bool merge_join_conditions(string& embedded_filter, string& query_filter);
+
+    static Option<bool> single_value_filter_query(nlohmann::json& document, const std::string& field_name,
+                                                  const std::string& ref_field_type, std::string& filter_value,
+                                                  const bool& is_reference_value = true);
 };

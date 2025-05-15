@@ -75,6 +75,7 @@ struct collection_search_args_t {
     static constexpr auto QUERY_BY = "query_by";
     static constexpr auto QUERY_BY_WEIGHTS = "query_by_weights";
     static constexpr auto SORT_BY = "sort_by";
+    static constexpr auto TAGS = "analytics_tag";
 
     static constexpr auto FACET_BY = "facet_by";
     static constexpr auto FACET_QUERY = "facet_query";
@@ -169,6 +170,14 @@ struct collection_search_args_t {
 
     static constexpr auto VALIDATE_FIELD_NAMES = "validate_field_names";
 
+    static constexpr auto PERSONALIZATION_USER_ID = "personalization_user_id";
+    static constexpr auto PERSONALIZATION_MODEL_ID = "personalization_model_id";
+    static constexpr auto PERSONALIZATION_TYPE = "personalization_type";
+    static constexpr auto PERSONALIZATION_USER_FIELD = "personalization_user_field";
+    static constexpr auto PERSONALIZATION_ITEM_FIELD = "personalization_item_field";
+    static constexpr auto PERSONALIZATION_EVENT_NAME = "personalization_event_name";
+    static constexpr auto PERSONALIZATION_N_EVENTS = "personalization_n_events";
+
     std::string raw_query;
     std::vector<std::string> search_fields;
     std::string filter_query;
@@ -243,6 +252,14 @@ struct collection_search_args_t {
     bool rerank_hybrid_matches;
     bool enable_analytics;
     bool validate_field_names;
+    std::string analytics_tag;
+    std::string personalization_user_id;
+    std::string personalization_model_id;
+    std::string personalization_type;
+    std::string personalization_user_field;
+    std::string personalization_item_field;
+    std::string personalization_event_name;
+    size_t personalization_n_events;
 
     std::vector<std::vector<KV*>> result_group_kvs{};
 
@@ -272,7 +289,11 @@ struct collection_search_args_t {
                              std::string override_tags, std::string voice_query, bool enable_typos_for_numerical_tokens,
                              bool enable_synonyms, bool synonym_prefix, size_t synonym_num_typos, bool enable_lazy_filter,
                              bool enable_typos_for_alpha_numerical_tokens, size_t max_filter_by_candidates,
-                             bool rerank_hybrid_matches, bool enable_analytics, bool validate_field_names) :
+                             bool rerank_hybrid_matches, bool enable_analytics, bool validate_field_names,
+                             std::string analytics_tag,
+                             std::string personalization_user_id, std::string personalization_model_id,
+                             std::string personalization_type, std::string personalization_user_field,
+                             std::string personalization_item_field, std::string personalization_event_name, size_t personalization_n_events) :
             raw_query(std::move(raw_query)), search_fields(std::move(search_fields)), filter_query(std::move(filter_query)),
             facet_fields(std::move(facet_fields)), sort_fields(std::move(sort_fields)),
             num_typos(std::move(num_typos)), per_page(per_page), page(page), token_order(token_order),
@@ -299,7 +320,11 @@ struct collection_search_args_t {
             override_tags(std::move(override_tags)), voice_query(std::move(voice_query)), enable_typos_for_numerical_tokens(enable_typos_for_numerical_tokens),
             enable_synonyms(enable_synonyms), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos), enable_lazy_filter(enable_lazy_filter),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens), max_filter_by_candidates(max_filter_by_candidates),
-            rerank_hybrid_matches(rerank_hybrid_matches), enable_analytics(enable_analytics), validate_field_names(validate_field_names) {}
+            rerank_hybrid_matches(rerank_hybrid_matches), enable_analytics(enable_analytics), validate_field_names(validate_field_names),
+            analytics_tag(analytics_tag),
+            personalization_user_id(personalization_user_id), personalization_model_id(personalization_model_id),
+            personalization_type(personalization_type), personalization_user_field(personalization_user_field),
+            personalization_item_field(personalization_item_field), personalization_event_name(personalization_event_name), personalization_n_events(personalization_n_events) {}
 
     collection_search_args_t() = default;
 
@@ -310,13 +335,10 @@ struct collection_search_args_t {
                              collection_search_args_t& args);
 };
 
-class Collection {
+class Collection: std::enable_shared_from_this<Collection> {
 private:
 
     mutable std::shared_mutex mutex;
-
-    // ensures that a Collection* is not destructed while in use by multiple threads
-    mutable std::shared_mutex lifecycle_mutex;
 
     static const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
@@ -706,7 +728,7 @@ public:
                spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>(),
                const nlohmann::json& metadata = {},
                spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins =
-                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
 
     ~Collection();
 
@@ -725,8 +747,6 @@ public:
     uint32_t get_collection_id() const;
 
     uint32_t get_next_seq_id();
-
-    Option<uint32_t> doc_id_to_seq_id_with_lock(const std::string & doc_id) const;
 
     Option<uint32_t> doc_id_to_seq_id(const std::string & doc_id) const;
 
@@ -918,7 +938,26 @@ public:
                                   const size_t& max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES,
                                   bool rerank_hybrid_matches = false,
                                   bool validate_field_names = true,
-                                  bool enable_analytics = true) const;
+                                  bool enable_analytics = true,
+                                  std::string analytics_tags="",
+                                  std::string personalization_user_id = "",
+                                  std::string personalization_model_id = "",
+                                  std::string personalization_type = "",
+                                  std::string personalization_user_field = "",
+                                  std::string personalization_item_field = "",
+                                  std::string personalization_event_name = "",
+                                  size_t personalization_n_events = 0) const;
+
+    Option<bool> parse_and_validate_personalization_query(const std::string& personalization_user_id,
+                                                          const std::string& personalization_model_id,
+                                                          const std::string& personalization_type,
+                                                          const std::string& personalization_user_field,
+                                                          const std::string& personalization_item_field,
+                                                          const size_t& personalization_n_events,
+                                                          const std::string& personalization_event_name,
+                                                          vector_query_t& vector_query,
+                                                          std::string& filter_query,
+                                                          bool& is_wildcard_query) const;
 
     static Option<bool> do_union(const std::vector<uint32_t>& collection_ids,
                                  std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,
@@ -1039,14 +1078,27 @@ public:
                                                  std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                                  const bool& validate_field_names = true) const;
 
-    int64_t reference_string_sort_score(const std::string& field_name, const uint32_t& seq_id) const;
+    int64_t reference_string_sort_score(const string &field_name,  const std::vector<uint32_t>& seq_ids,
+                                        const bool& is_asc) const;
 
     bool is_referenced_in(const std::string& collection_name) const;
 
-    void add_referenced_ins(const std::set<reference_info_t>& ref_infos);
+    // Return a copy of the referenced field in the referencing collection to avoid schema lookups in the future. The
+    // tradeoff is that we have to make sure any changes during collection alter operation are passed to the referencing
+    // collection.
+    [[nodiscard]] std::set<update_reference_info_t> add_referenced_ins(std::map<std::string, reference_info_t>& ref_infos);
 
-    void add_referenced_in(const std::string& collection_name, const std::string& field_name,
-                                   const bool& is_async, const std::string& referenced_field_name);
+    [[nodiscard]] std::set<update_reference_info_t> add_referenced_in(const std::string& collection_name,
+                                                                      const std::string& field_name, const bool& is_async,
+                                                                      const std::string& referenced_field_name,
+                                                                      field& referenced_field);
+
+    void remove_referenced_in(const std::string& collection_name, const std::string& field_name,
+                              const bool& is_async, const std::string& referenced_field_name);
+
+    void update_reference_field_with_lock(const std::string& field_name, const field& ref_field);
+
+    void update_reference_field(const std::string& field_name, const field& ref_field);
 
     Option<std::string> get_referenced_in_field_with_lock(const std::string& collection_name) const;
 
@@ -1063,8 +1115,6 @@ public:
 
     friend class filter_result_iterator_t;
 
-    std::shared_mutex& get_lifecycle_mutex();
-
     static void expand_search_query(const tsl::htrie_map<char, field>& search_schema, const std::vector<char>& symbols_to_index,const std::vector<char>& token_separators,
                                     const std::string& raw_query, size_t offset, size_t total, const search_args* search_params,
                                     const std::vector<std::vector<KV*>>& result_group_kvs,
@@ -1077,11 +1127,12 @@ public:
     Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
                                  std::vector<uint32_t>& result) const;
 
-    Option<int64_t> get_referenced_geo_distance_with_lock(const sort_by& sort_field, const uint32_t& seq_id,
+    Option<int64_t> get_referenced_geo_distance_with_lock(const sort_by& sort_field, const bool& is_asc, const uint32_t& seq_id,
                                                           const std::map<basic_string<char>, reference_filter_result_t>& references,
                                                           const S2LatLng& reference_lat_lng, const bool& round_distance) const;
 
-    Option<int64_t> get_geo_distance_with_lock(const std::string& geo_field_name, const uint32_t& seq_id,
+    Option<int64_t> get_geo_distance_with_lock(const std::string& geo_field_name, const bool& is_asc,
+                                               const std::vector<uint32_t>& seq_ids_vec,
                                                const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
 
     Option<nlohmann::json> get_alter_schema_status() const;

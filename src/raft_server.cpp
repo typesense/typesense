@@ -47,6 +47,11 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     while(true) {
         std::string actual_nodes_config = to_nodes_config(peering_endpoint, api_port, nodes);
 
+        if(actual_nodes_config.empty()) {
+            LOG(WARNING) << "No nodes resolved from peer configuration.";
+            continue;
+        }
+
         if(node_options.initial_conf.parse_from(actual_nodes_config) != 0) {
             if(--max_tries == 0) {
                 LOG(ERROR) << "Giving up parsing nodes configuration: `" << nodes << "`";
@@ -140,6 +145,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     return 0;
 }
 
+// can return empty string if DNS resolution fails on all nodes
 std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_endpoint, const int api_port,
                                               const std::string& nodes_config) {
     if(nodes_config.empty()) {
@@ -220,12 +226,15 @@ std::string ReplicationState::resolve_node_hosts(const string& nodes_config) {
 
         std::string resolved_ip = hostname2ipstr(node_parts[0]);
         if(resolved_ip.empty()) {
-            final_nodes_vec.emplace_back("");
+            LOG(ERROR) << "Unable to resolve host: " << node_parts[0];
             continue;
         }
 
-        final_nodes_vec.push_back((!resolved_ip.empty() ? resolved_ip : node_parts[0])
-            + ":" + node_parts[1] + ":" + node_parts[2]);
+        final_nodes_vec.push_back(resolved_ip + ":" + node_parts[1] + ":" + node_parts[2]);
+    }
+
+    if(final_nodes_vec.empty()) {
+        return "";
     }
 
     std::string final_nodes_config = StringUtils::join(final_nodes_vec, ",");
@@ -999,6 +1008,11 @@ bool ReplicationState::reset_peers() {
         const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint,
                                                                             Config::get_instance().get_api_port(),
                                                                             refreshed_nodes_op.get());
+
+        if(nodes_config.empty()) {
+            LOG(WARNING) << "No nodes resolved from peer configuration.";
+            return false;
+        }
 
         braft::Configuration peer_config;
         peer_config.parse_from(nodes_config);

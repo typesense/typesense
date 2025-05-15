@@ -213,11 +213,39 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                     param_kv[1].pop_back();
 
                     std::vector<std::string> qs;
-                    StringUtils::split(param_kv[1], qs, ",");
+                    StringUtils::split_list_with_backticks(param_kv[1], qs);
                     for(auto& q: qs) {
                         StringUtils::trim(q);
                         vector_query.queries.push_back(q);
                     }
+                }
+
+                if(param_kv[0] == "image") {
+                    auto search_schema = const_cast<Collection*>(coll)->get_schema();
+                    auto vector_field_it = search_schema.find(vector_query.field_name);
+
+                    if(vector_field_it == search_schema.end()) {
+                        return Option<bool>(400, "Malformed vector query string: could not find a field named "
+                                                 "`" + vector_query.field_name + "`.");
+                    }
+
+                    if(vector_field_it->embed.empty()) {
+                        return Option<bool>(400, "Malformed vector query string: `image` parameter is not supported "
+                                                 "for this field.");
+                    }
+
+                    auto model_config = vector_field_it->embed["model_config"];
+                    auto image_embedder_op = EmbedderManager::get_instance().get_image_embedder(model_config);
+                    if(!image_embedder_op.ok()) {
+                        return Option<bool>(400, "Malformed vector query string: could not get image embedder.");
+                    }
+
+                    auto image_embedder = image_embedder_op.get();
+                    auto res = image_embedder->embed_documents({param_kv[1]});
+                    if(res.empty() || !res[0].success) {
+                        return Option<bool>(400, "Malformed vector query string: could not embed image.");
+                    }
+                    vector_query.values = res[0].embedding;
                 }
 
                 if(param_kv[0] == "query_weights") {

@@ -208,6 +208,8 @@ void init_api(uint32_t cache_num_entries);
 
 bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 
 
 

@@ -208,6 +208,12 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             if(emit_token) {
                 token = out;
                 token_index = token_counter++;
+
+                if(stemmer && !is_cyrillic(locale)) {
+                    // cyrillic is already stemmed prior to transliteration
+                    token = stemmer->stem(out);
+                }
+
                 out.clear();
             }
 
@@ -223,13 +229,8 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             }
         }
 
-        if(stemmer && !is_cyrillic(locale)) {
-            // cyrillic is already stemmed prior to transliteration
-            token = stemmer->stem(out);
-        } else {
-            token = out;
-        }
 
+        token = out;
         out.clear();
         start_index = utf8_start_index;
         end_index = text.size() - 1;
@@ -257,7 +258,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                     continue;
                 }
 
-                if(stemmer) {
+                if(stemmer && !phrase_search_op_prior) {
                     token = stemmer->stem(out);
                 } else {
                     token = out;
@@ -272,6 +273,15 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             } else {
                 if(out.empty()) {
                     start_index = i;
+                }
+
+                if(text[i] == '"') {
+                    if(!phrase_search_op_prior) {
+                        phrase_search_op_prior = true;
+                    } else if(phrase_search_op_prior) {
+                        //end of phrase
+                        phrase_search_op_prior = false;
+                    }
                 }
 
                 out += normalize ? char(std::tolower(text[i])) : text[i];
@@ -333,7 +343,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
         }
     }
 
-    if(stemmer) {
+    if(stemmer && !phrase_search_op_prior) {
         token = stemmer->stem(out);
     } else {
         token = out;

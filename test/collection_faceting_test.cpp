@@ -2789,6 +2789,29 @@ TEST_F(CollectionFacetingTest, FacetSortByOtherField) {
     add_op = coll1->add(doc5.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
+    // use facet counts as tie-breaker
+    nlohmann::json doc6 = R"({
+          "receipe": {
+            "name": "pasta",
+            "calories": 270,
+            "origin": "italy"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc6.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc7 = R"({
+          "receipe": {
+            "name": "butter chicken",
+            "calories": 270,
+            "origin": "india"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc7.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
     //search by calories in asc order
     auto search_op = coll1->search("*", {},"",
                                    {"receipe.name(sort_by:receipe.calories:asc)"},
@@ -2801,12 +2824,13 @@ TEST_F(CollectionFacetingTest, FacetSortByOtherField) {
     auto results = search_op.get();
 
     ASSERT_EQ(1, results["facet_counts"].size());
-    ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(6, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ("schezwan rice", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ("noodles", results["facet_counts"][0]["counts"][1]["value"]);
-    ASSERT_EQ("butter chicken", results["facet_counts"][0]["counts"][2]["value"]);
-    ASSERT_EQ("cheese pizza", results["facet_counts"][0]["counts"][3]["value"]);
-    ASSERT_EQ("hamburger", results["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ("pasta", results["facet_counts"][0]["counts"][2]["value"]);           //pasta and butter chicken both have same value `calories`
+    ASSERT_EQ("butter chicken", results["facet_counts"][0]["counts"][3]["value"]);  // but will consider count of facets as tie breaker
+    ASSERT_EQ("cheese pizza", results["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ("hamburger", results["facet_counts"][0]["counts"][5]["value"]);
 
     //search by calories in desc order
     search_op = coll1->search("*", {},"",
@@ -2820,12 +2844,13 @@ TEST_F(CollectionFacetingTest, FacetSortByOtherField) {
     results = search_op.get();
 
     ASSERT_EQ(1, results["facet_counts"].size());
-    ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(6, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ("hamburger", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ("cheese pizza", results["facet_counts"][0]["counts"][1]["value"]);
-    ASSERT_EQ("butter chicken", results["facet_counts"][0]["counts"][2]["value"]);
-    ASSERT_EQ("noodles", results["facet_counts"][0]["counts"][3]["value"]);
-    ASSERT_EQ("schezwan rice", results["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ("butter chicken", results["facet_counts"][0]["counts"][2]["value"]);//pasta and butter chicken both have same value `calories`
+    ASSERT_EQ("pasta", results["facet_counts"][0]["counts"][3]["value"]);         // but will consider count of facets as tie breaker
+    ASSERT_EQ("noodles", results["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ("schezwan rice", results["facet_counts"][0]["counts"][5]["value"]);
 }
 
 TEST_F(CollectionFacetingTest, FacetSortByOtherFloatField) {
@@ -2867,7 +2892,7 @@ TEST_F(CollectionFacetingTest, FacetSortByOtherFloatField) {
           "investment": {
             "name": "Mutual Funds",
             "interest_rate": 12,
-            "class": "Equity"
+            "class": "equity"
         }
     })"_json;
 
@@ -2896,6 +2921,28 @@ TEST_F(CollectionFacetingTest, FacetSortByOtherFloatField) {
     add_op = coll1->add(doc5.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
+    nlohmann::json doc6 = R"({
+          "investment": {
+            "name": "Bitcoin",
+            "interest_rate": 12,
+            "class": "crypto"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc6.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc7 = R"({
+          "investment": {
+            "name": "Mutual Funds",
+            "interest_rate": 12,
+            "class": "eqity"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc7.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
     //search by calories in asc order
     auto search_op = coll1->search("*", {},"",
                                    {"investment.name(sort_by:investment.interest_rate:asc)"},
@@ -2908,12 +2955,13 @@ TEST_F(CollectionFacetingTest, FacetSortByOtherFloatField) {
     auto results = search_op.get();
 
     ASSERT_EQ(1, results["facet_counts"].size());
-    ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(6, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ("Gold", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ("Term Deposits", results["facet_counts"][0]["counts"][1]["value"]);
     ASSERT_EQ("Bonds", results["facet_counts"][0]["counts"][2]["value"]);
     ASSERT_EQ("Land", results["facet_counts"][0]["counts"][3]["value"]);
-    ASSERT_EQ("Mutual Funds", results["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ("Bitcoin", results["facet_counts"][0]["counts"][4]["value"]);     //Mutual Funds and Bitcoin have same val `interest_rate`
+    ASSERT_EQ("Mutual Funds", results["facet_counts"][0]["counts"][5]["value"]);// but will consider count of facets as tiebreaker
 
     //search by calories in desc order
     search_op = coll1->search("*", {},"",
@@ -2927,12 +2975,13 @@ TEST_F(CollectionFacetingTest, FacetSortByOtherFloatField) {
     results = search_op.get();
 
     ASSERT_EQ(1, results["facet_counts"].size());
-    ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("Mutual Funds", results["facet_counts"][0]["counts"][0]["value"]);
-    ASSERT_EQ("Land", results["facet_counts"][0]["counts"][1]["value"]);
-    ASSERT_EQ("Bonds", results["facet_counts"][0]["counts"][2]["value"]);
-    ASSERT_EQ("Term Deposits", results["facet_counts"][0]["counts"][3]["value"]);
-    ASSERT_EQ("Gold", results["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ(6, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Mutual Funds", results["facet_counts"][0]["counts"][0]["value"]);  //Mutual Funds and Bitcoin have same val `interest_rate`
+    ASSERT_EQ("Bitcoin", results["facet_counts"][0]["counts"][1]["value"]);       // but will consider count of facets as tiebreaker
+    ASSERT_EQ("Land", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("Bonds", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("Term Deposits", results["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ("Gold", results["facet_counts"][0]["counts"][5]["value"]);
 }
 
 TEST_F(CollectionFacetingTest, FacetSortValidation) {
@@ -3613,4 +3662,42 @@ TEST_F(CollectionFacetingTest, IgnoreMissingFacetByFields) {
     auto res = res_op.get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ(0, res["facet_counts"].size());
+}
+
+TEST_F(CollectionFacetingTest, FacetingWithNegativeInt) {
+    nlohmann::json schema = R"({
+                "name": "test",
+                "fields": [
+                    {
+                        "name": "points",
+                        "type": "int32",
+                        "facet": true
+                    }
+                ]
+                })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+
+    auto coll = collectionManager.get_collection("test").get();
+
+    nlohmann::json doc = R"({
+        "points": 20
+    })"_json;
+    coll->add(doc.dump());
+
+    doc["points"] = 10;
+    coll->add(doc.dump());
+
+    doc["points"] = -5;
+    coll->add(doc.dump());
+
+
+   nlohmann::json results = coll->search("*", {}, "", {"points"}, {}, {0}, 10, 1,
+                                        FREQUENCY, {false}, 10, spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10).get();
+
+    ASSERT_FLOAT_EQ(8.333333333333334, results["facet_counts"][0]["stats"]["avg"]);
+    ASSERT_FLOAT_EQ(20, results["facet_counts"][0]["stats"]["max"]);
+    ASSERT_FLOAT_EQ(-5, results["facet_counts"][0]["stats"]["min"]);
+    ASSERT_FLOAT_EQ(25, results["facet_counts"][0]["stats"]["sum"]);
 }

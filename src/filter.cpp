@@ -414,7 +414,8 @@ Option<bool> toFilter(const std::string& expression,
                       const tsl::htrie_map<char, field>& search_schema,
                       const Store* store,
                       const std::string& doc_id_prefix,
-                      const bool& validate_field_names) {
+                      const bool& validate_field_names,
+                      const std::string& object_field_prefix) {
     // split into [field_name, value]
     size_t found_index = expression.find(':');
     if (found_index == std::string::npos) {
@@ -422,6 +423,8 @@ Option<bool> toFilter(const std::string& expression,
     }
     std::string&& field_name = expression.substr(0, found_index);
     StringUtils::trim(field_name);
+    field_name = object_field_prefix + field_name;
+
     if (field_name == "id") {
         std::string&& raw_value = expression.substr(found_index + 1, std::string::npos);
         StringUtils::trim(raw_value);
@@ -573,9 +576,14 @@ Option<bool> toFilter(const std::string& expression,
                                      "`: Filter value cannot be empty.");
         }
         if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+            filter_exp = {field_name, {}, {}};
+            if (bool_comparator == NOT_EQUALS) {
+                filter_exp.apply_not_equals = true;
+                bool_comparator = EQUALS;
+            }
+
             std::vector<std::string> filter_values;
             StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
-            filter_exp = {field_name, {}, {}};
             for (std::string& filter_value: filter_values) {
                 if (filter_value != "true" && filter_value != "false") {
                     return Option<bool>(400, "Values of filter field `" + _field.name +
@@ -682,7 +690,8 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                          const tsl::htrie_map<char, field>& search_schema,
                          const Store* store,
                          const std::string& doc_id_prefix,
-                         const bool& validate_field_names) {
+                         const bool& validate_field_names,
+                         const std::string& object_field_prefix) {
     std::stack<filter_node_t*> nodeStack;
     bool is_successful = true;
     std::string error_message;
@@ -719,6 +728,11 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             // Expected value: $Collection(...) / !$Collection(...)
             const std::regex join_pattern(R"(^(\$|(\!\$)).+\(.+\)$)");
             bool is_referenced_filter = std::regex_match(expression, join_pattern);
+
+            // We prepend ".{" to an object filter in `StringUtils::tokenize_filter_query`.
+            bool is_object_filter = expression.size() > OBJECT_FILTER_MARKER.size()
+                                            && expression.substr(0, OBJECT_FILTER_MARKER.size()) == OBJECT_FILTER_MARKER;
+
             if (is_referenced_filter) {
                 const bool is_negate_join = expression[0] == '!';
                 size_t parenthesis_index = expression.find('(');
@@ -736,18 +750,41 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                 filter_exp = {expression.substr(parenthesis_index + 1, expression.size() - parenthesis_index - 2)};
                 filter_exp.referenced_collection_name = collection_name;
                 filter_exp.is_negate_join = is_negate_join;
+
+                filter_node = new filter_node_t(filter_exp);
+                filter_node->filter_query = expression;
+            } else if (is_object_filter) {
+                const auto& object_expression = expression.substr(OBJECT_FILTER_MARKER.size());
+                const auto curly_pos = object_expression.find('{');
+                const auto object_filter_query = object_expression.substr(curly_pos + 1,
+                                                                          object_expression.size() - curly_pos - 2);
+                const auto object_prefix = object_expression.substr(0, curly_pos);
+
+                Option<bool> parse_filter_op = filter::parse_filter_query(object_filter_query, search_schema,
+                                                                          store, doc_id_prefix, filter_node,
+                                                                          validate_field_names,
+                                                                          object_prefix);
+                if (!parse_filter_op.ok()) {
+                    return parse_filter_op;
+                }
+
+                // Only root node of the object filter needs to be marked. Prevents redundant calls to
+                // `filter_result_iterator_t::validate_object_filter()` on every sub-node of the object filter tree.
+                filter_node->is_object_filter_root = true;
+                filter_node->object_field_name = object_prefix.substr(0, object_prefix.size() - 1);
+                filter_node->filter_query = object_expression;
             } else {
                 Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix,
-                                                    validate_field_names);
+                                                    validate_field_names, object_field_prefix);
                 if (!toFilter_op.ok()) {
                     is_successful = false;
                     error_message = toFilter_op.error();
                     break;
                 }
-            }
 
-            filter_node = new filter_node_t(filter_exp);
-            filter_node->filter_query = expression;
+                filter_node = new filter_node_t(filter_exp);
+                filter_node->filter_query = expression;
+            }
         }
 
         nodeStack.push(filter_node);
@@ -776,7 +813,8 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
                                         const Store* store,
                                         const std::string& doc_id_prefix,
                                         filter_node_t*& root,
-                                        const bool& validate_field_names) {
+                                        const bool& validate_field_names,
+                                        const std::string& object_field_prefix) {
     auto _filter_query = filter_query;
     StringUtils::trim(_filter_query);
     if (_filter_query.empty()) {
@@ -784,6 +822,7 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
     }
 
     std::queue<std::string> tokens;
+
     Option<bool> tokenize_op = StringUtils::tokenize_filter_query(filter_query, tokens);
     if (!tokenize_op.ok()) {
         return tokenize_op;
@@ -806,7 +845,8 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
                                               search_schema,
                                               store,
                                               doc_id_prefix,
-                                              validate_field_names);
+                                              validate_field_names,
+                                              object_field_prefix);
     if (!toParseTree_op.ok()) {
         return toParseTree_op;
     }

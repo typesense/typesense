@@ -372,7 +372,10 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
                                  field("tags", field_types::STRING_ARRAY, true),
                                  field("points", field_types::INT32, true),};
 
-    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points", 0, "").get();
+    auto coll_create_op = collectionManager.create_collection("coll1", 1, fields, "points", 0, "");
+    ASSERT_TRUE(coll_create_op.ok());
+
+    Collection* coll1 = coll_create_op.get();
 
     std::vector<std::vector<double>> lat_lngs;
     lat_lngs.push_back({48.85821022164442, 2.294239067890161});
@@ -1198,7 +1201,10 @@ TEST_F(CollectionSchemaChangeTest, DropIntegerFieldAndAddStringValues) {
         ]
     })"_json;
 
-    Collection* coll1 = collectionManager.create_collection(schema).get();
+    auto coll_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_create_op.ok());
+
+    Collection* coll1 = coll_create_op.get();
 
     // index a label field as integer
 
@@ -1994,4 +2000,60 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterUpdateOldDocs) {
     ASSERT_EQ(1, search_res.get()["hits"][0]["document"]["nested"].size());
     ASSERT_EQ(0, search_res.get()["hits"][0]["document"].count(".flat"));
     ASSERT_EQ(0, search_res.get()["hits"][0]["document"].count("nested.hello"));
+}
+
+TEST_F(CollectionSchemaChangeTest, AlterReferenceField) {
+    nlohmann::json req_json = R"({
+        "name": "coll",
+        "fields": [
+            {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll_op.ok());
+
+    auto coll = coll_op.get();
+    nlohmann::json schema_change = R"({
+            "fields": [
+                {"name": "ref_field", "type": "string", "reference": "Ref_Coll.ref_field"}
+            ]
+        })"_json;
+
+    auto schema_change_op = coll->alter(schema_change);
+    ASSERT_FALSE(schema_change_op.ok());
+    ASSERT_EQ("Adding/Modifying reference field `ref_field` using alter operation is not yet supported. "
+              "Workaround is to drop the whole collection and re-index it.", schema_change_op.error());
+
+    req_json = R"({
+        "name": "coll_1",
+        "fields": [
+            {"name": "reference_field", "type": "string", "reference": "Ref_coll.foo"}
+        ]
+    })"_json;
+
+    coll_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll_op.ok());
+
+    auto coll_1 = coll_op.get();
+    schema_change = R"({
+            "fields": [
+                {"name": "reference_field", "drop": true},
+                {"name": "reference_field", "type": "string", "reference": "Ref_Coll.foo"}
+            ]
+        })"_json;
+
+    schema_change_op = coll_1->alter(schema_change);
+    ASSERT_FALSE(schema_change_op.ok());
+    ASSERT_EQ("Adding/Modifying reference field `reference_field` using alter operation is not yet supported. "
+              "Workaround is to drop the whole collection and re-index it.", schema_change_op.error());
+
+    schema_change = R"({
+            "fields": [
+                {"name": "reference_field", "drop": true}
+            ]
+        })"_json;
+
+    schema_change_op = coll_1->alter(schema_change);
+    ASSERT_TRUE(schema_change_op.ok());
 }

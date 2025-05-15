@@ -724,3 +724,152 @@ TEST_F(GeoFilteringTest, GeoPolygonTest) {
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("Geopolygon for seq_id 3 is invalid: Edge 6 has duplicate vertex with edge 10", op.error());
 }
+
+TEST_F(GeoFilteringTest, GeoPolygonTestRealCoordinates) {
+    // 1) Create a collection schema with a geopolygon field.
+    nlohmann::json schema = R"({
+        "name": "coll_geopolygon",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "area", "type": "geopolygon"}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+
+    // We'll store {name, polygon-coordinates} in a 2D vector of strings:
+    // Each polygon is lat/lon pairs in either CW or CCW order (both can be made valid
+    // by S2, as long as no self-intersection occurs).
+    // Each entry is { name, "lat1, lon1, lat2, lon2, ... "}
+
+    std::vector<std::vector<std::string>> records = {
+            {
+                    "central_park",
+                    "40.8003, -73.9582, 40.7682, -73.9817, 40.7642, -73.9728, 40.7968, -73.9492"
+            },
+            {
+                    "times_square",
+                    "40.7586, -73.9855, 40.7550, -73.9855, 40.7550, -73.9810, 40.7586, -73.9810"
+            }
+    };
+
+    // 2) Insert these polygons into the collection
+    for (size_t i = 0; i < records.size(); i++) {
+        nlohmann::json doc;
+        std::vector<std::string> lat_lng_str;
+        std::vector<double> lat_lng;
+
+        // Extract the comma-separated lat/lng pairs
+        StringUtils::split(records[i][1], lat_lng_str, ", ");
+
+        // Build a JSON doc with "id", "name", and the numeric array "area"
+        doc["id"] = std::to_string(i);
+        doc["name"] = records[i][0];
+
+        for (const auto& val : lat_lng_str) {
+            lat_lng.push_back(std::stod(val));
+        }
+        doc["area"] = lat_lng;
+
+        auto op = coll->add(doc.dump());
+        ASSERT_TRUE(op.ok()) << op.error();
+    }
+
+    // 3) Query a point that should be inside "central_park"
+    // A rough center point: (40.7812, -73.9665)
+    {
+        auto results = coll->search("*", {},
+                                    "area:(40.7812, -73.9665)",  // lat, lon
+                                    {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+        ASSERT_EQ(1, results["hits"].size());
+        // Expect doc "0" => "central_park"
+        ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    }
+
+    // 4) Query a point that should be inside "times_square"
+    // A rough center point: (40.7573, -73.9851)
+    {
+        auto results = coll->search("*", {},
+                                    "area:(40.7573, -73.9851)",
+                                    {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+        ASSERT_EQ(1, results["hits"].size());
+        // Expect doc "1" => "times_square"
+        ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    }
+
+    // 5) Add another shape that intersects with Central Park bounding box (a bigger Manhattan bounding box).
+    //    This bounding box extends well beyond Central Park, so it should contain that same test point.
+    {
+        nlohmann::json doc;
+        doc["id"] = "2";
+        doc["name"] = "manhattan_big";
+
+        std::string bigger_box_coords =
+                "40.88, -74.02, 40.7, -74.02, 40.7, -73.93, 40.88, -73.93";
+
+        std::vector<std::string> lat_lng_str;
+        std::vector<double> lat_lng;
+        StringUtils::split(bigger_box_coords, lat_lng_str, ", ");
+        for (const auto& val : lat_lng_str) {
+            lat_lng.push_back(std::stod(val));
+        }
+        doc["area"] = lat_lng;
+
+        auto op = coll->add(doc.dump());
+        ASSERT_TRUE(op.ok()) << op.error();
+    }
+
+    // 6) Query the same Central Park point again. Now it should return *both*
+    //    "central_park" (id=0) and "manhattan_big" (id=2).
+    {
+        auto results = coll->search("*", {},
+                                    "area:(40.7812, -73.9665)",
+                                    {}, {}, {0}, 10, 1, FREQUENCY).get();
+        ASSERT_EQ(2, results["hits"].size());
+
+        // We expect two hits, but order can vary. Let's just confirm we have ID 0 and ID 2.
+        std::unordered_set<std::string> ids;
+        for (auto& hit : results["hits"]) {
+            ids.insert(hit["document"]["id"].get<std::string>());
+        }
+        ASSERT_TRUE(ids.count("0") > 0);
+        ASSERT_TRUE(ids.count("2") > 0);
+    }
+
+    // 7) Remove the "central_park" doc (id=0). Then query the same point again
+    //    to confirm we only get the bigger bounding box (id=2).
+    {
+        coll->remove("0");
+        auto results = coll->search("*", {},
+                                    "area:(40.7812, -73.9665)",
+                                    {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+        ASSERT_EQ(1, results["hits"].size());
+        ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    }
+
+    // 8) Insert an invalid polygon
+    {
+        std::string invalid_polygon_coords = "40.7565, -73.9845";
+
+        nlohmann::json doc;
+        doc["id"] = "3";
+        doc["name"] = "times_square_invalid";
+
+        std::vector<std::string> lat_lng_str;
+        std::vector<double> lat_lng;
+        StringUtils::split(invalid_polygon_coords, lat_lng_str, ", ");
+        for (const auto &val : lat_lng_str) {
+            lat_lng.push_back(std::stod(val));
+        }
+        doc["area"] = lat_lng;
+
+        auto op = coll->add(doc.dump());
+        ASSERT_FALSE(op.ok()); // We expect it to fail
+        ASSERT_EQ("Geopolygon for seq_id 3 is invalid: Loop 0: empty loops are not allowed", op.error());
+    }
+}

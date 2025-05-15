@@ -14,15 +14,34 @@ Option<bool> stateful_remove_docs(deletion_state_t* deletion_state, size_t batch
         size_t batched_len = std::min(ids_len, (start_index+batch_size));
 
         for(size_t j=start_index; j<batched_len; j++) {
-            Option<bool> remove_op = deletion_state->collection->remove_if_found(ids[j], true);
+            uint32_t seq_id = ids[j];
 
-            if(!remove_op.ok()) {
+            nlohmann::json doc;
+            bool doc_found = false;
+
+            if (deletion_state->return_doc || deletion_state->return_id) {
+                Option<bool> get_op = deletion_state->collection->get_document_from_store(seq_id, doc);
+                doc_found = get_op.ok();
+            }
+
+            Option<bool> remove_op = deletion_state->collection->remove_if_found(seq_id, true);
+            if (!remove_op.ok()) {
                 return remove_op;
             }
 
             removed = remove_op.get();
-            if(removed) {
+            if (removed) {
                 deletion_state->num_removed++;
+                if (doc_found) {
+                    if (deletion_state->return_doc) {
+                        Collection::remove_flat_fields(doc);
+                        deletion_state->removed_docs.push_back(doc);
+                    }
+
+                    if (deletion_state->return_id) {
+                        deletion_state->removed_ids.push_back(doc["id"]);
+                    }
+                }
             }
 
             deletion_state->offsets[i]++;

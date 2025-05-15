@@ -13,6 +13,7 @@
 #include "index.h"
 #include "posting.h"
 #include "collection_manager.h"
+#include <variant>
 
 void copy_references_helper(const std::map<std::string, reference_filter_result_t>* from,
                             std::map<std::string, reference_filter_result_t>*& to, const uint32_t& count) {
@@ -253,8 +254,16 @@ void filter_result_iterator_t::and_filter_iterators() {
 
         if (left_it->seq_id == right_it->seq_id) {
             seq_id = left_it->seq_id;
-            reference.clear();
 
+            if (filter_node->is_object_filter_root && !validate_object_filter()) {
+                // Object filter is not satisfied. Move both the sub-nodes to the next seq_id.
+                left_it->next();
+                right_it->next();
+
+                continue;
+            }
+
+            reference.clear();
             for (const auto& item: left_it->reference) {
                 reference[item.first] = item.second;
             }
@@ -270,6 +279,107 @@ void filter_result_iterator_t::and_filter_iterators() {
 }
 
 void filter_result_iterator_t::or_filter_iterators() {
+    if (filter_node->is_object_filter_root) {
+        while (left_it->validity || right_it->validity) {
+            if (left_it->validity && right_it->validity) {
+                if (left_it->seq_id < right_it->seq_id) {
+                    seq_id = left_it->seq_id;
+
+                    if (!validate_object_filter()) {
+                        // Object filter is not satisfied. Move left sub-node to the next seq_id.
+                        left_it->next();
+
+                        continue;
+                    }
+
+                    reference.clear();
+                    for (const auto& item: left_it->reference) {
+                        reference[item.first] = item.second;
+                    }
+
+                    return;
+                }
+
+                if (left_it->seq_id > right_it->seq_id) {
+                    seq_id = right_it->seq_id;
+
+                    if (!validate_object_filter()) {
+                        // Object filter is not satisfied. Move right sub-node to the next seq_id.
+                        right_it->next();
+
+                        continue;
+                    }
+
+                    reference.clear();
+                    for (const auto& item: right_it->reference) {
+                        reference[item.first] = item.second;
+                    }
+
+                    return;
+                }
+
+                seq_id = left_it->seq_id;
+
+                if (!validate_object_filter()) {
+                    // Object filter is not satisfied. Move both the sub-nodes to the next seq_id.
+                    left_it->next();
+                    right_it->next();
+
+                    continue;
+                }
+
+                reference.clear();
+                for (const auto& item: left_it->reference) {
+                    reference[item.first] = item.second;
+                }
+                for (const auto& item: right_it->reference) {
+                    reference[item.first] = item.second;
+                }
+
+                return;
+            }
+
+            if (left_it->validity) {
+                seq_id = left_it->seq_id;
+
+                if (!validate_object_filter()) {
+                    // Object filter is not satisfied. Move left sub-node to the next seq_id.
+                    left_it->next();
+
+                    continue;
+                }
+
+                reference.clear();
+                for (const auto& item: left_it->reference) {
+                    reference[item.first] = item.second;
+                }
+
+                return;
+            }
+
+            if (right_it->validity) {
+                seq_id = right_it->seq_id;
+
+                if (!validate_object_filter()) {
+                    // Object filter is not satisfied. Move right sub-node to the next seq_id.
+                    right_it->next();
+
+                    continue;
+                }
+
+                reference.clear();
+                for (const auto& item: right_it->reference) {
+                    reference[item.first] = item.second;
+                }
+
+                return;
+            }
+        }
+
+        validity = invalid;
+        return;
+    }
+
     if (left_it->validity && right_it->validity) {
         if (left_it->seq_id < right_it->seq_id) {
             seq_id = left_it->seq_id;
@@ -664,6 +774,8 @@ void filter_result_iterator_t::next() {
     }
 
     if (filter_node->isOperator) {
+        auto last_seq_id = seq_id;
+
         // Advance the subtrees and then apply operators to arrive at the next valid doc.
         if (filter_node->filter_operator == AND) {
             left_it->next();
@@ -779,7 +891,9 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             }
         } else {
             or_filter_iterators();
-            approx_filter_ids_length = std::max(left_it->approx_filter_ids_length, right_it->approx_filter_ids_length);
+            // Since we have not computed the sub-iterators at the moment, we can only estimate the maximum possible
+            // value. The maximum filter ids in the case of OR is when the sub-iterators have no ids in common.
+            approx_filter_ids_length = left_it->approx_filter_ids_length + right_it->approx_filter_ids_length;
         }
 
         // Rearranging the subtree in hope to reduce computation if/when compute_iterators() is called.
@@ -887,6 +1001,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             filter_result = op.get();
         }
 
+        is_filter_result_initialized = true;
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
@@ -898,7 +1014,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             reference.insert(ref.begin(), ref.end());
         }
 
-        is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
         return;
     }
@@ -945,6 +1060,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         }
 
         is_filter_result_initialized = true;
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
@@ -1008,13 +1124,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                  filter_result.docs, filter_result.count);
             }
 
+            is_filter_result_initialized = true;
+
             if (filter_result.count == 0) {
                 validity = invalid;
                 return;
             }
 
             seq_id = filter_result.docs[result_index];
-            is_filter_result_initialized = true;
             approx_filter_ids_length = filter_result.count;
         } else {
             auto const& filter_values_count = a_filter.values.size();
@@ -1111,13 +1228,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                      filter_result.docs, filter_result.count);
                 }
 
+                is_filter_result_initialized = true;
+
                 if (filter_result.count == 0) {
                     validity = invalid;
                     return;
                 }
 
                 seq_id = filter_result.docs[result_index];
-                is_filter_result_initialized = true;
                 approx_filter_ids_length = filter_result.count;
             }
         }
@@ -1163,13 +1281,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                  filter_result.docs, filter_result.count);
             }
 
+            is_filter_result_initialized = true;
+
             if (filter_result.count == 0) {
                 validity = invalid;
                 return;
             }
 
             seq_id = filter_result.docs[result_index];
-            is_filter_result_initialized = true;
             approx_filter_ids_length = filter_result.count;
         } else {
             auto const& filter_values_count = a_filter.values.size();
@@ -1267,13 +1386,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                      filter_result.docs, filter_result.count);
                 }
 
+                is_filter_result_initialized = true;
+
                 if (filter_result.count == 0) {
                     validity = invalid;
                     return;
                 }
 
                 seq_id = filter_result.docs[result_index];
-                is_filter_result_initialized = true;
                 approx_filter_ids_length = filter_result.count;
             }
         }
@@ -1343,13 +1463,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                              filter_result.docs, filter_result.count);
         }
 
+        is_filter_result_initialized = true;
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
         }
 
         seq_id = filter_result.docs[result_index];
-        is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_geopoint()) {
@@ -1494,13 +1615,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             filter_result.docs = out;
         }
 
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
         }
 
-        seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
+        seq_id = filter_result.docs[result_index];
         approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_geopolygon()) {
@@ -1553,7 +1675,9 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             // there could be multiple tokens in a filter value, which we have to treat as ANDs
             // e.g. country: South Africa
-            Tokenizer tokenizer(filter_value, true, false, f.locale, index->symbols_to_index, index->token_separators,
+            const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
+            const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
+            Tokenizer tokenizer(filter_value, true, false, f.locale, symbols, separators,
                                 f.get_stemmer());
 
             std::string str_token;
@@ -1613,6 +1737,10 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 size_t min_len_2typo = 0;
                 std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values{};
                 const std::vector<size_t> geopoint_indices;
+                bool is_group_by_first_pass = false;
+                std::set<uint32_t> group_by_missing_value_ids;
+                bool enable_typos_for_numerical_tokens = true;
+                bool enable_typos_for_alpha_numerical_tokens = false;
 
                 auto fuzzy_search_fields_op = index->fuzzy_search_fields(fq_fields, value_tokens, {}, text_match_type_t::max_score,
                                                                          nullptr, 0, &dummy_it, {}, sort_fields,
@@ -1621,7 +1749,11 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                                                          0, group_by_fields, false, false, false, false,
                                                                          query_hashes, MAX_SCORE, {true}, typo_tokens_threshold,
                                                                          false, max_filter_by_candidates, min_len_1typo, min_len_2typo,
-                                                                         0, nullptr, field_values, geopoint_indices, "", false);
+                                                                         0, nullptr, field_values, geopoint_indices,
+                                                                         is_group_by_first_pass,
+                                                                         group_by_missing_value_ids,
+                                                                         enable_typos_for_numerical_tokens,
+                                                                         enable_typos_for_alpha_numerical_tokens);
                 delete[] all_result_ids;
                 if(!fuzzy_search_fields_op.ok()) {
                     continue;
@@ -1950,6 +2082,15 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout
 
             seq_id = id;
 
+            if (filter_node->is_object_filter_root && !validate_object_filter()) {
+                // Object filter is not satisfied. Move both the sub-nodes to the next seq_id.
+                left_it->next();
+                right_it->next();
+                and_filter_iterators();
+
+                return validity == invalid ? -1 : 0;
+            }
+
             reference.clear();
             for (const auto& item: left_it->reference) {
                 reference[item.first] = item.second;
@@ -1977,6 +2118,21 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout
             }
 
             seq_id = id;
+
+            if (filter_node->is_object_filter_root && !validate_object_filter()) {
+                // Object filter is not satisfied. Move the sub-node at `id` to its next seq_id.
+                if (left_it->seq_id == id && right_it->seq_id == id) {
+                    left_it->next();
+                    right_it->next();
+                } else if (left_it->seq_id == id) {
+                    left_it->next();
+                } else {
+                    right_it->next();
+                }
+                or_filter_iterators();
+
+                return validity == invalid ? -1 : 0;
+            }
 
             reference.clear();
             if (left_validity == 1) {
@@ -2586,6 +2742,12 @@ void filter_result_iterator_t::compute_iterators() {
             validity = timed_out;
         }
 
+        is_filter_result_initialized = true;
+
+        if(filter_node->is_object_filter_root) {
+            validate_object_filter();
+        }
+
         // In a complex filter query a sub-expression might not match any document while the full expression does match
         // at least one document. If the full expression doesn't match any document, we return early in the search.
         if (filter_result.count == 0 && validity != timed_out) {
@@ -2601,8 +2763,6 @@ void filter_result_iterator_t::compute_iterators() {
                 }
             }
         }
-
-        is_filter_result_initialized = true;
 
         // Deleting subtree since we've already computed the result.
         delete left_it;
@@ -2874,3 +3034,166 @@ filter_result_iterator_timeout_info::filter_result_iterator_timeout_info(uint64_
                                                                          uint64_t search_stop) :
                                                                          search_begin_us(search_begin),
                                                                          search_stop_us(search_stop) {}
+
+
+bool filter_result_iterator_t::validate_object_filter_helper(Index const* const index, const nlohmann::json& doc,
+                                                             const filter_node_t* filter_node) {
+    if(filter_node->isOperator) {
+        if(filter_node->filter_operator == AND) {
+            return validate_object_filter_helper(index, doc, filter_node->left) &&
+                   validate_object_filter_helper(index, doc, filter_node->right);
+        } else {
+            return validate_object_filter_helper(index, doc, filter_node->left) ||
+                   validate_object_filter_helper(index, doc, filter_node->right);
+        }
+    } else {
+        const auto& filter_exp = filter_node->filter_exp;
+        auto pos = filter_exp.field_name.rfind(".");
+
+        const auto& nested_field = filter_exp.field_name.substr(pos+1, filter_exp.field_name.size() - (pos+1));
+        field f = index->search_schema.at(filter_exp.field_name);
+
+        using fieldType = std::variant<int64_t, float, bool, std::string>;
+        fieldType doc_val, filter_val;
+
+        bool match_found = false;
+
+        for(auto i = 0; i < filter_exp.values.size(); ++i) {
+            if(match_found) {
+                break;
+            }
+
+            auto val = filter_exp.values[i];
+            auto comparator = filter_exp.comparators.size() < filter_exp.values.size() && f.is_string() ?
+                                filter_exp.comparators[0] : filter_exp.comparators[i];
+
+            if (f.is_string()) {
+                if(val.at(val.size() - 1) == '*' && comparator == CONTAINS) {//prefix match
+                    val.pop_back();
+                }
+
+                filter_val = val;
+                doc_val = doc[nested_field].get<std::string>();
+
+            } else if (f.is_float()) {
+                filter_val = std::stof(val);
+                doc_val = doc[nested_field].get<float>();
+            } else if (f.is_bool()) {
+                filter_val = val == "true" ? true : false;
+                doc_val = doc[nested_field].get<bool>();
+            } else if (f.is_integer()) {
+                filter_val = std::stoll(val);
+                doc_val = doc[nested_field].get<int64_t>();
+            }
+
+            if (comparator == EQUALS) {
+                match_found = (doc_val == filter_val);
+            } else if (comparator == NOT_EQUALS) {
+                match_found = (doc_val != filter_val);
+            } else if(comparator == CONTAINS) {
+                if(std::holds_alternative<std::string>(doc_val) && std::holds_alternative<std::string>(filter_val)) {
+                    match_found = (std::get<std::string>(doc_val).find(std::get<std::string>(filter_val)) != std::string::npos);
+                }
+            } else if (comparator == LESS_THAN) { //further comparators for only float and integers
+                if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
+                    match_found = (std::get<int64_t>(doc_val) < std::get<int64_t>(filter_val));
+                } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
+                    match_found = (std::get<float>(doc_val) < std::get<float>(filter_val));
+                }
+            } else if(comparator == LESS_THAN_EQUALS) {
+                if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
+                    match_found = (std::get<int64_t>(doc_val) <= std::get<int64_t>(filter_val));
+                } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
+                    match_found = (std::get<float>(doc_val) <= std::get<float>(filter_val));
+                }
+            } else if(comparator == GREATER_THAN) {
+                if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
+                    match_found = (std::get<int64_t>(doc_val) > std::get<int64_t>(filter_val));
+                } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
+                    match_found = (std::get<float>(doc_val) > std::get<float>(filter_val));
+                }
+            } else if(comparator == GREATER_THAN_EQUALS) {
+                if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
+                    match_found = (std::get<int64_t>(doc_val) >= std::get<int64_t>(filter_val));
+                } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
+                    match_found = (std::get<float>(doc_val) >= std::get<float>(filter_val));
+                }
+            } else if(comparator == RANGE_INCLUSIVE) {
+                auto range_end = filter_exp.values[++i];
+
+                if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
+                    auto range_end_val = std::stoll(range_end);
+                    match_found = (std::get<int64_t>(doc_val) >= std::get<int64_t>(filter_val) && std::get<int64_t>(doc_val) <= range_end_val);
+                } else if(std::holds_alternative<float>(doc_val) && std::holds_alternative<float>(filter_val)) {
+                    auto range_end_val = std::stof(range_end);
+                    match_found = (std::get<float>(doc_val) >= std::get<float>(filter_val) && std::get<float>(doc_val) <= range_end_val);
+                }
+            }
+        }
+        return match_found;
+    }
+}
+
+bool filter_result_iterator_t::validate_object_filter() {
+    auto get_nested_field_doc = [&] (const std::string& object_field_name, const nlohmann::json& document) -> nlohmann::json {
+        std::vector<std::string> results;
+        StringUtils::split(object_field_name, results, ".");
+
+        nlohmann::json return_doc = document;
+        for(auto i = 0; i < results.size(); ++i) {
+            return_doc = return_doc[results[i]];
+        }
+
+        return return_doc;
+    };
+
+    auto collection = CollectionManager::get_instance().get_collection(collection_name);
+    if (collection.get() == nullptr) {
+        return false;
+    }
+
+    // `compute_iterators()` has been called.
+    if (is_filter_result_initialized) {
+        size_t result_count = 0;
+        for (size_t i = 0; i < filter_result.count; i++) {
+            const auto& id = filter_result.docs[i];
+            const std::string& seq_id_key = collection->get_seq_id_key(id);
+
+            nlohmann::json document;
+            const Option<bool>& document_op = collection->get_document_from_store(seq_id_key, document);
+
+            if (!document_op.ok()) {
+                LOG(ERROR) << "Document fetch error. " << document_op.error();
+                continue;
+            }
+
+            const auto& doc = get_nested_field_doc(filter_node->object_field_name, document);
+            for (const auto& nested_object: doc) {
+                if (validate_object_filter_helper(index, nested_object, filter_node)) {
+                    filter_result.docs[result_count++] = id;
+                    break;
+                }
+            }
+        }
+
+        filter_result.count = result_count;
+        return true;
+    }
+
+    const std::string& seq_id_key = collection->get_seq_id_key(seq_id);
+
+    nlohmann::json document;
+    const Option<bool>& document_op = collection->get_document_from_store(seq_id_key, document);
+
+    if (!document_op.ok()) {
+        LOG(ERROR) << "Document fetch error. " << document_op.error();
+        return false;
+    }
+
+    for (const auto& nested_object: document[filter_node->object_field_name]) {
+        if (validate_object_filter_helper(index, nested_object, filter_node)) {
+            return true;
+        }
+    }
+    return false;
+}
