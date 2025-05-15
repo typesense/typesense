@@ -5,71 +5,82 @@
 void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
                                      const std::string& locale,
                                      std::vector<std::vector<std::string>>& results,
-                                     bool synonym_prefix, uint32_t synonym_num_typos) const {
+                                     bool synonym_prefix,
+                                     uint32_t synonym_num_typos) const {
     std::shared_lock lock(mutex);
-    if(synonym_definitions.empty()) {
+    if (synonym_definitions.empty()) {
         return;
     }
 
+    // hard cap to prevent run-away memory usage
+    constexpr std::size_t kMaxExpansionsPerCell = 1'000;
+    auto capped_insert = [&](std::set<std::vector<std::string>>& cell,
+                             std::vector<std::string>&& candidate) {
+        if (cell.size() < kMaxExpansionsPerCell) {
+            cell.insert(std::move(candidate));
+        }
+    };
+
     std::vector<std::set<std::vector<std::string>>> dp(tokens.size() + 1);
     std::vector<std::vector<synonym_match_t>> synonym_matches(tokens.size());
-    
-    for(size_t i = 0; i < tokens.size(); i++) {
-        auto status = synonym_trie_root.get_synonyms(tokens, synonym_matches[i], synonym_num_typos, i, synonym_prefix);
+
+    for (std::size_t i = 0; i < tokens.size(); ++i) {
+        synonym_trie_root.get_synonyms(tokens, synonym_matches[i], synonym_num_typos, i, synonym_prefix);
     }
 
     dp[tokens.size()] = {{}};
 
-    for(int i = tokens.size() - 1; i >= 0; i--) {
-        for(auto& suffixExp: dp[i + 1]) {
+    for (int i = static_cast<int>(tokens.size()) - 1; i >= 0; --i) {
+        for (const auto& suffixExp: dp[i + 1]) {
             std::vector<std::string> newExp;
+            newExp.reserve(1 + suffixExp.size());
             newExp.push_back(tokens[i]);
             newExp.insert(newExp.end(), suffixExp.begin(), suffixExp.end());
-            dp[i].insert(newExp);
+            capped_insert(dp[i], std::move(newExp));
         }
 
-        for(auto& synonym_match: synonym_matches[i]) {
-            auto synonym_index = synonym_ids_index_map.find(synonym_match.synonym_id);
-            auto synonym_it = synonym_definitions.find(synonym_index->second);
-            if(synonym_it == synonym_definitions.end()) {
-                continue;
-            }
-            auto synonym_def = synonym_it->second;
-            if(synonym_def.locale != locale) {
+        for (const auto& sm: synonym_matches[i]) {
+            auto idxIt = synonym_ids_index_map.find(sm.synonym_id);
+            if (idxIt == synonym_ids_index_map.end()) {
                 continue;
             }
 
-            if(!synonym_def.root.empty()) {
-                auto orig_tokens = std::vector<std::string>(tokens.begin() + synonym_match.start_index,
-                                                            tokens.begin() + synonym_match.end_index);
-                auto root_tokens = synonym_def.root;
-                auto root_tokens_str = StringUtils::join(root_tokens, " ");
-                auto orig_tokens_str = StringUtils::join(orig_tokens, " ");
-                StringUtils::trim(root_tokens_str);
-                StringUtils::trim(orig_tokens_str);
-                if(root_tokens_str != orig_tokens_str) {
+            auto defIt = synonym_definitions.find(idxIt->second);
+            if (defIt == synonym_definitions.end()) {
+                continue;
+            }
+
+            const auto& def = defIt->second;
+            if (def.locale != locale) {
+                continue;
+            }
+
+            if (!def.root.empty()) {
+                std::vector<std::string> orig_tokens(tokens.begin() + sm.start_index,
+                                                     tokens.begin() + sm.end_index);
+                if (def.root != orig_tokens) {
                     continue;
                 }
             }
 
-            size_t end_index = synonym_match.end_index;
-            for(auto& suffixExp: dp[end_index]) {
-                for(auto& synonym_tokens: synonym_def.synonyms) {
+            std::size_t end_idx = sm.end_index;
+            for (const auto& suffixExp: dp[end_idx]) {
+                for (const auto& synTokens: def.synonyms) {
                     std::vector<std::string> newExp;
-                    newExp.insert(newExp.end(), synonym_tokens.begin(), synonym_tokens.end());
+                    newExp.reserve(synTokens.size() + suffixExp.size());
+                    newExp.insert(newExp.end(), synTokens.begin(), synTokens.end());
                     newExp.insert(newExp.end(), suffixExp.begin(), suffixExp.end());
-                    dp[i].insert(newExp);
+                    capped_insert(dp[i], std::move(newExp));
                 }
             }
         }
     }
 
-    for(const auto& exp: dp[0]) {
+    for (const auto& exp: dp[0]) {
         // exclude original tokens
-        if(exp == tokens) {
-            continue;
+        if (exp != tokens) {
+            results.push_back(exp);
         }
-        results.push_back(exp);
     }
 }
 
