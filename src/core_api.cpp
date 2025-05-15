@@ -550,6 +550,8 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
             if(seconds_elapsed < cached_value.ttl) {
                 res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
                 AppMetrics::get_instance().increment_count(AppMetrics::CACHE_HIT_LABEL, 1);
+                AppMetrics::get_instance().increment_count(AppMetrics::SEARCH_LABEL, 1);
+                AppMetrics::get_instance().increment_duration(AppMetrics::SEARCH_LABEL, 1);
                 stream_response(req, res);
                 return true;
             }
@@ -823,6 +825,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
                 stream_response(req, res);
                 AppMetrics::get_instance().increment_count(AppMetrics::CACHE_HIT_LABEL, 1);
+                AppMetrics::get_instance().increment_count(AppMetrics::SEARCH_LABEL, 1);
+                AppMetrics::get_instance().increment_duration(AppMetrics::SEARCH_LABEL, 1);
                 return true;
             }
 
