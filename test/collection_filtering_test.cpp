@@ -3927,7 +3927,6 @@ TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
             std::chrono::system_clock::now().time_since_epoch()).count();
 
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    LOG(INFO) << search_op.error();
     ASSERT_TRUE(search_op.ok());
     auto result = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, result["found"].get<size_t>());
