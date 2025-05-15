@@ -15,6 +15,11 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
 
     for(char c: separators) {
         separator_symbols[uint8_t(c)] = 1;
+        
+        // Only enforce separator precedence when using locale-specific tokenization
+        if(!locale.empty() && locale != "en") {
+            index_symbols[uint8_t(c)] = 0;
+        }
     }
 
     UErrorCode errcode = U_ZERO_ERROR;
