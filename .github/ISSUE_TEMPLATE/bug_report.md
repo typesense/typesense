@@ -4,18 +4,18 @@ about: Create a report to help us improve
 title: Brief summary of the issue
 labels: triage
 assignees: ''
-
 ---
 
 ## Bug Description
 A clear and concise description of the problem.
 
 ## Reproduction Steps
-Please include a **minimal, reproducible example**. [Use this script as a guide.](https://gist.github.com/jasonbosco/7c3432713216c378472f13e72246f46b)
+Please include a minimal, reproducible example **using curl**. [Use this script as a guide.](https://gist.github.com/jasonbosco/7c3432713216c378472f13e72246f46b)
 
 ## Expected vs Actual
 **Expected behavior**  
 _What did you expect to happen?_
+
 **Actual behavior**  
 _What actually happened? Include exact error messages or incorrect outputs._
 
