@@ -1,4 +1,8 @@
 blank_issues_enabled: true
 contact_links:
-  - name: Typesense Community Support
+  - name: Typesense Community
     url: https://typesense.link/slack-community
+    about: A public Slack Community for Typesense to connect with other users and the Typesense team
+  - name: Community Archive
+    url: https://threads.typesense.org
+    about: A public archive of the discussions we've had in our public Slack community
