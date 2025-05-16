@@ -129,7 +129,7 @@ struct http_res {
     }
 
     void set_404(const std::string & message = "Not Found") {
-        status_code = 400;
+        status_code = 404;
         body = "{\"message\": \"" + message + "\"}";
     }
 
