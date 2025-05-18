@@ -66,6 +66,20 @@ struct ref_include_collection_names_t {
     }
 };
 
+struct negate_left_join_t {
+    bool is_negate_join = false;
+    size_t excluded_ids_size = 0;
+    std::unique_ptr<uint32_t []> excluded_ids = nullptr;
+
+    negate_left_join_t() = default;
+};
+
+struct Hasher32 {
+    // Helps to spread the hash key and is used for sort index.
+    // see: https://github.com/greg7mdp/sparsepp/issues/21#issuecomment-270816275
+    size_t operator()(uint32_t k) const { return (k ^ 2166136261U)  * 16777619UL; }
+};
+
 class Join {
 public:
 
@@ -105,4 +119,29 @@ public:
     static Option<bool> single_value_filter_query(nlohmann::json& document, const std::string& field_name,
                                                   const std::string& ref_field_type, std::string& filter_value,
                                                   const bool& is_reference_value = true);
+
+    static void aggregate_nested_references(single_filter_result_t *const reference_result,
+                                            reference_filter_result_t& ref_filter_result);
+
+    static void negate_left_join(id_list_t* const seq_ids, std::unique_ptr<uint32_t[]>& reference_docs, uint32_t& reference_docs_count,
+                                 std::function<std::vector<uint32_t>(const uint32_t& ref_doc_id)> const& get_doc_id,
+                                 const bool& is_match_all_ids_filter, std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
+                                 std::set<uint32_t>& unique_doc_ids, negate_left_join_t& negate_left_join_info);
+
+    static void get_ref_index_ids(num_tree_t& ref_index, const uint32_t& reference_doc_id,
+                                  std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
+                                  std::set<uint32_t>& unique_doc_ids, const bool& is_normal_join);
+
+    static void get_ref_index_ids(const spp::sparse_hash_map<uint32_t, int64_t, Hasher32>& ref_index,
+                                  const uint32_t& reference_doc_id,
+                                  std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
+                                  std::set<uint32_t>& unique_doc_ids, const bool& is_normal_join);
+
+    static void do_nested_join(std::function<std::pair<size_t, uint32_t*>(const uint32_t& ref_doc_id)> const& get_related_ids,
+                               const uint32_t& count, uint32_t const* const& reference_docs,
+                               filter_result_t* ref_filter_result, const std::string& ref_collection_name,
+                               filter_result_t& filter_result);
+
+    static void process_related_ids(std::vector<std::pair<uint32_t, uint32_t>> id_pairs, const size_t& unique_doc_ids_size,
+                                    const std::string& ref_collection_name, filter_result_t& filter_result);
 };

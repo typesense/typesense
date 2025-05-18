@@ -25,6 +25,7 @@
 #include "tsl/htrie_set.h"
 #include <tsl/htrie_map.h>
 #include <or_iterator.h>
+#include <join.h>
 #include "id_list.h"
 #include "synonym_index.h"
 #include "override.h"
@@ -34,7 +35,6 @@
 #include "facet_index.h"
 #include "numeric_range_trie.h"
 #include "geopolygon_index.h"
-
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
 using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
@@ -389,20 +389,6 @@ struct group_by_field_it_t {
     posting_list_t::iterator_t it;
     bool is_array;
     bool is_string;
-};
-
-struct Hasher32 {
-    // Helps to spread the hash key and is used for sort index.
-    // see: https://github.com/greg7mdp/sparsepp/issues/21#issuecomment-270816275
-    size_t operator()(uint32_t k) const { return (k ^ 2166136261U)  * 16777619UL; }
-};
-
-struct negate_left_join_t {
-    bool is_negate_join = false;
-    size_t excluded_ids_size = 0;
-    std::unique_ptr<uint32_t []> excluded_ids = nullptr;
-
-    negate_left_join_t() = default;
 };
 
 struct pair_hash {

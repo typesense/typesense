@@ -1927,112 +1927,6 @@ Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root
     return Option(true);
 }
 
-void aggregate_nested_references(single_filter_result_t *const reference_result,
-                                 reference_filter_result_t& ref_filter_result) {
-    // Add reference doc id in result.
-    auto temp_docs = new uint32_t[ref_filter_result.count + 1];
-    std::copy(ref_filter_result.docs, ref_filter_result.docs + ref_filter_result.count, temp_docs);
-    temp_docs[ref_filter_result.count] = reference_result->seq_id;
-
-    delete[] ref_filter_result.docs;
-    ref_filter_result.docs = temp_docs;
-    ref_filter_result.count++;
-    ref_filter_result.is_reference_array_field = false;
-
-    // Add references of the reference doc id in result.
-    auto& references = ref_filter_result.coll_to_references;
-    auto temp_references = new std::map<std::string, reference_filter_result_t>[ref_filter_result.count] {};
-    for (uint32_t i = 0; i < ref_filter_result.count - 1; i++) {
-        temp_references[i] = std::move(references[i]);
-    }
-    temp_references[ref_filter_result.count - 1] = std::move(reference_result->reference_filter_results);
-
-    delete[] references;
-    references = temp_references;
-}
-
-template <typename F>
-void negate_left_join(id_list_t* const seq_ids, uint32_t* reference_docs, uint32_t& reference_docs_count,
-                      F&& get_doc_id, const bool& is_match_all_ids_filter, std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
-                      std::set<uint32_t>& unique_doc_ids,
-                      negate_left_join_t& negate_left_join_info) {
-    uint32_t* negate_reference_docs = nullptr;
-    size_t negate_index = 0;
-    std::set<uint32_t> unique_negate_doc_ids;
-
-    // If the negate join is on all ids like !$CollName(id:*), we don't need to collect any references.
-    if (!is_match_all_ids_filter) {
-        auto it = seq_ids->new_iterator();
-        negate_reference_docs = new uint32_t[seq_ids->num_ids() - reference_docs_count];
-        for (size_t i = 0; i < reference_docs_count && it.valid(); i++) {
-            while (it.valid() && it.id() < reference_docs[i]) {
-                const auto &reference_doc_id = it.id();
-                it.next();
-
-                negate_reference_docs[negate_index++] = reference_doc_id;
-                std::vector<uint32_t> doc_ids = get_doc_id(reference_doc_id);
-                for (const auto &doc_id: doc_ids) {
-                    // If we have 3 products: product_a, product_b, product_c
-                    // and products_viewed like:
-                    // user_a:  [product_a]
-                    // user_b:  [product_a, product_b]
-                    // We should return product_b and product_c for "Products not seen by user_a".
-                    // So rejecting doc_id's already present in unique_doc_ids (product_a in the above example).
-                    if (doc_id == Index::reference_helper_sentinel_value || unique_doc_ids.count(doc_id) != 0) {
-                        continue;
-                    }
-
-                    id_pairs.emplace_back(doc_id, reference_doc_id);
-                    unique_negate_doc_ids.insert(doc_id);
-                }
-            }
-            if (!it.valid()) {
-                break;
-            }
-            while (i + 1 < reference_docs_count &&
-                   (reference_docs[i] + 1 == reference_docs[i + 1])) { // Skip consecutive ids.
-                i++;
-            }
-            it.skip_to(reference_docs[i] + 1);
-        }
-
-        if (reference_docs_count > 0 && it.valid()) {
-            it.skip_to(reference_docs[reference_docs_count - 1] + 1);
-        }
-        while (it.valid()) {
-            const auto &reference_doc_id = it.id();
-            it.next();
-
-            negate_reference_docs[negate_index++] = reference_doc_id;
-            std::vector<uint32_t> doc_ids = get_doc_id(reference_doc_id);
-            for (const auto &doc_id: doc_ids) {
-                // If we have 3 products: product_a, product_b, product_c
-                // and products_viewed like:
-                // user_a:  [product_a]
-                // user_b:  [product_a, product_b]
-                // We should return product_b and product_c for "Products not seen by user_a".
-                // So rejecting doc_id's already present in unique_doc_ids (product_a in the above example).
-                if (doc_id == Index::reference_helper_sentinel_value || unique_doc_ids.count(doc_id) != 0) {
-                    continue;
-                }
-
-                id_pairs.emplace_back(doc_id, reference_doc_id);
-                unique_negate_doc_ids.insert(doc_id);
-            }
-        }
-    }
-
-    reference_docs = negate_reference_docs;
-    reference_docs_count = negate_index;
-
-    // Main purpose of `negate_left_join_info.excluded_ids` is help identify the doc_ids that don't have any references.
-    negate_left_join_info.excluded_ids_size = unique_doc_ids.size();
-    negate_left_join_info.excluded_ids.reset(new uint32_t[unique_doc_ids.size()]);
-    std::copy(unique_doc_ids.begin(), unique_doc_ids.end(), negate_left_join_info.excluded_ids.get());
-
-    unique_doc_ids = unique_negate_doc_ids;
-}
-
 Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
                                                      filter_result_t& filter_result,
                                                      const std::string& ref_collection_name,
@@ -2065,7 +1959,8 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
         return Option<bool>(true);
     }
 
-    auto reference_docs = ref_filter_result->docs;
+    auto reference_docs = std::unique_ptr<uint32_t[]>(ref_filter_result->docs);
+    ref_filter_result->docs = nullptr;
 
     auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
     auto const is_nested_join = !ref_filter_result_iterator.reference.empty();
@@ -2081,67 +1976,17 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
         auto const& ref_index = *sort_index.at(reference_helper_field_name);
 
         if (is_nested_join) {
-            // In case of nested join, we need to collect all the doc ids from the reference ids along with their references.
-            std::vector<std::pair<uint32_t, single_filter_result_t*>> id_pairs;
-            std::unordered_set<uint32_t> unique_doc_ids;
+            Join::do_nested_join([&ref_index](const uint32_t& reference_doc_id) {
+                                    size_t doc_ids_len = 0;
+                                    uint32_t* doc_ids = nullptr;
+                                    if (ref_index.count(reference_doc_id) != 0) { // Reference field might be optional.
+                                        uint32_t doc_id = ref_index.at(reference_doc_id);
+                                        doc_ids_len = 1;
+                                        doc_ids = new uint32_t[1]{doc_id};
+                                    }
 
-            for (uint32_t i = 0; i < count; i++) {
-                auto& reference_doc_id = reference_docs[i];
-                auto reference_doc_references = std::move(ref_filter_result->coll_to_references[i]);
-                if (ref_index.count(reference_doc_id) == 0) { // Reference field might be optional.
-                    continue;
-                }
-                auto doc_id = ref_index.at(reference_doc_id);
-
-                id_pairs.emplace_back(std::make_pair(doc_id, new single_filter_result_t(reference_doc_id,
-                                                                                        std::move(reference_doc_references),
-                                                                                        false)));
-                unique_doc_ids.insert(doc_id);
-            }
-
-            if (id_pairs.empty()) {
-                return Option(true);
-            }
-
-            std::sort(id_pairs.begin(), id_pairs.end(), [](auto const& left, auto const& right) {
-                return left.first < right.first;
-            });
-
-            filter_result.count = unique_doc_ids.size();
-            filter_result.docs = new uint32_t[unique_doc_ids.size()];
-            filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[unique_doc_ids.size()] {};
-
-            reference_filter_result_t previous_doc_references;
-            for (uint32_t i = 0, previous_doc = id_pairs[0].first + 1, result_index = 0; i < id_pairs.size(); i++) {
-                auto const& current_doc = id_pairs[i].first;
-                auto& reference_result = id_pairs[i].second;
-
-                if (current_doc != previous_doc) {
-                    filter_result.docs[result_index] = current_doc;
-                    if (result_index > 0) {
-                        std::map<std::string, reference_filter_result_t> references;
-                        references[ref_collection_name] = std::move(previous_doc_references);
-                        filter_result.coll_to_references[result_index - 1] = std::move(references);
-                    }
-
-                    result_index++;
-                    previous_doc = current_doc;
-                    aggregate_nested_references(reference_result, previous_doc_references);
-                } else {
-                    aggregate_nested_references(reference_result, previous_doc_references);
-                }
-            }
-
-            if (previous_doc_references.count != 0) {
-                std::map<std::string, reference_filter_result_t> references;
-                references[ref_collection_name] = std::move(previous_doc_references);
-                filter_result.coll_to_references[filter_result.count - 1] = std::move(references);
-            }
-
-            for (auto &item: id_pairs) {
-                delete item.second;
-            }
-
+                                    return std::make_pair(doc_ids_len, doc_ids);
+            }, count, reference_docs.get(), ref_filter_result, ref_collection_name, filter_result);
             return Option(true);
         }
 
@@ -2151,22 +1996,22 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
 
         for (uint32_t i = 0; i < count; i++) {
             auto& reference_doc_id = reference_docs[i];
-            get_related_ids(ref_index, reference_doc_id, id_pairs, unique_doc_ids, is_normal_join);
+            Join::get_ref_index_ids(ref_index, reference_doc_id, id_pairs, unique_doc_ids, is_normal_join);
         }
 
         if (negate_left_join_info.is_negate_join) {
-            negate_left_join(seq_ids, reference_docs, count,
-                             [&ref_index](const uint32_t& reference_doc_id) -> std::vector<uint32_t> {
-                                 auto it = ref_index.find(reference_doc_id);
-                                 if (it == ref_index.end()) { // Reference field might be optional.
-                                     return std::vector<uint32_t>(1, Index::reference_helper_sentinel_value);
-                                 }
-                                 return std::vector<uint32_t>(1, it->second);
-                             },
-                             is_match_all_ids_filter, id_pairs, unique_doc_ids, negate_left_join_info);
+            Join::negate_left_join(seq_ids, reference_docs, count,
+                                   [&ref_index](const uint32_t& reference_doc_id) -> std::vector<uint32_t> {
+                                     auto it = ref_index.find(reference_doc_id);
+                                     if (it == ref_index.end()) { // Reference field might be optional.
+                                         return std::vector<uint32_t>(1, Index::reference_helper_sentinel_value);
+                                     }
+                                     return std::vector<uint32_t>(1, it->second);
+                                   },
+                                   is_match_all_ids_filter, id_pairs, unique_doc_ids, negate_left_join_info);
         }
 
-        process_related_ids(id_pairs, unique_doc_ids.size(), filter_result);
+        Join::process_related_ids(id_pairs, unique_doc_ids.size(), get_collection_name(), filter_result);
 
         return Option(true);
     }
@@ -2178,72 +2023,13 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     auto& ref_index = *reference_index.at(reference_helper_field_name);
 
     if (is_nested_join) {
-        // In case of nested join, we need to collect all the doc ids from the reference ids along with their references.
-        std::vector<std::pair<uint32_t, single_filter_result_t*>> id_pairs;
-        std::unordered_set<uint32_t> unique_doc_ids;
+        Join::do_nested_join([&ref_index](const uint32_t& reference_doc_id) {
+                                size_t doc_ids_len = 0;
+                                uint32_t* doc_ids = nullptr;
+                                ref_index.search(NUM_COMPARATOR::EQUALS, reference_doc_id, &doc_ids, doc_ids_len);
 
-        for (uint32_t i = 0; i < count; i++) {
-            auto& reference_doc_id = reference_docs[i];
-            auto reference_doc_references = std::move(ref_filter_result->coll_to_references[i]);
-            size_t doc_ids_len = 0;
-            uint32_t* doc_ids = nullptr;
-
-            ref_index.search(EQUALS, reference_doc_id, &doc_ids, doc_ids_len);
-
-            for (size_t j = 0; j < doc_ids_len; j++) {
-                auto doc_id = doc_ids[j];
-                auto reference_doc_references_copy = reference_doc_references;
-                id_pairs.emplace_back(std::make_pair(doc_id, new single_filter_result_t(reference_doc_id,
-                                                                                        std::move(reference_doc_references_copy),
-                                                                                        false)));
-                unique_doc_ids.insert(doc_id);
-            }
-            delete[] doc_ids;
-        }
-
-        if (id_pairs.empty()) {
-            return Option(true);
-        }
-
-        std::sort(id_pairs.begin(), id_pairs.end(), [](auto const& left, auto const& right) {
-            return left.first < right.first;
-        });
-
-        filter_result.count = unique_doc_ids.size();
-        filter_result.docs = new uint32_t[unique_doc_ids.size()];
-        filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[unique_doc_ids.size()] {};
-
-        reference_filter_result_t previous_doc_references;
-        for (uint32_t i = 0, previous_doc = id_pairs[0].first + 1, result_index = 0; i < id_pairs.size(); i++) {
-            auto const& current_doc = id_pairs[i].first;
-            auto& reference_result = id_pairs[i].second;
-
-            if (current_doc != previous_doc) {
-                filter_result.docs[result_index] = current_doc;
-                if (result_index > 0) {
-                    std::map<std::string, reference_filter_result_t> references;
-                    references[ref_collection_name] = std::move(previous_doc_references);
-                    filter_result.coll_to_references[result_index - 1] = std::move(references);
-                }
-
-                result_index++;
-                previous_doc = current_doc;
-                aggregate_nested_references(reference_result, previous_doc_references);
-            } else {
-                aggregate_nested_references(reference_result, previous_doc_references);
-            }
-        }
-
-        if (previous_doc_references.count != 0) {
-            std::map<std::string, reference_filter_result_t> references;
-            references[ref_collection_name] = std::move(previous_doc_references);
-            filter_result.coll_to_references[filter_result.count - 1] = std::move(references);
-        }
-
-        for (auto &item: id_pairs) {
-            delete item.second;
-        }
-
+                                return std::make_pair(doc_ids_len, doc_ids);
+        }, count, reference_docs.get(), ref_filter_result, ref_collection_name, filter_result);
         return Option<bool>(true);
     }
 
@@ -2252,22 +2038,22 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
 
     for (uint32_t i = 0; i < count; i++) {
         auto& reference_doc_id = reference_docs[i];
-        get_related_ids(ref_index, reference_doc_id, id_pairs, unique_doc_ids, is_normal_join);
+        Join::get_ref_index_ids(ref_index, reference_doc_id, id_pairs, unique_doc_ids, is_normal_join);
     }
 
     if (negate_left_join_info.is_negate_join) {
-        negate_left_join(seq_ids, reference_docs, count,
-                         [&ref_index](const uint32_t& reference_doc_id) {
-                             size_t doc_ids_len = 0;
-                             uint32_t* doc_ids = nullptr;
+        Join::negate_left_join(seq_ids, reference_docs, count,
+                               [&ref_index](const uint32_t& reference_doc_id) {
+                                 size_t doc_ids_len = 0;
+                                 uint32_t* doc_ids = nullptr;
 
-                             ref_index.search(EQUALS, reference_doc_id, &doc_ids, doc_ids_len);
+                                 ref_index.search(EQUALS, reference_doc_id, &doc_ids, doc_ids_len);
 
-                             const auto vec = std::vector<uint32_t>(doc_ids, doc_ids + doc_ids_len);
-                             delete[] doc_ids;
-                             return vec;
-                         },
-                         is_match_all_ids_filter, id_pairs, unique_doc_ids, negate_left_join_info);
+                                 const auto vec = std::vector<uint32_t>(doc_ids, doc_ids + doc_ids_len);
+                                 delete[] doc_ids;
+                                 return vec;
+                               },
+                               is_match_all_ids_filter, id_pairs, unique_doc_ids, negate_left_join_info);
     }
 
     if (id_pairs.empty()) {
@@ -2334,146 +2120,29 @@ Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string
     if (numerical_index.count(reference_helper_field_name) == 0) {
         return Option<filter_result_t>(400, "`" + reference_helper_field_name + "` is not present in index.");
     }
-    auto num_tree = numerical_index.at(reference_helper_field_name);
+    auto& ref_index = *numerical_index.at(reference_helper_field_name);
 
     if (is_nested_join) {
-        // In case of nested join, we need to collect all the doc ids from the reference ids along with their references.
-        std::vector<std::pair<uint32_t, single_filter_result_t*>> id_pairs;
-        std::unordered_set<uint32_t> unique_doc_ids;
+        Join::do_nested_join([&ref_index](const uint32_t& reference_doc_id) {
+                                size_t doc_ids_len = 0;
+                                uint32_t* doc_ids = nullptr;
+                                ref_index.search(NUM_COMPARATOR::EQUALS, reference_doc_id, &doc_ids, doc_ids_len);
 
-        for (uint32_t i = 0; i < count; i++) {
-            auto& reference_doc_id = reference_docs[i];
-            auto reference_doc_references = std::move(ref_filter_result.coll_to_references[i]);
-            size_t doc_ids_len = 0;
-            uint32_t* doc_ids = nullptr;
-
-            num_tree->search(NUM_COMPARATOR::EQUALS, reference_doc_id, &doc_ids, doc_ids_len);
-
-            for (size_t j = 0; j < doc_ids_len; j++) {
-                auto doc_id = doc_ids[j];
-                auto reference_doc_references_copy = reference_doc_references;
-                id_pairs.emplace_back(std::make_pair(doc_id, new single_filter_result_t(reference_doc_id,
-                                                                                        std::move(reference_doc_references_copy),
-                                                                                        false)));
-                unique_doc_ids.insert(doc_id);
-            }
-
-            delete[] doc_ids;
-        }
-
-        if (id_pairs.empty()) {
-            return Option(filter_result);
-        }
-
-        std::sort(id_pairs.begin(), id_pairs.end(), [](auto const& left, auto const& right) {
-            return left.first < right.first;
-        });
-
-        filter_result.count = unique_doc_ids.size();
-        filter_result.docs = new uint32_t[unique_doc_ids.size()];
-        filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[unique_doc_ids.size()] {};
-
-        reference_filter_result_t previous_doc_references;
-        for (uint32_t i = 0, previous_doc = id_pairs[0].first + 1, result_index = 0; i < id_pairs.size(); i++) {
-            auto const& current_doc = id_pairs[i].first;
-            auto& reference_result = id_pairs[i].second;
-
-            if (current_doc != previous_doc) {
-                filter_result.docs[result_index] = current_doc;
-                if (result_index > 0) {
-                    std::map<std::string, reference_filter_result_t> references;
-                    references[ref_collection_name] = std::move(previous_doc_references);
-                    filter_result.coll_to_references[result_index - 1] = std::move(references);
-                }
-
-                result_index++;
-                previous_doc = current_doc;
-                aggregate_nested_references(reference_result, previous_doc_references);
-            } else {
-                aggregate_nested_references(reference_result, previous_doc_references);
-            }
-        }
-
-        if (previous_doc_references.count != 0) {
-            std::map<std::string, reference_filter_result_t> references;
-            references[ref_collection_name] = std::move(previous_doc_references);
-            filter_result.coll_to_references[filter_result.count - 1] = std::move(references);
-        }
-
-        for (auto &item: id_pairs) {
-            delete item.second;
-        }
-
+                                return std::make_pair(doc_ids_len, doc_ids);
+        }, count, reference_docs, &ref_filter_result, ref_collection_name, filter_result);
         return Option<filter_result_t>(filter_result);
     }
 
     // Collect all the doc ids from the reference ids.
     std::vector<std::pair<uint32_t, uint32_t>> id_pairs;
-    std::unordered_set<uint32_t> unique_doc_ids;
+    std::set<uint32_t> unique_doc_ids;
 
     for (uint32_t i = 0; i < count; i++) {
         auto& reference_doc_id = reference_docs[i];
-        size_t doc_ids_len = 0;
-        uint32_t* doc_ids = nullptr;
-
-        num_tree->search(NUM_COMPARATOR::EQUALS, reference_doc_id, &doc_ids, doc_ids_len);
-
-        for (size_t j = 0; j < doc_ids_len; j++) {
-            auto doc_id = doc_ids[j];
-            id_pairs.emplace_back(std::make_pair(doc_id, reference_doc_id));
-            unique_doc_ids.insert(doc_id);
-        }
-        delete[] doc_ids;
+        Join::get_ref_index_ids(ref_index, reference_doc_id, id_pairs, unique_doc_ids, true);
     }
 
-    if (id_pairs.empty()) {
-        return Option(filter_result);
-    }
-
-    std::sort(id_pairs.begin(), id_pairs.end(), [](auto const& left, auto const& right) {
-        return left.first < right.first;
-    });
-
-    filter_result.count = unique_doc_ids.size();
-    filter_result.docs = new uint32_t[unique_doc_ids.size()];
-    filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[unique_doc_ids.size()] {};
-
-    std::vector<uint32_t> previous_doc_references;
-    for (uint32_t i = 0, previous_doc = id_pairs[0].first + 1, result_index = 0; i < id_pairs.size(); i++) {
-        auto const& current_doc = id_pairs[i].first;
-        auto const& reference_doc_id = id_pairs[i].second;
-
-        if (current_doc != previous_doc) {
-            filter_result.docs[result_index] = current_doc;
-            if (result_index > 0) {
-                auto& reference_result = filter_result.coll_to_references[result_index - 1];
-
-                auto r = reference_filter_result_t(previous_doc_references.size(),
-                                                   new uint32_t[previous_doc_references.size()],
-                                                   false);
-                std::copy(previous_doc_references.begin(), previous_doc_references.end(), r.docs);
-                reference_result[ref_collection_name] = std::move(r);
-
-                previous_doc_references.clear();
-            }
-
-            result_index++;
-            previous_doc = current_doc;
-            previous_doc_references.push_back(reference_doc_id);
-        } else {
-            previous_doc_references.push_back(reference_doc_id);
-        }
-    }
-
-    if (!previous_doc_references.empty()) {
-        auto& reference_result = filter_result.coll_to_references[filter_result.count - 1];
-
-        auto r = reference_filter_result_t(previous_doc_references.size(),
-                                           new uint32_t[previous_doc_references.size()],
-                                           false);
-        std::copy(previous_doc_references.begin(), previous_doc_references.end(), r.docs);
-        reference_result[ref_collection_name] = std::move(r);
-    }
+    Join::process_related_ids(id_pairs, unique_doc_ids.size(), ref_collection_name, filter_result);
 
     return Option<filter_result_t>(filter_result);
 }
@@ -9065,11 +8734,11 @@ std::unique_ptr<posting_list_t::ref_iterator_t> Index::get_ref_iterator(const st
         std::set<uint32_t> unique_doc_ids;
         while (plist_iter->valid()) {
             const auto& reference_doc_id = plist_iter->id();
-            get_related_ids(ref_index, reference_doc_id, id_pairs, unique_doc_ids);
+            Join::get_ref_index_ids(ref_index, reference_doc_id, id_pairs, unique_doc_ids, true);
         }
 
         filter_result_t filter_result;
-        process_related_ids(id_pairs, unique_doc_ids.size(), filter_result);
+        Join::process_related_ids(id_pairs, unique_doc_ids.size(), get_collection_name(),filter_result);
 
 //        return std::make_unique<posting_list_t::ref_iterator_t>(posting_list_t::ref_iterator_t(std::move(filter_result), leaf, field_id));
     }
