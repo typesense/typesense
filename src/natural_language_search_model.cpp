@@ -86,11 +86,11 @@ Option<nlohmann::json> NaturalLanguageSearchModel::generate_search_params(
     full_system_prompt += collection_schema_prompt;
 
     if(model_namespace == "openai") {
-        return openai_generate_search_params(query, full_system_prompt, model_config);
+        return openai_vllm_generate_search_params(query, full_system_prompt, model_config);
     } else if(model_namespace == "cloudflare") {
         return cloudflare_generate_search_params(query, full_system_prompt, model_config);
     } else if(model_namespace == "vllm") {
-        return vllm_generate_search_params(query, full_system_prompt, model_config);
+        return openai_vllm_generate_search_params(query, full_system_prompt, model_config);
     }
     return Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
 }
@@ -111,14 +111,14 @@ Option<bool> NaturalLanguageSearchModel::validate_openai_model(const nlohmann::j
     return Option<bool>(true);
 }
 
-Option<nlohmann::json> NaturalLanguageSearchModel::openai_generate_search_params(
+Option<nlohmann::json> NaturalLanguageSearchModel::openai_vllm_generate_search_params(
     const std::string& query,
     const std::string& system_prompt,
     const nlohmann::json& model_config) {
 
     const std::string& model_name = model_config["model_name"].get<std::string>();
     const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
-    const std::string& api_key = model_config["api_key"].get<std::string>();
+    const std::string& api_key = model_config.contains("api_key") ? model_config["api_key"].get<std::string>() : "";
     float temperature = model_config.value("temperature", 0.0f);
     size_t max_bytes = model_config["max_bytes"].get<size_t>();
     std::string api_url = model_config.value("api_url", std::string("https://api.openai.com/v1/chat/completions"));
@@ -241,6 +241,11 @@ Option<bool> NaturalLanguageSearchModel::validate_vllm_model(const nlohmann::jso
         return Option<bool>(400, "Property `api_url` is missing or is not a non-empty string.");
     }
 
+    if(model_config.count("api_key") != 0 && (!model_config["api_key"].is_string() || 
+       model_config["api_key"].get<std::string>().empty())) {
+        return Option<bool>(400, "Property `api_key` is not a string or is not a non-empty string.");
+    }
+
     if(model_config.count("temperature") != 0 && 
        (!model_config["temperature"].is_number() || 
         model_config["temperature"].get<float>() < 0 || 
@@ -249,45 +254,6 @@ Option<bool> NaturalLanguageSearchModel::validate_vllm_model(const nlohmann::jso
     }
 
     return Option<bool>(true);
-}
-
-Option<nlohmann::json> NaturalLanguageSearchModel::vllm_generate_search_params(
-    const std::string& query,
-    const std::string& system_prompt,
-    const nlohmann::json& model_config) {
-    
-    const std::string& api_url = model_config["api_url"].get<std::string>();
-    const std::string& model_name_without_namespace = model_config["model_name"].get<std::string>().substr(model_config["model_name"].get<std::string>().find("/") + 1);
-    size_t max_bytes = model_config["max_bytes"].get<size_t>();
-    float temperature = model_config.value("temperature", 0.0f);
-
-    std::string prompt = "[SYSTEM]\n" + system_prompt + "\n\n[USER]\n" + query + "\n\n[ASSISTANT]\n";
-    nlohmann::json request_body{
-        {"prompt", prompt},
-        {"temperature", temperature},
-        {"max_tokens", max_bytes}
-    };
-    std::unordered_map<std::string, std::string> headers{
-        {"Content-Type", "application/json"}
-    };
-    std::string response;
-    std::map<std::string, std::string> response_headers;
-    long status = post_response(api_url, request_body.dump(), response, response_headers, headers, DEFAULT_TIMEOUT_MS);
-
-    if(status != 200)
-        return Option<nlohmann::json>(status, "vLLM API request failed: " + response);
-
-    nlohmann::json response_json;
-    try {
-        response_json = nlohmann::json::parse(response);
-    } catch(const std::exception& e) {
-        return Option<nlohmann::json>(500, "Failed to parse vLLM response: " + std::string(e.what()));
-    }
-
-    if(!response_json.contains("text") || !response_json["text"].is_string())
-        return Option<nlohmann::json>(500, "Invalid response from vLLM API");
-
-    return extract_search_params_from_content(response_json["text"].get<std::string>(), model_name_without_namespace);
 }
 
 long NaturalLanguageSearchModel::post_response(const std::string& url, const std::string& body, std::string& response,
