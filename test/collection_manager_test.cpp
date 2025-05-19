@@ -395,7 +395,7 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
 }
 
 TEST_F(CollectionManagerTest, GetAllCollections) {
-    std::vector<Collection*> collection_vec = collectionManager.get_collections().get();
+    std::vector<std::shared_ptr<Collection>> collection_vec = collectionManager.get_collections().get();
     ASSERT_EQ(1, collection_vec.size());
     ASSERT_STREQ("collection1", collection_vec[0]->get_name().c_str());
 

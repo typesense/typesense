@@ -22,8 +22,8 @@ extern "C" {
 void master_server_routes() {
     // collection operations
     // NOTE: placing this first to score an immediate hit on O(N) route search
-    server->get("/collections/:collection/documents/search", get_search, true, true);
-    server->post("/multi_search", post_multi_search, true, true);
+    server->get("/collections/:collection/documents/search", get_search, false, true);
+    server->post("/multi_search", post_multi_search, false, true);
 
     // document management
     // NOTE:`/documents/:id` end-points must be placed last in the list
@@ -132,7 +132,7 @@ void master_server_routes() {
 
     // for proxying remote embedders
     server->post("/proxy", post_proxy);
-    server->post("/proxy_sse", post_proxy_sse, true, true);
+    server->post("/proxy_sse", post_proxy_sse, false, true);
 
     // natural language search models
     server->post("/nl_search_models", post_nl_search_model);

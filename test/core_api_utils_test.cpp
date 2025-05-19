@@ -885,6 +885,50 @@ TEST_F(CoreAPIUtilsTest, SearchPagination) {
 
 }
 
+TEST_F(CoreAPIUtilsTest, Union) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "name", "type": "string" },
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    for(size_t i = 0; i < 20; i++) {
+        nlohmann::json doc;
+        doc["name"] = "Title " + std::to_string(i);
+        doc["points"] = i;
+        coll1->add(doc.dump(), CREATE);
+    }
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json body;
+
+    body["union"] = true;
+    body["searches"] = nlohmann::json::array();
+    nlohmann::json search;
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+
+    req->body = body.dump();
+    nlohmann::json embedded_params;
+    req->embedded_params_vec.push_back(embedded_params);
+
+    post_multi_search(req, res);
+    nlohmann::json response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(0, response.count("results"));
+    ASSERT_EQ(20, response["found"]);
+}
+
 TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     Collection *coll1;
     std::vector<field> fields = {field("title", field_types::STRING, false),
@@ -1020,7 +1064,7 @@ TEST_F(CoreAPIUtilsTest, ExportWithJoin) {
     export_state_t export_state;
     auto coll1 = collectionManager.get_collection_unsafe("Products");
     coll1->get_filter_ids("$Customers(customer_id:customer_a)", export_state.filter_result);
-    export_state.collection = coll1;
+    export_state.collection = coll1.get();
     export_state.res_body = &res_body;
     export_state.include_fields.insert("product_name");
     export_state.ref_include_exclude_fields_vec.emplace_back(ref_include_exclude_fields{"Customers", {"product_price"}, "",

@@ -78,7 +78,7 @@ RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30 && \
     update-alternatives --set c++ /usr/bin/g++
 
 # Install pip
-RUN curl -sSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py \
+RUN curl -sSL https://bootstrap.pypa.io/pip/3.8/get-pip.py -o /tmp/get-pip.py \
     && python3 /tmp/get-pip.py \
     && rm /tmp/get-pip.py
 

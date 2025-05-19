@@ -356,6 +356,29 @@ TEST_F(CollectionSpecificTest, TypoBeforeDropTokens) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, DropTokensValueWhenTokensAreSplit) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Blue Ray";
+    doc1["points"] = 500;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("blueray", {"title"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["num_tokens_dropped"]);
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSpecificTest, FieldWeighting) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("description", field_types::STRING, false),
