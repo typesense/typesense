@@ -300,7 +300,7 @@ void BatchedIndexer::run() {
                             async_res = found_rpath->async_res;
                             try {
                                 if(orig_req->params["async"] == "true" && is_async_doc_request_enabled
-                                    && found_rpath->handler == &post_add_document) {
+                                    && found_rpath->handler == post_add_document) {
                                     //should batch only post_add_document requests
                                     auto reqid = std::to_string(req_id);
                                     auto resp = AsyncDocRequestHandler::get_instance().enqueue(orig_req, reqid);

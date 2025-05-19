@@ -1,4 +1,5 @@
 #include "async_doc_request.h"
+#include "collection_manager.h"
 
 void AsyncDocRequestHandler::init(Store* store, int batch_interval, uint32_t db_size, uint32_t db_interval) {
     async_req_store = store;
@@ -11,35 +12,39 @@ void AsyncDocRequestHandler::init(Store* store, int batch_interval, uint32_t db_
 
 void AsyncDocRequestHandler::check_handle_async_doc_request() {
     auto now = std::chrono::steady_clock::now();
-
-    if(!async_request_batch.empty()) {
+    if (!async_request_batch.empty()) {
         auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_batch_flush_secs).count();
         if (time_elapsed >= async_batch_interval) {
-            nlohmann::json res_doc;
-            std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+            for (const auto& kv : async_request_batch) {
+                auto coll_name = kv.first;
+                auto collection = CollectionManager::get_instance().get_collection(coll_name);
+                auto async_reqs = kv.second;
+                nlohmann::json document;
 
-            for (int i = 0; i < async_request_batch.size(); ++i) {
-                auto req = async_request_batch[i].first;
-                auto hash = async_request_batch[i].second;
-                post_add_document(req, res);
-
-                try {
-                    res_doc = nlohmann::json::parse(res->body);
-                } catch (const std::exception& e) {
-                    LOG(ERROR) << "JSON error: " << e.what() << "while parsing req : " << hash;
-                    continue;
+                std::vector <std::string> json_lines;
+                for (const auto& async_req: async_reqs) {
+                    json_lines.push_back(async_req.first);
                 }
 
-                if (res_doc.contains("message")) {
-                    //error occurred while adding
-                    auto key = ASYNC_DOC_REQ_PREFIX + hash;
-                    nlohmann::json value;
-                    value["message"] = res_doc["message"];
-                    value["req_id"] = hash;
+                nlohmann::json json_res = collection->add_many(json_lines, document, index_operation_t::CREATE, "",
+                                                               DIRTY_VALUES::COERCE_OR_REJECT, false, false, 200,
+                                                               60000,
+                                                               2, true);
 
-                    bool inserted = async_req_store->insert(key, value.dump());
-                    if(!inserted) {
-                        LOG(ERROR) << "Error while dumping async doc request message.";
+
+                if (json_res["success"] == false) {
+                    for (const auto& doc: json_res["async_docs_status"]) {
+                        auto hash = async_reqs[doc["id"].get<size_t>()].second;
+
+                        auto key = ASYNC_DOC_REQ_PREFIX + hash;
+                        nlohmann::json value;
+                        value["message"] = doc["error"];
+                        value["req_id"] = hash;
+
+                        bool inserted = async_req_store->insert(key, value.dump());
+                        if (!inserted) {
+                            LOG(ERROR) << "Error while dumping async doc request message.";
+                        }
                     }
                 }
             }
@@ -92,7 +97,7 @@ void AsyncDocRequestHandler::check_handle_db_size() {
 }
 
 nlohmann::json AsyncDocRequestHandler::enqueue(const std::shared_ptr<http_req>& req, const std::string& reqid) {
-    async_request_batch.push_back(std::make_pair(req, reqid));
+    async_request_batch[req->params["collection"]].push_back(std::make_pair(req->body, reqid));
     nlohmann::json resp;
     resp["req_id"] = reqid;
     resp["message"] = "Request Queued.";
@@ -130,5 +135,10 @@ bool AsyncDocRequestHandler::is_enabled() {
 }
 
 uint32_t AsyncDocRequestHandler::get_async_batch_size() {
-    return async_request_batch.size();
+    size_t req_count = 0;
+    for(const auto& group : async_request_batch) {
+        req_count += group.second.size();
+    }
+
+    return req_count;
 }

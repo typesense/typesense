@@ -502,7 +502,8 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                                     const DIRTY_VALUES& dirty_values, const bool& return_doc, const bool& return_id,
                                     const size_t remote_embedding_batch_size,
                                     const size_t remote_embedding_timeout_ms,
-                                    const size_t remote_embedding_num_tries) {
+                                    const size_t remote_embedding_num_tries,
+                                    bool is_async_docs) {
     std::vector<index_record> index_records;
 
     const size_t index_batch_size = 1000;
@@ -512,6 +513,10 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
     // ensures that document IDs are not repeated within the same batch
     std::set<std::string> batch_doc_ids;
     bool found_batch_new_field = false;
+    nlohmann::json resp_summary;
+    if(is_async_docs) {
+        resp_summary["async_docs_status"] = nlohmann::json::array();
+    }
 
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
@@ -606,12 +611,23 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 remove_reference_helper_fields(document);
             }
 
+            if(is_async_docs) {
+                //check docs which failed to index
+                for(const auto& record : index_records) {
+                    if(!record.indexed.ok()) {
+                        nlohmann::json doc;
+                        doc["id"] = record.position;
+                        doc["error"] = record.indexed.error();
+                        resp_summary["async_docs_status"].push_back(doc);
+                    }
+                }
+            }
+
             index_records.clear();
             batch_doc_ids.clear();
         }
     }
 
-    nlohmann::json resp_summary;
     resp_summary["num_imported"] = num_indexed;
     resp_summary["success"] = (num_indexed == json_lines.size());
 

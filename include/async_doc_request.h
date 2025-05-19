@@ -5,11 +5,12 @@
 #include "http_data.h"
 #include "http_server.h"
 #include <chrono>
+#include "sparsepp.h"
 
 class AsyncDocRequestHandler {
 private:
     int async_batch_interval = -1;
-    std::vector<std::pair<std::shared_ptr<http_req>, std::string>> async_request_batch;
+    spp::sparse_hash_map<std::string, std::vector<std::pair<nlohmann::json, std::string>>> async_request_batch;
     std::chrono::steady_clock::time_point last_batch_flush_secs;
     std::chrono::steady_clock::time_point last_db_size_check_secs;
     Store* async_req_store; //to store failed single doc async request status
