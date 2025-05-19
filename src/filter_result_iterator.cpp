@@ -1001,6 +1001,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             filter_result = op.get();
         }
 
+        is_filter_result_initialized = true;
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
@@ -1012,7 +1014,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             reference.insert(ref.begin(), ref.end());
         }
 
-        is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
         return;
     }
@@ -1059,6 +1060,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         }
 
         is_filter_result_initialized = true;
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
@@ -1122,13 +1124,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                  filter_result.docs, filter_result.count);
             }
 
+            is_filter_result_initialized = true;
+
             if (filter_result.count == 0) {
                 validity = invalid;
                 return;
             }
 
             seq_id = filter_result.docs[result_index];
-            is_filter_result_initialized = true;
             approx_filter_ids_length = filter_result.count;
         } else {
             auto const& filter_values_count = a_filter.values.size();
@@ -1225,13 +1228,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                      filter_result.docs, filter_result.count);
                 }
 
+                is_filter_result_initialized = true;
+
                 if (filter_result.count == 0) {
                     validity = invalid;
                     return;
                 }
 
                 seq_id = filter_result.docs[result_index];
-                is_filter_result_initialized = true;
                 approx_filter_ids_length = filter_result.count;
             }
         }
@@ -1277,13 +1281,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                  filter_result.docs, filter_result.count);
             }
 
+            is_filter_result_initialized = true;
+
             if (filter_result.count == 0) {
                 validity = invalid;
                 return;
             }
 
             seq_id = filter_result.docs[result_index];
-            is_filter_result_initialized = true;
             approx_filter_ids_length = filter_result.count;
         } else {
             auto const& filter_values_count = a_filter.values.size();
@@ -1381,13 +1386,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                      filter_result.docs, filter_result.count);
                 }
 
+                is_filter_result_initialized = true;
+
                 if (filter_result.count == 0) {
                     validity = invalid;
                     return;
                 }
 
                 seq_id = filter_result.docs[result_index];
-                is_filter_result_initialized = true;
                 approx_filter_ids_length = filter_result.count;
             }
         }
@@ -1457,13 +1463,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                              filter_result.docs, filter_result.count);
         }
 
+        is_filter_result_initialized = true;
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
         }
 
         seq_id = filter_result.docs[result_index];
-        is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_geopoint()) {
@@ -1608,13 +1615,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             filter_result.docs = out;
         }
 
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
         }
 
-        seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
+        seq_id = filter_result.docs[result_index];
         approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_geopolygon()) {
@@ -1667,7 +1675,9 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             // there could be multiple tokens in a filter value, which we have to treat as ANDs
             // e.g. country: South Africa
-            Tokenizer tokenizer(filter_value, true, false, f.locale, index->symbols_to_index, index->token_separators,
+            const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
+            const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
+            Tokenizer tokenizer(filter_value, true, false, f.locale, symbols, separators,
                                 f.get_stemmer());
 
             std::string str_token;
@@ -3038,7 +3048,7 @@ bool filter_result_iterator_t::validate_object_filter_helper(Index const* const 
         }
     } else {
         const auto& filter_exp = filter_node->filter_exp;
-        auto pos = filter_exp.field_name.find(".");
+        auto pos = filter_exp.field_name.rfind(".");
 
         const auto& nested_field = filter_exp.field_name.substr(pos+1, filter_exp.field_name.size() - (pos+1));
         field f = index->search_schema.at(filter_exp.field_name);
@@ -3069,7 +3079,7 @@ bool filter_result_iterator_t::validate_object_filter_helper(Index const* const 
                 filter_val = std::stof(val);
                 doc_val = doc[nested_field].get<float>();
             } else if (f.is_bool()) {
-                filter_val = val == "true" ? true : false;
+                filter_val = val == "1" ? true : false;
                 doc_val = doc[nested_field].get<bool>();
             } else if (f.is_integer()) {
                 filter_val = std::stoll(val);
@@ -3125,6 +3135,18 @@ bool filter_result_iterator_t::validate_object_filter_helper(Index const* const 
 }
 
 bool filter_result_iterator_t::validate_object_filter() {
+    auto get_nested_field_doc = [&] (const std::string& object_field_name, const nlohmann::json& document) -> nlohmann::json {
+        std::vector<std::string> results;
+        StringUtils::split(object_field_name, results, ".");
+
+        nlohmann::json return_doc = document;
+        for(auto i = 0; i < results.size(); ++i) {
+            return_doc = return_doc[results[i]];
+        }
+
+        return return_doc;
+    };
+
     auto collection = CollectionManager::get_instance().get_collection(collection_name);
     if (collection.get() == nullptr) {
         return false;
@@ -3145,7 +3167,8 @@ bool filter_result_iterator_t::validate_object_filter() {
                 continue;
             }
 
-            for (const auto& nested_object: document[filter_node->object_field_name]) {
+            const auto& doc = get_nested_field_doc(filter_node->object_field_name, document);
+            for (const auto& nested_object: doc) {
                 if (validate_object_filter_helper(index, nested_object, filter_node)) {
                     filter_result.docs[result_count++] = id;
                     break;

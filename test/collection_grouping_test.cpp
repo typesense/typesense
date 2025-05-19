@@ -1488,6 +1488,90 @@ TEST_F(CollectionGroupingTest, GroupByPerPage) {
     ASSERT_EQ("1001", res["grouped_hits"][4]["group_key"][0]);
 }
 
+TEST_F(CollectionGroupingTest, GroupByWithSplitJoinTokens) {
+    std::vector<field> fields = {
+        field("name", field_types::STRING, false, false),
+        field("product_id", field_types::STRING, true, false),
+    };
+
+    Collection* coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+    }
+
+    nlohmann::json doc;
+
+    doc["product_id"] = "1001";
+    doc["name"] = "Yes Correct";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["product_id"] = "1002";
+    doc["name"] = "Yes Correcting";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["product_id"] = "1003";
+    doc["name"] = "Yes Correcter";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["product_id"] = "1004";
+    doc["name"] = "No Correctible";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["product_id"] = "1005";
+    doc["name"] = "No Correction";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("yescorrect", {"name"}, "", {"product_id"}, {}, {2}, 10, 1, NOT_SET,
+                                {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4,
+                                "", 1,
+                                {}, {}, {"product_id"}, 1).get();
+
+    ASSERT_EQ(1, res["found"].get<size_t>());
+    ASSERT_EQ(1, res["grouped_hits"].size());
+    ASSERT_EQ(1, res["found_docs"].get<size_t>());
+}
+
+TEST_F(CollectionGroupingTest, GroupByWithEmptyValue) {
+    std::vector<field> fields = {
+            field("product_id", field_types::STRING, false, false),
+            field("categories", field_types::STRING_ARRAY, true, true),
+    };
+
+    Collection* coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+    }
+
+    nlohmann::json doc;
+
+    doc["product_id"] = "1001";
+    doc["categories"] = {"ALPHA1"};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["product_id"] = "1002";
+    doc["categories"] = {"ALPHA2", ""};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["product_id"] = "1003";
+    doc["categories"] = {"ALPHA3"};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("alpha", {"categories"}, "", {}, {}, {2}, 10, 1, NOT_SET,
+                             {true}, Index::DROP_TOKENS_THRESHOLD,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4,
+                             "", 1,
+                             {}, {}, {"categories"}, 1);
+    ASSERT_TRUE(res_op.ok());
+    auto res = res_op.get();
+
+    ASSERT_EQ(3, res["found"].get<size_t>());
+    ASSERT_EQ(3, res["grouped_hits"].size());
+    ASSERT_EQ(3, res["found_docs"].get<size_t>());
+}
+
 TEST_F(CollectionGroupingTest, SortByEval) {
     auto schema_json =
             R"({

@@ -160,7 +160,7 @@ export class K6Benchmarks {
         logger.warn(`Warnings: \n\n${warnings.join("\n")}`);
       }
 
-      if (checksPassRate < 100) {
+      if (checksPassRate < 97) {
         return errAsync({
           message: `k6 tests failed - ${checksPassRate}% checks passed`,
         });

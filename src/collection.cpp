@@ -79,7 +79,6 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
 }
 
 Collection::~Collection() {
-    std::unique_lock lifecycle_lock(lifecycle_mutex);
     std::unique_lock lock(mutex);
     delete index;
     delete synonym_index;   
@@ -6909,16 +6908,11 @@ Index* Collection::init_index() {
             std::set<update_reference_info_t> update_ref_infos{};
 
             auto& collectionManager = CollectionManager::get_instance();
-            {
-                // NOTE: we scope this operation to avoid lock inversion by
-                // acquiring collection->lifecycle_mutex before collection_manager's mutex in `add_referenced_in`
-                auto ref_coll = collectionManager.get_collection(ref_coll_name); // resolves alias
-                if (ref_coll != nullptr) {
-                    ref_coll_name = ref_coll->name;
-
-                    update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
-                                                                   ref_field_name, ref_field);
-                }
+            auto ref_coll = collectionManager.get_collection(ref_coll_name); // resolves alias
+            if (ref_coll != nullptr) {
+                ref_coll_name = ref_coll->name;
+                update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
+                                                               ref_field_name, ref_field);
             }
 
             auto ref_info = reference_info_t{name, field.name, field.is_async_reference, ref_field_name};
@@ -7518,10 +7512,6 @@ Option<uint32_t> Collection::get_sort_index_value_with_lock(const std::string& f
                                                             const uint32_t& seq_id) const {
     std::shared_lock lock(mutex);
     return index->get_sort_index_value_with_lock(field_name, seq_id);
-}
-
-std::shared_mutex& Collection::get_lifecycle_mutex() {
-    return lifecycle_mutex;
 }
 
 void Collection::remove_embedding_field(const std::string& field_name) {

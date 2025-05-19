@@ -571,28 +571,26 @@ void Index::validate_and_preprocess(Index *index,
     }
 }
 
-size_t Index::
-batch_memory_index(Index *index,
-                 std::vector<index_record>& iter_batch,
-                 const std::string & default_sorting_field,
-                 const tsl::htrie_map<char, field> & actual_search_schema,
-                 const tsl::htrie_map<char, field> & embedding_fields,
-                 const std::string& fallback_field_type,
-                 const std::vector<char>& token_separators,
-                 const std::vector<char>& symbols_to_index,
-                 const bool do_validation, const size_t remote_embedding_batch_size,
-                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
-                 const bool generate_embeddings,
-                 const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
-                 const std::string& collection_name,
-                 const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
+size_t Index::batch_memory_index(Index *index,
+                                 std::vector<index_record>& iter_batch,
+                                 const std::string & default_sorting_field,
+                                 const tsl::htrie_map<char, field> & actual_search_schema,
+                                 const tsl::htrie_map<char, field> & embedding_fields,
+                                 const std::string& fallback_field_type,
+                                 const std::vector<char>& token_separators,
+                                 const std::vector<char>& symbols_to_index,
+                                 const bool do_validation, const size_t remote_embedding_batch_size,
+                                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
+                                 const bool generate_embeddings,
+                                 const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
+                                 const std::string& collection_name,
+                                 const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
     const size_t concurrency = 4;
     const size_t num_threads = std::min(concurrency, iter_batch.size());
     const size_t window_size = (num_threads == 0) ? 0 :
                                (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
     const auto& indexable_schema = use_addition_fields ? addition_fields : actual_search_schema;
     
-
     size_t num_indexed = 0;
     size_t num_processed = 0;
     std::mutex m_process;
@@ -2593,6 +2591,9 @@ Option<bool> Index::run_search(search_args* search_params) {
 
             filter_by += (field_name + ": [");
             for (const auto& value: values) {
+                if(value.empty()) {
+                    continue;
+                }
                 filter_by += (value + ",");
             }
             filter_by[filter_by.size() - 1] = ']';
@@ -2636,7 +2637,11 @@ Option<bool> Index::run_search(search_args* search_params) {
         delete search_params->topster;
         delete search_params->curated_topster;
 
+        search_params->topster = nullptr;
+        search_params->curated_topster = nullptr;
+
         search_params->groups_processed.clear();
+        search_params->all_result_ids_len = 0;
         group_by_missing_value_ids.clear();
     }
 
@@ -3285,6 +3290,10 @@ void process_results_hnsw_index(filter_result_iterator_t* filter_result_iterator
     }
 }
 
+#ifdef TEST_BUILD
+    bool testing_not_equals_bug = false;
+#endif
+
 Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                    const text_match_type_t match_type,
                    std::unique_ptr<filter_node_t>& filter_tree_root, std::vector<facet>& facets, facet_query_t facet_query,
@@ -3345,7 +3354,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
 #ifdef TEST_BUILD
 
-    if (filter_result_iterator->approx_filter_ids_length > 20) {
+    if (testing_not_equals_bug || filter_result_iterator->approx_filter_ids_length > 20) {
         filter_result_iterator->compute_iterators();
     }
 #else
