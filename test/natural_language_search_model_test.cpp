@@ -130,7 +130,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIFailure) {
 
   ASSERT_FALSE(result.ok());
   ASSERT_EQ(result.code(), 500);
-  ASSERT_EQ(result.error(), "Failed to get response from OpenAI: No response");
+  ASSERT_EQ(result.error(), "Failed to get response from OpenAI: 400");
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIInvalidJSON) {

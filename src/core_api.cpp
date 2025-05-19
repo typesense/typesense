@@ -1023,7 +1023,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
     }
 
-    if (searches.size() > 1 && is_union) {
+    if (is_union) {
         Option<bool> union_op = CollectionManager::do_union(req->params, req->embedded_params_vec, searches,
                                                             response, req->conn_ts);
         if(!union_op.ok() && union_op.code() == 408) {
