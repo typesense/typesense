@@ -240,6 +240,6 @@ public:
 
     Option<nlohmann::json> get_collection_alter_status() const;
 
-    static void remove_internal_fields(nlohmann::json& json_obj);
+    static void remove_internal_fields(std::map<std::string, std::string>& params);
 
 };

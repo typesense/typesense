@@ -144,7 +144,7 @@ Option<nlohmann::json> NaturalLanguageSearchModel::openai_generate_search_params
     long status_code = post_response(api_url, request_body.dump(), response, response_headers, headers, DEFAULT_TIMEOUT_MS);
 
     if(status_code != 200) {
-        return Option<nlohmann::json>(500, "Failed to get response from OpenAI: " + response);
+        return Option<nlohmann::json>(500, "Failed to get response from OpenAI: " + std::to_string(status_code));
     }
 
     nlohmann::json response_json;

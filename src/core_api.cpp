@@ -645,42 +645,13 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         req->params["q"] = query;
     }
 
-    LOG(INFO) << "Before process_nl_query_and_augment_params in get_search, params: "
-              << (req->params.count("q") ? "q=" + req->params["q"] : "no q");
-
-    nlohmann::json search_obj = nlohmann::json::object();
-
-    if(req->params.count("nl_query")) {
-        search_obj["nl_query"] = req->params["nl_query"];
-    }
-
     uint64_t prompt_cache_ttl = NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC;
-    if(req->params.count("nl_query_prompt_cache_ttl")) {
-        try {
-            prompt_cache_ttl = std::stoull(req->params["nl_query_prompt_cache_ttl"]);
-            LOG(INFO) << "Using provided nl_query_prompt_cache_ttl: " << prompt_cache_ttl;
-        } catch(const std::exception& e) {
-            LOG(WARNING) << "Invalid nl_query_prompt_cache_ttl parameter: " << req->params["nl_query_prompt_cache_ttl"]
-                        << ", using default value";
-        }
+    if(req->params.count("nl_query_prompt_cache_ttl") && StringUtils::is_uint64_t(req->params["nl_query_prompt_cache_ttl"])) {
+        prompt_cache_ttl = std::stoull(req->params["nl_query_prompt_cache_ttl"]);
     }
 
-    auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req->params, search_obj, prompt_cache_ttl);
+    auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req->params, prompt_cache_ttl);
     uint64_t nl_search_time_ms = nl_search_op.ok() ? nl_search_op.get() : 0;
-    LOG(INFO) << "NL query processing time: " << nl_search_time_ms << "ms";
-    LOG(INFO) << "After process_nl_query_and_augment_params in get_search, params: "
-              << (req->params.count("q") ? "q=" + req->params["q"] : "no q");
-
-    // Add debug logging to check if parsed_nl_query exists in search_obj
-    LOG(INFO) << "search_obj contents after NL processing: " << search_obj.dump();
-    if(search_obj.contains("parsed_nl_query")) {
-        LOG(INFO) << "parsed_nl_query found in search_obj: " << search_obj["parsed_nl_query"].dump();
-    } else {
-        LOG(WARNING) << "parsed_nl_query NOT found in search_obj";
-    }
-
-    // Remove internal fields before performing the search to avoid validation errors
-    CollectionManager::remove_internal_fields(search_obj);
 
     std::string results_json_str;
     Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0],
@@ -815,28 +786,9 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         results_json_str = "data: " + results_json_str + "\n\n";
     }
 
-    // Log the original results
-    LOG(INFO) << "Original results_json_str before adding parsed_nl_query: " << results_json_str.substr(0, 200) << "...";
-
-    // Add parsed_nl_query to results if it exists in search_obj
-    if(search_obj.contains("parsed_nl_query") || search_obj.contains("_llm_response") ||
-       search_obj.contains("llm_response_str") || search_obj.contains("processed_by_nl_model")) {
-        LOG(INFO) << "Adding parsed_nl_query to results";
-        // Parse the JSON results and add the parsed_nl_query field
-        nlohmann::json results_json = nlohmann::json::parse(results_json_str);
-
-        // Log parse_time_ms in parsed_nl_query
-        if(nl_search_time_ms > 0) {
-            LOG(INFO) << "NL query processing time: " << nl_search_time_ms << "ms";
-        }
-
-        // Use the helper function to add NL query data
-        NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, search_obj, &(req->params), nl_search_time_ms);
-
-        results_json_str = results_json.dump();
-    } else {
-        LOG(WARNING) << "No NL query data found in search_obj to add to results";
-    }
+    nlohmann::json results_json = nlohmann::json::parse(results_json_str);
+    NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &(req->params), nl_search_time_ms);
+    results_json_str = results_json.dump();
 
     res->set_200(results_json_str);
     res->final = true;
@@ -1071,38 +1023,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
     }
 
-    // Process natural language queries for each search
-    std::vector<Option<uint64_t>> nl_results;
-    nl_results.reserve(searches.size());
-
-    for(size_t i = 0; i < searches.size(); i++) {
-        LOG(INFO) << "Processing nl_query for search " << i << " in multi_search";
-
-        // Get the schema prompt cache TTL if provided
-        uint64_t prompt_cache_ttl = NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC;
-        if(req->params.count("nl_query_prompt_cache_ttl")) {
-            try {
-                prompt_cache_ttl = std::stoull(req->params["nl_query_prompt_cache_ttl"]);
-                LOG(INFO) << "Using provided nl_query_prompt_cache_ttl: " << prompt_cache_ttl;
-            } catch(const std::exception& e) {
-                LOG(WARNING) << "Invalid nl_query_prompt_cache_ttl parameter: " << req->params["nl_query_prompt_cache_ttl"]
-                            << ", using default value";
-            }
-        }
-
-        auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req->params, searches[i], prompt_cache_ttl);
-        nl_results.push_back(nl_search_op);
-
-        LOG(INFO) << "Completed processing nl_query for search " << i
-                  << (nl_search_op.ok() ? " (processed in " + std::to_string(nl_search_op.get()) + "ms)" : " (not processed)");
-    }
-
-    // Remove internal fields before validation
-    for(size_t i = 0; i < searches.size(); i++) {
-        // Remove all internal fields (prefixed with underscore) that we've added
-        CollectionManager::remove_internal_fields(searches[i]);
-    }
-
     if (searches.size() > 1 && is_union) {
         Option<bool> union_op = CollectionManager::do_union(req->params, req->embedded_params_vec, searches,
                                                             response, req->conn_ts);
@@ -1130,6 +1050,13 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 return false;
             }
 
+            uint64_t prompt_cache_ttl = NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC;
+            if(req->params.count("nl_query_prompt_cache_ttl") && StringUtils::is_uint64_t(req->params["nl_query_prompt_cache_ttl"])) {
+                prompt_cache_ttl = std::stoull(req->params["nl_query_prompt_cache_ttl"]);
+            }
+
+            auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req->params, prompt_cache_ttl);
+
             std::string results_json_str;
             Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i],
                                                                   results_json_str, req->conn_ts);
@@ -1139,14 +1066,9 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 if(conversation) {
                     results_json["request_params"]["q"] = common_query;
                 }
+                auto nl_processing_time_ms = nl_search_op.ok() ? nl_search_op.get() : 0;
 
-                if(i < nl_results.size() && nl_results[i].ok()) {
-                    LOG(INFO) << "NL query processing time for search " << i << ": "
-                              << nl_results[i].get() << "ms";
-                }
-
-                // Use the helper function to add NL query data
-                NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, search_params, &(req->params), nl_results[i].get());
+                NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &(req->params), nl_processing_time_ms);
 
                 response["results"].push_back(results_json);
             } else {

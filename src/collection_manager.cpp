@@ -2172,11 +2172,11 @@ Option<nlohmann::json> CollectionManager::get_collection_alter_status() const {
     return Option<nlohmann::json>(collection_alter_status);
 }
 
-void CollectionManager::remove_internal_fields(nlohmann::json& json_obj) {
-    auto it = json_obj.begin();
-    while (it != json_obj.end()) {
-        if (!it.key().empty() && it.key()[0] == '_') {
-            it = json_obj.erase(it);
+void CollectionManager::remove_internal_fields(std::map<std::string, std::string>& params) {
+    auto it = params.begin();
+    while (it != params.end()) {
+        if (!it->first.empty() && it->first[0] == '_') {
+            it = params.erase(it);
         } else {
             ++it;
         }

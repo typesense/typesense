@@ -3,6 +3,7 @@
 #include "json.hpp"
 #include "store.h"
 #include "natural_language_search_model_manager.h"
+#include "natural_language_search_model.h"
 #include "collection_manager.h"
 #include "field.h"
 
@@ -452,4 +453,233 @@ The output should be in JSON format like this:
   "sort_by": "typesense sort syntax explained above"
 }
 )");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQuerySucess) {
+  NaturalLanguageSearchModel::set_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"q\": \"test\",\n  \"filter_by\": \"make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014\",\n  \"sort_by\": \"msrp:desc\"\n}",
+          "refusal": null,
+          "annotations": []
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 920,
+      "completion_tokens": 58,
+      "total_tokens": 978,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    }
+  })", 200, {});
+
+  nlohmann::json titles_schema = R"({
+    "name": "titles",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "price", "type": "int32"},
+      {"name": "category", "type": "string", "facet": true},
+      {"name": "tags", "type": "string[]", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(titles_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "Find expensive laptops";
+  req_params["collection"] = "titles";
+  req_params["query_by"] = "title";
+
+  nlohmann::json model_config = {
+    {"model_name", "openai/gpt-3.5-turbo"},
+    {"api_key", "YOUR_OPENAI_API_KEY"},
+    {"max_bytes", size_t(1024)},
+    {"temperature", 0.0}
+  };
+  std::string model_id = "default";
+  auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+  ASSERT_TRUE(result.ok());
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(nl_search_op.ok());
+  ASSERT_EQ(req_params["filter_by"], "make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
+  ASSERT_EQ(req_params["sort_by"], "msrp:desc");
+  ASSERT_EQ(req_params["q"], "test");
+  ASSERT_EQ(req_params["processed_by_nl_model"], "true");
+  ASSERT_EQ(req_params["_llm_generated_params"], R"(["filter_by","q","sort_by"])");
+  ASSERT_EQ(req_params["_original_llm_filter_by"], "make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
+  ASSERT_EQ(req_params["llm_generated_filter_by"], "make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
+
+  req_params["filter_by"] = "engine_hp:>=300";
+  nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(nl_search_op.ok());
+  ASSERT_EQ(req_params["filter_by"], "engine_hp:>=300 && make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
+  ASSERT_EQ(req_params["sort_by"], "msrp:desc");
+  ASSERT_EQ(req_params["q"], "test");
+  ASSERT_EQ(req_params["processed_by_nl_model"], "true");
+  ASSERT_EQ(req_params["_llm_generated_params"], R"(["filter_by","q","sort_by"])");
+  ASSERT_EQ(req_params["_original_llm_filter_by"], "make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
+  ASSERT_EQ(req_params["llm_generated_filter_by"], "make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidModel) {
+  nlohmann::json titles_schema = R"({
+    "name": "titles",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "price", "type": "int32"},
+      {"name": "category", "type": "string", "facet": true},
+      {"name": "tags", "type": "string[]", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(titles_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "Find expensive laptops";
+  req_params["collection"] = "titles";
+  req_params["query_by"] = "title";
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_FALSE(nl_search_op.ok());
+  ASSERT_EQ(nl_search_op.error(), "Error getting natural language search model: Model not found");
+  ASSERT_EQ(req_params["_nl_processing_failed"], "true");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidCollection) {
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "Find expensive laptops";
+  req_params["collection"] = "titles";
+  req_params["query_by"] = "title";
+
+  nlohmann::json model_config = {
+    {"model_name", "openai/gpt-3.5-turbo"},
+    {"api_key", "YOUR_OPENAI_API_KEY"},
+    {"max_bytes", size_t(1024)},
+    {"temperature", 0.0}
+  };
+  std::string model_id = "default";
+  auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+  ASSERT_TRUE(result.ok());
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_FALSE(nl_search_op.ok());
+  ASSERT_EQ(nl_search_op.error(), "Error generating schema prompt: Collection not found");
+  ASSERT_EQ(req_params["_nl_processing_failed"], "true");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidResponse) {
+  NaturalLanguageSearchModel::set_mock_response("", 200, {});
+
+  nlohmann::json titles_schema = R"({
+    "name": "titles",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "price", "type": "int32"},
+      {"name": "category", "type": "string", "facet": true},
+      {"name": "tags", "type": "string[]", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(titles_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "Find expensive laptops";
+  req_params["collection"] = "titles";
+  req_params["query_by"] = "title";
+
+  nlohmann::json model_config = {
+    {"model_name", "openai/gpt-3.5-turbo"},
+    {"api_key", "YOUR_OPENAI_API_KEY"},
+    {"max_bytes", size_t(1024)},
+    {"temperature", 0.0}
+  };
+  std::string model_id = "default";
+  auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+  ASSERT_TRUE(result.ok());
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_FALSE(nl_search_op.ok());
+  ASSERT_EQ(nl_search_op.error(), "Error generating search parameters: Failed to parse OpenAI response: Invalid JSON");
+  ASSERT_EQ(req_params["_nl_processing_failed"], "true");
+  ASSERT_EQ(req_params["error"], "Error generating search parameters: Failed to parse OpenAI response: Invalid JSON");
+
+  NaturalLanguageSearchModel::set_mock_response("", 400, {});
+  nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_FALSE(nl_search_op.ok());
+  ASSERT_EQ(nl_search_op.error(), "Error generating search parameters: Failed to get response from OpenAI: 400");
+  ASSERT_EQ(req_params["_nl_processing_failed"], "true");
+  ASSERT_EQ(req_params["error"], "Error generating search parameters: Failed to get response from OpenAI: 400");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AddNLQueryDataToResultsSuccess) {
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "Find expensive laptops";
+  req_params["collection"] = "titles";
+  req_params["query_by"] = "title";
+  req_params["filter_by"] = "engine_hp:>=300 && make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014";
+  req_params["sort_by"] = "msrp:desc";
+  req_params["q"] = "test";
+  req_params["processed_by_nl_model"] = "true";
+  req_params["_llm_generated_params"] = R"(["filter_by","q","sort_by"])";
+  req_params["_original_llm_filter_by"] = "make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014";
+  req_params["_original_nl_query"] = "Find expensive laptops";
+  req_params["llm_generated_filter_by"] = "make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014";
+
+  nlohmann::json results_json;
+  NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &req_params, 1);
+  ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["collection"], "titles");
+  ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["query_by"], "title");
+  ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["filter_by"], "engine_hp:>=300 && make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
+  ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["sort_by"], "msrp:desc");
+  ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["q"], "test");
+
+  ASSERT_EQ(results_json["parsed_nl_query"]["generated_params"]["filter_by"], "make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
+  ASSERT_EQ(results_json["parsed_nl_query"]["generated_params"]["sort_by"], "msrp:desc");
+  ASSERT_EQ(results_json["parsed_nl_query"]["generated_params"]["q"], "test");
+
+  ASSERT_EQ(results_json["parsed_nl_query"]["parse_time_ms"], 1);
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AddNLQueryDataToResultsFailure) {
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "Find expensive laptops";
+  req_params["collection"] = "titles";
+  req_params["query_by"] = "title";
+  req_params["filter_by"] = "engine_hp:>=300";
+  req_params["sort_by"] = "";
+  req_params["q"] = "Find expensive laptops";
+  req_params["error"] = "Error generating schema prompt: Collection not found";
+  req_params["_nl_processing_failed"] = "true";
+  req_params["_fallback_q_used"] = "true";
+  nlohmann::json results_json;
+  NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &req_params, 1);
+  ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["collection"], "titles");
+  ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["query_by"], "title");
+  ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["filter_by"], "engine_hp:>=300");
+  ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["q"], "Find expensive laptops");
+
+  ASSERT_EQ(results_json["parsed_nl_query"]["parse_time_ms"], 1);
+
+  ASSERT_EQ(results_json["parsed_nl_query"]["error"], "Error generating schema prompt: Collection not found");
+  ASSERT_EQ(results_json["parsed_nl_query"]["generated_params"], nlohmann::json::object());
 }
