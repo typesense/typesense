@@ -97,6 +97,8 @@ private:
 
     uint32_t db_keep_log_file_num;
 
+    uint32_t concurrency;
+
 protected:
 
     Config() {
@@ -146,6 +148,8 @@ protected:
         this->db_max_log_file_size = 4*1048576;
 
         this->db_keep_log_file_num = 5;
+
+        this->concurrency = 4;
     }
 
     Config(Config const&) {
@@ -207,6 +211,10 @@ public:
 
     void set_db_keep_log_file_num(uint32_t val) {
         this->db_keep_log_file_num = val;
+    }
+
+    void set_concurrency(uint32_t val) {
+        this->concurrency = val;
     }
 
     // @deprecated
@@ -505,6 +513,10 @@ public:
 
     uint32_t get_db_keep_log_file_num() const {
         return this->db_keep_log_file_num;
+    }
+
+    uint32_t get_concurrency() const {
+        return this->concurrency;
     }
 
     // loaders

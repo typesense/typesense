@@ -532,6 +532,10 @@ void Config::load_config_file(cmdline::parser& options) {
     if(reader.Exists("server", "db-keep-log-file-num")) {
         this->db_write_buffer_size = (size_t) reader.GetInteger("server", "db-keep-log-file-num", 5);
     }
+
+    if(reader.Exists("server", "concurrency")) {
+        this->concurrency = reader.GetInteger("server", "concurrency", 4);
+    }
 }
 
 void Config::load_config_cmd_args(cmdline::parser& options)  {
@@ -743,6 +747,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("db-keep-log-file-num")) {
         this->db_write_buffer_size = options.get<uint32_t>("db-keep-log-file-num");
+    }
+
+    if(options.exist("concurrency")) {
+        this->concurrency = options.get<uint32_t>("concurrency");
     }
 }
 

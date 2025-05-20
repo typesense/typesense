@@ -128,6 +128,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<uint32_t>("db-max-write-buffer-number", '\0', "rocksdb max write buffer number.", false);
     options.add<uint32_t>("db-max-log-file-size", '\0', "rocksdb max logfile size.", false);
     options.add<uint32_t>("db-keep-log-file-num", '\0', "rocksdb number of log files to keep.", false);
+    options.add<uint32_t>("concurrency", '\0', "concurrency for batch indexing docs.", false);
 
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
