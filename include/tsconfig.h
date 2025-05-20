@@ -89,6 +89,14 @@ private:
   
     uint32_t max_group_limit;
 
+    uint32_t db_write_buffer_size;
+
+    uint32_t db_max_write_buffer_number;
+
+    uint32_t db_max_log_file_size;
+
+    uint32_t db_keep_log_file_num;
+
 protected:
 
     Config() {
@@ -129,6 +137,15 @@ protected:
         this->filter_by_max_ops = FILTER_BY_DEFAULT_OPERATIONS;
         
         this->max_group_limit = 99;
+
+        //for rocksdb
+        this->db_write_buffer_size = 4*1048576;
+
+        this->db_max_write_buffer_number = 2;
+
+        this->db_max_log_file_size = 4*1048576;
+
+        this->db_keep_log_file_num = 5;
     }
 
     Config(Config const&) {
@@ -174,6 +191,22 @@ public:
 
     void set_api_key(const std::string & api_key) {
         this->api_key = api_key;
+    }
+
+    void set_db_write_buffer_size(uint32_t val) {
+        this->db_write_buffer_size = val;
+    }
+
+    void set_db_max_write_buffer_number(uint32_t val) {
+        this->db_max_write_buffer_number = val;
+    }
+
+    void set_db_max_log_file_size(uint32_t val) {
+        this->db_max_log_file_size = val;
+    }
+
+    void set_db_keep_log_file_num(uint32_t val) {
+        this->db_keep_log_file_num = val;
     }
 
     // @deprecated
@@ -231,6 +264,21 @@ public:
 
     void set_skip_writes(bool skip_writes) {
         this->skip_writes = skip_writes;
+    }
+
+    void set_cors_domains(std::string& cors_domains_value) {
+        std::vector<std::string> cors_values_vec;
+        StringUtils::split(cors_domains_value, cors_values_vec, ",");
+        cors_domains.clear();
+        cors_domains.insert(cors_values_vec.begin(), cors_values_vec.end());
+    }
+
+    void set_enable_search_analytics(bool enable_search_analytics) {
+        this->enable_search_analytics = enable_search_analytics;
+    }
+
+    void set_enable_search_logging(bool enable_search_logging) {
+        this->enable_search_logging = enable_search_logging;
     }
 
     void set_reset_peers_on_error(bool reset_peers_on_error) {
@@ -443,6 +491,22 @@ public:
         return this->max_group_limit;
     }
 
+    uint32_t get_db_write_buffer_size() const {
+        return this->db_write_buffer_size;
+    }
+
+    uint32_t get_db_max_write_buffer_number() const {
+        return this->db_max_write_buffer_number;
+    }
+
+    uint32_t get_db_max_log_file_size() const {
+        return this->db_max_log_file_size;
+    }
+
+    uint32_t get_db_keep_log_file_num() const {
+        return this->db_keep_log_file_num;
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -462,21 +526,6 @@ public:
     void load_config_file(cmdline::parser & options);
 
     void load_config_cmd_args(cmdline::parser & options);
-
-    void set_cors_domains(std::string& cors_domains_value) {
-        std::vector<std::string> cors_values_vec;
-        StringUtils::split(cors_domains_value, cors_values_vec, ",");
-        cors_domains.clear();
-        cors_domains.insert(cors_values_vec.begin(), cors_values_vec.end());
-    }
-
-    void set_enable_search_analytics(bool enable_search_analytics) {
-        this->enable_search_analytics = enable_search_analytics;
-    }
-
-    void set_enable_search_logging(bool enable_search_logging) {
-        this->enable_search_logging = enable_search_logging;
-    }
 
     // validation
 

@@ -73,7 +73,11 @@ public:
           const size_t wal_ttl_secs = 24*60*60,
           const size_t wal_size_mb = 1024,
           bool disable_wal = true,
-          int32_t ttl=0);
+          int32_t ttl=0,
+          size_t write_buffer_size = 4*1048576,
+          size_t max_write_buffer_number = 2,
+          size_t max_log_file_size = 4*1048576,
+          size_t keep_log_file_num = 5);
 
     ~Store();
 
