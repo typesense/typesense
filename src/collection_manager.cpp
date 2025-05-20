@@ -726,7 +726,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
             auto coll = get_collection_unsafe(update_ref_info.collection);
             if(coll) {
                 coll->update_reference_field_with_lock(update_ref_info.field, update_ref_info.referenced_field);
-                // We do not we from `referenced_ins` here, because if a referenced collection is dropped and
+                // We do not erase from `referenced_ins` here, because if a referenced collection is dropped and
                 // created again, the referenced field won't be updated in referencing collection.
             }
         }
