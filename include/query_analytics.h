@@ -8,6 +8,17 @@
 #include <shared_mutex>
 #include <set>
 
+struct query_event_t {
+    std::string query;
+    std::string user_id;
+    std::string collection;
+    std::string event_name;
+    uint64_t timestamp;
+    std::string event_type;
+
+    void to_json(nlohmann::json& obj) const;
+};
+
 class QueryAnalytics {
 public:
     struct analytics_meta_t {
@@ -41,17 +52,22 @@ private:
 
     bool expand_query = false;
     bool auto_aggregation_enabled;
+    bool log_to_analytics = false;
+    std::string event_name;
+    std::string collection_name;
+
     // counts aggregated within the current node
     std::unordered_map<analytics_meta_t, uint32_t, analytics_meta_t::Hash> local_counts;
     std::shared_mutex lmutex;
 
     std::unordered_map<std::string, std::vector<analytics_meta_t>> user_prefix_queries;
+    std::unordered_map<std::string, std::vector<query_event_t>> query_events;
     std::shared_mutex umutex;
     std::set<std::string> meta_fields;
 
 public:
 
-    QueryAnalytics(size_t k, bool enable_auto_aggregation = true, const std::set<std::string>& meta_fields = {});
+    QueryAnalytics(size_t k, bool enable_auto_aggregation = true, const std::set<std::string>& meta_fields = {}, bool log_to_analytics = false, const std::string& event_name = "", const std::string& collection_name = "");
 
     void add(const std::string& value, const std::string& expanded_key,
              const bool live_query, const std::string& user_id, uint64_t now_ts_us = 0, const std::string& filter = "",
@@ -60,6 +76,7 @@ public:
     void compact_user_queries(uint64_t now_ts_us);
 
     void serialize_as_docs(std::string& docs);
+    void serialize_as_events(std::string& events);
 
     void reset_local_counts();
 

@@ -133,6 +133,9 @@ private:
     // suggestion collection => nohits queries
     std::unordered_map<std::string, QueryAnalytics*> nohits_queries;
 
+    // collection => query events
+    std::unordered_map<std::string, QueryAnalytics*> query_events;
+
     // collection => popular clicks
     std::unordered_map<std::string, counter_event_t> counter_events;
 
@@ -174,6 +177,7 @@ public:
     static constexpr const char* VISIT_EVENT = "visit";
     static constexpr const char* CUSTOM_EVENT = "custom";
     static constexpr const char* SEARCH_EVENT = "search";
+    static constexpr const char* QUERY_EVENT = "query";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
@@ -200,6 +204,12 @@ public:
     void add_suggestion(const std::string& query_collection,
                         const std::string& query, const std::string& expanded_query,
                         bool live_query, const std::string& user_id, const std::string& filter="", const std::string& tag="");
+
+    void AnalyticsManager::add_query_events(const std::string &query_collection,
+                                      const std::string& query, const std::string& expanded_query,
+                                      const bool live_query, const std::string& user_id, const std::string& filter,
+                                      const std::string& analytics_tag);
+
 
     void stop();
 

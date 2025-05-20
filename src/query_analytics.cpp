@@ -4,8 +4,8 @@
 #include <mutex>
 #include "string_utils.h"
 
-QueryAnalytics::QueryAnalytics(size_t k, bool enable_auto_aggregation, const std::set<std::string>& meta_field_analytics)
-                : k(k), max_size(k * 2), auto_aggregation_enabled(enable_auto_aggregation), meta_fields(meta_field_analytics) {
+QueryAnalytics::QueryAnalytics(size_t k, bool enable_auto_aggregation, const std::set<std::string>& meta_field_analytics, bool log_to_analytics, const std::string& event_name, const std::string& collection_name)
+                : k(k), max_size(k * 2), auto_aggregation_enabled(enable_auto_aggregation), meta_fields(meta_field_analytics), log_to_analytics(log_to_analytics), event_name(event_name), collection_name(collection_name) {
 
 }
 
@@ -41,14 +41,19 @@ void QueryAnalytics::add(const std::string& key, const std::string& expanded_key
             return;
         }
 
-        analytics_meta_t query_meta {key, now_ts_us, filter, tag};
-        auto it = local_counts.find(query_meta);
+        if (log_to_analytics) {
+          query_event_t event {key, user_id, collection_name, event_name, now_ts_us, "query"};
+          query_events[user_id].push_back(event);
+        } else {
+          analytics_meta_t query_meta {key, now_ts_us, filter, tag};
+          auto it = local_counts.find(query_meta);
 
-        if (it != local_counts.end()) {
-            it->second++;
-        } else if (local_counts.size() < max_size && query_meta.query.size() < max_query_length) {
-            // skip count when map has become too large (to prevent abuse)
-            local_counts.emplace(query_meta, 1);
+          if (it != local_counts.end()) {
+              it->second++;
+          } else if (local_counts.size() < max_size && query_meta.query.size() < max_query_length) {
+              // skip count when map has become too large (to prevent abuse)
+              local_counts.emplace(query_meta, 1);
+          }
         }
         lmutex.unlock();
     }
@@ -78,6 +83,21 @@ void QueryAnalytics::serialize_as_docs(std::string& docs) {
     }
 }
 
+void QueryAnalytics::serialize_as_events(std::string& events) {
+    std::shared_lock lk(lmutex);
+
+    nlohmann::json payload = nlohmann::json::array();
+    for (auto& user: query_events) {
+        for (auto& event: user.second) {
+            nlohmann::json doc;
+            event.to_json(doc);
+            payload.push_back(doc);
+        }
+    }
+
+    events = payload.dump();
+}
+
 void QueryAnalytics::reset_local_counts() {
     std::unique_lock lk(lmutex);
     local_counts.clear();
@@ -103,7 +123,7 @@ void QueryAnalytics::compact_user_queries(uint64_t now_ts_us) {
                                    (queries[i + 1].timestamp - queries[i].timestamp);
 
             if(diff_micros > QUERY_FINALIZATION_INTERVAL_MICROS) {
-                add(queries[i].query, queries[i].query, false, "", queries[i].timestamp, queries[i].filter_str, queries[i].tag_str);
+                add(queries[i].query, queries[i].query, false, kv.first, queries[i].timestamp, queries[i].filter_str, queries[i].tag_str);
                 last_consolidated_index = i;
             }
         }
@@ -136,4 +156,13 @@ void QueryAnalytics::set_expand_query(bool expand_query) {
 
 bool QueryAnalytics::is_auto_aggregation_enabled() const {
     return auto_aggregation_enabled;
+}
+
+void query_event_t::to_json(nlohmann::json& obj) const {
+    obj["query"] = query;
+    obj["user_id"] = user_id;
+    obj["collection"] = collection;
+    obj["event_name"] = event_name;
+    obj["timestamp"] = timestamp;
+    obj["event_type"] = event_type;
 }
