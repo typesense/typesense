@@ -86,7 +86,8 @@ Option<std::string> ConversationModel::get_answer(const std::string& context, co
 }
 
 Option<std::string> ConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, const nlohmann::json& model_config,
-                                                        const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res,
+                                                        const std::shared_ptr<http_req>& req, 
+                                                        const std::shared_ptr<http_res>& res,
                                                         const std::string conversation_id) {
 
     const std::string& model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
@@ -486,7 +487,7 @@ bool OpenAIConversationModel::async_res_set_headers_callback(const std::string& 
     return true;
 }
 
-void OpenAIConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+void OpenAIConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return;
@@ -526,7 +527,7 @@ void OpenAIConversationModel::async_res_write_callback(std::string& response, co
     }
 }
 
-bool OpenAIConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+bool OpenAIConversationModel::async_res_done_callback(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return false;
@@ -539,7 +540,7 @@ bool OpenAIConversationModel::async_res_done_callback(const std::shared_ptr<http
 
 Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, 
                                                                 const std::string& system_prompt, const nlohmann::json& model_config,
-                                                                const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+                                                                const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
     const std::string api_key = model_config["api_key"].get<std::string>();
 
@@ -591,9 +592,13 @@ Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string
         std::unordered_map<std::string, std::string> header_;
         header_["x-typesense-api-key"] = HttpClient::get_api_key();
 
-        auto status = HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
+        res->proxied_stream = true;
+        auto status = HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_,
+                                                                   HttpProxy::default_timeout_ms, req, res, server);
     } else {
-        HttpClient::get_instance().post_response_sse(openai_url + openai_path, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
+        res->proxied_stream = true;
+        HttpClient::get_instance().post_response_sse(openai_url + openai_path, req_body.dump(), headers,
+                                                     HttpProxy::default_timeout_ms, req, res, server);
     }
 
     auto& async_conversation = async_conversations[req];
@@ -613,7 +618,6 @@ Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string
         }
         return Option<std::string>(400, "OpenAI API error: " + nlohmann::json::parse(async_conversation.response)["error"]["message"].get<std::string>());
     }
-
 
     return Option<std::string>(async_conversation.response);
 }
@@ -742,7 +746,7 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
 
 Option<std::string> CFConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, 
                                                                 const std::string& system_prompt, const nlohmann::json& model_config,
-                                                                const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+                                                                const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
     const std::string api_key = model_config["api_key"].get<std::string>();
     const std::string account_id = model_config["account_id"].get<std::string>();
@@ -952,7 +956,7 @@ bool CFConversationModel::async_res_set_headers_callback(const std::string& resp
     return true;
 }
 
-void CFConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+void CFConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return;
@@ -992,7 +996,7 @@ void CFConversationModel::async_res_write_callback(std::string& response, const 
     }
 }
 
-bool CFConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+bool CFConversationModel::async_res_done_callback(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return false;
@@ -1166,7 +1170,7 @@ Option<std::string> vLLMConversationModel::get_answer(const std::string& context
 
 Option<std::string> vLLMConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, 
                                                             const std::string& system_prompt, const nlohmann::json& model_config,
-                                                            const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+                                                            const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
     const std::string vllm_url = model_config["vllm_url"].get<std::string>();
 
@@ -1360,7 +1364,7 @@ bool vLLMConversationModel::async_res_set_headers_callback(const std::string& re
     return true;
 }
 
-void vLLMConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+void vLLMConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return;
@@ -1400,7 +1404,7 @@ void vLLMConversationModel::async_res_write_callback(std::string& response, cons
     }
 }
 
-bool vLLMConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+bool vLLMConversationModel::async_res_done_callback(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return false;
@@ -1559,7 +1563,7 @@ Option<nlohmann::json> GeminiConversationModel::format_answer(const std::string&
 }
 
 Option<std::string> GeminiConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, const std::string& system_prompt, const nlohmann::json& model_config,
-                                                                const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+                                                                const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto get_gemini_url_op = GeminiConversationModel::get_gemini_url(model_config, true);
     if(!get_gemini_url_op.ok()) {
         return Option<std::string>(get_gemini_url_op.code(), get_gemini_url_op.error());
@@ -1645,7 +1649,7 @@ bool GeminiConversationModel::async_res_set_headers_callback(const std::string& 
     return true;
 }
 
-void GeminiConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+void GeminiConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return;
@@ -1692,7 +1696,7 @@ void GeminiConversationModel::async_res_write_callback(std::string& response, co
     }
 }
 
-bool GeminiConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+bool GeminiConversationModel::async_res_done_callback(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return false;
@@ -1967,7 +1971,7 @@ bool AzureConversationModel::async_res_set_headers_callback(const std::string& r
     return true;
 }
 
-void AzureConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+void AzureConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return;
@@ -2070,7 +2074,7 @@ void AzureConversationModel::async_res_write_callback(std::string& response, con
 }
 
 
-bool AzureConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+bool AzureConversationModel::async_res_done_callback(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return false;

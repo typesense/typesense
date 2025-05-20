@@ -119,6 +119,7 @@ bool HttpProxy::call_sse(const std::string& url, const std::string& method,
     key = StringUtils::hash_combine(key, StringUtils::hash_wy(method.c_str(), method.size()));
     key = StringUtils::hash_combine(key, StringUtils::hash_wy(req_body.c_str(), req_body.size()));
 
+    res->proxied_stream = true;
     res->status_code =  client.post_response_sse(url, req_body, req_headers, timeout_ms, req, res, server);
     if(res->status_code != 200){
         return false;
