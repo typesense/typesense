@@ -485,7 +485,7 @@ nlohmann::json NaturalLanguageSearchModelManager::build_generated_params(const s
     return generated_params;
 }
 
-void NaturalLanguageSearchModelManager::add_nl_query_data_to_results(nlohmann::json& results_json, const std::map<std::string, std::string>* req_params, uint64_t nl_processing_time_ms) {
+void NaturalLanguageSearchModelManager::add_nl_query_data_to_results(nlohmann::json& results_json, const std::map<std::string, std::string>* req_params, uint64_t nl_processing_time_ms, bool error) {
 
     if (req_params == nullptr) {
         return;
@@ -503,7 +503,7 @@ void NaturalLanguageSearchModelManager::add_nl_query_data_to_results(nlohmann::j
         return;
     }
 
-    if (!results_json.contains("request_params")) {
+    if (!results_json.contains("request_params") && !error) {
         results_json["request_params"] = nlohmann::json::object();
     }
 
@@ -511,7 +511,7 @@ void NaturalLanguageSearchModelManager::add_nl_query_data_to_results(nlohmann::j
     if (it == req_params->end()) {
         it = req_params->find("nl_query");
     }
-    if (it != req_params->end()) {
+    if (it != req_params->end() && !error) {
         results_json["request_params"]["nl_query"] = it->second;
     }
 

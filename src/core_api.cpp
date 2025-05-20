@@ -772,8 +772,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
     if(!search_op.ok()) {
         nlohmann::json error_json;
-        NaturalLanguageSearchModelManager::add_nl_query_data_to_results(error_json, &(req->params), nl_search_time_ms);
-        error_json.erase("request_params");
+        NaturalLanguageSearchModelManager::add_nl_query_data_to_results(error_json, &(req->params), nl_search_time_ms, true);
         error_json["message"] = search_op.error();
         res->set_body(search_op.code(), error_json.dump());
         if(search_op.code() == 408) {
@@ -1086,8 +1085,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 nlohmann::json err_res;
                 err_res["error"] = search_op.error();
                 err_res["code"] = search_op.code();
-                NaturalLanguageSearchModelManager::add_nl_query_data_to_results(err_res, &(req->params), nl_processing_time_ms);
-                err_res.erase("request_params");
+                NaturalLanguageSearchModelManager::add_nl_query_data_to_results(err_res, &(req->params), nl_processing_time_ms, true);
                 response["results"].push_back(err_res);
             }
         }

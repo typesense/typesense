@@ -33,7 +33,7 @@ public:
     static bool has_cached_schema_prompt(const std::string& collection_name);
     
     static Option<uint64_t> process_nl_query_and_augment_params(std::map<std::string, std::string>& req_params, uint64_t schema_prompt_ttl_seconds = DEFAULT_SCHEMA_PROMPT_TTL_SEC);
-    static void add_nl_query_data_to_results(nlohmann::json& results_json, const std::map<std::string, std::string>* req_params, uint64_t nl_processing_time_ms);
+    static void add_nl_query_data_to_results(nlohmann::json& results_json, const std::map<std::string, std::string>* req_params, uint64_t nl_processing_time_ms, bool error = false);
     static Option<nlohmann::json> process_natural_language_query(
         const std::string& nl_query, 
         const std::string& collection_name, 
