@@ -213,7 +213,7 @@ public:
         this->db_keep_log_file_num = val;
     }
 
-    void set_concurrency(uint32_t val) {
+    void set_max_indexing_concurrency(uint32_t val) {
         this->max_indexing_concurrency = val;
     }
 
