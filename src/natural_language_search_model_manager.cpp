@@ -513,6 +513,9 @@ void NaturalLanguageSearchModelManager::add_nl_query_data_to_results(nlohmann::j
     }
     if (it != req_params->end() && !error) {
         results_json["request_params"]["nl_query"] = it->second;
+        if (results_json.contains("search_time_ms")) {
+            results_json["search_time_ms"] = results_json["search_time_ms"].get<uint64_t>() + nl_processing_time_ms;
+        }
     }
 
     nlohmann::json parsed_nl_query = nlohmann::json::object();
