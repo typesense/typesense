@@ -585,7 +585,7 @@ size_t Index::batch_memory_index(Index *index,
                                  const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
                                  const std::string& collection_name,
                                  const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
-    const size_t concurrency = 4;
+    const size_t concurrency = Config::get_instance().get_max_indexing_concurrency();
     const size_t num_threads = std::min(concurrency, iter_batch.size());
     const size_t window_size = (num_threads == 0) ? 0 :
                                (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
