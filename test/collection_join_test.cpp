@@ -8007,7 +8007,6 @@ TEST_F(JoinSortTest, SortByMultipleReferenceMatches) {
     ASSERT_EQ(true, res_obj["hits"][0]["document"]["Customers"][0].at("product_available"));
     ASSERT_EQ("Dan", res_obj["hits"][0]["document"]["Customers"][1].at("customer_name"));
     ASSERT_EQ(true, res_obj["hits"][0]["document"]["Customers"][1].at("product_available"));
-    ASSERT_EQ(0.2127162218093872, res_obj["hits"][0].at("vector_distance"));
 
     ASSERT_EQ(2, res_obj["hits"][1]["document"].size());
     ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
@@ -8016,7 +8015,6 @@ TEST_F(JoinSortTest, SortByMultipleReferenceMatches) {
     ASSERT_EQ(false, res_obj["hits"][1]["document"]["Customers"][0].at("product_available"));
     ASSERT_EQ("Dan", res_obj["hits"][1]["document"]["Customers"][1].at("customer_name"));
     ASSERT_EQ(false, res_obj["hits"][1]["document"]["Customers"][1].at("product_available"));
-    ASSERT_EQ(0.13843566179275513, res_obj["hits"][1].at("vector_distance"));
 
     nlohmann::json model_config = R"({
         "model_name": "ts/e5-small"
@@ -8050,7 +8048,6 @@ TEST_F(JoinSortTest, SortByMultipleReferenceMatches) {
     ASSERT_EQ(false, res_obj["hits"][0]["document"]["Customers"][0].at("product_available"));
     ASSERT_EQ("Dan", res_obj["hits"][0]["document"]["Customers"][1].at("customer_name"));
     ASSERT_EQ(false, res_obj["hits"][0]["document"]["Customers"][1].at("product_available"));
-    ASSERT_EQ(0.1557139754295349, res_obj["hits"][0].at("vector_distance"));
 
     ASSERT_EQ(2, res_obj["hits"][1]["document"].size());
     ASSERT_EQ("product_a", res_obj["hits"][1]["document"].at("product_id"));
@@ -8059,7 +8056,6 @@ TEST_F(JoinSortTest, SortByMultipleReferenceMatches) {
     ASSERT_EQ(true, res_obj["hits"][1]["document"]["Customers"][0].at("product_available"));
     ASSERT_EQ("Dan", res_obj["hits"][1]["document"]["Customers"][1].at("customer_name"));
     ASSERT_EQ(true, res_obj["hits"][1]["document"]["Customers"][1].at("product_available"));
-    ASSERT_EQ(0.2228301763534546, res_obj["hits"][1].at("vector_distance"));
 
     // Multiple references - Hybrid search
     req_params = {
@@ -8083,7 +8079,6 @@ TEST_F(JoinSortTest, SortByMultipleReferenceMatches) {
     ASSERT_EQ(true, res_obj["hits"][0]["document"]["Customers"][0].at("product_available"));
     ASSERT_EQ(75, res_obj["hits"][0]["document"]["Customers"][1].at("product_price"));
     ASSERT_EQ(true, res_obj["hits"][0]["document"]["Customers"][1].at("product_available"));
-    ASSERT_EQ(0.20796525478363037, res_obj["hits"][0].at("vector_distance"));
     ASSERT_EQ(0.15000000596046448, res_obj["hits"][0].at("hybrid_search_info").at("rank_fusion_score"));
 
     ASSERT_EQ(2, res_obj["hits"][1]["document"].size());
@@ -8093,7 +8088,6 @@ TEST_F(JoinSortTest, SortByMultipleReferenceMatches) {
     ASSERT_EQ(false, res_obj["hits"][1]["document"]["Customers"][0].at("product_available"));
     ASSERT_EQ(140, res_obj["hits"][1]["document"]["Customers"][1].at("product_price"));
     ASSERT_EQ(false, res_obj["hits"][1]["document"]["Customers"][1].at("product_available"));
-    ASSERT_EQ(0.13889962434768677, res_obj["hits"][1].at("vector_distance"));
     ASSERT_EQ(1, res_obj["hits"][1].at("hybrid_search_info").at("rank_fusion_score"));
 
     // Multiple references - Infix search

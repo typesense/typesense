@@ -9,7 +9,7 @@
 #include "string_utils.h"
 
 
-const std::string get_model_namespace(const std::string& model_name) {
+static const std::string get_model_namespace(const std::string& model_name) {
     if(model_name.find("/") != std::string::npos) {
         return model_name.substr(0, model_name.find("/"));
     } else {
