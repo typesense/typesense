@@ -97,7 +97,7 @@ private:
 
     uint32_t db_keep_log_file_num;
 
-    uint32_t concurrency;
+    uint32_t max_indexing_concurrency;
 
 protected:
 
@@ -149,7 +149,7 @@ protected:
 
         this->db_keep_log_file_num = 5;
 
-        this->concurrency = 4;
+        this->max_indexing_concurrency = 4;
     }
 
     Config(Config const&) {
@@ -214,7 +214,7 @@ public:
     }
 
     void set_concurrency(uint32_t val) {
-        this->concurrency = val;
+        this->max_indexing_concurrency = val;
     }
 
     // @deprecated
@@ -515,8 +515,8 @@ public:
         return this->db_keep_log_file_num;
     }
 
-    uint32_t get_concurrency() const {
-        return this->concurrency;
+    uint32_t get_max_indexing_concurrency() const {
+        return this->max_indexing_concurrency;
     }
 
     // loaders

@@ -533,8 +533,8 @@ void Config::load_config_file(cmdline::parser& options) {
         this->db_write_buffer_size = (size_t) reader.GetInteger("server", "db-keep-log-file-num", 5);
     }
 
-    if(reader.Exists("server", "concurrency")) {
-        this->concurrency = reader.GetInteger("server", "concurrency", 4);
+    if(reader.Exists("server", "max-indexing-concurrency")) {
+        this->max_indexing_concurrency = reader.GetInteger("server", "max-indexing-concurrency", 4);
     }
 }
 
@@ -749,8 +749,8 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
         this->db_write_buffer_size = options.get<uint32_t>("db-keep-log-file-num");
     }
 
-    if(options.exist("concurrency")) {
-        this->concurrency = options.get<uint32_t>("concurrency");
+    if(options.exist("max-indexing-concurrency")) {
+        this->max_indexing_concurrency = options.get<uint32_t>("max-indexing-concurrency");
     }
 }
 
