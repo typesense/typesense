@@ -22,6 +22,8 @@
 #include "conversation_model.h"
 #include "personalization_model_manager.h"
 #include "sole.hpp"
+#include "natural_language_search_model_manager.h"
+#include "natural_language_search_model.h"
 
 using namespace std::chrono_literals;
 
@@ -356,6 +358,8 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         }
         // without this line, response will return full api key without being masked
         req_json["fields"] = alter_payload["fields"];
+
+        NaturalLanguageSearchModelManager::clear_schema_prompt(req->params["collection"]);
     }
 
     res->set_200(req_json.dump());
@@ -368,6 +372,10 @@ bool del_drop_collection(const std::shared_ptr<http_req>& req, const std::shared
     if(req->params.count("compact_store") != 0) {
         compact_store = (req->params["compact_store"] == "true");
     }
+
+    // Clear schema prompt cache for this collection before dropping it
+    NaturalLanguageSearchModelManager::clear_schema_prompt(req->params["collection"]);
+    LOG(INFO) << "Invalidated schema prompt cache for collection: " << req->params["collection"];
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Option<nlohmann::json> drop_op = collectionManager.drop_collection(req->params["collection"], true, compact_store);
@@ -640,6 +648,14 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         req->params["q"] = query;
     }
 
+    uint64_t prompt_cache_ttl = NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC;
+    if(req->params.count("nl_query_prompt_cache_ttl") && StringUtils::is_uint64_t(req->params["nl_query_prompt_cache_ttl"])) {
+        prompt_cache_ttl = std::stoull(req->params["nl_query_prompt_cache_ttl"]);
+    }
+
+    auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req->params, prompt_cache_ttl);
+    uint64_t nl_search_time_ms = nl_search_op.ok() ? nl_search_op.get() : 0;
+
     std::string results_json_str;
     Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0],
                                                           results_json_str, req->conn_ts);
@@ -664,7 +680,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
             return false;
         }
         auto min_required_bytes = min_required_bytes_op.get();
-        if(conversation_model["max_bytes"].get<size_t>() < min_required_bytes + query.size()) { 
+        if(conversation_model["max_bytes"].get<size_t>() < min_required_bytes + query.size()) {
             res->set_400("`max_bytes` of the conversation model is less than the minimum required bytes(" + std::to_string(min_required_bytes) + ").");
             res->final = true;
             stream_response(req, res);
@@ -734,7 +750,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
             return false;
         }
         auto new_conversation = new_conversation_op.get();
-        
+
         auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation, conversation_model, conversation_id, !conversation_id_created_in_advance);
         if(!add_conversation_op.ok()) {
             res->status_code = add_conversation_op.code();
@@ -758,7 +774,10 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     }
 
     if(!search_op.ok()) {
-        res->set(search_op.code(), search_op.error());
+        nlohmann::json error_json;
+        NaturalLanguageSearchModelManager::add_nl_query_data_to_results(error_json, &(req->params), nl_search_time_ms, true);
+        error_json["message"] = search_op.error();
+        res->set_body(search_op.code(), error_json.dump());
         if(search_op.code() == 408) {
             req->overloaded = true;
         }
@@ -767,11 +786,16 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         return false;
     }
 
-    
+
     // if the response is an event stream, we need to add the data: prefix
     if(conversation_stream) {
         results_json_str = "data: " + results_json_str + "\n\n";
     }
+
+    nlohmann::json results_json = nlohmann::json::parse(results_json_str);
+    NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &(req->params), nl_search_time_ms);
+    results_json_str = results_json.dump();
+
     res->set_200(results_json_str);
     res->final = true;
     stream_response(req, res);
@@ -1024,21 +1048,36 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
             auto validate_op = multi_search_validate_and_add_params(req->params, search_params, conversation);
             if (!validate_op.ok()) {
+                LOG(ERROR) << "multi_search parameter validation failed: " << validate_op.error()
+                          << " with code: " << validate_op.code();
+                // Log the problematic search parameters
+                LOG(ERROR) << "Problematic search parameters: " << search_params.dump();
                 res->set_400(validate_op.error());
                 res->final = true;
                 stream_response(req, res);
                 return false;
             }
 
+            uint64_t prompt_cache_ttl = NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC;
+            if(req->params.count("nl_query_prompt_cache_ttl") && StringUtils::is_uint64_t(req->params["nl_query_prompt_cache_ttl"])) {
+                prompt_cache_ttl = std::stoull(req->params["nl_query_prompt_cache_ttl"]);
+            }
+
+            auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req->params, prompt_cache_ttl);
+
             std::string results_json_str;
             Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i],
                                                                   results_json_str, req->conn_ts);
 
+            auto nl_processing_time_ms = nl_search_op.ok() ? nl_search_op.get() : 0;
             if(search_op.ok()) {
                 auto results_json = nlohmann::json::parse(results_json_str);
                 if(conversation) {
                     results_json["request_params"]["q"] = common_query;
                 }
+
+                NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &(req->params), nl_processing_time_ms);
+
                 response["results"].push_back(results_json);
             } else {
                 if(search_op.code() == 408) {
@@ -1051,6 +1090,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 nlohmann::json err_res;
                 err_res["error"] = search_op.error();
                 err_res["code"] = search_op.code();
+                NaturalLanguageSearchModelManager::add_nl_query_data_to_results(err_res, &(req->params), nl_processing_time_ms, true);
                 response["results"].push_back(err_res);
             }
         }
@@ -1168,7 +1208,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         response["conversation"] = nlohmann::json::object();
         response["conversation"]["query"] = common_query;
         response["conversation"]["answer"] = answer_op.get();
-        
+
         // do not send conversation id as param if streaming, because it is just created in advance for streaming
         auto conversation_history_op = ConversationManager::get_instance().get_full_conversation(common_query, answer_op.get(), conversation_model, conversation_id_created_in_advance ? "" : conversation_id);
         if(!conversation_history_op.ok()) {
@@ -2015,7 +2055,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         if (req->params.count(RETURN_DOC) != 0 && req->params[RETURN_DOC] == "true") {
             deletion_state->return_doc = true;
         }
-        
+
         if (req->params.count(RETURN_ID) != 0 && req->params[RETURN_ID] == "true") {
             deletion_state->return_id = true;
         }
@@ -2062,15 +2102,15 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
             res->final = false;
         } else {
             response["num_deleted"] = deletion_state->num_removed;
-            
+
             if (deletion_state->return_doc && !deletion_state->removed_docs.empty()) {
                 response["documents"] = deletion_state->removed_docs;
             }
-            
+
             if (deletion_state->return_id && !deletion_state->removed_ids.empty()) {
                 response["ids"] = deletion_state->removed_ids;
             }
-            
+
             req->last_chunk_aggregate = true;
             res->body = response.dump();
             res->final = true;
@@ -3682,7 +3722,7 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
         return false;
     }
 
-    try {        
+    try {
         if(req_json.count("body") != 0 && !req_json["body"].is_string()) {
             res->set_400("Body must be a string.");
             res->final = true;
@@ -3712,4 +3752,121 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     }
 
     return proxy.call_sse(url, method, body, headers, req, res);
+}
+
+bool get_nl_search_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto models_op = NaturalLanguageSearchModelManager::get_all_models();
+
+    if(!models_op.ok()) {
+        res->set(models_op.code(), models_op.error());
+        return false;
+    }
+
+    auto models = models_op.get();
+
+     for(auto& model: models) {
+         Collection::hide_credential(model, "api_key");
+     }
+
+    res->set_200(models.dump());
+    return true;
+}
+
+bool get_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+
+    auto model_op = NaturalLanguageSearchModelManager::get_model(model_id);
+
+    if(!model_op.ok()) {
+        res->set(model_op.code(), model_op.error());
+        return false;
+    }
+
+    auto model = model_op.get();
+    Collection::hide_credential(model, "api_key");
+
+    res->set_200(model.dump());
+    return true;
+}
+
+bool post_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json model_json;
+
+    try {
+        model_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    if(!model_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    std::string model_id = req->metadata;
+
+    auto add_model_op = NaturalLanguageSearchModelManager::add_model(model_json, model_id, true);
+
+    if(!add_model_op.ok()) {
+        res->set(add_model_op.code(), add_model_op.error());
+        return false;
+    }
+
+    Collection::hide_credential(model_json, "api_key");
+
+    res->set_200(model_json.dump());
+    return true;
+}
+
+bool put_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    if(!req_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto model_op = NaturalLanguageSearchModelManager::update_model(model_id, req_json);
+
+    if(!model_op.ok()) {
+        res->set(model_op.code(), model_op.error());
+        return false;
+    }
+
+    auto model = model_op.get();
+
+    Collection::hide_credential(model, "api_key");
+
+    res->set_200(model.dump());
+    return true;
+}
+
+bool delete_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& model_id = req->params["id"];
+
+    auto model_op = NaturalLanguageSearchModelManager::delete_model(model_id);
+
+    if(!model_op.ok()) {
+        res->set(model_op.code(), model_op.error());
+        return false;
+    }
+
+    auto model = model_op.get();
+
+    Collection::hide_credential(model, "api_key");
+
+    res->set_200(model.dump());
+    return true;
 }

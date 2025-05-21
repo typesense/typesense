@@ -2168,3 +2168,14 @@ Option<nlohmann::json> CollectionManager::get_collection_alter_status() const {
 
     return Option<nlohmann::json>(collection_alter_status);
 }
+
+void CollectionManager::remove_internal_fields(std::map<std::string, std::string>& params) {
+    auto it = params.begin();
+    while (it != params.end()) {
+        if (!it->first.empty() && it->first[0] == '_') {
+            it = params.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
