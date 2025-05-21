@@ -293,6 +293,26 @@ void Config::load_config_env() {
     if(!get_env("TYPESENSE_ANALYTICS_MINUTE_RATE_LIMIT").empty()) {
         this->analytics_minute_rate_limit = std::stoi(get_env("TYPESENSE_ANALYTICS_MINUTE_RATE_LIMIT"));
     }
+
+    if(!get_env("TYPESENSE_DB_WRITE_BUFFER_SIZE").empty()) {
+        this->db_write_buffer_size = std::stoi(get_env("TYPESENSE_DB_WRITE_BUFFER_SIZE"));
+    }
+
+    if(!get_env("TYPESENSE_DB_MAX_WRITE_BUFFER_NUMBER").empty()) {
+        this->db_max_write_buffer_number = std::stoi(get_env("TYPESENSE_DB_MAX_WRITE_BUFFER_NUMBER"));
+    }
+
+    if(!get_env("TYPESENSE_DB_MAX_LOG_FILE_SIZE").empty()) {
+        this->db_max_log_file_size = std::stoi(get_env("TYPESENSE_DB_MAX_LOG_FILE_SIZE"));
+    }
+
+    if(!get_env("TYPESENSE_DB_KEEP_LOG_FILE_NUM").empty()) {
+        this->db_keep_log_file_num = std::stoi(get_env("TYPESENSE_DB_KEEP_LOG_FILE_NUM"));
+    }
+
+    if(!get_env("TYPESENSE_MAX_INDEXING_CONCURRENCY").empty()) {
+        this->max_indexing_concurrency = std::stoi(get_env("TYPESENSE_MAX_INDEXING_CONCURRENCY"));
+    }
 }
 
 void Config::load_config_file(cmdline::parser& options) {
