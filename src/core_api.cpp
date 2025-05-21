@@ -356,6 +356,7 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
             res->set(alter_op.code(), alter_op.error());
             return false;
         }
+        // without this line, response will return full api key without being masked
         req_json["fields"] = alter_payload["fields"];
 
         NaturalLanguageSearchModelManager::clear_schema_prompt(req->params["collection"]);

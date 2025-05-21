@@ -333,85 +333,85 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
     auto start_time = std::chrono::high_resolution_clock::now();
 
     if(req_params.count("nl_query") != 0) {
-      nl_query = req_params["nl_query"];
-      has_nl_query = true;
-  }
+        nl_query = req_params["nl_query"];
+        has_nl_query = true;
+    }
 
-  if (!has_nl_query) {
-      return Option<uint64_t>(400, "No nl_query found in either URL parameters or JSON body");
-  }
+    if (!has_nl_query) {
+        return Option<uint64_t>(400, "No nl_query found in either URL parameters or JSON body");
+    }
 
-  std::string collection_name = req_params.at("collection");
+    std::string collection_name = req_params.at("collection");
 
-  auto params_op = process_natural_language_query(
-      nl_query,
-      collection_name,
-      req_params.count("nl_model_id") > 0 ? req_params.at("nl_model_id") : "default",
-      schema_prompt_ttl_seconds
-  );
+    auto params_op = process_natural_language_query(
+        nl_query,
+        collection_name,
+        req_params.count("nl_model_id") > 0 ? req_params.at("nl_model_id") : "default",
+        schema_prompt_ttl_seconds
+    );
 
-  if(!params_op.ok()) {
-      req_params["error"] = params_op.error();
-      req_params["_nl_processing_failed"] = "true";
+    if(!params_op.ok()) {
+        req_params["error"] = params_op.error();
+        req_params["_nl_processing_failed"] = "true";
 
-      if(req_params.count("q") == 0 || req_params["q"].empty()) {
-          req_params["q"] = nl_query;
-          req_params["_fallback_q_used"] = "true";
-      }
+        if(req_params.count("q") == 0 || req_params["q"].empty()) {
+            req_params["q"] = nl_query;
+            req_params["_fallback_q_used"] = "true";
+        }
 
-      return Option<uint64_t>(400, params_op.error());
-  }
+        return Option<uint64_t>(400, params_op.error());
+    }
 
-  nlohmann::json generated_params = params_op.get();
-  nlohmann::json _llm_generated_params = nlohmann::json::array();
+    nlohmann::json generated_params = params_op.get();
+    nlohmann::json _llm_generated_params = nlohmann::json::array();
 
-  for(auto& param : generated_params.items()) {
-      if(param.key() == "q") {
-          _llm_generated_params.push_back("q");
-          req_params["q"] = param.value();
-      } else if(param.key() == "filter_by") {
-          _llm_generated_params.push_back("filter_by");
-          req_params["_original_llm_filter_by"] = param.value();
-          req_params["llm_generated_filter_by"] = param.value();
+    for(auto& param : generated_params.items()) {
+        if(param.key() == "q") {
+            _llm_generated_params.push_back("q");
+            req_params["q"] = param.value();
+        } else if(param.key() == "filter_by") {
+            _llm_generated_params.push_back("filter_by");
+            req_params["_original_llm_filter_by"] = param.value();
+            req_params["llm_generated_filter_by"] = param.value();
 
-          if(req_params.count("filter_by") != 0 && !req_params["filter_by"].empty()) {
-              std::string existing_filter = req_params["filter_by"];
-              std::string generated_filter = param.value().get<std::string>();
+            if(req_params.count("filter_by") != 0 && !req_params["filter_by"].empty()) {
+                std::string existing_filter = req_params["filter_by"];
+                std::string generated_filter = param.value().get<std::string>();
 
-              StringUtils::trim(existing_filter);
-              StringUtils::trim(generated_filter);
+                StringUtils::trim(existing_filter);
+                StringUtils::trim(generated_filter);
 
-              if(!existing_filter.empty() && !generated_filter.empty()) {
-                  req_params["filter_by"] = existing_filter + " && " + generated_filter;
-              } else if(!existing_filter.empty()) {
-                  req_params["filter_by"] = existing_filter;
-              } else if(!generated_filter.empty()) {
-                  req_params["filter_by"] = generated_filter;
-              } else {
-                  req_params["filter_by"] = "";
-              }
-          } else {
-              req_params["filter_by"] = param.value();
-          }
-      } else if(param.key() == "sort_by") {
-          req_params["sort_by"] = param.value();
-          _llm_generated_params.push_back("sort_by");
-      } else if(param.key() != "llm_response") {
-          req_params[param.key()] = param.value();
-          _llm_generated_params.push_back(param.key());
-      }
-  }
+                if(!existing_filter.empty() && !generated_filter.empty()) {
+                    req_params["filter_by"] = existing_filter + " && " + generated_filter;
+                } else if(!existing_filter.empty()) {
+                    req_params["filter_by"] = existing_filter;
+                } else if(!generated_filter.empty()) {
+                    req_params["filter_by"] = generated_filter;
+                } else {
+                    req_params["filter_by"] = "";
+                }
+            } else {
+                req_params["filter_by"] = param.value();
+            }
+        } else if(param.key() == "sort_by") {
+            req_params["sort_by"] = param.value();
+            _llm_generated_params.push_back("sort_by");
+        } else if(param.key() != "llm_response") {
+            req_params[param.key()] = param.value();
+            _llm_generated_params.push_back(param.key());
+        }
+    }
 
-  req_params["processed_by_nl_model"] = "true";
+    req_params["processed_by_nl_model"] = "true";
 
-  if(generated_params.count("llm_response") != 0) {
-      req_params["llm_response_str"] = generated_params["llm_response"].dump();
-      req_params["_llm_generated_params"] = _llm_generated_params.dump();
-  }
+    if(generated_params.count("llm_response") != 0) {
+        req_params["llm_response_str"] = generated_params["llm_response"].dump();
+        req_params["_llm_generated_params"] = _llm_generated_params.dump();
+    }
 
-  auto end_time = std::chrono::high_resolution_clock::now();
-  uint64_t processing_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-  return Option<uint64_t>(processing_time_ms);
+    auto end_time = std::chrono::high_resolution_clock::now();
+    uint64_t processing_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    return Option<uint64_t>(processing_time_ms);
 }
 
 nlohmann::json NaturalLanguageSearchModelManager::build_augmented_params(const std::map<std::string, std::string>* req_params) {
