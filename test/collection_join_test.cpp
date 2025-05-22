@@ -10065,7 +10065,7 @@ TEST_F(JoinQueryTest, ErrorHandling) {
               search_op.error());
 }
 
-// weights, stemming, exclude tokens
+// todo: weights, stemming, exclude tokens, phrase search, synonym_index->synonym_reduction
 TEST_F(JoinQueryTest, Search) {
     setupBooksAndAuthorsCollection();
 

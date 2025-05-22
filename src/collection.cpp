@@ -1891,11 +1891,21 @@ Option<bool> Collection::process_search_fields_with_lock(const std::vector<std::
                                                          const std::vector<uint32_t>& raw_query_by_weights,
                                                          const std::vector<uint32_t>& num_typos, const std::vector<enable_t>& infixes,
                                                          std::vector<search_field_t>& processed_search_fields,
-                                                         std::vector<uint32_t>& query_by_weights) const {
+                                                         std::vector<uint32_t>& query_by_weights,
+                                                         const std::string& calling_collection_name) const {
     std::shared_lock lock(mutex);
-    return process_search_fields(raw_search_fields, validate_field_names, ignored_missing_fields, num_embed_fields,
-                                 vector_query, query, remote_embedding_timeout_ms, prefixes, remote_embedding_num_tries,
-                                 raw_query_by_weights, num_typos, infixes, processed_search_fields, query_by_weights);
+    auto op = process_search_fields(raw_search_fields, validate_field_names, ignored_missing_fields, num_embed_fields,
+                                    vector_query, query, remote_embedding_timeout_ms, prefixes, remote_embedding_num_tries,
+                                    raw_query_by_weights, num_typos, infixes, processed_search_fields, query_by_weights);
+    if (!op.ok()) {
+        return op;
+    }
+
+    const auto it = referenced_in.find(calling_collection_name);
+    if (it != referenced_in.end()) {
+        processed_search_fields.back().ref_info = base_reference_info_t(it->first, it->second);
+    }
+    return op;
 }
 
 Option<bool> Collection::process_search_fields(const std::vector<std::string>& raw_search_fields,
@@ -1943,13 +1953,18 @@ Option<bool> Collection::process_search_fields(const std::vector<std::string>& r
                                                                                          raw_query_by_weights, num_typos,
                                                                                          // todo: ... infixes
                                                                                          infixes, processed_search_fields,
-                                                                                         query_by_weights);
+                                                                                         query_by_weights, name);
                 if (!process_op.ok()) {
                     return Option<bool>(process_op.code(), "Error while processing `" + ref_collection_name +
                                                             "` collection's query_by: " + process_op.error());
                 }
 
                 processed_search_fields.back().referenced_collection_name = ref_collection_name;
+
+                const auto it = referenced_in.find(ref_collection_name);
+                if (it != referenced_in.end()) {
+                    processed_search_fields.back().ref_info = base_reference_info_t(it->first, it->second);
+                }
                 continue;
             }
         }
@@ -8681,10 +8696,20 @@ Option<art_tree*> Collection::get_art_tree_with_lock(const std::string& field_na
 }
 
 std::unique_ptr<posting_list_t::ref_iterator_t> Collection::get_ref_iterator(const std::string& referencing_collection_name,
-                                                                             const std::string& field_name,
+                                                                             const std::string& query_field_name,
                                                                              const std::string& token_str,
-                                                                             uint32_t field_id) const {
+                                                                             uint32_t field_id,
+                                                                             const std::string& reference_field_name) const {
     std::shared_lock lock(mutex);
+    return index->get_ref_iterator(referencing_collection_name, query_field_name, token_str, field_id,
+                                   reference_field_name);
+}
 
-    return index->get_ref_iterator(referencing_collection_name, field_name, token_str, field_id);
+std::unique_ptr<posting_list_t::iterator_t> Collection::get_posting_iterator(const std::string& field_name,
+                                                                             const std::string& token,
+                                                                             const uint32_t& field_id,
+                                                                             std::vector<posting_list_t*>& expanded_plists,
+                                                                             art_leaf*& leaf) const {
+    std::shared_lock lock(mutex);
+    return index->get_posting_iterator(field_name, token, field_id, expanded_plists, leaf);
 }

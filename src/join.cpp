@@ -1677,3 +1677,66 @@ void Join::process_related_ids(std::vector<std::pair<uint32_t, uint32_t>> id_pai
         reference_result[ref_collection_name] = std::move(r);
     }
 }
+
+void Join::get_ref_field_token_its(const std::string& collection_name, const search_field_t& search_field,
+                                   const size_t& field_id, const std::string& token_str,
+                                   const spp::sparse_hash_map<std::string, num_tree_t*>& numerical_index,
+                                   std::vector<art_leaf*>& query_suggestion,
+                                   std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& its,
+                                   std::vector<posting_list_t*>& expanded_plists) {
+    // Reference field is not present in the collection that's being queried.
+    if (collection_name != search_field.ref_info.collection) {
+        auto ref_iterator_ptr = CollectionManager::get_ref_iterator(collection_name,
+                                                                    search_field.referenced_collection_name,
+                                                                    search_field.str_name, token_str, field_id,
+                                                                    search_field.ref_info.field);
+        if (ref_iterator_ptr == nullptr) {
+            return;
+        }
+        if (ref_iterator_ptr->leaf != nullptr) {
+            query_suggestion.push_back(ref_iterator_ptr->leaf);
+        }
+
+        its.push_back(std::move(ref_iterator_ptr));
+
+        return;
+    }
+
+    art_leaf* leaf = nullptr;
+    // Collection being queried has the reference field.
+    auto itr = CollectionManager::get_posting_iterator(search_field.referenced_collection_name,
+                                                       search_field.name, token_str, field_id,
+                                                       expanded_plists, leaf);
+    if (itr == nullptr) {
+        return;
+    }
+
+    auto const reference_helper_field_name = search_field.ref_info.field + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+    if (numerical_index.count(reference_helper_field_name) == 0) {
+        return;
+    }
+    auto& ref_index = *numerical_index.at(reference_helper_field_name);
+
+    // Collect all the doc ids from the reference ids.
+    std::vector<std::pair<uint32_t, uint32_t>> id_pairs;
+    std::set<uint32_t> unique_doc_ids;
+
+    while (itr->valid()) {
+        const auto& reference_doc_id = itr->id();
+        Join::get_ref_index_ids(ref_index, reference_doc_id, id_pairs, unique_doc_ids, true);
+        itr->next();
+    }
+
+    filter_result_t filter_result;
+    Join::process_related_ids(id_pairs, unique_doc_ids.size(), search_field.referenced_collection_name, filter_result);
+
+    if (filter_result.count == 0) {
+        return;
+    }
+
+    if (leaf != nullptr) {
+        query_suggestion.push_back(leaf);
+    }
+
+    its.push_back(std::make_unique<posting_list_t::ref_iterator_t>(std::move(filter_result), leaf, field_id));
+}

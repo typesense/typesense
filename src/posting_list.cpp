@@ -2286,9 +2286,8 @@ uint32_t posting_list_t::ref_iterator_t::index() const {
 }
 
 std::unique_ptr<posting_list_t::base_iterator_t> posting_list_t::ref_iterator_t::clone() const {
-    auto it = std::unique_ptr<posting_list_t::ref_iterator_t>();
-    it->field_id = field_id;
-    it->result = result;
+    auto result_copy = result;
+    auto it = std::make_unique<posting_list_t::ref_iterator_t>(std::move(result_copy), leaf, field_id);
     it->curr_index = curr_index;
     return it;
 }

@@ -5288,14 +5288,11 @@ void Index::get_field_token_its(const size_t num_search_fields, std::vector<art_
                 continue;
             }
 
-//            if (!the_fields[i].referenced_collection_name.empty()) {
-//                auto op = CollectionManager::get_art_tree(the_fields[i].referenced_collection_name,
-//                                                          the_fields[i].str_name);
-//                if (!op.ok()) {
-//                    return;
-//                }
-//                tree = op.get();
-//            }
+            if (!the_fields[i].referenced_collection_name.empty()) {
+                Join::get_ref_field_token_its(get_collection_name(), the_fields[i], i, token_str, numerical_index,
+                                              query_suggestion, its, expanded_plists);
+                continue;
+            }
 
             art_tree* tree = search_index.at(the_fields[i].str_name);
             art_leaf* leaf = static_cast<art_leaf*>(art_search(tree, token_c_str, token_len));
@@ -8689,14 +8686,15 @@ Option<art_tree*> Index::get_art_tree_with_lock(const std::string& field_name) c
 }
 
 std::unique_ptr<posting_list_t::ref_iterator_t> Index::get_ref_iterator(const std::string& referencing_collection_name,
-                                                                        const std::string& field_name,
+                                                                        const std::string& query_field_name,
                                                                         const std::string& token_str,
-                                                                        uint32_t field_id) const {
+                                                                        uint32_t field_id,
+                                                                        const std::string& reference_field_name) const {
     std::shared_lock lock(mutex);
 
-    auto it = search_index.find(field_name);
+    auto it = search_index.find(query_field_name);
     if (it == search_index.end()) {
-        return std::make_unique<posting_list_t::ref_iterator_t>();
+        return nullptr;
     }
 
     auto token_c_str = (const unsigned char*) token_str.c_str();
@@ -8704,10 +8702,8 @@ std::unique_ptr<posting_list_t::ref_iterator_t> Index::get_ref_iterator(const st
     art_tree* tree = it->second;
     art_leaf* leaf = static_cast<art_leaf*>(art_search(tree, token_c_str, token_len));
     if (!leaf) {
-        return std::make_unique<posting_list_t::ref_iterator_t>();
+        return nullptr;
     }
-
-    // todo: add to query_suggestion
 
     std::unique_ptr<posting_list_t> expanded_plist;
     std::unique_ptr<posting_list_t::iterator_t> plist_iter;
@@ -8721,11 +8717,11 @@ std::unique_ptr<posting_list_t::ref_iterator_t> Index::get_ref_iterator(const st
         plist_iter = full_posting_list->new_iterator_ptr(nullptr, nullptr, field_id); // moved, not copied
     }
 
-    auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+    auto const reference_helper_field_name = reference_field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
 
     if (search_schema.at(reference_helper_field_name).is_singular()) { // Only one reference per doc.
         if (sort_index.count(reference_helper_field_name) == 0) {
-            return std::make_unique<posting_list_t::ref_iterator_t>();
+            return nullptr;
         }
         auto const& ref_index = *sort_index.at(reference_helper_field_name);
 
@@ -8740,9 +8736,10 @@ std::unique_ptr<posting_list_t::ref_iterator_t> Index::get_ref_iterator(const st
         filter_result_t filter_result;
         Join::process_related_ids(id_pairs, unique_doc_ids.size(), get_collection_name(),filter_result);
 
-//        return std::make_unique<posting_list_t::ref_iterator_t>(posting_list_t::ref_iterator_t(std::move(filter_result), leaf, field_id));
+        return std::make_unique<posting_list_t::ref_iterator_t>(posting_list_t::ref_iterator_t(std::move(filter_result), leaf, field_id));
     }
 
+    // Multiple references per doc.
     std::vector<std::pair<uint32_t, uint32_t>> id_pairs;
     std::set<uint32_t> unique_doc_ids;
 
@@ -8750,95 +8747,36 @@ std::unique_ptr<posting_list_t::ref_iterator_t> Index::get_ref_iterator(const st
     // Get the posting list iterator of the `field_name` tree.
     // Iterate and collect the related ids.
     // Return std::unique_ptr<posting_list_t::ref_iterator_t>.Search
-    return std::make_unique<posting_list_t::ref_iterator_t>();
+    return nullptr;
 }
 
-void Index::get_related_ids(num_tree_t& ref_index, const uint32_t& reference_doc_id,
-                            std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
-                            std::set<uint32_t>& unique_doc_ids, const bool& is_normal_join) {
-    size_t doc_ids_len = 0;
-    uint32_t* doc_ids = nullptr;
+std::unique_ptr<posting_list_t::iterator_t> Index::get_posting_iterator(const std::string& field_name,
+                                                                        const std::string& token,
+                                                                        const uint32_t& field_id,
+                                                                        std::vector<posting_list_t*>& expanded_plists,
+                                                                        art_leaf*& leaf) const {
+    std::shared_lock lock(mutex);
 
-    ref_index.search(EQUALS, reference_doc_id, &doc_ids, doc_ids_len);
-
-    for (size_t j = 0; j < doc_ids_len; j++) {
-        auto doc_id = doc_ids[j];
-        if (is_normal_join) {
-            id_pairs.emplace_back(doc_id, reference_doc_id);
-        }
-        unique_doc_ids.insert(doc_id);
-    }
-    delete[] doc_ids;
-}
-
-void Index::get_related_ids(const spp::sparse_hash_map<uint32_t, int64_t, Hasher32>& ref_index,
-                            const uint32_t& reference_doc_id,
-                            std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
-                            std::set<uint32_t>& unique_doc_ids, const bool& is_normal_join) {
-    if (ref_index.count(reference_doc_id) == 0) { // Reference field might be optional.
-        return;
-    }
-    auto doc_id = ref_index.at(reference_doc_id);
-
-    if (doc_id == Index::reference_helper_sentinel_value) {
-        return;
+    const auto it = search_index.find(field_name);
+    if (it == search_index.end()) {
+        return nullptr;
     }
 
-    if (is_normal_join) {
-        id_pairs.emplace_back(doc_id, reference_doc_id);
-    }
-    unique_doc_ids.insert(doc_id);
-}
+    auto token_c_str = (const unsigned char*) token.c_str();
+    leaf = static_cast<art_leaf*>(art_search(it->second, token_c_str, token.size()+1));
 
-void Index::process_related_ids(std::vector<std::pair<uint32_t, uint32_t>> id_pairs, const size_t& unique_doc_ids_size,
-                                filter_result_t& filter_result) const {
-    if (id_pairs.empty()) {
-        return;
+    if (!leaf) {
+        return nullptr;
     }
 
-    std::sort(id_pairs.begin(), id_pairs.end(), [](auto const& left, auto const& right) {
-        return left.first < right.first;
-    });
-
-    filter_result = filter_result_t(unique_doc_ids_size, new uint32_t[unique_doc_ids_size],
-                                    new std::map<std::string, reference_filter_result_t>[unique_doc_ids_size] {});
-
-    auto const& ref_collection_name = get_collection_name();
-    std::vector<uint32_t> previous_doc_references;
-    for (uint32_t i = 0, previous_doc = id_pairs[0].first + 1, result_index = 0; i < id_pairs.size(); i++) {
-        auto const& current_doc = id_pairs[i].first;
-        auto const& reference_doc_id = id_pairs[i].second;
-
-        if (current_doc != previous_doc) {
-            filter_result.docs[result_index] = current_doc;
-            if (result_index > 0) {
-                auto& reference_result = filter_result.coll_to_references[result_index - 1];
-
-                auto r = reference_filter_result_t(previous_doc_references.size(),
-                                                   new uint32_t[previous_doc_references.size()],
-                                                   false);
-                std::copy(previous_doc_references.begin(), previous_doc_references.end(), r.docs);
-                reference_result[ref_collection_name] = std::move(r);
-
-                previous_doc_references.clear();
-            }
-
-            result_index++;
-            previous_doc = current_doc;
-            previous_doc_references.push_back(reference_doc_id);
-        } else {
-            previous_doc_references.push_back(reference_doc_id);
-        }
-    }
-
-    if (!previous_doc_references.empty()) {
-        auto& reference_result = filter_result.coll_to_references[filter_result.count - 1];
-
-        auto r = reference_filter_result_t(previous_doc_references.size(),
-                                           new uint32_t[previous_doc_references.size()],
-                                           false);
-        std::copy(previous_doc_references.begin(), previous_doc_references.end(), r.docs);
-        reference_result[ref_collection_name] = std::move(r);
+    if(IS_COMPACT_POSTING(leaf->values)) {
+        auto compact_posting_list = COMPACT_POSTING_PTR(leaf->values);
+        posting_list_t* full_posting_list = compact_posting_list->to_full_posting_list();
+        expanded_plists.push_back(full_posting_list);
+        return full_posting_list->new_iterator_ptr(nullptr, nullptr, field_id);
+    } else {
+        posting_list_t* full_posting_list = (posting_list_t*)(leaf->values);
+        return full_posting_list->new_iterator_ptr(nullptr, nullptr, field_id);
     }
 }
 

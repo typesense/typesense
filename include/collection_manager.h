@@ -211,9 +211,17 @@ public:
     static Option<art_tree*> get_art_tree(const std::string& collection_name,
                                           const std::string& field_name);
 
-    std::unique_ptr<posting_list_t::ref_iterator_t> get_ref_iterator(const std::string& collection_name,
-                                                                     const std::string& ref_coll_name,
-                                                                     const std::string& ref_field_name,
-                                                                     const std::string& token_str,
-                                                                     uint32_t field_id);
+    static std::unique_ptr<posting_list_t::ref_iterator_t> get_ref_iterator(const std::string& collection_name,
+                                                                            const std::string& ref_coll_name,
+                                                                            const std::string& ref_field_name,
+                                                                            const std::string& token_str,
+                                                                            uint32_t field_id,
+                                                                            const std::string& reference_field_name);
+
+    static std::unique_ptr<posting_list_t::iterator_t> get_posting_iterator(const std::string& collection_name,
+                                                                            const std::string& field_name,
+                                                                            const std::string& token,
+                                                                            const uint32_t& field_id,
+                                                                            std::vector<posting_list_t*>& expanded_plists,
+                                                                            art_leaf*& leaf);
 };

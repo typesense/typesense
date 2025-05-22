@@ -664,7 +664,8 @@ private:
                                                  const std::vector<uint32_t>& raw_query_by_weights,
                                                  const std::vector<uint32_t>& num_typos, const std::vector<enable_t>& infixes,
                                                  std::vector<search_field_t>& processed_search_fields,
-                                                 std::vector<uint32_t>& query_by_weights) const;
+                                                 std::vector<uint32_t>& query_by_weights,
+                                                 const std::string& calling_collection_name) const;
 
     Option<bool> process_search_fields(const std::vector<std::string>& raw_search_fields,
                                        const bool& validate_field_names, bool& ignored_missing_fields,
@@ -1201,9 +1202,16 @@ public:
     Option<art_tree*> get_art_tree_with_lock(const std::string& field_name) const;
 
     std::unique_ptr<posting_list_t::ref_iterator_t> get_ref_iterator(const std::string& referencing_collection_name,
-                                                                     const std::string& field_name,
+                                                                     const std::string& query_field_name,
                                                                      const std::string& token_str,
-                                                                     uint32_t field_id) const;
+                                                                     uint32_t field_id,
+                                                                     const std::string& reference_field_name) const;
+
+    std::unique_ptr<posting_list_t::iterator_t> get_posting_iterator(const std::string& field_name,
+                                                                     const std::string& token,
+                                                                     const uint32_t& field_id,
+                                                                     std::vector<posting_list_t*>& expanded_plists,
+                                                                     art_leaf*& leaf) const;
 };
 
 template<class T>

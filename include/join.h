@@ -8,8 +8,10 @@
 #include "filter_result_iterator.h"
 
 struct base_reference_info_t {
-    std::string collection;
-    std::string field;
+    std::string collection{};
+    std::string field{};
+
+    base_reference_info_t() = default;
 
     base_reference_info_t(std::string collection, std::string field) :
     collection(std::move(collection)), field(std::move(field)) {}
@@ -80,6 +82,27 @@ struct Hasher32 {
     size_t operator()(uint32_t k) const { return (k ^ 2166136261U)  * 16777619UL; }
 };
 
+enum enable_t {
+    always,
+    fallback,
+    off
+};
+
+struct search_field_t {
+    std::string name;
+    std::string str_name;   // for lookup of non-string fields in art index
+    size_t weight;
+    size_t num_typos;
+    bool prefix;
+    enable_t infix;
+    std::string referenced_collection_name{};
+    base_reference_info_t ref_info{};
+
+    search_field_t(const std::string& name, const std::string& str_name, size_t weight, size_t num_typos,
+                   bool prefix, enable_t infix):
+            name(name), str_name(str_name), weight(weight), num_typos(num_typos), prefix(prefix), infix(infix) { }
+};
+
 class Join {
 public:
 
@@ -144,4 +167,11 @@ public:
 
     static void process_related_ids(std::vector<std::pair<uint32_t, uint32_t>> id_pairs, const size_t& unique_doc_ids_size,
                                     const std::string& ref_collection_name, filter_result_t& filter_result);
+
+    static void get_ref_field_token_its(const std::string& collection_name, const search_field_t& search_field,
+                                        const size_t& field_id, const std::string& token_str,
+                                        const spp::sparse_hash_map<std::string, num_tree_t*>& numerical_index,
+                                        std::vector<art_leaf*>& query_suggestion,
+                                        std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& its,
+                                        std::vector<posting_list_t*>& expanded_plists);
 };

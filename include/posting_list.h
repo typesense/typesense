@@ -103,16 +103,17 @@ public:
         virtual bool is_single_token_verbatim_match(bool field_is_array) = 0;
         virtual size_t get_last_offset(bool field_is_array) const = 0;
         virtual void get_offsets(std::map<size_t, std::vector<token_positions_t>>& array_token_pos) = 0;
+//        virtual filter_result_t get_references() const = 0;
     };
 
     class iterator_t : public base_iterator_t {
     private:
-        const std::map<last_id_t, block_t*>* id_block_map;
-        block_t* curr_block;
-        uint32_t curr_index;
-        block_t* end_block;
+        const std::map<last_id_t, block_t*>* id_block_map{};
+        block_t* curr_block = nullptr;
+        uint32_t curr_index{};
+        block_t* end_block = nullptr;
 
-        bool auto_destroy;
+        bool auto_destroy{};
 
         [[nodiscard]] uint32_t last_block_id() const;
         [[nodiscard]] uint32_t first_block_id() const;
@@ -122,6 +123,8 @@ public:
         uint32_t* ids = nullptr;
         uint32_t* offset_index = nullptr;
         uint32_t* offsets = nullptr;
+
+        iterator_t() = default;
 
         explicit iterator_t(const std::map<last_id_t, block_t*>* id_block_map,
                             block_t* start, block_t* end, bool auto_destroy = true, uint32_t field_id = 0, bool reverse = false);
@@ -144,6 +147,7 @@ public:
         bool is_single_token_verbatim_match(bool field_is_array);
         size_t get_last_offset(bool field_is_array) const;
         void get_offsets(std::map<size_t, std::vector<token_positions_t>>& array_token_pos);
+//        filter_result_t get_references() const { return filter_result_t{}; }
     };
 
     class ref_iterator_t : public base_iterator_t {
@@ -151,11 +155,10 @@ public:
         // normally since the references might not be ordered.
         filter_result_t result{};
         uint32_t curr_index = 0;
-        art_leaf* leaf = nullptr;
 
     public:
 
-        explicit ref_iterator_t() = default;
+        art_leaf* leaf = nullptr;
 
         explicit ref_iterator_t(filter_result_t&& result, art_leaf* leaf = nullptr, uint32_t field_id = 0);
 
@@ -172,6 +175,7 @@ public:
         bool is_single_token_verbatim_match(bool field_is_array) { return false; }
         size_t get_last_offset(bool field_is_array) const { return 0; }
         void get_offsets(std::map<size_t, std::vector<token_positions_t>>& array_token_pos) {}
+//        filter_result_t get_references() const;
     };
 public:
 
