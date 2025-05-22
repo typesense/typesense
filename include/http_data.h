@@ -128,10 +128,11 @@ struct http_res {
         body = "{\"message\": \"Forbidden\"}";
     }
 
-    void set_404() {
+    void set_404(const std::string & message = "Not Found") {
         status_code = 404;
-        body = "{\"message\": \"Not Found\"}";
+        body = "{\"message\": \"" + message + "\"}";
     }
+
 
     void set_405(const std::string & message) {
         status_code = 405;
