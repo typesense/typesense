@@ -6069,7 +6069,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
         bool facet_value_index_exists = facet_index_v4->has_value_index(facet_field.name);
 
         //as we use sort index for range facets with hash based index, sort index should be present
-        if(facet_index_type == exhaustive) {
+        if(facet_index_type == exhaustive || group_limit != 0) {
             facet_infos[findex].use_value_index = false;
         }
         else if(facet_value_index_exists) {
@@ -6078,7 +6078,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
             } else {
                 // facet_index_type = detect
                 size_t num_facet_values = facet_index_v4->get_facet_count(facet_field.name);
-                facet_infos[findex].use_value_index = (group_limit == 0) && (a_facet.sort_field.empty()) &&
+                facet_infos[findex].use_value_index = (a_facet.sort_field.empty()) &&
                                                       ( is_wildcard_no_filter_query ||
                                                         (all_result_ids_len > 1000 && num_facet_values < 250) ||
                                                         (all_result_ids_len > 1000 && all_result_ids_len * 2 > total_docs) ||
