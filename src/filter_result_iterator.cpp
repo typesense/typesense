@@ -3079,7 +3079,7 @@ bool filter_result_iterator_t::validate_object_filter_helper(Index const* const 
                 filter_val = std::stof(val);
                 doc_val = doc[nested_field].get<float>();
             } else if (f.is_bool()) {
-                filter_val = val == "true" ? true : false;
+                filter_val = val == "1" ? true : false;
                 doc_val = doc[nested_field].get<bool>();
             } else if (f.is_integer()) {
                 filter_val = std::stoll(val);

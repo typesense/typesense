@@ -3887,19 +3887,19 @@ TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
     std::vector<nlohmann::json> documents = {
             R"({"main": {
                             "name": "Pasta",
-                            "ingredients": [{"name": "cheese", "concentration": 40}, {"name" : "spinach", "concentration": 10},
+                            "ingredients": [{"name": "cheese", "concentration": 40, "vegan_available": true}, {"name" : "spinach", "concentration": 10},
                                             {"name": "jalepeno", "concentration": 20}]
                 }
             })"_json,
             R"({"main": {
                             "name": "Pizza",
-                            "ingredients": [{"name": "cheese", "concentration": 30}, {"name": "pizza sauce", "concentration": 30},
+                            "ingredients": [{"name": "cheese", "concentration": 30, "vegan_available": false}, {"name": "pizza sauce", "concentration": 30},
                                             {"name": "olives", "concentration": 30}]
                 }
             })"_json,
             R"({"main": {
                             "name": "Lasagna",
-                            "ingredients": [{"name": "cheese", "concentration": 60}, {"name": "jalepeno", "concentration": 20},
+                            "ingredients": [{"name": "cheese", "concentration": 60, "vegan_available": true}, {"name": "jalepeno", "concentration": 20},
                                             {"name": "olives", "concentration": 20}]
                 }
             })"_json
@@ -3918,7 +3918,7 @@ TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
     std::map<std::string, std::string> req_params = {
             {"collection",     "menu_nested"},
             {"q",              "*"},
-            {"filter_by",      "main.name: p* && main.ingredients.{name : cheese && concentration :<50}"},
+            {"filter_by",      "main.name: p* && main.ingredients.{name : cheese && concentration :<50 && vegan_available:true}"},
             {"include_fields", "main.name, main.ingredients"}
     };
     nlohmann::json embedded_params;
@@ -3929,10 +3929,9 @@ TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     auto result = nlohmann::json::parse(json_res);
-    ASSERT_EQ(2, result["found"].get<size_t>());
-    ASSERT_EQ(2, result["hits"].size());
-    ASSERT_EQ("Pizza", result["hits"][0]["document"]["main"]["name"]);
-    ASSERT_EQ("Pasta", result["hits"][1]["document"]["main"]["name"]);
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("Pasta", result["hits"][0]["document"]["main"]["name"]);
 
     //deep nested field
     schema_json =

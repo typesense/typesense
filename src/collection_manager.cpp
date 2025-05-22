@@ -709,19 +709,27 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                 metadata);
 
     add_to_collections(new_collection);
-
     lock.lock();
+
+    std::vector<std::map<std::string, reference_info_t>> ref_info_maps;
     auto it = referenced_ins.find(name);
     if (it != referenced_ins.end()) {
-        auto update_ref_infos = new_collection->add_referenced_ins(it->second);
+        ref_info_maps.push_back(it->second);
+    }
+
+    // Don't hold cm lock to prevent lock cycle inversion
+    lock.unlock();
+
+    for(auto& ref_info_map: ref_info_maps) {
+        const auto& update_ref_infos = new_collection->add_referenced_ins(ref_info_map);
         for (auto& update_ref_info: update_ref_infos) {
             auto coll = get_collection_unsafe(update_ref_info.collection);
-            coll->update_reference_field_with_lock(update_ref_info.field, update_ref_info.referenced_field);
+            if(coll) {
+                coll->update_reference_field_with_lock(update_ref_info.field, update_ref_info.referenced_field);
+                // We do not erase from `referenced_ins` here, because if a referenced collection is dropped and
+                // created again, the referenced field won't be updated in referencing collection.
+            }
         }
-
-        // If a referenced collection is dropped and created again, the referenced field won't be updated in referencing
-        // collection if we erase here.
-        // referenced_ins.erase(it);
     }
 
     return Option<Collection*>(new_collection);
@@ -1380,7 +1388,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     auto collection = collectionManager.get_collection(orig_coll_name);
 
     if(collection == nullptr) {
-        return Option<bool>(404, "Not found.");
+        return Option<bool>(404, "Collection not found");
     }
 
     collection_search_args_t args;
@@ -2159,4 +2167,15 @@ Option<nlohmann::json> CollectionManager::get_collection_alter_status() const {
     }
 
     return Option<nlohmann::json>(collection_alter_status);
+}
+
+void CollectionManager::remove_internal_fields(std::map<std::string, std::string>& params) {
+    auto it = params.begin();
+    while (it != params.end()) {
+        if (!it->first.empty() && it->first[0] == '_') {
+            it = params.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
