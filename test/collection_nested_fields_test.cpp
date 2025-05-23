@@ -3233,6 +3233,79 @@ TEST_F(CollectionNestedFieldsTest, EmplaceWithNullValueObjectField) {
     ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionNestedFieldsTest, EmplaceWithNullValueObjectFieldWithObjectSchema) {
+    nlohmann::json schema = R"({
+      "name": "coll1",
+      "enable_nested_fields": true,
+      "fields": [
+        {
+          "name": "id",
+          "type": "string"
+        },
+        {
+          "name": "sale",
+          "type": "object",
+          "optional": true
+        },
+        {
+          "name": "sale.type",
+          "type": "string",
+          "optional": true,
+          "facet": false
+        }
+      ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "sale": {"type": "EnglishAuction"}
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {}, "sale.type: EnglishAuction", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"][0]["document"].size());  // id, sale
+    ASSERT_EQ(1, results["hits"][0]["document"]["sale"].size());  // sale.type
+
+    // emplace with null parent object
+    doc1 = R"({
+        "id": "0",
+        "sale": null
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), EMPLACE);
+    ASSERT_TRUE(add_op.ok());
+
+    // filtering should produce no hits
+    results = coll1->search("*", {}, "sale.type: EnglishAuction", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"][0]["document"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // emplace another value
+    doc1 = R"({
+        "id": "0",
+        "sale": {"type": "GermanAuction"}
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), EMPLACE);
+    ASSERT_TRUE(add_op.ok());
+    results = coll1->search("*", {}, "sale.type: GermanAuction", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "sale.type: EnglishAuction", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+}
+
 TEST_F(CollectionNestedFieldsTest, UpsertWithNullValueONestedArrayField) {
     nlohmann::json schema = R"({
         "name": "coll1",

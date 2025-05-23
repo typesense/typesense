@@ -499,8 +499,8 @@ void Index::validate_and_preprocess(Index *index,
 
             if(index_rec.is_update) {
                 // scrub string fields to reduce delete ops
-                get_doc_changes(index_rec.operation, embedding_fields, index_rec.doc, index_rec.old_doc,
-                                index_rec.new_doc, index_rec.del_doc);
+                get_doc_changes(index_rec.operation, search_schema, embedding_fields,
+                                index_rec.doc, index_rec.old_doc, index_rec.new_doc, index_rec.del_doc);
 
                 /*if(index_rec.seq_id == 0) {
                     LOG(INFO) << "index_rec.doc: " << index_rec.doc;
@@ -7430,7 +7430,8 @@ nlohmann::json process_value(const nlohmann::json& value) {
     }
 }
 
-void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& embedding_fields,
+void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& search_schema,
+                            const tsl::htrie_map<char, field>& embedding_fields,
                             nlohmann::json& update_doc, const nlohmann::json& old_doc, nlohmann::json& new_doc,
                             nlohmann::json& del_doc) {
     /*
@@ -7488,6 +7489,18 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                     if (value.is_null()) {
                         // Null value indicates deletion
                         if (old.contains(key)) {
+                            // if the old value is an object, we have to delete all child keys
+                            if(old[key].is_object()) {
+                                std::string nested_field_name;
+                                auto prefix_it = search_schema.equal_prefix_range(key + ".");
+                                for(auto kv = prefix_it.first; kv != prefix_it.second; kv++) {
+                                    kv.key(nested_field_name);
+                                    if(old.count(nested_field_name) != 0) {
+                                        del[nested_field_name] = old[nested_field_name];
+                                    }
+                                }
+                            }
+
                             del[key] = old[key];
                         }
                         target.erase(key);
