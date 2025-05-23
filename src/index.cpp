@@ -2571,7 +2571,7 @@ Option<bool> Index::run_search(search_args* search_params) {
             }
             group_by_fields.emplace_back(group_by_field_it_t{field_name,
                                                              facet_index_v4->get_facet_hash_index(field_name)->new_iterator(),
-                                                             field->is_array()});
+                                                             field->is_array(), field->is_string()});
         }
         if (group_by_fields.empty()) {
             return Option<bool>(400, "`group_by` cannot be empty.");
@@ -2594,7 +2594,12 @@ Option<bool> Index::run_search(search_args* search_params) {
                 if(value.empty()) {
                     continue;
                 }
-                filter_by += ("`" + value + "`,");
+
+                if(group_by_fields[i].is_string) {
+                    filter_by += ("`" + value + "`,");
+                } else {
+                    filter_by += (value + ",");
+                }
             }
             filter_by[filter_by.size() - 1] = ']';
 

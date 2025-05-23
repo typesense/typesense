@@ -384,6 +384,7 @@ struct group_by_field_it_t {
     std::string field_name;
     posting_list_t::iterator_t it;
     bool is_array;
+    bool is_string;
 };
 
 struct Hasher32 {
