@@ -2594,7 +2594,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                 if(value.empty()) {
                     continue;
                 }
-                filter_by += (value + ",");
+                filter_by += ("`" + value + "`,");
             }
             filter_by[filter_by.size() - 1] = ']';
 
