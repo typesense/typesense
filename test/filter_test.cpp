@@ -82,7 +82,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name: [foo bar, baz]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = filter::parse_filter_query("name: [`ALPHA1]X`,`ALPHA2]X`,`ALPHA3]X`]", coll->get_schema(), store, doc_id_prefix,
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
