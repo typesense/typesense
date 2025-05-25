@@ -3936,6 +3936,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     process_results_hnsw_index(filter_result_iterator, vector_query, field_vector_index, filterFunctor, k, dist_results);
                 }
 
+                filter_result_iterator->reset();
                 std::unordered_map<uint32_t, uint32_t> seq_id_to_rank;
 
                 for (size_t vec_index = 0; vec_index < dist_results.size(); vec_index++) {
