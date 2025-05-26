@@ -2,7 +2,6 @@
 #include "text_embedder_remote.h"
 #include "embedder_manager.h"
 
-
 Option<bool> RemoteEmbedder::validate_string_properties(const nlohmann::json& model_config, const std::vector<std::string>& properties) {
     for(auto& property : properties) {
         if(model_config.count(property) == 0 || !model_config[property].is_string()) {
@@ -158,10 +157,14 @@ embedding_res_t OpenAIEmbedder::embed_query(const std::string url, const std::st
                                       const std::string& api_key, const size_t num_dims, const bool has_custom_dims, 
                                       const std::string& model_name, const OpenAIEmbedderType embedder_type) {
     std::string cache_key = text + model_name;
-    if(RemoteEmbedder::cache.find(cache_key) != cache.end()) {
-        return cache[cache_key];
+    {
+        std::shared_lock<std::shared_mutex> cache_read_lock(RemoteEmbedder::cache_mutex);
+        auto key_it = RemoteEmbedder::cache.find(cache_key);
+        if(key_it != RemoteEmbedder::cache.end()) {
+            return key_it->second;
+        }
     }
-    
+
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Content-Type"] = "application/json";
@@ -187,11 +190,14 @@ embedding_res_t OpenAIEmbedder::embed_query(const std::string url, const std::st
     }
     try {
         embedding_res_t embedding_res = embedding_res_t(nlohmann::json::parse(res)["data"][0]["embedding"].get<std::vector<float>>());
-        RemoteEmbedder::cache.insert(cache_key, embedding_res);
+        {
+            std::unique_lock<std::shared_mutex> cache_write_lock(RemoteEmbedder::cache_mutex);
+            RemoteEmbedder::cache.insert(cache_key, embedding_res);
+        }
         return embedding_res;
     } catch (const std::exception& e) {
         return embedding_res_t(500, get_error_json(req_body, res_code, res, url));
-    }                  
+    }
 }
 
 std::vector<embedding_res_t> OpenAIEmbedder::embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size,
@@ -378,8 +384,12 @@ Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, 
 embedding_res_t GoogleEmbedder::embed_query(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
     std::shared_lock<std::shared_mutex> lock(mutex);
     std::string cache_key = text + SUPPORTED_MODEL;
-    if(RemoteEmbedder::cache.find(cache_key) != RemoteEmbedder::cache.end()) {
-        return RemoteEmbedder::cache[cache_key];
+    {
+        std::shared_lock<std::shared_mutex> cache_read_lock(RemoteEmbedder::cache_mutex);
+        auto key_it = RemoteEmbedder::cache.find(cache_key);
+        if(key_it != RemoteEmbedder::cache.end()) {
+            return key_it->second;
+        }
     }
 
     std::unordered_map<std::string, std::string> headers;
@@ -399,7 +409,10 @@ embedding_res_t GoogleEmbedder::embed_query(const std::string& text, const size_
 
     try {
         auto res_obj = embedding_res_t(nlohmann::json::parse(res)["embedding"]["value"].get<std::vector<float>>());
-        RemoteEmbedder::cache.insert(cache_key, res_obj);
+        {
+            std::unique_lock<std::shared_mutex> cache_write_lock(RemoteEmbedder::cache_mutex);
+            RemoteEmbedder::cache.insert(cache_key, res_obj);
+        }
         return res_obj;
     } catch (const std::exception& e) {
         return embedding_res_t(500, get_error_json(req_body, res_code, res));
@@ -567,8 +580,12 @@ embedding_res_t GCPEmbedder::embed_query(const std::string& text, const size_t r
     std::shared_lock<std::shared_mutex> lock(mutex);
 
     std::string cache_key = text + model_name;
-    if(RemoteEmbedder::cache.find(cache_key) != RemoteEmbedder::cache.end()) {
-        return RemoteEmbedder::cache[cache_key];
+    {
+        std::shared_lock<std::shared_mutex> cache_read_lock(RemoteEmbedder::cache_mutex);
+        auto key_it = RemoteEmbedder::cache.find(cache_key);
+        if(key_it != RemoteEmbedder::cache.end()) {
+            return key_it->second;
+        }
     }
 
     nlohmann::json req_body;
@@ -620,7 +637,12 @@ embedding_res_t GCPEmbedder::embed_query(const std::string& text, const size_t r
         return embedding_res_t(500, get_error_json(req_body, res_code, res));
     }
     auto res_obj = embedding_res_t(res_json["predictions"][0]["embeddings"]["values"].get<std::vector<float>>());
-    RemoteEmbedder::cache.insert(cache_key, res_obj);
+
+    {
+        std::unique_lock<std::shared_mutex> cache_write_lock(RemoteEmbedder::cache_mutex);
+        RemoteEmbedder::cache.insert(cache_key, res_obj);
+    }
+
     return res_obj;
 }
 
