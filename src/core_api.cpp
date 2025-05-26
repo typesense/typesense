@@ -1294,6 +1294,46 @@ bool get_collection_summary(const std::shared_ptr<http_req>& req, const std::sha
     return true;
 }
 
+Option<bool> populate_include_exclude(const std::shared_ptr<http_req>& req, std::shared_ptr<Collection>& collection,
+                                      const std::string& filter_query,
+                                      tsl::htrie_set<char>& include_fields, tsl::htrie_set<char>& exclude_fields,
+                                      std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
+    const char* INCLUDE_FIELDS = "include_fields";
+    const char* EXCLUDE_FIELDS = "exclude_fields";
+
+    std::vector<std::string> include_fields_vec;
+    std::vector<std::string> exclude_fields_vec;
+
+    if(req->params.count(INCLUDE_FIELDS) != 0) {
+        auto op = StringUtils::split_include_exclude_fields(req->params[INCLUDE_FIELDS], include_fields_vec);
+        if (!op.ok()) {
+            return op;
+        }
+    }
+
+    if(req->params.count(EXCLUDE_FIELDS) != 0) {
+        auto op = StringUtils::split_include_exclude_fields(req->params[EXCLUDE_FIELDS], exclude_fields_vec);
+        if (!op.ok()) {
+            return op;
+        }
+    }
+
+    auto initialize_op = Join::initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec, exclude_fields_vec,
+                                                                         ref_include_exclude_fields_vec);
+    if (!initialize_op.ok()) {
+        return initialize_op;
+    }
+
+    spp::sparse_hash_set<std::string> includes;
+    spp::sparse_hash_set<std::string> excludes;
+    includes.insert(include_fields_vec.begin(), include_fields_vec.end());
+    excludes.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
+
+    collection->populate_include_exclude_fields_lk(includes, excludes, include_fields, exclude_fields);
+
+    return Option<bool>(true);
+}
+
 bool get_export_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     // NOTE: this is a streaming response end-point so this handler will be called multiple times
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -1308,8 +1348,6 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
     }
 
     const char* FILTER_BY = "filter_by";
-    const char* INCLUDE_FIELDS = "include_fields";
-    const char* EXCLUDE_FIELDS = "exclude_fields";
     const char* BATCH_SIZE = "batch_size";
     const char* VALIDATE_FIELD_NAMES = "validate_field_names";
 
@@ -1325,39 +1363,13 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         req->data = export_state;
 
         std::string filter_query;
-        std::vector<std::string> include_fields_vec;
-        std::vector<std::string> exclude_fields_vec;
-        spp::sparse_hash_set<std::string> exclude_fields;
-        spp::sparse_hash_set<std::string> include_fields;
 
         if(req->params.count(FILTER_BY) != 0) {
             filter_query = req->params[FILTER_BY];
         }
 
-        if(req->params.count(INCLUDE_FIELDS) != 0) {
-            auto op = StringUtils::split_include_exclude_fields(req->params[INCLUDE_FIELDS], include_fields_vec);
-            if (!op.ok()) {
-                res->set(op.code(), op.error());
-                req->last_chunk_aggregate = true;
-                res->final = true;
-                stream_response(req, res);
-                return false;
-            }
-        }
-
-        if(req->params.count(EXCLUDE_FIELDS) != 0) {
-            auto op = StringUtils::split_include_exclude_fields(req->params[EXCLUDE_FIELDS], exclude_fields_vec);
-            if (!op.ok()) {
-                res->set(op.code(), op.error());
-                req->last_chunk_aggregate = true;
-                res->final = true;
-                stream_response(req, res);
-                return false;
-            }
-        }
-
-        auto initialize_op = Join::initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec, exclude_fields_vec,
-                                                                             export_state->ref_include_exclude_fields_vec);
+        auto initialize_op = populate_include_exclude(req, collection, filter_query, export_state->include_fields,
+                                                      export_state->exclude_fields, export_state->ref_include_exclude_fields_vec);
         if (!initialize_op.ok()) {
             res->set(initialize_op.code(), initialize_op.error());
             req->last_chunk_aggregate = true;
@@ -1365,12 +1377,6 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             stream_response(req, res);
             return false;
         }
-
-        include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
-        exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
-
-        collection->populate_include_exclude_fields_lk(include_fields, exclude_fields,
-                                                      export_state->include_fields, export_state->exclude_fields);
 
         if(req->params.count(BATCH_SIZE) != 0 && StringUtils::is_uint32_t(req->params[BATCH_SIZE])) {
             export_state->export_batch_size = std::stoul(req->params[BATCH_SIZE]);
@@ -1837,12 +1843,6 @@ bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::sha
 bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     std::string doc_id = req->params["id"];
 
-    const char* INCLUDE_FIELDS = "include_fields";
-    const char* EXCLUDE_FIELDS = "exclude_fields";
-
-    spp::sparse_hash_set<std::string> exclude_fields;
-    spp::sparse_hash_set<std::string> include_fields;
-
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);
     if(collection == nullptr) {
@@ -1857,32 +1857,29 @@ bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_
         return false;
     }
 
-    if(req->params.count(INCLUDE_FIELDS) != 0) {
-        std::vector<std::string> include_fields_vec;
-        StringUtils::split(req->params[INCLUDE_FIELDS], include_fields_vec, ",");
-        include_fields = spp::sparse_hash_set<std::string>(include_fields_vec.begin(), include_fields_vec.end());
-    }
-
-    if(req->params.count(EXCLUDE_FIELDS) != 0) {
-        std::vector<std::string> exclude_fields_vec;
-        StringUtils::split(req->params[EXCLUDE_FIELDS], exclude_fields_vec, ",");
-        exclude_fields = spp::sparse_hash_set<std::string>(exclude_fields_vec.begin(), exclude_fields_vec.end());
+    tsl::htrie_set<char> include_fields;
+    tsl::htrie_set<char> exclude_fields;
+    std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec;
+    auto initialize_op = populate_include_exclude(req, collection, "", include_fields, exclude_fields,
+                                                  ref_include_exclude_fields_vec);
+    if (!initialize_op.ok()) {
+        res->set(initialize_op.code(), initialize_op.error());
+        req->last_chunk_aggregate = true;
+        res->final = true;
+        stream_response(req, res);
+        return false;
     }
 
     nlohmann::json doc = doc_option.get();
+    auto const seq_id_op = collection->doc_id_to_seq_id(doc.at("id"));
 
-    for(auto it = doc.begin(); it != doc.end(); ++it) {
-        if(!include_fields.empty() && include_fields.count(it.key()) == 0) {
-            doc.erase(it.key());
-            continue;
-        }
-
-        if(!exclude_fields.empty() && exclude_fields.count(it.key()) != 0) {
-            doc.erase(it.key());
-            continue;
-        }
+    std::map<std::string, reference_filter_result_t> references = {};
+    const auto prune_op = collection->prune_doc_with_lock(doc, include_fields, exclude_fields, references, seq_id_op.get(),
+                                                          ref_include_exclude_fields_vec);
+    if (!prune_op.ok()) {
+        res->set(prune_op.code(), prune_op.error());
+        return false;
     }
-
 
     res->set_200(doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
