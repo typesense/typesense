@@ -503,7 +503,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQuerySucess) {
   ASSERT_TRUE(coll_create_op.ok());
 
   std::map<std::string, std::string> req_params;
-  req_params["nl_query"] = "Find expensive laptops";
+  req_params["nl_query"] = "true";
+  req_params["q"] = "Find expensive laptops";
   req_params["collection"] = "titles";
   req_params["query_by"] = "title";
 
@@ -554,7 +555,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidModel)
   ASSERT_TRUE(coll_create_op.ok());
 
   std::map<std::string, std::string> req_params;
-  req_params["nl_query"] = "Find expensive laptops";
+  req_params["nl_query"] = "true";
+  req_params["q"] = "Find expensive laptops";
   req_params["collection"] = "titles";
   req_params["query_by"] = "title";
 
@@ -566,7 +568,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidModel)
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidCollection) {
   std::map<std::string, std::string> req_params;
-  req_params["nl_query"] = "Find expensive laptops";
+  req_params["nl_query"] = "true";
+  req_params["q"] = "Find expensive laptops";
   req_params["collection"] = "titles";
   req_params["query_by"] = "title";
 
@@ -603,7 +606,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidRespon
   ASSERT_TRUE(coll_create_op.ok());
 
   std::map<std::string, std::string> req_params;
-  req_params["nl_query"] = "Find expensive laptops";
+  req_params["nl_query"] = "true";
+  req_params["q"] = "Find expensive laptops";
   req_params["collection"] = "titles";
   req_params["query_by"] = "title";
 
@@ -633,7 +637,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidRespon
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AddNLQueryDataToResultsSuccess) {
   std::map<std::string, std::string> req_params;
-  req_params["nl_query"] = "Find expensive laptops";
+  req_params["nl_query"] = "true";
+  req_params["q"] = "Find expensive laptops";
   req_params["collection"] = "titles";
   req_params["query_by"] = "title";
   req_params["filter_by"] = "engine_hp:>=300 && make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014";
@@ -647,8 +652,6 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AddNLQueryDataToResultsSuccess) {
 
   nlohmann::json results_json;
   NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &req_params, 1);
-  ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["collection"], "titles");
-  ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["query_by"], "title");
   ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["filter_by"], "engine_hp:>=300 && make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
   ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["sort_by"], "msrp:desc");
   ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["q"], "test");
@@ -662,19 +665,17 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AddNLQueryDataToResultsSuccess) {
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AddNLQueryDataToResultsFailure) {
   std::map<std::string, std::string> req_params;
-  req_params["nl_query"] = "Find expensive laptops";
+  req_params["nl_query"] = "true";
+  req_params["q"] = "Find expensive laptops";
   req_params["collection"] = "titles";
   req_params["query_by"] = "title";
   req_params["filter_by"] = "engine_hp:>=300";
   req_params["sort_by"] = "";
-  req_params["q"] = "Find expensive laptops";
   req_params["error"] = "Error generating schema prompt: Collection not found";
   req_params["_nl_processing_failed"] = "true";
   req_params["_fallback_q_used"] = "true";
   nlohmann::json results_json;
   NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &req_params, 1);
-  ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["collection"], "titles");
-  ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["query_by"], "title");
   ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["filter_by"], "engine_hp:>=300");
   ASSERT_EQ(results_json["parsed_nl_query"]["augmented_params"]["q"], "Find expensive laptops");
 
@@ -682,4 +683,25 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AddNLQueryDataToResultsFailure) {
 
   ASSERT_EQ(results_json["parsed_nl_query"]["error"], "Error generating schema prompt: Collection not found");
   ASSERT_EQ(results_json["parsed_nl_query"]["generated_params"], nlohmann::json::object());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, ExcludeParsedNLQuery) {
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "true";
+  req_params["q"] = "Find expensive laptops";
+  req_params["collection"] = "titles";
+  req_params["query_by"] = "title";
+  req_params["filter_by"] = "engine_hp:>=300";
+  req_params["sort_by"] = "";
+  req_params["error"] = "Error generating schema prompt: Collection not found";
+  req_params["_nl_processing_failed"] = "true";
+  req_params["_fallback_q_used"] = "true";
+  req_params["exclude_fields"] = "parsed_nl_query,found";
+  nlohmann::json results_json;
+  NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &req_params, 1);
+  ASSERT_EQ(results_json.contains("parsed_nl_query"), false);
+  req_params["exclude_fields"] = "parsed_nl_query";
+  results_json.clear();
+  NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &req_params, 1);
+  ASSERT_EQ(results_json.contains("parsed_nl_query"), false);
 }

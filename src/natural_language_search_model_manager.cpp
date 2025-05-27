@@ -332,8 +332,9 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
     bool has_nl_query = false;
     auto start_time = std::chrono::high_resolution_clock::now();
 
-    if(req_params.count("nl_query") != 0) {
-        nl_query = req_params["nl_query"];
+    if(req_params.count("nl_query") != 0 && req_params["nl_query"] == "true" && req_params.count("q") != 0 && !req_params["q"].empty()) {
+        nl_query = req_params["q"];
+        req_params["_original_nl_query"] = nl_query;
         has_nl_query = true;
     }
 
@@ -353,12 +354,7 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
     if(!params_op.ok()) {
         req_params["error"] = params_op.error();
         req_params["_nl_processing_failed"] = "true";
-
-        if(req_params.count("q") == 0 || req_params["q"].empty()) {
-            req_params["q"] = nl_query;
-            req_params["_fallback_q_used"] = "true";
-        }
-
+        req_params["_fallback_q_used"] = "true";
         return Option<uint64_t>(400, params_op.error());
     }
 
@@ -416,13 +412,7 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
 
 nlohmann::json NaturalLanguageSearchModelManager::build_augmented_params(const std::map<std::string, std::string>* req_params) {
     const std::unordered_set<std::string> generated_params = {
-        "q", "filter_by", "sort_by", "query_by", "prefix", "infix",
-        "exclude", "include", "limit", "offset", "page"
-    };
-
-    const std::unordered_set<std::string> skip_params = {
-        "error", "processed_by_nl_model", "nl_query", "nl_query_debug",
-        "nl_model_id", "llm_response_str", "llm_generated_filter_by"
+        "q", "filter_by", "sort_by"
     };
 
     nlohmann::json augmented = nlohmann::json::object();
@@ -435,7 +425,7 @@ nlohmann::json NaturalLanguageSearchModelManager::build_augmented_params(const s
     }
 
     for (const auto& [key, value] : *req_params) {
-        if (key.empty() || key[0] == '_' || generated_params.count(key) || skip_params.count(key)) {
+        if (key.empty() || key[0] == '_' || generated_params.count(key) == 0) {
             continue;
         }
         augmented[key] = value;
@@ -509,10 +499,10 @@ void NaturalLanguageSearchModelManager::add_nl_query_data_to_results(nlohmann::j
 
     auto it = req_params->find("_original_nl_query");
     if (it == req_params->end()) {
-        it = req_params->find("nl_query");
+        it = req_params->find("q");
     }
     if (it != req_params->end() && !error) {
-        results_json["request_params"]["nl_query"] = it->second;
+        results_json["request_params"]["q"] = it->second;
         if (results_json.contains("search_time_ms")) {
             results_json["search_time_ms"] = results_json["search_time_ms"].get<uint64_t>() + nl_processing_time_ms;
         }
@@ -554,7 +544,19 @@ void NaturalLanguageSearchModelManager::add_nl_query_data_to_results(nlohmann::j
         }
     }
 
-    if (!parsed_nl_query.empty()) {
+    bool is_excluded = false;
+    if (req_params->count("exclude_fields") > 0) {
+      std::vector<std::string> exclude_fields;
+      StringUtils::split(req_params->at("exclude_fields"), exclude_fields, ",");
+      for (const auto& field : exclude_fields) {
+        if (field == "parsed_nl_query") {
+          is_excluded = true;
+          break;
+        }
+      }
+    }
+
+    if (!parsed_nl_query.empty() && !is_excluded) {
         results_json["parsed_nl_query"] = std::move(parsed_nl_query);
     }
 }
