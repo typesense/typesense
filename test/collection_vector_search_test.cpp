@@ -5205,6 +5205,104 @@ TEST_F(CollectionVectorTest, HybridSearchWithFilteringAndFlatSearchCutoff) {
     ASSERT_EQ(4, res["hits"].size());
 }
 
+TEST_F(CollectionVectorTest, ThreeSortFieldsWithVectorSearch) {
+    nlohmann::json schema = R"({
+        "name": "test",
+        "fields": [
+            {
+                "name": "name",
+                "type": "string"
+            },
+            {
+                "name": "genericFlField1",
+                "type": "float"
+            },
+            {
+                "name": "genericFlField2",
+                "type": "float"
+            },
+            {
+                "name": "embedding",
+                "type": "float[]",
+                "embed": {
+                    "from": [
+                        "name"
+                    ],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                }
+            }
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "name": "Nike running shoes for men",
+        "genericFlField1": 2.0,
+        "genericFlField2": 1.0,
+        "id": "0"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "Nike running sneakers",
+        "genericFlField1": 1.0,
+        "genericFlField2": 2.0,
+        "id": "1"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "adidas shoes",
+        "genericFlField1": 1.0,
+        "genericFlField2": 1.0,
+        "id": "2"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "puma",
+        "genericFlField1": 1.0,
+        "genericFlField2": 3.0,
+        "id": "3"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    bool use_aux_score = false;
+
+    std::vector<sort_by> sort_fields;
+    CollectionManager::parse_sort_by_str("_vector_distance:asc,genericFlField1:desc,genericFlField2:asc", sort_fields);
+    auto res = coll->search("nike running shoes", {"name", "embedding"}, "", {},
+                            sort_fields, {2}, 10, 1,FREQUENCY, {true},
+                            Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                            {"embedding"}, 10, "",
+                            30, 4, "", 40,
+                            {}, {}, {}, 0,"<mark>",
+                            "</mark>", {}, 1000,true,
+                            false, true, "", false,
+                            6000*1000, 4, 7, fallback, 4,
+                            {off}, INT16_MAX, INT16_MAX,2,
+                            2, false, "", true,
+                            0, max_score, 100, 0, 0,
+                            "exhaustive", 30000, 2, "",
+                            {},{}, "right_to_left", true,
+                            true, false, "", "", "",
+                            "", true, true, false, 0, true,
+                            true, DEFAULT_FILTER_BY_CANDIDATES, use_aux_score).get();
+    ASSERT_EQ(4, res["hits"].size());
+}
+
 TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
     nlohmann::json schema = R"({
                 "name": "test",
