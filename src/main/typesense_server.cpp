@@ -134,6 +134,13 @@ void master_server_routes() {
     server->post("/proxy", post_proxy);
     server->post("/proxy_sse", post_proxy_sse, false, true);
 
+    // natural language search models
+    server->post("/nl_search_models", post_nl_search_model);
+    server->get("/nl_search_models", get_nl_search_models);
+    server->get("/nl_search_models/:id", get_nl_search_model);
+    server->put("/nl_search_models/:id", put_nl_search_model);
+    server->del("/nl_search_models/:id", delete_nl_search_model);
+
     //async doc request error status
     server->get("/asyncdocs/:req_id", get_async_req_status);
     server->get("/asyncdocs", get_last_n_async_req_status);

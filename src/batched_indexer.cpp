@@ -85,6 +85,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
             {
                 std::unique_lock lk2(mutex);
                 req_res_map[req->start_ts].is_complete = true;
+                req_colls.emplace(req->start_ts, coll_name);
             }
 
             bool queue_write = true;
@@ -352,6 +353,7 @@ void BatchedIndexer::run() {
                 std::unique_lock lk(mutex);
 
                 req_res_map.erase(req_id);
+                req_colls.erase(req_id);
                 lk.unlock();
                 refq_wait.cv.notify_one();
             }
@@ -360,6 +362,8 @@ void BatchedIndexer::run() {
 
     std::thread ref_sequence_thread([&]() {
         // Waits for dependent requests that are ahead to finish before pushing a request onto main indexing queue.
+        LOG(INFO) << "Starting reference sequence thread.";
+
         while(!quit) {
             std::unique_lock ref_qlk(refq_wait.mcv);
             refq_wait.cv.wait(ref_qlk, [&] {
@@ -378,13 +382,14 @@ void BatchedIndexer::run() {
             while(reference_q_it != reference_q.end()) {
                 bool found_ref_coll = false;
 
-                auto req_res_it = req_res_map.find(reference_q_it->start_ts);
-                if(req_res_it == req_res_map.end()) {
+                auto req_colls_it = req_colls.find(reference_q_it->start_ts);
+                if(req_colls_it == req_colls.end()) {
                     reference_q_it = reference_q.erase(reference_q_it);
                     continue;
                 }
 
-                auto const& coll_name = req_res_it->second.req->params["collection"];
+                const std::string& coll_name = req_colls_it->second;
+
                 auto ref_colls_it = coll_to_references.find(coll_name);
                 const auto& ref_collections = (ref_colls_it != coll_to_references.end()) ? ref_colls_it->second :
                                               CollectionManager::get_instance().get_collection_references(coll_name);
@@ -400,8 +405,8 @@ void BatchedIndexer::run() {
                     continue;
                 }
 
-                for (auto it = req_res_map.begin(); it != req_res_it; it++) {
-                    auto const& req_coll_name = it->second.req->params["collection"];
+                for (auto it = req_colls.begin(); it != req_colls_it; it++) {
+                    auto const& req_coll_name = it->second;
                     if(ref_collections.count(req_coll_name) != 0) {
                         found_ref_coll = true;
                         break;
@@ -436,7 +441,8 @@ void BatchedIndexer::run() {
         if(seconds_elapsed > GC_INTERVAL_SECONDS) {
 
             std::unique_lock lk(mutex);
-            LOG(INFO) << "Running GC for aborted requests, req map size: " << req_res_map.size();
+            LOG(INFO) << "Running GC for aborted requests, req map size: " << req_res_map.size()
+                      << ", reference_q.size: " << reference_q.size();
 
             if(req_res_map.size() > 0 && prev_count == req_res_map.size()) {
                 stuck_counter++;
