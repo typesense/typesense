@@ -1,6 +1,4 @@
 import path from "path";
-import type { CollectionSchema } from "typesense/lib/Typesense/Collection";
-import type { CollectionCreateSchema } from "typesense/lib/Typesense/Collections";
 
 import { afterAll, expect, test } from "vitest";
 
@@ -50,7 +48,7 @@ test("start typesense server", async () => {
     http: 9108,
   });
 
-  const createCollectionResult = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+  const createCollectionResult = await fetchNode({
     port: 8108,
     endpoint: "collections",
     method: "POST",
@@ -77,7 +75,7 @@ test("start typesense server", async () => {
 
   await delay(300);
 
-  const getCollectionResult = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+  const getCollectionResult = await fetchNode({
     port: 8108,
     endpoint: "collections/test",
     method: "GET",
@@ -118,7 +116,7 @@ test("restart typesense server", async () => {
     http: 9108,
   });
 
-  const getAllCollectionResults = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+  const getAllCollectionResults = await fetchNode({
     port: 8108,
     endpoint: "collections",
     method: "GET",
@@ -160,7 +158,7 @@ test("restart typesense server with skip cleanup", async () => {
     http: 9108,
   });
 
-  const createCollectionResult = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+  const createCollectionResult = await fetchNode({
     port: 8108,
     endpoint: "collections",
     method: "POST",
@@ -187,7 +185,7 @@ test("restart typesense server with skip cleanup", async () => {
 
   await delay(300);
 
-  const getCollectionResult = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+  const getCollectionResult = await fetchNode({
     port: 8108,
     endpoint: "collections/test_after_restart",
     method: "GET",
@@ -226,7 +224,7 @@ test("restart typesense server with skip cleanup", async () => {
     http: 9108,
   });
 
-  const afterRestartCollection = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+  const afterRestartCollection = await fetchNode({
     port: 8108,
     endpoint: "collections/test_after_restart",
     method: "GET",

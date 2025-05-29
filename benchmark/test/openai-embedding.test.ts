@@ -1,5 +1,3 @@
-import type { CollectionSchema } from "typesense/lib/Typesense/Collection";
-import type { CollectionCreateSchema } from "typesense/lib/Typesense/Collections";
 
 import { afterAll, beforeAll, expect, test } from "vitest";
 
@@ -37,7 +35,7 @@ afterAll(async () => {
 
 test("OpenAI embedding num_dimensions", async () => {
   // Create the collection
-  const collectionCreationRes = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+  const collectionCreationRes = await fetchNode({
     port: 8108,
     endpoint: "collections",
     method: "POST",
@@ -74,7 +72,7 @@ test("OpenAI embedding num_dimensions", async () => {
   const collection = collectionCreationRes.value;
 
   // Get the number of dimensions from the collection
-  let fetchCollectionRes = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+  let fetchCollectionRes = await fetchNode({
     port: 8108,
     endpoint: `collections/${collection.name}`,
     method: "GET",
@@ -92,7 +90,7 @@ test("OpenAI embedding num_dimensions", async () => {
   await restartTypesenseServer();
 
   // Get the number of dimensions from the collection
-  fetchCollectionRes = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+  fetchCollectionRes = await fetchNode({
     port: 8108,
     endpoint: `collections/${collection.name}`,
     method: "GET",
