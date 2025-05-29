@@ -131,7 +131,7 @@ function restartTypesenseServerFresh(): ResultAsync<NodeConfig[], ErrorWithMessa
 }
 
 interface Endpoints<
-  TDoc extends DocumentSchema = DocumentSchema,
+  TDoc extends DocumentSchema,
   ColCreateOptions extends CollectionCreateOptions = CollectionCreateOptions,
 > {
   collections: {
@@ -311,7 +311,7 @@ type TransformIdToTemplate<T> = {
   [K in keyof T as K extends string ? TransformPath<K> : K]: T[K];
 };
 
-type TransformedEndpoints = TransformIdToTemplate<Endpoints>;
+type TransformedEndpoints<T extends DocumentSchema> = TransformIdToTemplate<Endpoints<T>>;
 
 type GetParentPaths<T extends string> =
   T extends `${infer Start}/${infer Middle}/${infer _Rest}` ? `${Start}/${Middle}`
@@ -319,16 +319,17 @@ type GetParentPaths<T extends string> =
   : never;
 
 type GetRawEndpointResponse<
-  TPath extends keyof TransformedEndpoints,
-  TMethod extends keyof TransformedEndpoints[TPath],
-> = TransformedEndpoints[TPath][TMethod];
+  TPath extends keyof TransformedEndpoints<TDoc>,
+  TMethod extends keyof TransformedEndpoints<TDoc>[TPath],
+  TDoc extends DocumentSchema,
+> = TransformedEndpoints<TDoc>[TPath][TMethod];
 
-type GetParentPathResponses<TPath extends string, TMethod extends string> =
-  TPath extends keyof TransformedEndpoints ?
+type GetParentPathResponses<TPath extends string, TMethod extends string, TDoc extends DocumentSchema> =
+  TPath extends keyof TransformedEndpoints<TDoc> ?
     GetParentPaths<TPath> extends infer Parents ?
-      Parents extends keyof TransformedEndpoints ?
-        TMethod extends keyof TransformedEndpoints[Parents] ?
-          TransformedEndpoints[Parents][TMethod]
+      Parents extends keyof TransformedEndpoints<TDoc> ?
+        TMethod extends keyof TransformedEndpoints<TDoc>[Parents] ?
+          TransformedEndpoints<TDoc>[Parents][TMethod]
         : never
       : never
     : never
@@ -340,36 +341,41 @@ type RemoveFromIntersection<T, U> =
   : T;
 
 type GetEndpointResponse<
-  TPath extends keyof TransformedEndpoints,
-  TMethod extends string & keyof TransformedEndpoints[TPath],
-> = RemoveFromIntersection<GetRawEndpointResponse<TPath, TMethod>, GetParentPathResponses<TPath, TMethod>>;
+  TPath extends keyof TransformedEndpoints<TDoc>,
+  TMethod extends string & keyof TransformedEndpoints<TDoc>[TPath],
+  TDoc extends DocumentSchema,
+> = RemoveFromIntersection<GetRawEndpointResponse<TPath, TMethod, TDoc>, GetParentPathResponses<TPath, TMethod, TDoc>>;
 
 interface FetchNodeParams<
-  TPath extends keyof TransformedEndpoints,
-  TMethod extends string & keyof TransformedEndpoints[TPath],
+  TPath extends keyof TransformedEndpoints<TDoc>,
+  TMethod extends string & keyof TransformedEndpoints<TDoc>[TPath],
+  TDoc extends DocumentSchema,
 > {
   port: (typeof TypesenseProcessManager.nodeToPortMap)[number]["http"];
   endpoint: TPath;
   method: TMethod;
-  body?: GetEndpointResponse<TPath, TMethod> extends { body: unknown } ? GetEndpointResponse<TPath, TMethod>["body"]
+  body?: GetEndpointResponse<TPath, TMethod, TDoc> extends { body: unknown } ?
+    GetEndpointResponse<TPath, TMethod, TDoc>["body"]
   : never;
-  queryParams?: GetEndpointResponse<TPath, TMethod> extends { queryParams: unknown } ?
-    GetEndpointResponse<TPath, TMethod>["queryParams"]
+  queryParams?: GetEndpointResponse<TPath, TMethod, TDoc> extends { queryParams: unknown } ?
+    GetEndpointResponse<TPath, TMethod, TDoc>["queryParams"]
   : never;
   numRetries?: number;
   retryDelayMs?: number;
+  "~type"?: TDoc;
 }
 
 /**
  * Fetch data from a Typesense node, with retries.
  */
 function fetchNode<
-  const TPath extends keyof TransformedEndpoints,
-  const TMethod extends string & keyof TransformedEndpoints[TPath],
+  TDoc extends DocumentSchema,
+  const TPath extends keyof TransformedEndpoints<TDoc>,
+  const TMethod extends string & keyof TransformedEndpoints<TDoc>[TPath],
 >(
-  params: FetchNodeParams<TPath, TMethod>,
+  params: FetchNodeParams<TPath, TMethod, TDoc>,
   _retriesLeft?: number,
-): ResultAsync<GetEndpointResponse<TPath, TMethod> extends { return: infer R } ? R : never, ErrorWithMessage> {
+): ResultAsync<GetEndpointResponse<TPath, TMethod, TDoc> extends { return: infer R } ? R : never, ErrorWithMessage> {
   const { port, endpoint, method, body, queryParams, numRetries = 3, retryDelayMs = 5_000 } = params;
 
   const currentRetriesLeft = _retriesLeft ?? numRetries;
@@ -398,7 +404,7 @@ function fetchNode<
           .andThen((errorText) => {
             if (currentRetriesLeft > 0) {
               return ResultAsync.fromPromise(delay(retryDelayMs), toErrorWithMessage).andThen(() =>
-                fetchNode<TPath, TMethod>(params, currentRetriesLeft - 1),
+                fetchNode<TDoc, TPath, TMethod>(params, currentRetriesLeft - 1),
               );
             }
             return errAsync({
@@ -408,7 +414,7 @@ function fetchNode<
           .orElse((getTextError) => {
             if (currentRetriesLeft > 0) {
               return ResultAsync.fromPromise(delay(retryDelayMs), toErrorWithMessage).andThen(() =>
-                fetchNode<TPath, TMethod>(params, currentRetriesLeft - 1),
+                fetchNode<TDoc, TPath, TMethod>(params, currentRetriesLeft - 1),
               );
             }
             return errAsync({
@@ -417,14 +423,14 @@ function fetchNode<
           });
       }
       return ResultAsync.fromPromise(
-        res.json() as Promise<GetEndpointResponse<TPath, TMethod> extends { return: infer R } ? R : never>,
+        res.json() as Promise<GetEndpointResponse<TPath, TMethod, TDoc> extends { return: infer R } ? R : never>,
         toErrorWithMessage,
       );
     })
     .orElse((networkOrFetchError) => {
       if (currentRetriesLeft > 0) {
         return ResultAsync.fromPromise(delay(retryDelayMs), toErrorWithMessage).andThen(() =>
-          fetchNode<TPath, TMethod>(params, currentRetriesLeft - 1),
+          fetchNode<TDoc, TPath, TMethod>(params, currentRetriesLeft - 1),
         );
       }
       return errAsync({
