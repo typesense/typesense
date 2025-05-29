@@ -1,7 +1,4 @@
 import type { NodeConfig } from "@/services/typesense-process";
-import type { CollectionSchema } from "typesense/lib/Typesense/Collection";
-import type { CollectionCreateSchema } from "typesense/lib/Typesense/Collections";
-import type { ConversationModelSchema } from "typesense/lib/Typesense/ConversationModel";
 
 import { afterAll, beforeAll, expect, test } from "vitest";
 
@@ -42,7 +39,7 @@ afterAll(async () => {
 
 test("Conversation with rotation", async () => {
   // Setup
-  const collectionCreationRes = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+  const collectionCreationRes = await fetchNode({
     port: 8108,
     endpoint: "collections",
     method: "POST",
@@ -67,7 +64,7 @@ test("Conversation with rotation", async () => {
     throw new Error(collectionCreationRes.error.message);
   }
 
-  const conversationStoreRes = await fetchNode<CollectionSchema, CollectionCreateSchema>({
+  const conversationStoreRes = await fetchNode({
     port: 8108,
     endpoint: "collections",
     method: "POST",
@@ -104,7 +101,7 @@ test("Conversation with rotation", async () => {
     throw new Error(conversationStoreRes.error.message);
   }
 
-  const conversationModelRes = await fetchNode<CollectionSchema, ConversationModelSchema>({
+  const conversationModelRes = await fetchNode({
     port: 8108,
     endpoint: "conversations/models",
     method: "POST",
@@ -126,7 +123,7 @@ test("Conversation with rotation", async () => {
   // Check that the conversation model is available on all nodes
   await Promise.all(
     nodes.map(async (node) => {
-      const modelRes = await fetchNode<ConversationModelSchema>({
+      const modelRes = await fetchNode({
         port: node.http,
         endpoint: `conversations/models/${conversationModelName}`,
         method: "GET",
@@ -150,7 +147,7 @@ test("Conversation with rotation", async () => {
 
     await Promise.all(
       nodes.map(async (node) => {
-        const modelRes = await fetchNode<ConversationModelSchema>({
+        const modelRes = await fetchNode({
           port: node.http,
           endpoint: `conversations/models/${conversationModelName}`,
           method: "GET",

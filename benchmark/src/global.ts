@@ -130,7 +130,6 @@ function restartTypesenseServerFresh(): ResultAsync<NodeConfig[], ErrorWithMessa
   return ResultAsync.combine(cleanupResults).andThen(() => startTypesenseServer());
 }
 
-interface FetchNodeParams<Body, QueryParams> {
 interface Endpoints<
   TDoc extends DocumentSchema = DocumentSchema,
   ColCreateOptions extends CollectionCreateOptions = CollectionCreateOptions,
@@ -345,11 +344,18 @@ type GetEndpointResponse<
   TMethod extends string & keyof TransformedEndpoints[TPath],
 > = RemoveFromIntersection<GetRawEndpointResponse<TPath, TMethod>, GetParentPathResponses<TPath, TMethod>>;
 
+interface FetchNodeParams<
+  TPath extends keyof TransformedEndpoints,
+  TMethod extends string & keyof TransformedEndpoints[TPath],
+> {
   port: (typeof TypesenseProcessManager.nodeToPortMap)[number]["http"];
-  endpoint: `${string}`;
-  method: "GET" | "POST" | "PUT" | "DELETE";
-  body?: Body;
-  queryParams?: QueryParams;
+  endpoint: TPath;
+  method: TMethod;
+  body?: GetEndpointResponse<TPath, TMethod> extends { body: unknown } ? GetEndpointResponse<TPath, TMethod>["body"]
+  : never;
+  queryParams?: GetEndpointResponse<TPath, TMethod> extends { queryParams: unknown } ?
+    GetEndpointResponse<TPath, TMethod>["queryParams"]
+  : never;
   numRetries?: number;
   retryDelayMs?: number;
 }
@@ -357,10 +363,13 @@ type GetEndpointResponse<
 /**
  * Fetch data from a Typesense node, with retries.
  */
-function fetchNode<T, const Body = string, const QueryParams = Record<string, string>>(
-  params: FetchNodeParams<Body, QueryParams>,
+function fetchNode<
+  const TPath extends keyof TransformedEndpoints,
+  const TMethod extends string & keyof TransformedEndpoints[TPath],
+>(
+  params: FetchNodeParams<TPath, TMethod>,
   _retriesLeft?: number,
-): ResultAsync<T, ErrorWithMessage> {
+): ResultAsync<GetEndpointResponse<TPath, TMethod> extends { return: infer R } ? R : never, ErrorWithMessage> {
   const { port, endpoint, method, body, queryParams, numRetries = 3, retryDelayMs = 5_000 } = params;
 
   const currentRetriesLeft = _retriesLeft ?? numRetries;
@@ -389,7 +398,7 @@ function fetchNode<T, const Body = string, const QueryParams = Record<string, st
           .andThen((errorText) => {
             if (currentRetriesLeft > 0) {
               return ResultAsync.fromPromise(delay(retryDelayMs), toErrorWithMessage).andThen(() =>
-                fetchNode<T, Body, QueryParams>(params, currentRetriesLeft - 1),
+                fetchNode<TPath, TMethod>(params, currentRetriesLeft - 1),
               );
             }
             return errAsync({
@@ -399,7 +408,7 @@ function fetchNode<T, const Body = string, const QueryParams = Record<string, st
           .orElse((getTextError) => {
             if (currentRetriesLeft > 0) {
               return ResultAsync.fromPromise(delay(retryDelayMs), toErrorWithMessage).andThen(() =>
-                fetchNode<T, Body, QueryParams>(params, currentRetriesLeft - 1),
+                fetchNode<TPath, TMethod>(params, currentRetriesLeft - 1),
               );
             }
             return errAsync({
@@ -407,12 +416,15 @@ function fetchNode<T, const Body = string, const QueryParams = Record<string, st
             });
           });
       }
-      return ResultAsync.fromPromise(res.json() as Promise<T>, toErrorWithMessage);
+      return ResultAsync.fromPromise(
+        res.json() as Promise<GetEndpointResponse<TPath, TMethod> extends { return: infer R } ? R : never>,
+        toErrorWithMessage,
+      );
     })
     .orElse((networkOrFetchError) => {
       if (currentRetriesLeft > 0) {
         return ResultAsync.fromPromise(delay(retryDelayMs), toErrorWithMessage).andThen(() =>
-          fetchNode<T, Body, QueryParams>(params, currentRetriesLeft - 1),
+          fetchNode<TPath, TMethod>(params, currentRetriesLeft - 1),
         );
       }
       return errAsync({
