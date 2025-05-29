@@ -5,6 +5,32 @@ import { toErrorWithMessage } from "@/utils/error";
 
 import "dotenv/config";
 
+import type {
+  CollectionDeleteOptions,
+  CollectionSchema,
+  CollectionUpdateSchema,
+} from "typesense/lib/Typesense/Collection";
+import type {
+  CollectionCreateOptions,
+  CollectionCreateSchema,
+  CollectionsRetrieveOptions,
+} from "typesense/lib/Typesense/Collections";
+import type { ConversationModelCreateSchema, ConversationModelSchema } from "typesense/lib/Typesense/ConversationModel";
+import type { DebugResponseSchema } from "typesense/lib/Typesense/Debug";
+import type {
+  DeleteQuery,
+  DeleteResponse,
+  DocumentSchema,
+  DocumentsExportParameters,
+  DocumentWriteParameters,
+  SearchParams,
+  SearchResponse,
+} from "typesense/lib/Typesense/Documents";
+import type { MetricsResponse } from "typesense/lib/Typesense/Metrics";
+import type { OverrideSchema } from "typesense/lib/Typesense/Override";
+import type { OverrideCreateSchema, OverridesRetrieveSchema } from "typesense/lib/Typesense/Overrides";
+import type { StatsResponse } from "typesense/lib/Typesense/Stats";
+
 import { createEnv } from "@t3-oss/env-core";
 import { errAsync, okAsync, ResultAsync } from "neverthrow";
 import ora from "ora";
@@ -105,6 +131,220 @@ function restartTypesenseServerFresh(): ResultAsync<NodeConfig[], ErrorWithMessa
 }
 
 interface FetchNodeParams<Body, QueryParams> {
+interface Endpoints<
+  TDoc extends DocumentSchema = DocumentSchema,
+  ColCreateOptions extends CollectionCreateOptions = CollectionCreateOptions,
+> {
+  collections: {
+    GET: {
+      return: CollectionSchema[];
+      body: never;
+      queryParams: CollectionsRetrieveOptions;
+    };
+    POST: {
+      return: CollectionSchema;
+      body: CollectionCreateSchema<ColCreateOptions>;
+      queryParams: ColCreateOptions;
+    };
+    PATCH: {
+      return: CollectionSchema;
+      body: CollectionUpdateSchema;
+      queryParams: never;
+    };
+  };
+  "collections/:id/documents": {
+    POST: {
+      return: TDoc;
+      body: TDoc;
+      queryParams: DocumentWriteParameters;
+    };
+    PATCH: {
+      return: TDoc;
+      body: TDoc;
+      queryParams: DocumentWriteParameters;
+    };
+    DELETE: {
+      return: DeleteResponse;
+      body: never;
+      queryParams: DeleteQuery;
+    };
+  };
+  "collections/:id/documents/search": {
+    GET: {
+      return: SearchResponse<TDoc>;
+      body: never;
+      queryParams: SearchParams<TDoc, string>;
+    };
+  };
+  "collections/:id/documents/export": {
+    GET: {
+      return: string;
+      body: never;
+      queryParams: DocumentsExportParameters;
+    };
+  };
+  "collections/:id/overrides": {
+    GET: {
+      return: OverridesRetrieveSchema;
+      body: never;
+      queryParams: never;
+    };
+  };
+  "collections/:id/overrides/:id": {
+    PUT: {
+      return: OverrideSchema;
+      body: OverrideCreateSchema;
+      queryParams: never;
+    };
+    DELETE: {
+      return: OverrideSchema;
+      body: never;
+      queryParams: never;
+    };
+    GET: {
+      return: OverrideSchema;
+      body: never;
+      queryParams: never;
+    };
+  };
+  "collections/:id": {
+    GET: {
+      return: CollectionSchema;
+      body: never;
+      queryParams: never;
+    };
+    DELETE: {
+      return: CollectionSchema;
+      body: never;
+      queryParams: CollectionDeleteOptions;
+    };
+  };
+  "conversations/models": {
+    GET: {
+      return: ConversationModelSchema[];
+      body: never;
+      queryParams: never;
+    };
+    POST: {
+      return: ConversationModelSchema;
+      body: ConversationModelCreateSchema;
+      queryParams: never;
+    };
+  };
+  "conversations/models/:id": {
+    GET: {
+      return: ConversationModelSchema;
+      body: never;
+      queryParams: never;
+    };
+    PUT: {
+      return: ConversationModelSchema;
+      body: ConversationModelCreateSchema;
+      queryParams: never;
+    };
+    DELETE: {
+      return: ConversationModelSchema;
+      body: never;
+      queryParams: never;
+    };
+  };
+  "operations/cache_clear": {
+    POST: {
+      return: unknown;
+      body: never;
+      queryParams: never;
+    };
+  };
+  "operations/vote": {
+    POST: {
+      return: unknown;
+      body: never;
+      queryParams: never;
+    };
+  };
+  "operations/snapshot": {
+    POST: {
+      return: unknown;
+      body: never;
+      queryParams: never;
+    };
+  };
+  "operations/schema_changes": {
+    POST: {
+      return: unknown;
+      body: never;
+      queryParams: never;
+    };
+  };
+  debug: {
+    GET: {
+      return: DebugResponseSchema;
+      body: never;
+      queryParams: never;
+    };
+  };
+  "metrics.json": {
+    GET: {
+      return: MetricsResponse;
+      body: never;
+      queryParams: never;
+    };
+  };
+  "stats.json": {
+    GET: {
+      return: StatsResponse;
+      body: never;
+      queryParams: never;
+    };
+  };
+}
+
+type PathSegment = Exclude<string, `${string}/${string}`>;
+
+type TransformPath<T extends string> =
+  T extends `${infer Prefix}/:id${infer Rest}` ?
+    Rest extends `/${infer Next}` ?
+      `${Prefix}/${PathSegment}${TransformPath<Next>}`
+    : `${Prefix}/${PathSegment}`
+  : T;
+
+type TransformIdToTemplate<T> = {
+  [K in keyof T as K extends string ? TransformPath<K> : K]: T[K];
+};
+
+type TransformedEndpoints = TransformIdToTemplate<Endpoints>;
+
+type GetParentPaths<T extends string> =
+  T extends `${infer Start}/${infer Middle}/${infer _Rest}` ? `${Start}/${Middle}`
+  : T extends `${infer Start}/${infer _Rest}` ? Start
+  : never;
+
+type GetRawEndpointResponse<
+  TPath extends keyof TransformedEndpoints,
+  TMethod extends keyof TransformedEndpoints[TPath],
+> = TransformedEndpoints[TPath][TMethod];
+
+type GetParentPathResponses<TPath extends string, TMethod extends string> =
+  TPath extends keyof TransformedEndpoints ?
+    GetParentPaths<TPath> extends infer Parents ?
+      Parents extends keyof TransformedEndpoints ?
+        TMethod extends keyof TransformedEndpoints[Parents] ?
+          TransformedEndpoints[Parents][TMethod]
+        : never
+      : never
+    : never
+  : never;
+
+type RemoveFromIntersection<T, U> =
+  T extends U & infer Rest ? Rest
+  : T extends U ? never
+  : T;
+
+type GetEndpointResponse<
+  TPath extends keyof TransformedEndpoints,
+  TMethod extends string & keyof TransformedEndpoints[TPath],
+> = RemoveFromIntersection<GetRawEndpointResponse<TPath, TMethod>, GetParentPathResponses<TPath, TMethod>>;
+
   port: (typeof TypesenseProcessManager.nodeToPortMap)[number]["http"];
   endpoint: `${string}`;
   method: "GET" | "POST" | "PUT" | "DELETE";
