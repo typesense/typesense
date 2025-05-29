@@ -786,15 +786,15 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         return false;
     }
 
+    nlohmann::json results_json = nlohmann::json::parse(results_json_str);
+    NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &(req->params), nl_search_time_ms);
+    results_json_str = results_json.dump();
 
     // if the response is an event stream, we need to add the data: prefix
     if(conversation_stream) {
         results_json_str = "data: " + results_json_str + "\n\n";
     }
 
-    nlohmann::json results_json = nlohmann::json::parse(results_json_str);
-    NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &(req->params), nl_search_time_ms);
-    results_json_str = results_json.dump();
 
     res->set_200(results_json_str);
     res->final = true;
