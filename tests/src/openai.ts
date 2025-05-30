@@ -5,7 +5,7 @@ import { createServer as createHttpsServer, request as httpsRequest } from "http
 import { Socket } from "net";
 import { join } from "path";
 import { URL } from "url";
-import type { ErrorWithMessage } from "@/utils/error";
+import type { ErrorWithMessage } from "@/error";
 import type { IncomingMessage, RequestOptions, ServerResponse } from "http";
 import type { RequestOptions as HttpsRequestOptions } from "https";
 import type OpenAI from "openai";
@@ -14,8 +14,8 @@ import type { Ora } from "ora";
 import { faker } from "@faker-js/faker";
 import { ResultAsync } from "neverthrow";
 
-import { toErrorWithMessage } from "@/utils/error";
-import { logger } from "@/utils/logger";
+import { toErrorWithMessage } from "@/error";
+import { logger } from "@/logger";
 
 type ModelsResponse = OpenAI.PageResponse<OpenAI.Models.Model>;
 type ChatCompletionResponse = OpenAI.Chat.Completions.ChatCompletion;
