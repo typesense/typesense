@@ -350,7 +350,7 @@ size_t StringUtils::get_num_chars(const std::string& s) {
     return j;
 }
 
-Option<bool> parse_multi_valued_geopoint_filter(const std::string& filter_query, std::string& tokens, size_t& index) {
+Option<bool> parse_multi_valued_geopoint_filter(const std::string& filter_query, size_t& index) {
     // Multi-valued geopoint filter.
     // field_name:[ ([points], options), ([points]) ]
     auto error = Option<bool>(400, "Could not parse the geopoint filter.");
@@ -375,11 +375,10 @@ Option<bool> parse_multi_valued_geopoint_filter(const std::string& filter_query,
         return error;
     }
 
-    tokens = filter_query.substr(start_index, index - start_index);
     return Option<bool>(true);
 }
 
-Option<bool> parse_object_filter(const std::string& filter_query, std::string& token, size_t& index) {
+Option<bool> parse_object_filter(const std::string& filter_query, size_t& index) {
     // Format: object_name.{ <filter expression> }
     if (index >= filter_query.size() || filter_query[index] != '{') {
         return Option<bool>(400, "Could not parse the object filter: `" + filter_query.substr(index) + "`.");
@@ -399,7 +398,6 @@ Option<bool> parse_object_filter(const std::string& filter_query, std::string& t
         return Option<bool>(400, "Could not parse the object filter: unbalanced curly braces.");
     }
 
-    token = filter_query.substr(start_index, index - start_index);
     return Option<bool>(true);
 }
 
@@ -412,6 +410,57 @@ bool is_multi_valued_geopoint_filter(const std::string& filter_query, size_t ind
     // Multi-valued geopoint filter.
     // field_name:[ ([points], options), ([points]) ]
     return filter_query[index] == '(';
+}
+
+Option<bool> StringUtils::parse_filter(const std::string& filter_query, std::string& token, size_t& index) {
+    const auto size = filter_query.size();
+    const auto token_start_index = index;
+    bool inBacktick = false;
+    bool preceding_colon = false;
+    bool is_geo_value = false;
+    auto c = filter_query[index];
+
+    do {
+        if (c == ':') {
+            preceding_colon = true;
+        }
+        if (c == ')' && is_geo_value) {
+            is_geo_value = false;
+        }
+        if (!inBacktick && !preceding_colon && c == '{' && index > 0 && filter_query[index - 1] == '.') { // Object filter
+            auto op = parse_object_filter(filter_query, index);
+            if (!op.ok()) {
+                return op;
+            }
+
+            token += OBJECT_FILTER_MARKER;
+            break;
+        }
+
+        c = filter_query[++index];
+
+        if (c == '`') {
+            inBacktick = !inBacktick;
+        }
+        if (preceding_colon && c == '(') {
+            is_geo_value = true;
+            preceding_colon = false;
+        } else if (preceding_colon && c == '[' && is_multi_valued_geopoint_filter(filter_query, index)) {
+            auto op = parse_multi_valued_geopoint_filter(filter_query, index);
+            if (!op.ok()) {
+                return op;
+            }
+
+            break;
+        } else if (preceding_colon && c != ' ') {
+            preceding_colon = false;
+        }
+    } while (index < size && (inBacktick || is_geo_value ||
+                              (c != '(' && c != ')' && !(c == '&' && filter_query[index + 1] == '&') &&
+                               !(c == '|' && filter_query[index + 1] == '|'))));
+
+    token += filter_query.substr(token_start_index, index - token_start_index);
+    return Option<bool>(true);
 }
 
 Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
@@ -453,57 +502,12 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
                 continue;
             }
 
-            std::stringstream ss;
-            bool inBacktick = false;
-            bool preceding_colon = false;
-            bool is_geo_value = false;
+            std::string token;
+            auto op = parse_filter(filter_query, token, i);
+            if (!op.ok()) {
+                return op;
+            }
 
-            do {
-                if (c == ':') {
-                    preceding_colon = true;
-                }
-                if (c == ')' && is_geo_value) {
-                    is_geo_value = false;
-                }
-                if (!inBacktick && !preceding_colon && c == '{' && i > 0 && filter_query[i - 1] == '.') { // Object filter
-                    std::string value;
-                    auto op = parse_object_filter(filter_query, value, i);
-                    if (!op.ok()) {
-                        return op;
-                    }
-
-                    const std::string object_field_name = ss.str();
-                    ss.str(std::string());
-                    ss << OBJECT_FILTER_MARKER << object_field_name << value;
-                    break;
-                }
-
-                ss << c;
-                c = filter_query[++i];
-
-                if (c == '`') {
-                    inBacktick = !inBacktick;
-                }
-                if (preceding_colon && c == '(') {
-                    is_geo_value = true;
-                    preceding_colon = false;
-                } else if (preceding_colon && c == '[' && is_multi_valued_geopoint_filter(filter_query, i)) {
-                    std::string value;
-                    auto op = parse_multi_valued_geopoint_filter(filter_query, value, i);
-                    if (!op.ok()) {
-                        return op;
-                    }
-
-                    ss << value;
-                    break;
-                } else if (preceding_colon && c != ' ') {
-                    preceding_colon = false;
-                }
-            } while (i < size && (inBacktick || is_geo_value ||
-                                  (c != '(' && c != ')' && !(c == '&' && filter_query[i + 1] == '&') &&
-                                   !(c == '|' && filter_query[i + 1] == '|'))));
-
-            auto token = ss.str();
             trim(token);
             if (!token.empty()) {
                 tokens.push(token);

@@ -358,6 +358,8 @@ struct StringUtils {
 
     static size_t get_num_chars(const std::string& text);
 
+    static Option<bool> parse_filter(const std::string& filter_query, std::string& token, size_t& index);
+
     static Option<bool> tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens);
 
     static Option<bool> split_include_exclude_fields(const std::string& include_exclude_fields,

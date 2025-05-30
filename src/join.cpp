@@ -858,20 +858,8 @@ int8_t skip_index_to_join(const std::string& filter_query, size_t& i) {
             if (c == '$' || (i + 1 < size && c == '!' && filter_query[i + 1] == '$')) {
                 return 1;
             } else {
-                while (i + 1 < size && filter_query[++i] != ':');
-                if (i >= size) {
-                    return -1;
-                }
-
-                bool in_backtick = false;
-                do {
-                    c = filter_query[++i];
-                    if (c == '`') {
-                        in_backtick = !in_backtick;
-                    }
-                } while (i < size && (in_backtick || (c != '(' && c != ')' &&
-                                                      !(c == '&' && filter_query[i + 1] == '&') &&
-                                                      !(c == '|' && filter_query[i + 1] == '|'))));
+                std::string token;
+                StringUtils::parse_filter(filter_query, token, i);
             }
         }
     }
