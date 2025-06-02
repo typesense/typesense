@@ -2808,7 +2808,7 @@ bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const 
                              const std::vector<std::string>& query_tokens,
                              token_ordering token_order, std::set<std::string>& absorbed_tokens,
                              std::string& filter_by_clause, bool enable_typos_for_numerical_tokens,
-                             bool enable_typos_for_alpha_numerical_tokens) const {
+                             bool enable_typos_for_alpha_numerical_tokens, std::string& sort_by_clause) const {
 
     bool resolved_override = false;
     size_t i = 0, j = 0;
@@ -2892,18 +2892,26 @@ bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const 
     for(const auto& kv: field_placeholder_tokens) {
         std::string pattern = "{" + kv.first + "}";
         std::string replacement = StringUtils::join(kv.second, " ");
-        StringUtils::replace_all(filter_by_clause, pattern, replacement);
+
+        if (!filter_by_clause.empty()) {
+            StringUtils::replace_all(filter_by_clause, pattern, replacement);
+        }
+
+        if (!sort_by_clause.empty()) {
+            StringUtils::replace_all(sort_by_clause, pattern, replacement);
+        }
     }
 
     return true;
 }
 
-void Index::process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
+void Index::process_filter_sort_overrides(const std::vector<const override_t*>& filter_overrides,
                                      std::vector<std::string>& query_tokens,
                                      token_ordering token_order,
                                      std::unique_ptr<filter_node_t>& filter_tree_root,
                                      std::vector<const override_t*>& matched_dynamic_overrides,
                                      nlohmann::json& override_metadata,
+                                     std::string& sort_by_clause,
                                      bool enable_typos_for_numerical_tokens,
                                      bool enable_typos_for_alpha_numerical_tokens,
                                      const bool& validate_field_names) const {
@@ -2945,7 +2953,7 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
             bool resolved_override = resolve_override(rule_parts, exact_rule_match, query_tokens,
                                                       token_order, absorbed_tokens, filter_by_clause,
                                                       enable_typos_for_numerical_tokens,
-                                                      enable_typos_for_alpha_numerical_tokens);
+                                                      enable_typos_for_alpha_numerical_tokens, sort_by_clause);
 
             if (resolved_override) {
                 if(override_metadata.empty()) {

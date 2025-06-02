@@ -3388,6 +3388,85 @@ TEST_F(CollectionOverrideTest, StaticSorting) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionOverrideTest, DynamicSorting) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("store", field_types::STRING_ARRAY, false),
+                                 field("unitssold", field_types::OBJECT, false),
+                                 field("unitssold.store01", field_types::INT32, true),
+                                 field("unitssold.store02", field_types::INT32, true),
+                                 field("stockonhand", field_types::OBJECT, false),
+                                 field("stockonhand.store01", field_types::INT32, true),
+                                 field("stockonhand.store02", field_types::INT32, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Nike Shoes";
+    doc1["store"] = {"store01", "store02"};
+    doc1["unitssold.store01"] = 399;
+    doc1["unitssold.store02"] = 498;
+    doc1["stockonhand.store01"] = 129;
+    doc1["stockonhand.store02"] = 227;
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Asics Shoes";
+    doc2["store"] = {"store01", "store02"};
+    doc2["unitssold.store01"] = 899;
+    doc2["unitssold.store02"] = 408;
+    doc2["stockonhand.store01"] = 101;
+    doc2["stockonhand.store02"] = 64;
+    doc2["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_json_contains = {
+            {"id",   "dynamic-sort"},
+            {
+             "rule", {
+                             {"query", "{store}"},
+                             {"match", override_t::MATCH_CONTAINS}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"sort_by", "unitssold.{store}:desc, stockonhand.{store}:desc"}
+    };
+
+    override_t override_contains;
+    auto op = override_t::parse(override_json_contains, "dynamic-sort", override_contains);
+    ASSERT_TRUE(op.ok());
+
+    // now add override
+    coll1->add_override(override_contains);
+
+    auto results = coll1->search("store01", {"store"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search("store02", {"store"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOverrideTest, DynamicFilteringWithPartialTokenMatch) {
     // when query tokens do not match placeholder field value exactly, don't do filtering
     Collection* coll1;

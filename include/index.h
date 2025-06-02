@@ -524,7 +524,8 @@ private:
                           token_ordering token_order, std::set<std::string>& absorbed_tokens,
                           std::string& filter_by_clause,
                           bool enable_typos_for_numerical_tokens,
-                          bool enable_typos_for_alpha_numerical_tokens) const;
+                          bool enable_typos_for_alpha_numerical_tokens,
+                          std::string& sort_by_clause) const;
 
     bool check_for_overrides(const token_ordering& token_order, const string& field_name, bool slide_window,
                              bool exact_rule_match, std::vector<std::string>& tokens,
@@ -1087,12 +1088,13 @@ public:
                                      const int* sort_order,
                                      int64_t& out_best_field_match_score);
 
-    void process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
+    void process_filter_sort_overrides(const std::vector<const override_t*>& filter_overrides,
                                   std::vector<std::string>& query_tokens,
                                   token_ordering token_order,
                                   std::unique_ptr<filter_node_t>& filter_tree_root,
                                   std::vector<const override_t*>& matched_dynamic_overrides,
                                   nlohmann::json& override_metadata,
+                                  std::string& sort_by_clause,
                                   bool enable_typos_for_numerical_tokens,
                                   bool enable_typos_for_alpha_numerical_tokens,
                                   const bool& validate_field_names = true) const;
