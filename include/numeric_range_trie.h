@@ -16,16 +16,17 @@ class NumericTrie {
 
         void insert_geopoint_helper(const uint64_t& cell_id, const uint32_t& seq_id, char& level, const char& max_level);
 
-        void search_geopoints_helper(const uint64_t& cell_id, const char& max_index_level, std::set<Node*>& matches);
+        void search_geopoints_helper(const uint64_t& cell_id, const char& max_index_level, std::set<Node*>& matches,
+                                     size_t& ids_length);
 
         void search_range_helper(const int64_t& low,const int64_t& high, const char& max_level,
-                                 std::vector<Node*>& matches);
+                                 std::vector<Node*>& matches, size_t& ids_length);
 
         void search_less_than_helper(const int64_t& value, char& level, const char& max_level,
-                                     std::vector<Node*>& matches);
+                                     std::vector<Node*>& matches, size_t& ids_length);
 
         void search_greater_than_helper(const int64_t& value, char& level, const char& max_level,
-                                        std::vector<Node*>& matches);
+                                        std::vector<Node*>& matches, size_t& ids_length);
 
         void seq_ids_outside_top_k_helper(const size_t& k, size_t& ids_skipped, char& level, const char& max_level,
                                           const bool& is_negative, std::vector<uint32_t>& result);
