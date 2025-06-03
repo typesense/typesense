@@ -88,7 +88,8 @@ public:
                                         const std::atomic<bool>& quit,
                                         const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos);
 
-    Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json);
+    Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json, 
+                                         const bool copy_documents = false);
 
     void add_to_collections(Collection* collection);
 
