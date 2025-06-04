@@ -4551,33 +4551,10 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         stopword_struct_t stopwordStruct;
         
         if(!stopwords_set.empty()) {
-            // Parse stopword set names from comma-separated string
-            auto stopword_set_names = StringUtils::parse_stopword_set_names(stopwords_set);
-            
-            if(stopword_set_names.size() == 1) {
-                // Single stopword set - use original logic
-                const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopword_set_names[0], stopwordStruct);
-                if (!stopword_op.ok()) {
-                    LOG(ERROR) << stopword_op.error();
-                    LOG(ERROR) << "Error fetching stopword_list for stopword " << stopword_set_names[0];
-                }
-            } else if(stopword_set_names.size() > 1) {
-                // Multiple stopword sets - create combined stopword struct
-                stopwordStruct.id = "combined";
-                stopwordStruct.stopwords.clear();
-                
-                // Merge all stopword sets
-                for(const auto& name : stopword_set_names) {
-                    stopword_struct_t individual_set;
-                    const auto &stopword_op = StopwordsManager::get_instance().get_stopword(name, individual_set);
-                    if (stopword_op.ok()) {
-                        // Add all stopwords from this set to the combined set
-                        stopwordStruct.stopwords.insert(individual_set.stopwords.begin(), individual_set.stopwords.end());
-                    } else {
-                        LOG(ERROR) << stopword_op.error();
-                        LOG(ERROR) << "Error fetching stopword_list for stopword " << name;
-                    }
-                }
+            const auto &stopword_op = StopwordsManager::get_instance().get_combined_stopwords(stopwords_set, stopwordStruct);
+            if (!stopword_op.ok()) {
+                LOG(ERROR) << stopword_op.error();
+                LOG(ERROR) << "Error fetching stopword_list for stopword set: " << stopwords_set;
             }
         }
 
