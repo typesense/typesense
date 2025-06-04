@@ -1606,7 +1606,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                             value_meters = std::stof(dist_values[0]) * 1609.34;
                         } else {
                             return Option<bool>(400, "Sort field's parameter "
-                                                     "unit must be either `km` or `mi`.");
+                                                 "unit must be either `km` or `mi`.");
                         }
 
                         if(value_meters <= 0) {
@@ -4551,27 +4551,18 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         stopword_struct_t stopwordStruct;
         
         if(!stopwords_set.empty()) {
-            // Check if this is a combined stopword set identifier
-            if(stopwords_set.find("##COMBINED##:") == 0) {
-                // Extract the original comma-separated string
-                std::string stopwords_param = stopwords_set.substr(13); // Remove "##COMBINED##:" prefix
-                
-                // Split the comma-separated string into individual stopword set names
-                std::vector<std::string> stopword_set_names;
-                std::stringstream ss(stopwords_param);
-                std::string set_name;
-                
-                while(std::getline(ss, set_name, ',')) {
-                    // Trim whitespace from the set name
-                    set_name.erase(0, set_name.find_first_not_of(" \t"));
-                    set_name.erase(set_name.find_last_not_of(" \t") + 1);
-                    
-                    if(!set_name.empty()) {
-                        stopword_set_names.push_back(set_name);
-                    }
+            // Parse stopword set names from comma-separated string
+            auto stopword_set_names = StringUtils::parse_stopword_set_names(stopwords_set);
+            
+            if(stopword_set_names.size() == 1) {
+                // Single stopword set - use original logic
+                const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopword_set_names[0], stopwordStruct);
+                if (!stopword_op.ok()) {
+                    LOG(ERROR) << stopword_op.error();
+                    LOG(ERROR) << "Error fetching stopword_list for stopword " << stopword_set_names[0];
                 }
-                
-                // Create combined stopword struct
+            } else if(stopword_set_names.size() > 1) {
+                // Multiple stopword sets - create combined stopword struct
                 stopwordStruct.id = "combined";
                 stopwordStruct.stopwords.clear();
                 
@@ -4581,20 +4572,11 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                     const auto &stopword_op = StopwordsManager::get_instance().get_stopword(name, individual_set);
                     if (stopword_op.ok()) {
                         // Add all stopwords from this set to the combined set
-                        for(const auto& stopword : individual_set.stopwords) {
-                            stopwordStruct.stopwords.insert(stopword);
-                        }
+                        stopwordStruct.stopwords.insert(individual_set.stopwords.begin(), individual_set.stopwords.end());
                     } else {
                         LOG(ERROR) << stopword_op.error();
                         LOG(ERROR) << "Error fetching stopword_list for stopword " << name;
                     }
-                }
-            } else {
-                // Single stopword set - use original logic
-                const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwordStruct);
-                if (!stopword_op.ok()) {
-                    LOG(ERROR) << stopword_op.error();
-                    LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set;
                 }
             }
         }

@@ -1366,26 +1366,12 @@ Option<bool> apply_preset(std::map<std::string, std::string>& req_params) {
 }
 
 Option<bool> get_stopword_set(const std::map<std::string, std::string>& req_params, std::string& stopwords_set) {
-    //check if stopword set is supplied
     const auto stopword_it = req_params.find("stopwords");
 
     if(stopword_it != req_params.end()) {
         const std::string& stopwords_param = stopword_it->second;
         
-        // Split the comma-separated string into individual stopword set names
-        std::vector<std::string> stopword_set_names;
-        std::stringstream ss(stopwords_param);
-        std::string set_name;
-        
-        while(std::getline(ss, set_name, ',')) {
-            // Trim whitespace from the set name
-            set_name.erase(0, set_name.find_first_not_of(" \t"));
-            set_name.erase(set_name.find_last_not_of(" \t") + 1);
-            
-            if(!set_name.empty()) {
-                stopword_set_names.push_back(set_name);
-            }
-        }
+        auto stopword_set_names = StringUtils::parse_stopword_set_names(stopwords_param);
         
         // Validate that all stopword sets exist
         for(const auto& name : stopword_set_names) {
@@ -1394,13 +1380,8 @@ Option<bool> get_stopword_set(const std::map<std::string, std::string>& req_para
             }
         }
         
-        // If only one stopword set, use it directly
-        if(stopword_set_names.size() == 1) {
-            stopwords_set = stopword_set_names[0];
-        } else if(stopword_set_names.size() > 1) {
-            // For multiple sets, create a combined identifier
-            stopwords_set = "##COMBINED##:" + stopwords_param;
-        }
+        // Store the original parameter value - parsing will be done in collection.cpp
+        stopwords_set = stopwords_param;
     }
 
     return Option<bool>(true);
