@@ -787,7 +787,7 @@ void NumericTrie::Node::search_range_helper(const int64_t& low,const int64_t& hi
     while (index < std::min(high_index, EXPANSE)) {
         if (root->children[index] != nullptr) {
             matches.push_back(root->children[index]);
-            ids_length = ids_t::num_ids(root->children[index]);
+            ids_length += ids_t::num_ids(root->children[index]);
         }
 
         index++;
