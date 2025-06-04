@@ -515,7 +515,7 @@ void NumericTrie::Node::remove(const int64_t& value, const uint32_t& id, const c
         auto& child = root->children[index];
 
         ids_t::erase(child->seq_ids, id);
-        if (ids_t::num_ids(child->seq_ids) == 0) {
+        if (child->get_ids_length() == 0) {
             delete child;
             child = nullptr;
         }
@@ -596,7 +596,7 @@ void NumericTrie::Node::search_geopoints_helper(const uint64_t& cell_id, const c
         index = get_geopoint_index(cell_id, ++level);
     }
 
-    ids_length += ids_t::num_ids(root->seq_ids);
+    ids_length += root->get_ids_length();
     matches.insert(root);
 }
 
@@ -638,7 +638,7 @@ void NumericTrie::Node::delete_geopoint(const uint64_t& cell_id, uint32_t id, co
         auto& child = root->children[index];
 
         ids_t::erase(child->seq_ids, id);
-        if (ids_t::num_ids(child->seq_ids) == 0) {
+        if (child->get_ids_length() == 0) {
             delete child;
             child = nullptr;
         }
@@ -689,7 +689,7 @@ void NumericTrie::Node::search_less_than_helper(const int64_t& value, char& leve
                                                 std::vector<Node*>& matches, size_t& ids_length) {
     if (level == max_level) {
         matches.push_back(this);
-        ids_length += ids_t::num_ids(seq_ids);
+        ids_length += get_ids_length();
         return;
     } else if (level > max_level || children == nullptr) {
         return;
@@ -701,9 +701,10 @@ void NumericTrie::Node::search_less_than_helper(const int64_t& value, char& leve
     }
 
     while (--index >= 0) {
-        if (children[index] != nullptr) {
-            matches.push_back(children[index]);
-            ids_length += ids_t::num_ids(children[index]->seq_ids);
+        const auto& child = children[index];
+        if (child != nullptr) {
+            matches.push_back(child);
+            ids_length += child->get_ids_length();
         }
     }
 
@@ -770,9 +771,10 @@ void NumericTrie::Node::search_range_helper(const int64_t& low,const int64_t& hi
     if (root->children == nullptr) {
         return;
     } else if (low_index == high_index) { // low and high are equal
-        if (root->children[low_index] != nullptr) {
-            matches.push_back(root->children[low_index]);
-            ids_length = ids_t::num_ids(root->children[low_index]);
+        const auto& child = root->children[low_index];
+        if (child != nullptr) {
+            matches.push_back(child);
+            ids_length += child->get_ids_length();
         }
         return;
     }
@@ -784,13 +786,12 @@ void NumericTrie::Node::search_range_helper(const int64_t& low,const int64_t& hi
 
     auto index = low_index + 1;
     // All the nodes in-between low and high are a match by default.
-    while (index < std::min(high_index, EXPANSE)) {
-        if (root->children[index] != nullptr) {
-            matches.push_back(root->children[index]);
-            ids_length = ids_t::num_ids(root->children[index]);
+    for (; index < std::min(high_index, EXPANSE); index++) {
+        const auto& child = root->children[index];
+        if (child != nullptr) {
+            matches.push_back(child);
+            ids_length += child->get_ids_length();
         }
-
-        index++;
     }
 
     if (index < EXPANSE && index == high_index && root->children[index] != nullptr) {
@@ -837,7 +838,7 @@ void NumericTrie::Node::search_greater_than_helper(const int64_t& value, char& l
                                                    std::vector<Node*>& matches, size_t& ids_length) {
     if (level == max_level) {
         matches.push_back(this);
-        ids_length += ids_t::num_ids(seq_ids);
+        ids_length += get_ids_length();
         return;
     } else if (level > max_level || children == nullptr) {
         return;
@@ -849,9 +850,10 @@ void NumericTrie::Node::search_greater_than_helper(const int64_t& value, char& l
     }
 
     while (++index < EXPANSE) {
-        if (children[index] != nullptr) {
-            matches.push_back(children[index]);
-            ids_length += ids_t::num_ids(children[index]->seq_ids);
+        const auto& child = children[index];
+        if (child != nullptr) {
+            matches.push_back(child);
+            ids_length += child->get_ids_length();
         }
     }
 
