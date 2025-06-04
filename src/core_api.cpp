@@ -3599,7 +3599,10 @@ bool post_personalization_model(const std::shared_ptr<http_req>& req, const std:
     }
     
     auto model = create_op.get();
-    res->set_200(nlohmann::json{{"ok", true}, {"model_id", model}}.dump());
+    if (model.contains("model_path")) {
+      model.erase("model_path");
+    }
+    res->set_200(model.dump());
     
     return true;
 }

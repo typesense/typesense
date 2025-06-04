@@ -131,28 +131,19 @@ Option<nlohmann::json> PersonalizationModel::create_model(const std::string& mod
         return Option<nlohmann::json>(400, "Missing the required prompts.json file in archive");
     }
 
-    // Load model temporarily to get dimensions and check if the model is loadable
-    PersonalizationModel temp_model(model_id);
-    auto validate_op = temp_model.validate_model_io();
-    if(!validate_op.ok()) {
-        return Option<nlohmann::json>(400, "Model validation failed. There is a problem with ONNX model");
-    }
-    auto model_json_with_dims = model_json;
-    model_json_with_dims["num_dims"] = temp_model.get_num_dims();
-
     std::ofstream metadata_file(metadata_path);
     if (!metadata_file) {
         return Option<nlohmann::json>(500, "Failed to create metadata file");
     }
 
-    metadata_file << model_json_with_dims.dump(4);
+    metadata_file << model_json.dump(4);
     metadata_file.close();
 
     if (!metadata_file) {
         return Option<nlohmann::json>(500, "Failed to write metadata file");
     }
 
-    return Option<nlohmann::json>(model_json_with_dims);
+    return Option<nlohmann::json>(model_json);
 }
 
 Option<nlohmann::json> PersonalizationModel::update_model(const std::string& model_id, const nlohmann::json& model_json, const std::string model_data) {
