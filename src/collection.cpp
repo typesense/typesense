@@ -2,6 +2,7 @@
 
 #include <numeric>
 #include <chrono>
+#include <sstream>
 #include <match_score.h>
 #include <string_utils.h>
 #include <art.h>
@@ -4548,11 +4549,53 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         std::vector<std::string> tokens;
         std::vector<std::string> tokens_non_stemmed;
         stopword_struct_t stopwordStruct;
+        
         if(!stopwords_set.empty()) {
-            const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwordStruct);
-            if (!stopword_op.ok()) {
-                LOG(ERROR) << stopword_op.error();
-                LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set;
+            // Check if this is a combined stopword set identifier
+            if(stopwords_set.find("##COMBINED##:") == 0) {
+                // Extract the original comma-separated string
+                std::string stopwords_param = stopwords_set.substr(13); // Remove "##COMBINED##:" prefix
+                
+                // Split the comma-separated string into individual stopword set names
+                std::vector<std::string> stopword_set_names;
+                std::stringstream ss(stopwords_param);
+                std::string set_name;
+                
+                while(std::getline(ss, set_name, ',')) {
+                    // Trim whitespace from the set name
+                    set_name.erase(0, set_name.find_first_not_of(" \t"));
+                    set_name.erase(set_name.find_last_not_of(" \t") + 1);
+                    
+                    if(!set_name.empty()) {
+                        stopword_set_names.push_back(set_name);
+                    }
+                }
+                
+                // Create combined stopword struct
+                stopwordStruct.id = "combined";
+                stopwordStruct.stopwords.clear();
+                
+                // Merge all stopword sets
+                for(const auto& name : stopword_set_names) {
+                    stopword_struct_t individual_set;
+                    const auto &stopword_op = StopwordsManager::get_instance().get_stopword(name, individual_set);
+                    if (stopword_op.ok()) {
+                        // Add all stopwords from this set to the combined set
+                        for(const auto& stopword : individual_set.stopwords) {
+                            stopwordStruct.stopwords.insert(stopword);
+                        }
+                    } else {
+                        LOG(ERROR) << stopword_op.error();
+                        LOG(ERROR) << "Error fetching stopword_list for stopword " << name;
+                    }
+                }
+            } else {
+                // Single stopword set - use original logic
+                const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwordStruct);
+                if (!stopword_op.ok()) {
+                    LOG(ERROR) << stopword_op.error();
+                    LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set;
+                }
             }
         }
 
@@ -5447,7 +5490,7 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
 }
 
 void Collection::cascade_remove_docs(const std::string& field_name, const uint32_t& ref_seq_id,
-                                     const nlohmann::json& ref_doc, bool remove_from_store) {
+                                      const nlohmann::json& ref_doc, bool remove_from_store) {
     auto const ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
 
     filter_result_t filter_result;

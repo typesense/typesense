@@ -454,3 +454,78 @@ TEST_F(StopwordsManagerTest, ReloadStopwordsOnRestart) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(StopwordsManagerTest, SearchWithMultipleStopwordSets) {
+    // Create a collection
+    nlohmann::json schema = R"({
+        "name": "coll_multi",
+        "fields": [
+          {"name": "title", "type": "string" },
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll = op.get();
+
+    // Add documents
+    nlohmann::json doc;
+    doc["title"] = "The Dark Knight Europe";
+    doc["points"] = 10;
+    coll->add(doc.dump(), CREATE);
+
+    doc["title"] = "An American America";
+    doc["points"] = 12;
+    coll->add(doc.dump(), CREATE);
+
+    doc["title"] = "A Deadman";
+    doc["points"] = 13;
+    coll->add(doc.dump(), CREATE);
+
+    // Create two stopword sets
+    auto stopwords1 = R"({"stopwords": ["the", "a", "an"], "locale": "en"})"_json;
+    auto stopwords2 = R"({"stopwords": ["america", "europe"], "locale": "en"})"_json;
+    
+    auto upsert_op = stopwordsManager.upsert_stopword("articles", stopwords1);
+    ASSERT_TRUE(upsert_op.ok());
+    upsert_op = stopwordsManager.upsert_stopword("continents", stopwords2);
+    ASSERT_TRUE(upsert_op.ok());
+
+    // Search with both stopword sets
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "coll_multi";
+    req->params["q"] = "The America";
+    req->params["query_by"] = "title";
+    req->params["stopwords"] = "articles,continents";
+
+    nlohmann::json embedded_params;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    std::string json_results;
+
+    auto search_op = collectionManager.do_search(req->params, embedded_params, json_results, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    nlohmann::json results = nlohmann::json::parse(json_results);
+    // Both 'the' and 'america' are stopwords, so query should match nothing
+    ASSERT_EQ(0, results["hits"].size());
+
+    // Search with only one stopword set ("articles")
+    req->params["stopwords"] = "articles";
+    search_op = collectionManager.do_search(req->params, embedded_params, json_results, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_results);
+    // Only 'the' is a stopword, so 'america' remains and should match a document
+    ASSERT_GT(results["hits"].size(), 0);
+
+    // Search with only one stopword set ("continents")
+    req->params["stopwords"] = "continents";
+    search_op = collectionManager.do_search(req->params, embedded_params, json_results, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_results);
+    // Only 'america' is a stopword, so 'the' remains and should match a document
+    ASSERT_GT(results["hits"].size(), 0);
+
+    collectionManager.drop_collection("coll_multi");
+}

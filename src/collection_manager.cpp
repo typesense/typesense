@@ -1,5 +1,6 @@
 #include <string>
 #include <vector>
+#include <sstream>
 #include <json.hpp>
 #include <app_metrics.h>
 #include <analytics_manager.h>
@@ -1369,10 +1370,36 @@ Option<bool> get_stopword_set(const std::map<std::string, std::string>& req_para
     const auto stopword_it = req_params.find("stopwords");
 
     if(stopword_it != req_params.end()) {
-        stopwords_set = stopword_it->second;
-
-        if(!StopwordsManager::get_instance().stopword_exists(stopwords_set)) {
-            return Option<bool>(404, "Could not find the stopword set named `" + stopwords_set + "`.");
+        const std::string& stopwords_param = stopword_it->second;
+        
+        // Split the comma-separated string into individual stopword set names
+        std::vector<std::string> stopword_set_names;
+        std::stringstream ss(stopwords_param);
+        std::string set_name;
+        
+        while(std::getline(ss, set_name, ',')) {
+            // Trim whitespace from the set name
+            set_name.erase(0, set_name.find_first_not_of(" \t"));
+            set_name.erase(set_name.find_last_not_of(" \t") + 1);
+            
+            if(!set_name.empty()) {
+                stopword_set_names.push_back(set_name);
+            }
+        }
+        
+        // Validate that all stopword sets exist
+        for(const auto& name : stopword_set_names) {
+            if(!StopwordsManager::get_instance().stopword_exists(name)) {
+                return Option<bool>(404, "Could not find the stopword set named `" + name + "`.");
+            }
+        }
+        
+        // If only one stopword set, use it directly
+        if(stopword_set_names.size() == 1) {
+            stopwords_set = stopword_set_names[0];
+        } else if(stopword_set_names.size() > 1) {
+            // For multiple sets, create a combined identifier
+            stopwords_set = "##COMBINED##:" + stopwords_param;
         }
     }
 
