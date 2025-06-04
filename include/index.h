@@ -523,9 +523,9 @@ private:
                           const std::vector<std::string>& query_tokens,
                           token_ordering token_order, std::set<std::string>& absorbed_tokens,
                           std::string& filter_by_clause,
+                          std::string& sort_by_clause,
                           bool enable_typos_for_numerical_tokens,
-                          bool enable_typos_for_alpha_numerical_tokens,
-                          std::string& sort_by_clause) const;
+                          bool enable_typos_for_alpha_numerical_tokens) const;
 
     bool check_for_overrides(const token_ordering& token_order, const string& field_name, bool slide_window,
                              bool exact_rule_match, std::vector<std::string>& tokens,

@@ -12,6 +12,7 @@ struct override_t {
         std::string normalized_query;       // not actually stored, used for lowercasing etc.
         std::string match;
         bool dynamic_query = false;
+        bool dynamic_filter = false;
         std::string filter_by;
         std::set<std::string> tags;
     };

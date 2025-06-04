@@ -883,12 +883,11 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
     }
 
     // ID-based overrides are applied first as they take precedence over filter-based overrides
-    if(!override.filter_by.empty()) {
+    if(!override.filter_by.empty() || !override.sort_by.empty()) {
         filter_sort_overrides.push_back(&override);
     }
 
     if(!override.sort_by.empty()) {
-        filter_sort_overrides.push_back(&override);
         curated_sort_by = override.sort_by;
     }
 
@@ -4191,7 +4190,7 @@ void Collection::process_highlight_fields(const std::vector<search_field_t>& sea
     }
 }
 
-void Collection::process_filter_sort_overrides(std::vector<const override_t*>& filter_overrides,
+void Collection::process_filter_sort_overrides(std::vector<const override_t*>& filter_sort_overrides,
                                           std::vector<std::string>& q_include_tokens,
                                           token_ordering token_order,
                                           std::unique_ptr<filter_node_t>& filter_tree_root,
@@ -4204,7 +4203,7 @@ void Collection::process_filter_sort_overrides(std::vector<const override_t*>& f
                                           const bool& validate_field_names) const {
 
     std::vector<const override_t*> matched_dynamic_overrides;
-    index->process_filter_sort_overrides(filter_overrides, q_include_tokens, token_order,
+    index->process_filter_sort_overrides(filter_sort_overrides, q_include_tokens, token_order,
                                     filter_tree_root, matched_dynamic_overrides, override_metadata,
                                     sort_by_clause, enable_typos_for_numerical_tokens,
                                     enable_typos_for_alpha_numerical_tokens);

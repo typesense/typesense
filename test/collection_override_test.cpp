@@ -3431,6 +3431,7 @@ TEST_F(CollectionOverrideTest, DynamicSorting) {
 
     std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
 
+    //query based dynamic sorting
     nlohmann::json override_json_contains = {
             {"id",   "dynamic-sort"},
             {
@@ -3459,6 +3460,40 @@ TEST_F(CollectionOverrideTest, DynamicSorting) {
 
     results = coll1->search("store02", {"store"}, "",
                                  {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // filter based dynamic sorting
+    override_json_contains = {
+            {"id",   "dynamic-sort2"},
+            {
+             "rule", {
+                             {"filter_by", "store:={store}"},
+                             {"match", override_t::MATCH_CONTAINS}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"sort_by", "unitssold.{store}:desc, stockonhand.{store}:desc"}
+    };
+
+    override_t override_contains2;
+    op = override_t::parse(override_json_contains, "dynamic-sort", override_contains2);
+    ASSERT_TRUE(op.ok());
+
+    // now add override
+    coll1->add_override(override_contains2);
+
+    results = coll1->search("*", {}, "store:=store01",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {}, "store:=store02",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
