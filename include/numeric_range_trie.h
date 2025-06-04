@@ -60,7 +60,7 @@ class NumericTrie {
 
         void get_all_ids(std::vector<uint32_t>& result);
 
-        uint32_t get_ids_length();
+        inline uint32_t get_ids_length();
 
         void search_range(const int64_t& low, const int64_t& high, const char& max_level,
                           uint32_t*& ids, uint32_t& ids_length);
