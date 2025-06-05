@@ -2944,7 +2944,7 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
             // need to extract placeholder field names from the search query or filter_by, filter or sort on them and rewrite query
             // we will cover both original query and synonyms
             // dynamic query will take precedence over dynamic filter
-            auto process_filter_query = [&] (const std::string& filter_query, std::vector<std::string>& processed_tokens) -> void {
+            auto tokenize_filter_str = [&] (const std::string& filter_query, std::vector<std::string>& processed_tokens) -> void {
                 std::queue<std::string> tokens;
                 StringUtils::tokenize_filter_query(filter_query, tokens);
 
@@ -2955,6 +2955,10 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                 }
 
                 for(int i = 0; i < filter_tokens.size(); ++i) {
+                    if(filter_tokens[i] == "&&" || filter_tokens[i] == "||") {
+                        continue; //will skip operators
+                    }
+
                     StringUtils::split(filter_tokens[i], processed_tokens, ":");
                 }
 
@@ -2976,10 +2980,10 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                 StringUtils::split(override->rule.normalized_query, rule_parts, " ");
                 processed_tokens = query_tokens;
             } else if(override->rule.dynamic_filter) {
-                process_filter_query(override->rule.filter_by, rule_parts);
+                tokenize_filter_str(override->rule.filter_by, rule_parts);
 
                 // tokenize filter_by string from search query
-                process_filter_query(filter_tree_root->filter_query, processed_tokens);
+                tokenize_filter_str(filter_tree_root->filter_query, processed_tokens);
             }
 
             bool exact_rule_match = override->rule.match == override_t::MATCH_EXACT;

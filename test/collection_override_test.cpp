@@ -3393,9 +3393,12 @@ TEST_F(CollectionOverrideTest, DynamicSorting) {
 
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  field("store", field_types::STRING_ARRAY, false),
+                                 field("size", field_types::STRING_ARRAY, false),
                                  field("unitssold", field_types::OBJECT, false),
                                  field("unitssold.store01", field_types::INT32, true),
                                  field("unitssold.store02", field_types::INT32, true),
+                                 field("unitssold.small", field_types::INT32, true),
+                                 field("unitssold.medium", field_types::INT32, true),
                                  field("stockonhand", field_types::OBJECT, false),
                                  field("stockonhand.store01", field_types::INT32, true),
                                  field("stockonhand.store02", field_types::INT32, true),
@@ -3410,8 +3413,11 @@ TEST_F(CollectionOverrideTest, DynamicSorting) {
     doc1["id"] = "0";
     doc1["name"] = "Nike Shoes";
     doc1["store"] = {"store01", "store02"};
+    doc1["size"] = {"small", "medium"};
     doc1["unitssold.store01"] = 399;
     doc1["unitssold.store02"] = 498;
+    doc1["unitssold.small"] = 304;
+    doc1["unitssold.medium"] = 593;
     doc1["stockonhand.store01"] = 129;
     doc1["stockonhand.store02"] = 227;
     doc1["points"] = 100;
@@ -3420,14 +3426,31 @@ TEST_F(CollectionOverrideTest, DynamicSorting) {
     doc2["id"] = "1";
     doc2["name"] = "Asics Shoes";
     doc2["store"] = {"store01", "store02"};
+    doc2["size"] = {"small", "medium"};
     doc2["unitssold.store01"] = 899;
     doc2["unitssold.store02"] = 408;
+    doc2["unitssold.small"] = 507;
+    doc2["unitssold.medium"] = 800;
     doc2["stockonhand.store01"] = 101;
     doc2["stockonhand.store02"] = 64;
     doc2["points"] = 100;
 
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Adidas Shoes Black";
+    doc3["store"] = {"store01", "store02"};
+    doc3["size"] = {"small", "medium"};
+    doc3["unitssold.store01"] = 599;
+    doc3["unitssold.store02"] = 501;
+    doc3["unitssold.small"] = 607;
+    doc3["unitssold.medium"] = 493;
+    doc3["stockonhand.store01"] = 301;
+    doc3["stockonhand.store02"] = 424;
+    doc3["points"] = 100;
+
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
 
     std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
 
@@ -3454,16 +3477,18 @@ TEST_F(CollectionOverrideTest, DynamicSorting) {
     auto results = coll1->search("store01", {"store"}, "",
                             {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
 
-    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
 
     results = coll1->search("store02", {"store"}, "",
                                  {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
 
-    ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
 
     // filter based dynamic sorting
     override_json_contains = {
@@ -3488,16 +3513,67 @@ TEST_F(CollectionOverrideTest, DynamicSorting) {
     results = coll1->search("*", {}, "store:=store01",
                                  {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
 
-    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
 
     results = coll1->search("*", {}, "store:=store02",
                             {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
 
-    ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+
+    //multiple place holder with dynamic filter
+    override_json_contains = {
+            {"id",                  "dynamic-sort3"},
+            {
+             "rule",                {
+                                            {"filter_by", "store:={store} && size:={size}"},
+                                            {"match", override_t::MATCH_CONTAINS},
+                                            {"tags", {"size"}}
+                                    }
+            },
+            {"remove_matched_tokens", true},
+            {"sort_by", "unitssold.{store}:desc, unitssold.{size}:desc"}
+    };
+
+    override_t override_contains3;
+    op = override_t::parse(override_json_contains, "dynamic-sort3", override_contains3);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_contains3);
+
+    results = coll1->search("*", {}, "store:=store02 && size:=small",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
+                            true, true, false, "", "", "size").get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {}, "store:=store01 && size:=small",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
+                            true, true, false, "", "", "size").get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
