@@ -863,7 +863,7 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
                                      const std::vector<std::string>& hidden_hits,
                                      std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                      std::vector<uint32_t>& excluded_ids,
-                                     std::vector<const override_t*>& filter_overrides,
+                                     std::vector<const override_t*>& filter_sort_overrides,
                                      bool& filter_curated_hits,
                                      std::string& curated_sort_by,
                                      nlohmann::json& override_metadata) const {
@@ -883,8 +883,12 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
     }
 
     // ID-based overrides are applied first as they take precedence over filter-based overrides
-    if(!override.filter_by.empty()) {
-        filter_overrides.push_back(&override);
+    if(!override.filter_by.empty() || !override.sort_by.empty()) {
+        filter_sort_overrides.push_back(&override);
+    }
+
+    if(!override.sort_by.empty()) {
+        curated_sort_by = override.sort_by;
     }
 
     if((wildcard_tag_matched || tags_matched) && override.rule.query.empty() && override.rule.filter_by.empty()) {
@@ -941,7 +945,6 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
     }
 
     filter_curated_hits = override.filter_curated_hits;
-    curated_sort_by = override.sort_by;
     if(override_metadata.empty()) {
         override_metadata = override.metadata;
     }
@@ -955,7 +958,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                                 const std::vector<std::string>& hidden_hits,
                                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                 std::vector<uint32_t>& excluded_ids,
-                                std::vector<const override_t*>& filter_overrides,
+                                std::vector<const override_t*>& filter_sort_overrides,
                                 bool& filter_curated_hits,
                                 std::string& curated_sort_by,
                                 nlohmann::json& override_metadata) const {
@@ -1008,7 +1011,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                             bool match_found = does_override_match(override, query, excluded_set, actual_query,
                                                                    filter_query, already_segmented, true, false,
                                                                    pinned_hits, hidden_hits, included_ids,
-                                                                   excluded_ids, filter_overrides, filter_curated_hits,
+                                                                   excluded_ids, filter_sort_overrides, filter_curated_hits,
                                                                    curated_sort_by, override_metadata);
 
                             if(match_found) {
@@ -1055,7 +1058,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                         bool match_found = does_override_match(override, query, excluded_set, actual_query,
                                                                filter_query, already_segmented, true, false,
                                                                pinned_hits, hidden_hits, included_ids,
-                                                               excluded_ids, filter_overrides, filter_curated_hits,
+                                                               excluded_ids, filter_sort_overrides, filter_curated_hits,
                                                                curated_sort_by, override_metadata);
 
                         if(match_found) {
@@ -1075,7 +1078,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                 bool match_found = does_override_match(override, query, excluded_set, actual_query, filter_query,
                                                        already_segmented, false, wildcard_tag,
                                                        pinned_hits, hidden_hits, included_ids,
-                                                       excluded_ids, filter_overrides, filter_curated_hits,
+                                                       excluded_ids, filter_sort_overrides, filter_curated_hits,
                                                        curated_sort_by, override_metadata);
                 if(match_found && override.stop_processing) {
                     break;
@@ -2417,7 +2420,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     std::vector<std::string> hidden_hits;
     StringUtils::split(hidden_hits_str, hidden_hits, ",");
 
-    std::vector<const override_t*> filter_overrides;
+    std::vector<const override_t*> filter_sort_overrides;
     std::string curated_sort_by;
     std::set<std::string> override_tag_set;
 
@@ -2430,7 +2433,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     bool filter_curated_hits_overrides = false;
 
     curate_results(query, filter_query, enable_overrides, pre_segmented_query, override_tag_set,
-                   pinned_hits, hidden_hits, included_ids, excluded_ids, filter_overrides, filter_curated_hits_overrides,
+                   pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_overrides, filter_curated_hits_overrides,
                    curated_sort_by, override_metadata);
 
     bool filter_curated_hits = filter_curated_hits_option || filter_curated_hits_overrides;
@@ -2472,34 +2475,6 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     bool is_group_by_query = group_by_fields.size() > 0;
     bool is_vector_query = !vector_query.field_name.empty();
 
-    if(curated_sort_by.empty()) {
-        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields,
-                                                                       sort_fields_std, is_wildcard_query, is_vector_query,
-                                                                       raw_query, is_group_by_query,
-                                                                       remote_embedding_timeout_ms, remote_embedding_num_tries,
-                                                                       validate_field_names, false, is_union_search,
-                                                                       union_search_index);
-        if(!sort_validation_op.ok()) {
-            return sort_validation_op;
-        }
-    } else {
-        std::vector<sort_by> curated_sort_fields;
-        bool parsed_sort_by = CollectionManager::parse_sort_by_str(curated_sort_by, curated_sort_fields);
-        if(!parsed_sort_by) {
-            return Option<bool>(400, "Parameter `sort_by` is malformed.");
-        }
-
-        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields,
-                                                                       sort_fields_std, is_wildcard_query, is_vector_query,
-                                                                       raw_query, is_group_by_query,
-                                                                       remote_embedding_timeout_ms, remote_embedding_num_tries,
-                                                                       validate_field_names, false, is_union_search,
-                                                                       union_search_index);
-        if(!sort_validation_op.ok()) {
-            return sort_validation_op;
-        }
-    }
-
     //LOG(INFO) << "Num indices used for querying: " << indices.size();
     std::vector<query_tokens_t> field_query_tokens;
     std::vector<std::string> q_include_tokens;
@@ -2513,8 +2488,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
                                false, stopwords_set);
 
-            process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root_guard,
-                                     included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
+            process_filter_sort_overrides(filter_sort_overrides, q_include_tokens, token_order, filter_tree_root_guard,
+                                     included_ids, excluded_ids, override_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
                                      enable_typos_for_alpha_numerical_tokens, validate_field_names);
 
             for(size_t i = 0; i < q_include_tokens.size(); i++) {
@@ -2542,8 +2517,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         // process filter overrides first, before synonyms (order is important)
 
         // included_ids, excluded_ids
-        process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root_guard,
-                                 included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
+        process_filter_sort_overrides(filter_sort_overrides, q_include_tokens, token_order, filter_tree_root_guard,
+                                 included_ids, excluded_ids, override_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
                                  enable_typos_for_alpha_numerical_tokens, validate_field_names);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
@@ -2568,6 +2543,34 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         for(size_t i = 1; i < weighted_search_fields.size(); i++) {
             field_query_tokens.emplace_back(query_tokens_t{});
             field_query_tokens[i] = field_query_tokens[0];
+        }
+    }
+
+    if(curated_sort_by.empty()) {
+        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields,
+                                                                       sort_fields_std, is_wildcard_query, is_vector_query,
+                                                                       raw_query, is_group_by_query,
+                                                                       remote_embedding_timeout_ms, remote_embedding_num_tries,
+                                                                       validate_field_names, false, is_union_search,
+                                                                       union_search_index);
+        if(!sort_validation_op.ok()) {
+            return sort_validation_op;
+        }
+    } else {
+        std::vector<sort_by> curated_sort_fields;
+        bool parsed_sort_by = CollectionManager::parse_sort_by_str(curated_sort_by, curated_sort_fields);
+        if(!parsed_sort_by) {
+            return Option<bool>(400, "Parameter `sort_by` is malformed.");
+        }
+
+        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields,
+                                                                       sort_fields_std, is_wildcard_query, is_vector_query,
+                                                                       raw_query, is_group_by_query,
+                                                                       remote_embedding_timeout_ms, remote_embedding_num_tries,
+                                                                       validate_field_names, false, is_union_search,
+                                                                       union_search_index);
+        if(!sort_validation_op.ok()) {
+            return sort_validation_op;
         }
     }
 
@@ -4187,21 +4190,22 @@ void Collection::process_highlight_fields(const std::vector<search_field_t>& sea
     }
 }
 
-void Collection::process_filter_overrides(std::vector<const override_t*>& filter_overrides,
+void Collection::process_filter_sort_overrides(std::vector<const override_t*>& filter_sort_overrides,
                                           std::vector<std::string>& q_include_tokens,
                                           token_ordering token_order,
                                           std::unique_ptr<filter_node_t>& filter_tree_root,
                                           std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                           std::vector<uint32_t>& excluded_ids,
                                           nlohmann::json& override_metadata,
+                                          std::string& sort_by_clause,
                                           bool enable_typos_for_numerical_tokens,
                                           bool enable_typos_for_alpha_numerical_tokens,
                                           const bool& validate_field_names) const {
 
     std::vector<const override_t*> matched_dynamic_overrides;
-    index->process_filter_overrides(filter_overrides, q_include_tokens, token_order,
+    index->process_filter_sort_overrides(filter_sort_overrides, q_include_tokens, token_order,
                                     filter_tree_root, matched_dynamic_overrides, override_metadata,
-                                    enable_typos_for_numerical_tokens,
+                                    sort_by_clause, enable_typos_for_numerical_tokens,
                                     enable_typos_for_alpha_numerical_tokens);
 
     // we will check the dynamic overrides to see if they also have include/exclude
