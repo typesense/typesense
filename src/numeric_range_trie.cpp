@@ -515,7 +515,7 @@ void NumericTrie::Node::remove(const int64_t& value, const uint32_t& id, const c
         auto& child = root->children[index];
 
         ids_t::erase(child->seq_ids, id);
-        if (ids_t::num_ids(child->seq_ids) == 0) {
+        if (child->get_ids_length() == 0) {
             delete child;
             child = nullptr;
         }
@@ -581,7 +581,7 @@ char get_max_search_level(const uint64_t& cell_id, const char& max_level) {
 }
 
 void NumericTrie::Node::search_geopoints_helper(const uint64_t& cell_id, const char& max_index_level,
-                                                std::set<Node*>& matches) {
+                                                std::set<Node*>& matches, size_t& ids_length) {
     char level = 1;
     Node* root = this;
     auto index = get_geopoint_index(cell_id, level);
@@ -596,16 +596,19 @@ void NumericTrie::Node::search_geopoints_helper(const uint64_t& cell_id, const c
         index = get_geopoint_index(cell_id, ++level);
     }
 
+    ids_length += root->get_ids_length();
     matches.insert(root);
 }
 
 void NumericTrie::Node::search_geopoints(const std::vector<uint64_t>& cell_ids, const char& max_level,
                                          std::vector<uint32_t>& geo_result_ids) {
     std::set<Node*> matches;
+    size_t ids_length = 0;
     for (const auto &cell_id: cell_ids) {
-        search_geopoints_helper(cell_id, max_level, matches);
+        search_geopoints_helper(cell_id, max_level, matches, ids_length);
     }
 
+    geo_result_ids.reserve(geo_result_ids.size() + ids_length);
     for (auto const& match: matches) {
         ids_t::uncompress(match->seq_ids, geo_result_ids);
     }
@@ -635,7 +638,7 @@ void NumericTrie::Node::delete_geopoint(const uint64_t& cell_id, uint32_t id, co
         auto& child = root->children[index];
 
         ids_t::erase(child->seq_ids, id);
-        if (ids_t::num_ids(child->seq_ids) == 0) {
+        if (child->get_ids_length() == 0) {
             delete child;
             child = nullptr;
         }
@@ -656,9 +659,11 @@ void NumericTrie::Node::search_less_than(const int64_t& value, const char& max_l
 
     char level = 0;
     std::vector<NumericTrie::Node*> matches;
-    search_less_than_helper(value, level, max_level, matches);
+    size_t consolidated_ids_length = 0;
+    search_less_than_helper(value, level, max_level, matches, consolidated_ids_length);
 
     std::vector<uint32_t> consolidated_ids;
+    consolidated_ids.reserve(consolidated_ids_length);
     for (auto const& match: matches) {
         ids_t::uncompress(match->seq_ids, consolidated_ids);
     }
@@ -676,13 +681,15 @@ void NumericTrie::Node::search_less_than(const int64_t& value, const char& max_l
 
 void NumericTrie::Node::search_less_than(const int64_t& value, const char& max_level, std::vector<Node*>& matches) {
     char level = 0;
-    search_less_than_helper(value, level, max_level, matches);
+    size_t dummy;
+    search_less_than_helper(value, level, max_level, matches, dummy);
 }
 
 void NumericTrie::Node::search_less_than_helper(const int64_t& value, char& level, const char& max_level,
-                                                std::vector<Node*>& matches) {
+                                                std::vector<Node*>& matches, size_t& ids_length) {
     if (level == max_level) {
         matches.push_back(this);
+        ids_length += get_ids_length();
         return;
     } else if (level > max_level || children == nullptr) {
         return;
@@ -690,12 +697,14 @@ void NumericTrie::Node::search_less_than_helper(const int64_t& value, char& leve
 
     auto index = get_index(value, ++level, max_level);
     if (children[index] != nullptr) {
-        children[index]->search_less_than_helper(value, level, max_level, matches);
+        children[index]->search_less_than_helper(value, level, max_level, matches, ids_length);
     }
 
     while (--index >= 0) {
-        if (children[index] != nullptr) {
-            matches.push_back(children[index]);
+        const auto& child = children[index];
+        if (child != nullptr) {
+            matches.push_back(child);
+            ids_length += child->get_ids_length();
         }
     }
 
@@ -708,10 +717,12 @@ void NumericTrie::Node::search_range(const int64_t& low, const int64_t& high, co
         return;
     }
     std::vector<NumericTrie::Node*> matches;
+    size_t consolidated_ids_length = 0;
     search_range_helper(low, high >= indexable_limit(max_level) ? indexable_limit(max_level) : high,
-                        max_level, matches);
+                        max_level, matches, consolidated_ids_length);
 
     std::vector<uint32_t> consolidated_ids;
+    consolidated_ids.reserve(consolidated_ids_length);
     for (auto const& match: matches) {
         ids_t::uncompress(match->seq_ids, consolidated_ids);
     }
@@ -733,11 +744,12 @@ void NumericTrie::Node::search_range(const int64_t& low, const int64_t& high, co
         return;
     }
 
-    search_range_helper(low, high, max_level, matches);
+    size_t dummy;
+    search_range_helper(low, high, max_level, matches, dummy);
 }
 
 void NumericTrie::Node::search_range_helper(const int64_t& low,const int64_t& high, const char& max_level,
-                                            std::vector<Node*>& matches) {
+                                            std::vector<Node*>& matches, size_t& ids_length) {
     // Segregating the nodes into matching low, in-between, and matching high.
 
     NumericTrie::Node* root = this;
@@ -759,30 +771,32 @@ void NumericTrie::Node::search_range_helper(const int64_t& low,const int64_t& hi
     if (root->children == nullptr) {
         return;
     } else if (low_index == high_index) { // low and high are equal
-        if (root->children[low_index] != nullptr) {
-            matches.push_back(root->children[low_index]);
+        const auto& child = root->children[low_index];
+        if (child != nullptr) {
+            matches.push_back(child);
+            ids_length += child->get_ids_length();
         }
         return;
     }
 
     if (root->children[low_index] != nullptr) {
         // Collect all the sub-nodes that are greater than low.
-        root->children[low_index]->search_greater_than_helper(low, level, max_level, matches);
+        root->children[low_index]->search_greater_than_helper(low, level, max_level, matches, ids_length);
     }
 
     auto index = low_index + 1;
     // All the nodes in-between low and high are a match by default.
-    while (index < std::min(high_index, EXPANSE)) {
-        if (root->children[index] != nullptr) {
-            matches.push_back(root->children[index]);
+    for (; index < std::min(high_index, EXPANSE); index++) {
+        const auto& child = root->children[index];
+        if (child != nullptr) {
+            matches.push_back(child);
+            ids_length += child->get_ids_length();
         }
-
-        index++;
     }
 
     if (index < EXPANSE && index == high_index && root->children[index] != nullptr) {
         // Collect all the sub-nodes that are lesser than high.
-        root->children[index]->search_less_than_helper(high, level, max_level, matches);
+        root->children[index]->search_less_than_helper(high, level, max_level, matches, ids_length);
     }
 }
 
@@ -794,9 +808,11 @@ void NumericTrie::Node::search_greater_than(const int64_t& value, const char& ma
 
     char level = 0;
     std::vector<NumericTrie::Node*> matches;
-    search_greater_than_helper(value, level, max_level, matches);
+    size_t consolidated_ids_length = 0;
+    search_greater_than_helper(value, level, max_level, matches, consolidated_ids_length);
 
     std::vector<uint32_t> consolidated_ids;
+    consolidated_ids.reserve(consolidated_ids_length);
     for (auto const& match: matches) {
         ids_t::uncompress(match->seq_ids, consolidated_ids);
     }
@@ -814,13 +830,15 @@ void NumericTrie::Node::search_greater_than(const int64_t& value, const char& ma
 
 void NumericTrie::Node::search_greater_than(const int64_t& value, const char& max_level, std::vector<Node*>& matches) {
     char level = 0;
-    search_greater_than_helper(value, level, max_level, matches);
+    size_t dummy;
+    search_greater_than_helper(value, level, max_level, matches, dummy);
 }
 
 void NumericTrie::Node::search_greater_than_helper(const int64_t& value, char& level, const char& max_level,
-                                                   std::vector<Node*>& matches) {
+                                                   std::vector<Node*>& matches, size_t& ids_length) {
     if (level == max_level) {
         matches.push_back(this);
+        ids_length += get_ids_length();
         return;
     } else if (level > max_level || children == nullptr) {
         return;
@@ -828,12 +846,14 @@ void NumericTrie::Node::search_greater_than_helper(const int64_t& value, char& l
 
     auto index = get_index(value, ++level, max_level);
     if (children[index] != nullptr) {
-        children[index]->search_greater_than_helper(value, level, max_level, matches);
+        children[index]->search_greater_than_helper(value, level, max_level, matches, ids_length);
     }
 
     while (++index < EXPANSE) {
-        if (children[index] != nullptr) {
-            matches.push_back(children[index]);
+        const auto& child = children[index];
+        if (child != nullptr) {
+            matches.push_back(child);
+            ids_length += child->get_ids_length();
         }
     }
 

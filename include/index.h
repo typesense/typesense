@@ -384,6 +384,7 @@ struct group_by_field_it_t {
     std::string field_name;
     posting_list_t::iterator_t it;
     bool is_array;
+    bool is_string;
 };
 
 struct Hasher32 {
@@ -609,7 +610,9 @@ private:
     static void handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
                                nlohmann::json& update_doc, const nlohmann::json& old_doc);
 
-    static void get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& embedding_fields,
+    static void get_doc_changes(const index_operation_t op,
+                                const tsl::htrie_map<char, field>& search_schema,
+                                const tsl::htrie_map<char, field>& embedding_fields,
                                 nlohmann::json &update_doc, const nlohmann::json &old_doc, nlohmann::json &new_doc,
                                 nlohmann::json &del_doc);
 

@@ -23,8 +23,8 @@ import { DEFAULT_TYPESENSE_GIT_URL } from "@/services/git";
 import { K6Benchmarks } from "@/services/k6";
 import { ReproductionService } from "@/services/reproduction";
 import { TypesenseProcessManager } from "@/services/typesense-process";
+import { delay } from "@/utils/base";
 import { toErrorWithMessage } from "@/utils/error";
-import { delay } from "@/utils/execa";
 import { logger, LogLevel } from "@/utils/logger";
 import { dirName, findRoot } from "@/utils/package-info";
 import { loadConfig, parseOptions } from "@/utils/parse";
@@ -254,7 +254,7 @@ class Benchmarks {
   private readonly isInCi: boolean;
   private readonly commitHashes: [string, string];
   private readonly percentagesForFailure: BenchmarkConfig["failureThresholds"];
-  private readonly port: number;
+  private readonly port: (typeof TypesenseProcessManager.nodeToPortMap)[number]["http"];
   private readonly spinner: Ora;
   private readonly benchmarkGroupsByCommitHash: Record<string, BenchmarkGroup>;
   private readonly reproductionService: ReproductionService;
@@ -264,7 +264,7 @@ class Benchmarks {
     batchSize: number;
     duration: string;
     apiKey: string;
-    port: number;
+    port: (typeof TypesenseProcessManager.nodeToPortMap)[number]["http"];
     services: ServiceContainer;
     spinner: Ora;
     workingDirectory: string;
@@ -857,7 +857,7 @@ class Benchmarks {
     return okAsync({ searchResults: formatedSearchResults, indexingResults: formattedIndexResult });
   }
 
-  benchmark() {
+  perform() {
     logger.info("Running benchmarks");
 
     return this.startContainers()
@@ -989,20 +989,8 @@ const benchmark = new Command()
         logger.debug("Starting Typesense process");
 
         const typesenseProcessManagers = [
-          new TypesenseProcessManager(
-            spinner,
-            options.binaries[0],
-            options.apiKey,
-            options.workingDirectory,
-            services.get("fs"),
-          ),
-          new TypesenseProcessManager(
-            spinner,
-            options.binaries[1],
-            options.apiKey,
-            options.workingDirectory,
-            services.get("fs"),
-          ),
+          new TypesenseProcessManager(spinner, options.binaries[0], options.apiKey, options.workingDirectory),
+          new TypesenseProcessManager(spinner, options.binaries[1], options.apiKey, options.workingDirectory),
         ] as [TypesenseProcessManager, TypesenseProcessManager];
 
         const benchmark = new Benchmarks({
@@ -1020,7 +1008,7 @@ const benchmark = new Command()
 
         return ok(benchmark);
       })
-      .andThen((benchmark) => benchmark.benchmark())
+      .andThen((benchmark) => benchmark.perform())
       .then((result) => {
         if (result.isErr()) {
           spinner.fail();

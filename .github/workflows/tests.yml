@@ -99,13 +99,9 @@ jobs:
           npm install -g pnpm
           pnpm install
 
-      - name: Build CLI
-        working-directory: benchmark
-        run: pnpm build
-
       - name: Run Integration Tests
         working-directory: benchmark
-        run: |
-          ./dist/index.js test \
-            --binary $(pwd)/../typesense-server-binary/typesense-server \
-            --working-directory $(pwd)/../tmp/test -y -v
+        env:
+          TYPESENSE_BINARY: ${{ github.workspace }}/typesense-server-binary/typesense-server
+          TYPESENSE_WORKING_DIRECTORY: ${{ github.workspace }}/tmp/test
+        run: pnpm test
