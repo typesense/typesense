@@ -93,6 +93,8 @@ function startTypesenseServer(options?: SetupNodesOptions): ResultAsync<NodeConf
  * @example
  */
 function restartTypesenseServer(): ResultAsync<NodeConfig[], ErrorWithMessage> {
+  const startTime = performance.now();
+
   const cleanupResults = Array.from(globalTypesenseManager.processes.values()).map((process) =>
     process.dispose().andThen(() => {
       globalTypesenseManager.processes.delete(process.http);
@@ -100,7 +102,14 @@ function restartTypesenseServer(): ResultAsync<NodeConfig[], ErrorWithMessage> {
     }),
   );
 
-  return ResultAsync.combine(cleanupResults).andThen(() => startTypesenseServer({ skipCleanup: true }));
+  return ResultAsync.combine(cleanupResults)
+    .andThen(() => startTypesenseServer({ skipCleanup: true }))
+    .map((nodes) => {
+      const endTime = performance.now();
+      const duration = endTime - startTime;
+      console.log(`Typesense server restart completed in ${duration.toFixed(2)}ms`);
+      return nodes;
+    });
 }
 
 function closeDownTypesenseServer(): ResultAsync<void[], ErrorWithMessage> {

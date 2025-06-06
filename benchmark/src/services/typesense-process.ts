@@ -71,8 +71,8 @@ export class TypesenseProcessController extends EventEmitter {
       logLevel: "DEBUG",
       apiKey: this.apiKey,
       connectionTimeoutSeconds: 100,
-      retryIntervalSeconds: 3,
-      numRetries: 20,
+      retryIntervalSeconds: 0.2,
+      numRetries: 20*30,
     });
 
     this.process.on("close", (code, signal) => {
