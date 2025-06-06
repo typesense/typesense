@@ -597,13 +597,14 @@ private:
                                         std::vector<field>& update_fields,
                                         std::string& fallback_field_type);
 
-    void process_filter_overrides(std::vector<const override_t*>& filter_overrides,
+    void process_filter_sort_overrides(std::vector<const override_t*>& filter_overrides,
                                   std::vector<std::string>& q_include_tokens,
                                   token_ordering token_order,
                                   std::unique_ptr<filter_node_t>& filter_tree_root,
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                   std::vector<uint32_t>& excluded_ids,
                                   nlohmann::json& override_metadata,
+                                  std::string& sort_by_clause,
                                   bool enable_typos_for_numerical_tokens=true,
                                   bool enable_typos_for_alpha_numerical_tokens=true,
                                   const bool& validate_field_names = true) const;

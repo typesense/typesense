@@ -2807,7 +2807,8 @@ bool Index::static_filter_query_eval(const override_t* override,
 bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const bool exact_rule_match,
                              const std::vector<std::string>& query_tokens,
                              token_ordering token_order, std::set<std::string>& absorbed_tokens,
-                             std::string& filter_by_clause, bool enable_typos_for_numerical_tokens,
+                             std::string& filter_by_clause, std::string& sort_by_clause,
+                             bool enable_typos_for_numerical_tokens,
                              bool enable_typos_for_alpha_numerical_tokens) const {
 
     bool resolved_override = false;
@@ -2892,25 +2893,33 @@ bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const 
     for(const auto& kv: field_placeholder_tokens) {
         std::string pattern = "{" + kv.first + "}";
         std::string replacement = StringUtils::join(kv.second, " ");
-        StringUtils::replace_all(filter_by_clause, pattern, replacement);
+
+        if (!filter_by_clause.empty()) {
+            StringUtils::replace_all(filter_by_clause, pattern, replacement);
+        }
+
+        if (!sort_by_clause.empty()) {
+            StringUtils::replace_all(sort_by_clause, pattern, replacement);
+        }
     }
 
     return true;
 }
 
-void Index::process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
+void Index::process_filter_sort_overrides(const std::vector<const override_t*>& filter_sort_overrides,
                                      std::vector<std::string>& query_tokens,
                                      token_ordering token_order,
                                      std::unique_ptr<filter_node_t>& filter_tree_root,
                                      std::vector<const override_t*>& matched_dynamic_overrides,
                                      nlohmann::json& override_metadata,
+                                     std::string& sort_by_clause,
                                      bool enable_typos_for_numerical_tokens,
                                      bool enable_typos_for_alpha_numerical_tokens,
                                      const bool& validate_field_names) const {
     std::shared_lock lock(mutex);
 
-    for (auto& override : filter_overrides) {
-        if (!override->rule.dynamic_query) {
+    for (auto& override : filter_sort_overrides) {
+        if (!override->rule.dynamic_query && !override->rule.dynamic_filter) {
             // Simple static filtering: add to filter_by and rewrite query if needed.
             // Check the original query and then the synonym variants until a rule matches.
             bool resolved_override = static_filter_query_eval(override, query_tokens, filter_tree_root,
@@ -2932,18 +2941,58 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
                 }
             }
         } else {
-            // need to extract placeholder field names from the search query, filter on them and rewrite query
+            // need to extract placeholder field names from the search query or filter_by, filter or sort on them and rewrite query
             // we will cover both original query and synonyms
+            // dynamic query will take precedence over dynamic filter
+            auto tokenize_filter_str = [&] (const std::string& filter_query, std::vector<std::string>& processed_tokens) -> void {
+                std::queue<std::string> tokens;
+                StringUtils::tokenize_filter_query(filter_query, tokens);
+
+                std::vector<std::string> filter_tokens;
+                while(!tokens.empty()) {
+                    filter_tokens.push_back(tokens.front());
+                    tokens.pop();
+                }
+
+                for(int i = 0; i < filter_tokens.size(); ++i) {
+                    if(filter_tokens[i] == "&&" || filter_tokens[i] == "||") {
+                        continue; //will skip operators
+                    }
+
+                    StringUtils::split(filter_tokens[i], processed_tokens, ":");
+                }
+
+                for(auto& token : processed_tokens) {
+                    //filter_by syntax - <field>:<operator><val>
+                    //trim operators
+
+                    int ind = 0;
+                    while(!std::isalnum(token[ind]) && token[ind] != '{') {
+                        ++ind;
+                    }
+                    token.erase(0, ind);
+                }
+            };
 
             std::vector<std::string> rule_parts;
-            StringUtils::split(override->rule.normalized_query, rule_parts, " ");
+            std::vector<std::string> processed_tokens;
+            if(override->rule.dynamic_query) {
+                StringUtils::split(override->rule.normalized_query, rule_parts, " ");
+                processed_tokens = query_tokens;
+            } else if(override->rule.dynamic_filter) {
+                tokenize_filter_str(override->rule.filter_by, rule_parts);
+
+                // tokenize filter_by string from search query
+                tokenize_filter_str(filter_tree_root->filter_query, processed_tokens);
+            }
 
             bool exact_rule_match = override->rule.match == override_t::MATCH_EXACT;
             std::string filter_by_clause = override->filter_by;
 
             std::set<std::string> absorbed_tokens;
-            bool resolved_override = resolve_override(rule_parts, exact_rule_match, query_tokens,
+            bool resolved_override = resolve_override(rule_parts, exact_rule_match, processed_tokens,
                                                       token_order, absorbed_tokens, filter_by_clause,
+                                                      sort_by_clause,
                                                       enable_typos_for_numerical_tokens,
                                                       enable_typos_for_alpha_numerical_tokens);
 
@@ -2965,11 +3014,13 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
                         remove_matched_tokens(tokens, absorbed_tokens);
                     }
 
-                    if (filter_tree_root == nullptr) {
-                        filter_tree_root.reset(new_filter_tree_root);
-                    } else {
-                        auto root = new filter_node_t(AND, filter_tree_root.release(), new_filter_tree_root);
-                        filter_tree_root.reset(root);
+                    if(!filter_by_clause.empty()) { //when only dynamic query based override is present in
+                        if (filter_tree_root == nullptr) {
+                            filter_tree_root.reset(new_filter_tree_root);
+                        } else {
+                            auto root = new filter_node_t(AND, filter_tree_root.release(), new_filter_tree_root);
+                            filter_tree_root.reset(root);
+                        }
                     }
                 } else {
                     delete new_filter_tree_root;
