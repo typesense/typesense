@@ -39,6 +39,7 @@ import { z } from "zod";
 import { OpenAIProxy } from "@/services/openai-mock";
 import { TypesenseProcessManager } from "@/services/typesense-process";
 import { constructUrl, delay } from "@/utils/base";
+import { logger } from "@/utils/logger";
 
 const env = createEnv({
   clientPrefix: "TYPESENSE_",
@@ -107,7 +108,7 @@ function restartTypesenseServer(): ResultAsync<NodeConfig[], ErrorWithMessage> {
     .map((nodes) => {
       const endTime = performance.now();
       const duration = endTime - startTime;
-      console.log(`Typesense server restart completed in ${duration.toFixed(2)}ms`);
+      logger.info(`Typesense server restart completed in ${duration.toFixed(2)}ms`);
       return nodes;
     });
 }
