@@ -142,8 +142,8 @@ void master_server_routes() {
     server->del("/nl_search_models/:id", delete_nl_search_model);
 
     //async doc request error status
-    server->get("/asyncdocs/:req_id", get_async_req_status);
-    server->get("/asyncdocs", get_last_n_async_req_status);
+    server->get("/asyncwrites/:req_id", get_async_req_status);
+    server->get("/asyncwrites", get_last_n_async_req_status);
 }
 
 void (*backward::SignalHandling::_callback)(int sig, backward::StackTrace&) = nullptr;
