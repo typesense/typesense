@@ -24,7 +24,7 @@ void AsyncWriteHandler::process_async_writes() {
 
                 std::vector <std::string> json_lines;
                 for (const auto& async_req: async_reqs) {
-                    json_lines.push_back(async_req.first);
+                    json_lines.push_back(async_req.req);
                 }
 
                 nlohmann::json json_res = collection->add_many(json_lines, document, action, "",
@@ -35,12 +35,12 @@ void AsyncWriteHandler::process_async_writes() {
 
                 if (json_res["success"] == false) {
                     for (const auto& doc: json_res["async_docs_status"]) {
-                        auto hash = async_reqs[doc["id"].get<size_t>()].second;
+                        auto req_id = async_reqs[doc["id"].get<size_t>()].req_id;
 
-                        auto key = ASYNC_DOC_REQ_PREFIX + hash;
+                        auto key = ASYNC_DOC_REQ_PREFIX + req_id;
                         nlohmann::json value;
                         value["message"] = doc["error"];
-                        value["req_id"] = hash;
+                        value["req_id"] = req_id;
 
                         bool inserted = async_req_store->insert(key, value.dump());
                         if (!inserted) {
@@ -93,9 +93,9 @@ void AsyncWriteHandler::check_and_truncate() {
 }
 
 nlohmann::json AsyncWriteHandler::enqueue(const std::shared_ptr<http_req>& req, const std::string& reqid) {
-    async_req_action_t async_req_struct {req->params["collection"], req->params["action"]};
+    async_req_coll_action_t async_req_coll_struct {req->params["collection"], req->params["action"]};
 
-    async_request_batch[async_req_struct].push_back(std::make_pair(req->body, reqid));
+    async_request_batch[async_req_coll_struct].push_back(async_req_t{req->body, reqid});
     nlohmann::json resp;
     resp["req_id"] = reqid;
     resp["message"] = "Request Queued.";

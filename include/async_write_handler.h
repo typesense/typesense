@@ -8,25 +8,30 @@
 #include "sparsepp.h"
 
 class AsyncWriteHandler {
-    struct async_req_action_t {
+    struct async_req_coll_action_t {
         std::string coll;
         std::string action;
 
-        bool operator==(const async_req_action_t& other) const {
+        bool operator==(const async_req_coll_action_t& other) const {
             return (coll == other.coll) && (action == other.action);
         }
 
         // Hash function for the struct
         struct Hash {
-            std::size_t operator()(const async_req_action_t& value) const {
+            std::size_t operator()(const async_req_coll_action_t& value) const {
                 return std::hash<std::string>{}(value.coll + value.action);
             }
         };
     };
 
+    struct async_req_t {
+        nlohmann::json req;
+        std::string req_id;
+    };
+
 private:
     int async_batch_interval = -1;
-    spp::sparse_hash_map<async_req_action_t, std::vector<std::pair<nlohmann::json, std::string>>, async_req_action_t::Hash> async_request_batch;
+    spp::sparse_hash_map<async_req_coll_action_t, std::vector<async_req_t>, async_req_coll_action_t::Hash> async_request_batch;
     std::chrono::steady_clock::time_point last_batch_flush_secs;
     std::chrono::steady_clock::time_point last_db_size_check_secs;
     Store* async_req_store; //to store failed single doc async request status
