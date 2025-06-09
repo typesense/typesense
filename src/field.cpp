@@ -665,7 +665,11 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
         }
     } else {
         if(!the_field.optional) {
-            return Option<bool>(404, "Field `" + the_field.name + "` is not optional but was not found in the document.");
+            return Option<bool>(404,
+                              "Field `" + the_field.name + "` is set as a non-optional field, "
+                              "but there is at least one existing document with a null value for this field. "
+                              "Please add 'optional: true' to the field definition for this field in the "
+                              "collection schema.");
         }
 
         if(obj.is_null()) {
