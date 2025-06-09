@@ -202,10 +202,10 @@ void BatchedIndexer::run() {
     populate_skip_index();
 
     LOG(INFO) << "BatchedIndexer skip_index: " << skip_index;
-    bool is_async_doc_request_enabled = AsyncWriteHandler::get_instance().is_enabled();
+    bool is_async_write_request_enabled = AsyncWriteHandler::get_instance().is_enabled();
 
     for(size_t i = 0; i < num_threads; i++) {
-        thread_pool->enqueue([this, i, is_async_doc_request_enabled]() {
+        thread_pool->enqueue([this, i, is_async_write_request_enabled]() {
             std::deque<uint64_t>& queue = queues[i];
             await_t& queue_mutex = qmutuxes[i];
 
@@ -300,8 +300,8 @@ void BatchedIndexer::run() {
 
                             async_res = found_rpath->async_res;
                             try {
-                                if(orig_req->params["async"] == "true" && is_async_doc_request_enabled
-                                    && found_rpath->handler == post_add_document) {
+                                if(orig_req->params["async"] == "true" && is_async_write_request_enabled
+                                   && found_rpath->handler == post_add_document) {
                                     //should batch only post_add_document requests
                                     auto reqid = std::to_string(req_id);
                                     auto resp = AsyncWriteHandler::get_instance().enqueue(orig_req, reqid);
@@ -494,7 +494,7 @@ void BatchedIndexer::run() {
             last_gc_run = std::chrono::high_resolution_clock::now();
         }
 
-        if(is_async_doc_request_enabled) {
+        if(is_async_write_request_enabled) {
             AsyncWriteHandler::get_instance().process_async_writes();
             AsyncWriteHandler::get_instance().check_and_truncate();
         }

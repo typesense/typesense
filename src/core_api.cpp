@@ -24,7 +24,7 @@
 #include "sole.hpp"
 #include "natural_language_search_model_manager.h"
 #include "natural_language_search_model.h"
-#include "async_doc_request.h"
+#include "async_write_handler.h"
 
 using namespace std::chrono_literals;
 

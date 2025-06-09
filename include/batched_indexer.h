@@ -7,7 +7,7 @@
 #include "threadpool.h"
 #include "http_server.h"
 #include "tsconfig.h"
-#include "async_doc_request.h"
+#include "async_write_handler.h"
 
 class BatchedIndexer {
 private:

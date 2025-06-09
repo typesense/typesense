@@ -28,7 +28,7 @@
 #include "stemmer_manager.h"
 #include "natural_language_search_model_manager.h"
 #include "conversation_model.h"
-#include "async_doc_request.h"
+#include "async_write_handler.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"

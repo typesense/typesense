@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
-#include "async_doc_request.h"
+#include "async_write_handler.h"
 #include "core_api_utils.h"
 
 class CollectionSpecificTest : public ::testing::Test {

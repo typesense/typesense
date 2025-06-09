@@ -1,4 +1,4 @@
-#include "async_doc_request.h"
+#include "async_write_handler.h"
 #include "collection_manager.h"
 
 void AsyncWriteHandler::init(Store* store, int batch_interval, uint32_t db_size, uint32_t db_interval) {
