@@ -467,7 +467,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     AnalyticsManager::get_instance().init(&store, analytics_store, analytics_minute_rate_limit);
 
-    AsyncDocRequestHandler::get_instance().init(&store, async_batch_interval);
+    AsyncWriteHandler::get_instance().init(&store, async_batch_interval);
 
     RemoteEmbedder::cache.capacity(config.get_embedding_cache_num_entries());
 

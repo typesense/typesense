@@ -202,7 +202,7 @@ void BatchedIndexer::run() {
     populate_skip_index();
 
     LOG(INFO) << "BatchedIndexer skip_index: " << skip_index;
-    bool is_async_doc_request_enabled = AsyncDocRequestHandler::get_instance().is_enabled();
+    bool is_async_doc_request_enabled = AsyncWriteHandler::get_instance().is_enabled();
 
     for(size_t i = 0; i < num_threads; i++) {
         thread_pool->enqueue([this, i, is_async_doc_request_enabled]() {
@@ -304,7 +304,7 @@ void BatchedIndexer::run() {
                                     && found_rpath->handler == post_add_document) {
                                     //should batch only post_add_document requests
                                     auto reqid = std::to_string(req_id);
-                                    auto resp = AsyncDocRequestHandler::get_instance().enqueue(orig_req, reqid);
+                                    auto resp = AsyncWriteHandler::get_instance().enqueue(orig_req, reqid);
                                     orig_res->set_200(resp.dump());
                                 } else {
                                     found_rpath->handler(orig_req, orig_res);
@@ -495,8 +495,8 @@ void BatchedIndexer::run() {
         }
 
         if(is_async_doc_request_enabled) {
-            AsyncDocRequestHandler::get_instance().check_handle_async_doc_request();
-            AsyncDocRequestHandler::get_instance().check_handle_db_size();
+            AsyncWriteHandler::get_instance().process_async_writes();
+            AsyncWriteHandler::get_instance().check_and_truncate();
         }
     }
 

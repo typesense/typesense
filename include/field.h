@@ -457,6 +457,20 @@ enum index_operation_t {
     DELETE
 };
 
+static index_operation_t get_index_operation(const std::string& action) {
+    if(action == "create") {
+        return CREATE;
+    } else if(action == "update") {
+        return UPDATE;
+    } else if(action == "upsert") {
+        return UPSERT;
+    } else if(action == "emplace") {
+        return EMPLACE;
+    }
+
+    return CREATE;
+}
+
 enum class DIRTY_VALUES {
     REJECT = 1,
     DROP = 2,

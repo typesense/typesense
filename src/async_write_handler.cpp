@@ -1,7 +1,7 @@
 #include "async_doc_request.h"
 #include "collection_manager.h"
 
-void AsyncDocRequestHandler::init(Store* store, int batch_interval, uint32_t db_size, uint32_t db_interval) {
+void AsyncWriteHandler::init(Store* store, int batch_interval, uint32_t db_size, uint32_t db_interval) {
     async_req_store = store;
     async_batch_interval = batch_interval;
     async_db_size = db_size;
@@ -10,13 +10,14 @@ void AsyncDocRequestHandler::init(Store* store, int batch_interval, uint32_t db_
     last_db_size_check_secs = std::chrono::steady_clock::now();
 }
 
-void AsyncDocRequestHandler::check_handle_async_doc_request() {
+void AsyncWriteHandler::process_async_writes() {
     auto now = std::chrono::steady_clock::now();
     if (!async_request_batch.empty()) {
         auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_batch_flush_secs).count();
         if (time_elapsed >= async_batch_interval) {
             for (const auto& kv : async_request_batch) {
-                auto coll_name = kv.first;
+                auto coll_name = kv.first.coll;
+                auto action = get_index_operation(kv.first.action);
                 auto collection = CollectionManager::get_instance().get_collection(coll_name);
                 auto async_reqs = kv.second;
                 nlohmann::json document;
@@ -26,7 +27,7 @@ void AsyncDocRequestHandler::check_handle_async_doc_request() {
                     json_lines.push_back(async_req.first);
                 }
 
-                nlohmann::json json_res = collection->add_many(json_lines, document, index_operation_t::CREATE, "",
+                nlohmann::json json_res = collection->add_many(json_lines, document, action, "",
                                                                DIRTY_VALUES::COERCE_OR_REJECT, false, false, 200,
                                                                60000,
                                                                2, true);
@@ -45,6 +46,7 @@ void AsyncDocRequestHandler::check_handle_async_doc_request() {
                         if (!inserted) {
                             LOG(ERROR) << "Error while dumping async doc request message.";
                         }
+                        ++async_req_count;
                     }
                 }
             }
@@ -55,28 +57,21 @@ void AsyncDocRequestHandler::check_handle_async_doc_request() {
     }
 }
 
-void AsyncDocRequestHandler::check_handle_db_size() {
+void AsyncWriteHandler::check_and_truncate() {
     auto now = std::chrono::steady_clock::now();
     auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_db_size_check_secs).count();
     if(time_elapsed >= async_db_size_check_interval) {
         std::string iter_upper_bound_key = std::string(ASYNC_DOC_REQ_PREFIX) + "`";
         auto iter_upper_bound = new rocksdb::Slice(iter_upper_bound_key);
         const std::string req_id_prefix = ASYNC_DOC_REQ_PREFIX;
-        rocksdb::Iterator* it = async_req_store->scan(req_id_prefix, iter_upper_bound);
-        //first count the values
-        int values_count = 0;
-        while(it->Valid()) {
-            values_count++;
-            it->Next();
-        }
 
-        if(values_count > async_db_size) {
+        if(async_req_count > async_db_size) {
             //values exceed the limit
             //need to remove excess values from db, oldest first
-            it = async_req_store->scan(req_id_prefix, iter_upper_bound);
+            auto it = async_req_store->scan(req_id_prefix, iter_upper_bound);
             auto begin_key = it->key().ToString();
 
-            auto delete_count = values_count - async_db_size;
+            auto delete_count = async_req_count - async_db_size;
             while(it->Valid() && delete_count > 0) {
                 it->Next();
                 delete_count--;
@@ -88,16 +83,19 @@ void AsyncDocRequestHandler::check_handle_db_size() {
             if(!status.ok()) {
                 LOG(ERROR) << "Failed to remove messages from async_doc_store with code : " + std::to_string(status.code());
             }
+            async_req_count = async_db_size;
+            delete it;
         }
 
         last_batch_flush_secs = std::chrono::steady_clock::now();
         delete iter_upper_bound;
-        delete it;
     }
 }
 
-nlohmann::json AsyncDocRequestHandler::enqueue(const std::shared_ptr<http_req>& req, const std::string& reqid) {
-    async_request_batch[req->params["collection"]].push_back(std::make_pair(req->body, reqid));
+nlohmann::json AsyncWriteHandler::enqueue(const std::shared_ptr<http_req>& req, const std::string& reqid) {
+    async_req_action_t async_req_struct {req->params["collection"], req->params["action"]};
+
+    async_request_batch[async_req_struct].push_back(std::make_pair(req->body, reqid));
     nlohmann::json resp;
     resp["req_id"] = reqid;
     resp["message"] = "Request Queued.";
@@ -105,7 +103,7 @@ nlohmann::json AsyncDocRequestHandler::enqueue(const std::shared_ptr<http_req>& 
     return resp;
 }
 
-Option<std::string> AsyncDocRequestHandler::get_req_status(const std::string& req) {
+Option<std::string> AsyncWriteHandler::get_req_status(const std::string& req) {
     std::string json_doc_str;
     auto key = ASYNC_DOC_REQ_PREFIX + req;
     StoreStatus json_doc_status = async_req_store->get(key, json_doc_str);
@@ -117,7 +115,7 @@ Option<std::string> AsyncDocRequestHandler::get_req_status(const std::string& re
     return Option<std::string>(json_doc_str);
 }
 
-void AsyncDocRequestHandler::get_last_n_req_status(int n, nlohmann::json& res) {
+void AsyncWriteHandler::get_last_n_req_status(int n, nlohmann::json& res) {
     const std::string req_id_prefix = ASYNC_DOC_REQ_PREFIX;
     std::vector<std::string> db_values;
     async_req_store->get_last_N_values(ASYNC_DOC_REQ_PREFIX, n, db_values);
@@ -130,11 +128,11 @@ void AsyncDocRequestHandler::get_last_n_req_status(int n, nlohmann::json& res) {
     }
 }
 
-bool AsyncDocRequestHandler::is_enabled() {
+bool AsyncWriteHandler::is_enabled() {
     return async_batch_interval > 0;
 }
 
-uint32_t AsyncDocRequestHandler::get_async_batch_size() {
+uint32_t AsyncWriteHandler::get_async_batch_size() {
     size_t req_count = 0;
     for(const auto& group : async_request_batch) {
         req_count += group.second.size();
