@@ -665,7 +665,7 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
         }
     } else {
         if(!the_field.optional) {
-            return Option<bool>(404, "Field `" + the_field.name + "` not found.");
+            return Option<bool>(404, "Field `" + the_field.name + "` is not optional but was not found in the document.");
         }
 
         if(obj.is_null()) {
