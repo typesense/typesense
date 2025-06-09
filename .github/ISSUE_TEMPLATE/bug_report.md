@@ -2,7 +2,7 @@
 name: Bug report
 about: Create a report to help us improve
 title: Brief summary of the issue
-labels: triage
+labels: pre-triage
 assignees: ''
 ---
 
@@ -12,6 +12,9 @@ A clear and concise description of the problem.
 ## Reproduction Steps
 Please include a minimal, reproducible example **using curl**. [Use this script as a guide.](https://gist.github.com/jasonbosco/7c3432713216c378472f13e72246f46b)
 
+```bash
+<code here>
+```
 ## Expected vs Actual
 **Expected behavior**  
 _What did you expect to happen?_

@@ -384,6 +384,7 @@ struct group_by_field_it_t {
     std::string field_name;
     posting_list_t::iterator_t it;
     bool is_array;
+    bool is_string;
 };
 
 struct Hasher32 {
@@ -523,6 +524,7 @@ private:
                           const std::vector<std::string>& query_tokens,
                           token_ordering token_order, std::set<std::string>& absorbed_tokens,
                           std::string& filter_by_clause,
+                          std::string& sort_by_clause,
                           bool enable_typos_for_numerical_tokens,
                           bool enable_typos_for_alpha_numerical_tokens) const;
 
@@ -608,7 +610,9 @@ private:
     static void handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
                                nlohmann::json& update_doc, const nlohmann::json& old_doc);
 
-    static void get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& embedding_fields,
+    static void get_doc_changes(const index_operation_t op,
+                                const tsl::htrie_map<char, field>& search_schema,
+                                const tsl::htrie_map<char, field>& embedding_fields,
                                 nlohmann::json &update_doc, const nlohmann::json &old_doc, nlohmann::json &new_doc,
                                 nlohmann::json &del_doc);
 
@@ -1087,12 +1091,13 @@ public:
                                      const int* sort_order,
                                      int64_t& out_best_field_match_score);
 
-    void process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
+    void process_filter_sort_overrides(const std::vector<const override_t*>& filter_overrides,
                                   std::vector<std::string>& query_tokens,
                                   token_ordering token_order,
                                   std::unique_ptr<filter_node_t>& filter_tree_root,
                                   std::vector<const override_t*>& matched_dynamic_overrides,
                                   nlohmann::json& override_metadata,
+                                  std::string& sort_by_clause,
                                   bool enable_typos_for_numerical_tokens,
                                   bool enable_typos_for_alpha_numerical_tokens,
                                   const bool& validate_field_names = true) const;

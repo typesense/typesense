@@ -2,7 +2,7 @@ import EventEmitter from "events";
 import { constants, writeFile } from "fs/promises";
 import { networkInterfaces } from "os";
 import path from "path";
-import type { ErrorWithMessage } from "@/utils/error";
+import type { ErrorWithMessage } from "@/error";
 import type { ChildProcess } from "child_process";
 import type { Options as ExecaOptions } from "execa";
 import type { Result } from "neverthrow";
@@ -14,10 +14,10 @@ import { err, errAsync, ok, okAsync, ResultAsync } from "neverthrow";
 import ora from "ora";
 import { Client } from "typesense";
 
-import { toErrorWithMessage } from "@/utils/error";
-import { exists, safeEmptyDir, safeMakeOrEmptyDir } from "@/utils/fs";
-import { logger } from "@/utils/logger";
-import { isStringifiable } from "@/utils/stringifiable";
+import { toErrorWithMessage } from "@/error";
+import { exists, safeEmptyDir, safeMakeOrEmptyDir } from "@/fs";
+import { logger } from "@/logger";
+import { isStringifiable } from "@/utils";
 
 export const DEFAULT_IP_ADDRESS = "192.168.2.25";
 
@@ -452,7 +452,7 @@ export class TypesenseProcessManager {
     );
   }
 
-  getProcessByHttpPort(httpPort: number): Result<TypesenseProcessController, ErrorWithMessage> {
+  private getProcessByHttpPort(httpPort: number): Result<TypesenseProcessController, ErrorWithMessage> {
     const process = this.processes.get(httpPort);
     if (!process) {
       return err({

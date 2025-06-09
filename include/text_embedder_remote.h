@@ -52,6 +52,8 @@ class RemoteEmbedder {
         std::shared_mutex mutex;
     public:
         static inline LRU::Cache<std::string, embedding_res_t> cache = LRU::Cache<std::string, embedding_res_t>(100);
+        static inline std::shared_mutex cache_mutex;
+
         static long call_remote_api(const std::string& method, const std::string& url, const std::string& req_body, std::string& res_body, std::map<std::string, std::string>& res_headers, std::unordered_map<std::string, std::string>& req_headers);
         virtual nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) = 0;
         virtual embedding_res_t embed_query(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) = 0;
