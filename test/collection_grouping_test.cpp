@@ -1572,6 +1572,45 @@ TEST_F(CollectionGroupingTest, GroupByWithEmptyValue) {
     ASSERT_EQ(3, res["found_docs"].get<size_t>());
 }
 
+TEST_F(CollectionGroupingTest, GroupByWithCommaValue) {
+    std::vector<field> fields = {
+            field("product_id", field_types::STRING, false, false),
+            field("categories", field_types::STRING_ARRAY, true, true),
+    };
+
+    Collection* coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+    }
+
+    nlohmann::json doc;
+
+    doc["product_id"] = "1000";
+    doc["categories"] = {"ABC-DEF::4d03f::12.9519282285608,77.6062222810736"};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["product_id"] = "1000";
+    doc["categories"] = {"DEF-GHI::4d03f::12.9519282285608,77.6062222810736"};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["product_id"] = "1000";
+    doc["categories"] = {"GHI-JKL::4d03f::12.9519282285608,77.6062222810736"};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("1000", {"product_id"}, "", {}, {}, {2}, 10, 1, NOT_SET,
+                                {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4,
+                                "", 1,
+                                {}, {}, {"categories"}, 1);
+    ASSERT_TRUE(res_op.ok());
+    auto res = res_op.get();
+
+    ASSERT_EQ(3, res["found"].get<size_t>());
+    ASSERT_EQ(3, res["grouped_hits"].size());
+    ASSERT_EQ(3, res["found_docs"].get<size_t>());
+}
+
 TEST_F(CollectionGroupingTest, SortByEval) {
     auto schema_json =
             R"({

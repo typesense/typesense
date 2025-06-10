@@ -2529,6 +2529,101 @@ TEST_F(CoreAPIUtilsTest, DocumentGetIncludeExcludeFields) {
     ASSERT_FALSE(resp.contains("id"));
 }
 
+TEST_F(CoreAPIUtilsTest, DocumentGetIncludeExcludeReferenceFields) {
+    auto schema_json =
+            R"({
+                "name":  "books",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": true}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "id": "0",
+                "title": "Famous Five",
+                "author_id": "0"
+            })"_json,
+            R"({
+                "id": "1",
+                "title": "Space War Blues",
+                "author_id": "1"
+            })"_json,
+            R"({
+                "id": "2",
+                "title": "12:01 PM",
+                "author_id": "1"
+            })"_json,
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "authors",
+                "fields": [
+                    {"name": "first_name", "type": "string"},
+                    {"name": "last_name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "0",
+                "first_name": "Enid",
+                "last_name": "Blyton"
+            })"_json,
+            R"({
+                "id": "1",
+                "first_name": "Richard",
+                "last_name": "Lupoff"
+            })"_json,
+            R"({
+                "id": "2",
+                "first_name": "William",
+                "last_name": "Shakespeare"
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["collection"] = "books";
+    req->params["id"] = "1";
+    req->params["include_fields"] = "id, $authors(id)";
+
+    ASSERT_TRUE(get_fetch_document(req, res));
+    auto resp = nlohmann::json::parse(res->body);
+    ASSERT_EQ(2, resp.size());
+    ASSERT_TRUE(resp.contains("id"));
+    ASSERT_TRUE(resp.contains("authors"));
+    ASSERT_TRUE(resp["authors"].contains("id"));
+
+    req->params["include_fields"] = "id, $authors(*)";
+    req->params["exclude_fields"] = "$authors(first_name, last_name)";
+    ASSERT_TRUE(get_fetch_document(req, res));
+    resp = nlohmann::json::parse(res->body);
+    ASSERT_EQ(2, resp.size());
+    ASSERT_TRUE(resp.contains("id"));
+    ASSERT_TRUE(resp.contains("authors"));
+    ASSERT_TRUE(resp["authors"].contains("id"));
+}
+
 TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
     auto schema = R"({
             "name": "collection3",
