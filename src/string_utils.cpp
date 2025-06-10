@@ -464,7 +464,6 @@ Option<bool> StringUtils::parse_filter(const std::string& filter_query, std::str
 }
 
 Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
-    std::set<std::string> ref_collection_names;
     auto size = filter_query.size();
 
     for (size_t i = 0; i < size;) {
@@ -495,7 +494,7 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
         } else {
             // Reference filter would start with $ symbol.
             if (c == '$' || (c == '!' && i + 1 < size && filter_query[i + 1] == '$')) {
-                auto op = Join::parse_reference_filter(filter_query, tokens, i, ref_collection_names);
+                auto op = Join::parse_reference_filter(filter_query, tokens, i);
                 if (!op.ok()) {
                     return op;
                 }
