@@ -422,23 +422,11 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_users(const std::
             std::vector<int64_t> input_ids_flatten;
             std::vector<int64_t> attention_mask_flatten;
 
-            std::cout << "User shapes: " << std::endl;
             for (auto& i: input_shapes) {
-                std::cout << "Shape: ";
                 int64_t total_size = 1;
                 for (auto& j: i) {
-                    std::cout << j << " ";
                     total_size *= j;
                 }
-                std::cout << ", Total size: " << total_size << std::endl;
-            }
-            std::cout << "Encoded inputs Size: " << std::endl;
-            for(auto& i: encoded_inputs) {
-                std::cout << "Input IDs: ";
-                for(auto& ids : i.input_ids) {
-                    std::cout << ids.size() << " ";
-                }
-                std::cout << std::endl;
             }
             for(auto& batch : encoded_inputs) {
                 for(auto& input_ids : batch.input_ids) {
@@ -452,9 +440,6 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_users(const std::
                     }
                 }
             }
-
-            std::cout << "Input IDs flatten size: " << input_ids_flatten.size() << std::endl;
-            std::cout << "Attention mask flatten size: " << attention_mask_flatten.size() << std::endl;
 
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, input_ids_flatten.data(), input_ids_flatten.size(), input_shapes[0].data(), input_shapes[0].size()));
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask_flatten.data(), attention_mask_flatten.size(), input_shapes[1].data(), input_shapes[1].size()));
@@ -554,24 +539,6 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_items(const std::
             input_shapes.push_back({static_cast<int64_t>(encoded_inputs.size()), static_cast<int64_t>(encoded_inputs[0].input_ids.size()), static_cast<int64_t>(encoded_inputs[0].input_ids[0].size())});
             input_shapes.push_back({static_cast<int64_t>(encoded_inputs.size()), static_cast<int64_t>(encoded_inputs[0].attention_mask.size()), static_cast<int64_t>(encoded_inputs[0].attention_mask[0].size())});
             
-            std::cout << "Item shapes: " << std::endl;
-            for (auto& i: input_shapes) {
-                std::cout << "Shape: ";
-                int64_t total_size = 1;
-                for (auto& j: i) {
-                    std::cout << j << " ";
-                    total_size *= j;
-                }
-                std::cout << ", Total size: " << total_size << std::endl;
-            }
-            std::cout << "Encoded inputs Size: " << std::endl;
-            for(auto& i: encoded_inputs) {
-                std::cout << "Input IDs: ";
-                for(auto& ids : i.input_ids) {
-                    std::cout << ids.size() << " ";
-                }
-                std::cout << std::endl;
-            }
             std::vector<int64_t> input_ids_flatten;
             std::vector<int64_t> attention_mask_flatten;
 
@@ -588,9 +555,6 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_items(const std::
                     }
                 }
             }
-            
-            std::cout << "Input IDs flatten size: " << input_ids_flatten.size() << std::endl;
-            std::cout << "Attention mask flatten size: " << attention_mask_flatten.size() << std::endl;
             
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, input_ids_flatten.data(), input_ids_flatten.size(), input_shapes[0].data(), input_shapes[0].size()));
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask_flatten.data(), attention_mask_flatten.size(), input_shapes[1].data(), input_shapes[1].size()));
