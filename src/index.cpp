@@ -3436,7 +3436,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
     }
 
-    size_t topster_size = std::max<size_t>(fetch_size, DEFAULT_TOPSTER_SIZE);
+    size_t topster_size = std::max<size_t>(fetch_size, std::max<size_t>(DEFAULT_TOPSTER_SIZE, included_ids.size()));
     if(filter_result_iterator->approx_filter_ids_length != 0 && filter_result_iterator->reference.empty()) {
         topster_size = std::min<size_t>(topster_size, filter_result_iterator->approx_filter_ids_length);
     } else {
@@ -4374,7 +4374,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                   facet_index_types, is_group_by_first_pass, group_by_missing_value_ids);
     }
 
-    all_result_ids_len += included_ids.size();
+    all_result_ids_len += curated_topster->size;
 
     if(!included_ids_map.empty() && group_limit != 0) {
         for (auto &acc_facet: facets) {
