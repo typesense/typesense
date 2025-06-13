@@ -3575,6 +3575,23 @@ TEST_F(CollectionOverrideTest, DynamicSorting) {
     ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
 
+    //no overrides matched, hence no sorting
+    results = coll1->search("store", {"store"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+
     collectionManager.drop_collection("coll1");
 }
 
