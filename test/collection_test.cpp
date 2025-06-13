@@ -5303,3 +5303,67 @@ TEST_F(CollectionTest, TruncateAllDocuments) {
     ASSERT_TRUE(op.ok());
     ASSERT_EQ(0, op.get());
 }
+
+TEST_F(CollectionTest, PinnedHitsFoundCount) {
+    // Create a collection with 300 documents
+    std::vector<field> fields = {
+        field("company_name", field_types::STRING, false),
+        field("num_employees", field_types::INT32, false),
+        field("country", field_types::STRING, true)
+    };
+
+    Collection* coll = collectionManager.create_collection("companies", 1, fields, "num_employees").get();
+
+    // Add 300 documents
+    for(int i = 1; i <= 300; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["company_name"] = "Company " + std::to_string(i);
+        doc["num_employees"] = 1000 + i;
+        doc["country"] = "Country " + std::to_string(i);
+        coll->add(doc.dump());
+    }
+
+    // First verify regular search returns all documents
+    auto results = coll->search("*", {"company_name"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                              {false}, Index::DROP_TOKENS_THRESHOLD,
+                              spp::sparse_hash_set<std::string>(),
+                              spp::sparse_hash_set<std::string>(), 10).get();
+
+    ASSERT_EQ(300, results["found"].get<size_t>());
+
+    // Now test with pinned hits
+    std::string pinned_hits;
+    for(int i = 1; i <= 270; i++) {
+        if(i > 1) pinned_hits += ",";
+        pinned_hits += std::to_string(i) + ":" + std::to_string(i);
+    }
+
+    results = coll->search("*", {"company_name"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                          {false}, Index::DROP_TOKENS_THRESHOLD,
+                          spp::sparse_hash_set<std::string>(),
+                          spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                          "", 10, pinned_hits, {}).get();
+
+    // Verify that the found count matches the total number of documents
+    ASSERT_EQ(300, results["found"].get<size_t>()) << "Found count should be 300 (total documents) but is " << results["found"].get<size_t>();
+
+    // Verify that the first 10 hits are pinned and in order
+    for(int i = 0; i < 10; i++) {
+        ASSERT_EQ(std::to_string(i + 1), results["hits"][i]["document"]["id"].get<std::string>());
+        ASSERT_TRUE(results["hits"][i]["curated"].get<bool>());
+    }
+
+    // Verify that all pinned documents appear in the results
+    std::set<std::string> pinned_ids;
+    for(int i = 1; i <= 270; i++) {
+        pinned_ids.insert(std::to_string(i));
+    }
+
+    for(const auto& hit : results["hits"]) {
+        std::string id = hit["document"]["id"].get<std::string>();
+        if(pinned_ids.count(id) > 0) {
+            ASSERT_TRUE(hit["curated"].get<bool>()) << "Document " << id << " should be curated but isn't";
+        }
+    }
+}

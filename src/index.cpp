@@ -3439,7 +3439,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
     }
 
-    size_t topster_size = std::max<size_t>(fetch_size, DEFAULT_TOPSTER_SIZE);
+    size_t topster_size = std::max<size_t>(fetch_size, std::max<size_t>(DEFAULT_TOPSTER_SIZE, included_ids.size()));
     if(filter_result_iterator->approx_filter_ids_length != 0 && filter_result_iterator->reference.empty()) {
         topster_size = std::min<size_t>(topster_size, filter_result_iterator->approx_filter_ids_length);
     } else {
