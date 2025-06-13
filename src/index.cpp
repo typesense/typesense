@@ -2984,7 +2984,7 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
             if(override->rule.dynamic_query) {
                 StringUtils::split(override->rule.normalized_query, rule_parts, " ");
                 processed_tokens = query_tokens;
-            } else if(override->rule.dynamic_filter) {
+            } else if(override->rule.dynamic_filter && filter_tree_root != nullptr) {
                 tokenize_filter_str(override->rule.filter_by, rule_parts);
 
                 // tokenize filter_by string from search query
@@ -3034,6 +3034,9 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                 if (override->stop_processing) {
                     return;
                 }
+            } else {
+                //reset the curated sort if override is not matched
+                sort_by_clause.clear();
             }
         }
     }
