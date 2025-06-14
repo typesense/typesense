@@ -164,20 +164,23 @@ class GCPEmbedder : public RemoteEmbedder {
         std::string model_name;
         std::string document_task;
         std::string query_task;
+        std::string region;
         bool has_custom_dims;
         size_t num_dims;
-        inline static const std::string GCP_EMBEDDING_BASE_URL = "https://us-central1-aiplatform.googleapis.com/v1/projects/";
-        inline static const std::string GCP_EMBEDDING_PATH = "/locations/us-central1/publishers/google/models/";
+        inline static const std::string GCP_EMBEDDING_BASE_URL = "-aiplatform.googleapis.com/v1/projects/";
+        inline static const std::string GCP_EMBEDDING_PATH_BEFORE_REGION = "/locations/";
+        inline static const std::string GCP_EMBEDDING_PATH_AFTER_REGION = "/publishers/google/models/";
         inline static const std::string GCP_EMBEDDING_PREDICT = ":predict";
         inline static const std::string GCP_AUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
+        inline static const std::string GCP_DEFAULT_REGION = "us-central1";
         static Option<std::string> generate_access_token(const std::string& refresh_token, const std::string& client_id, const std::string& client_secret);
-        static std::string get_gcp_embedding_url(const std::string& project_id, const std::string& model_name) {
-            return GCP_EMBEDDING_BASE_URL + project_id + GCP_EMBEDDING_PATH + model_name + GCP_EMBEDDING_PREDICT;
+        static std::string get_gcp_embedding_url(const std::string& project_id, const std::string& model_name, const std::string& region) {
+            return "https://" + region + GCP_EMBEDDING_BASE_URL + project_id + GCP_EMBEDDING_PATH_BEFORE_REGION + region + GCP_EMBEDDING_PATH_AFTER_REGION + model_name + GCP_EMBEDDING_PREDICT;
         }
     public: 
         GCPEmbedder(const std::string& project_id, const std::string& model_name, const std::string& access_token, 
                     const std::string& refresh_token, const std::string& client_id, const std::string& client_secret, const bool has_custom_dims = false, const size_t num_dims = 0,
-                    const std::string& document_task = "RETRIEVAL_DOCUMENT", const std::string& query_task = "RETRIEVAL_QUERY");
+                    const std::string& document_task = "RETRIEVAL_DOCUMENT", const std::string& query_task = "RETRIEVAL_QUERY", const std::string& region = "us-central1");
         static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims);
         embedding_res_t embed_query(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) override;
         std::vector<embedding_res_t> embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
