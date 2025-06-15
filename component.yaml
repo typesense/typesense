@@ -2,7 +2,7 @@ name: typesense-server
 componentType: service
 
 source:
-  repository: https://github.com/your-username/your-typesense-fork
+  repository: https://github.com/kagioshi/typesense
   branch: main
   context: /
   dockerfile: Dockerfile
