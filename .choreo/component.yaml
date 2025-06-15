@@ -1,19 +1,7 @@
-name: typesense-server
-componentType: service
-
-source:
-  repository: https://github.com/kagioshi/typesense/
-  branch: "v29"  # ← Changed from 'main' to 'v29'
-  context: "/"
-  dockerfile: Dockerfile
-
-container:
-  ports:
-    - containerPort: 8108
-
+version: 0.1
 endpoints:
   - name: typesense-api
     port: 8108
     type: REST
-    networkVisibility: Public
-    context: "/"
+    networkVisibility: Project
+    context: /
