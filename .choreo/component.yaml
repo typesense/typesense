@@ -3,7 +3,7 @@ componentType: service
 
 source:
   repository: https://github.com/kagioshi/typesense/
-  branch: main
+  branch: v29  # ← Changed from 'main' to 'v29'
   context: /
   dockerfile: Dockerfile
 
