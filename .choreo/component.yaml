@@ -16,4 +16,4 @@ endpoints:
     port: 8108
     type: REST
     networkVisibility: Public
-    context: /
+    context: "/"
