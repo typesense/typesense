@@ -1,0 +1,23 @@
+name: typesense
+componentType: service
+source:
+  repository: https://github.com/kagioshi/typesense
+  branch: main
+  context: /
+container:
+  image: typesense/typesense:latest
+  ports:
+    - containerPort: 8108
+  env:
+    - name: TYPESENSE_API_KEY
+      value: johncena
+    - name: TYPESENSE_DATA_DIR
+      value: /data
+    - name: TYPESENSE_ENABLE_CORS
+      value: "true"
+endpoints:
+  - name: typesense-api
+    port: 8108
+    type: REST
+    networkVisibility: Public
+    context: /
