@@ -2,7 +2,7 @@ name: typesense-server
 componentType: service
 
 source:
-  repository: https://github.com/kagioshi/typesense
+  repository: https://github.com/kagioshi/typesense/
   branch: main
   context: /
   dockerfile: Dockerfile
@@ -10,20 +10,6 @@ source:
 container:
   ports:
     - containerPort: 8108
-  env:
-    - name: TYPESENSE_API_KEY
-      valueFrom: secret
-    - name: TYPESENSE_DATA_DIR
-      value: /data
-    - name: TYPESENSE_ENABLE_CORS
-      value: "true"
-
-scaling:
-  minReplicas: 2
-  maxReplicas: 5
-  policy:
-    cpu:
-      targetPercentage: 70
 
 endpoints:
   - name: typesense-api
@@ -31,17 +17,3 @@ endpoints:
     type: REST
     networkVisibility: Public
     context: /
-
-observability:
-  logging: true
-  metrics: true
-
-health:
-  readiness:
-    httpGet:
-      path: /health
-      port: 8108
-  liveness:
-    httpGet:
-      path: /health
-      port: 8108
