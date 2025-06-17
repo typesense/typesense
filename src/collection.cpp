@@ -76,6 +76,9 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
         vq_model->inc_collection_ref_count();
     }
     this->num_documents = 0;
+    this->alter_in_progress = false;
+    this->altered_docs= 0;
+    this->validated_docs= 0;
 }
 
 Collection::~Collection() {
