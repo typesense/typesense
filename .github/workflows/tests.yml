@@ -64,11 +64,23 @@ jobs:
       # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
       - name: Set BAZEL_BIN_FULL_PATH
         run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
+        
+      - name: Set BAZEL_TESTLOGS_FULL_PATH
+        run: echo "BAZEL_TESTLOGS_FULL_PATH=$(readlink -f bazel-testlogs)" >> $GITHUB_ENV
+        if: failure()
+        
       - name: Save build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: typesense-server
           path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
+        
+      - name: Save test logs on failure
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: ${{ env.BAZEL_TESTLOGS_FULL_PATH }}/
+        if: failure()
    
   integration-tests:
     needs: test
