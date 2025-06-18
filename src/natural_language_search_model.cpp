@@ -61,6 +61,8 @@ Option<bool> NaturalLanguageSearchModel::validate_model(const nlohmann::json& mo
         return validate_cloudflare_model(model_config);
     } else if(model_namespace == "vllm") {
         return validate_vllm_model(model_config);
+    } else if(model_namespace == "google") {
+        return validate_google_model(model_config);
     }
 
     return Option<bool>(400, "Model namespace `" + model_namespace + "` is not supported.");
@@ -91,6 +93,8 @@ Option<nlohmann::json> NaturalLanguageSearchModel::generate_search_params(
         return cloudflare_generate_search_params(query, full_system_prompt, model_config);
     } else if(model_namespace == "vllm") {
         return openai_vllm_generate_search_params(query, full_system_prompt, model_config);
+    } else if(model_namespace == "google") {
+        return google_generate_search_params(query, full_system_prompt, model_config);
     }
     return Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
 }
@@ -254,6 +258,133 @@ Option<bool> NaturalLanguageSearchModel::validate_vllm_model(const nlohmann::jso
     }
 
     return Option<bool>(true);
+}
+
+Option<bool> NaturalLanguageSearchModel::validate_google_model(const nlohmann::json& model_config) {
+    if(model_config.count("api_key") == 0 || !model_config["api_key"].is_string() || 
+       model_config["api_key"].get<std::string>().empty()) {
+        return Option<bool>(400, "Property `api_key` is missing or is not a non-empty string.");
+    }
+
+    if(model_config.count("temperature") != 0 && 
+       (!model_config["temperature"].is_number() || 
+        model_config["temperature"].get<float>() < 0 || 
+        model_config["temperature"].get<float>() > 2)) {
+        return Option<bool>(400, "Property `temperature` must be a number between 0 and 2.");
+    }
+
+    if(model_config.count("top_p") != 0 && 
+       (!model_config["top_p"].is_number() || 
+        model_config["top_p"].get<float>() < 0 || 
+        model_config["top_p"].get<float>() > 1)) {
+        return Option<bool>(400, "Property `top_p` must be a number between 0 and 1.");
+    }
+
+    if(model_config.count("top_k") != 0 && 
+       (!model_config["top_k"].is_number_integer() || 
+        model_config["top_k"].get<int>() < 0)) {
+        return Option<bool>(400, "Property `top_k` must be a non-negative integer.");
+    }
+
+    if(model_config.count("stop_sequences") != 0 && !model_config["stop_sequences"].is_array()) {
+        return Option<bool>(400, "Property `stop_sequences` must be an array of strings.");
+    }
+
+    if(model_config.count("api_version") != 0 && !model_config["api_version"].is_string()) {
+        return Option<bool>(400, "Property `api_version` must be a string.");
+    }
+
+    return Option<bool>(true);
+}
+
+Option<nlohmann::json> NaturalLanguageSearchModel::google_generate_search_params(
+    const std::string& query,
+    const std::string& system_prompt,
+    const nlohmann::json& model_config) {
+
+    const std::string& model_name = model_config["model_name"].get<std::string>();
+    const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
+    const std::string& api_key = model_config["api_key"].get<std::string>();
+    const std::string& api_version = model_config.value("api_version", std::string("v1beta"));
+    
+    float temperature = model_config.value("temperature", 0.0f);
+    size_t max_bytes = model_config["max_bytes"].get<size_t>();
+    
+    std::string api_url = "https://generativelanguage.googleapis.com/" + api_version + 
+                         "/models/" + model_name_without_namespace + ":generateContent?key=" + api_key;
+
+    nlohmann::json request_body;
+    
+    // Add system instruction if present
+    if(!system_prompt.empty()) {
+        request_body["systemInstruction"] = {
+            {"parts", {{{"text", system_prompt}}}}
+        };
+    }
+    
+    // Add user content
+    request_body["contents"] = {{
+        {"parts", {{{"text", query}}}}
+    }};
+    
+    // Add generation config
+    nlohmann::json generation_config;
+    generation_config["temperature"] = temperature;
+    generation_config["maxOutputTokens"] = max_bytes;
+    
+    if(model_config.count("top_p") != 0) {
+        generation_config["topP"] = model_config["top_p"].get<float>();
+    }
+    
+    if(model_config.count("top_k") != 0) {
+        generation_config["topK"] = model_config["top_k"].get<int>();
+    }
+    
+    if(model_config.count("stop_sequences") != 0) {
+        generation_config["stopSequences"] = model_config["stop_sequences"];
+    }
+    
+    request_body["generationConfig"] = generation_config;
+
+    std::unordered_map<std::string, std::string> headers = {
+        {"Content-Type", "application/json"}
+    };
+
+    std::string response;
+    std::map<std::string, std::string> response_headers;
+    
+    long status_code = post_response(api_url, request_body.dump(), response, response_headers, headers, DEFAULT_TIMEOUT_MS);
+
+    if(status_code != 200) {
+        return Option<nlohmann::json>(500, "Failed to get response from Google Gemini: " + std::to_string(status_code));
+    }
+
+    nlohmann::json response_json;
+    try {
+        response_json = nlohmann::json::parse(response);
+    } catch(const std::exception& e) {
+        return Option<nlohmann::json>(500, "Failed to parse Google Gemini response: Invalid JSON");
+    }
+
+    // Extract text from Gemini response format
+    if(!response_json.contains("candidates") || !response_json["candidates"].is_array() || 
+       response_json["candidates"].empty()) {
+        return Option<nlohmann::json>(500, "No valid candidates in Google Gemini response");
+    }
+
+    auto& candidate = response_json["candidates"][0];
+    if(!candidate.contains("content") || !candidate["content"].contains("parts") || 
+       !candidate["content"]["parts"].is_array() || candidate["content"]["parts"].empty()) {
+        return Option<nlohmann::json>(500, "No valid content in Google Gemini response");
+    }
+
+    auto& part = candidate["content"]["parts"][0];
+    if(!part.contains("text") || !part["text"].is_string()) {
+        return Option<nlohmann::json>(500, "No valid text in Google Gemini response");
+    }
+
+    std::string content = part["text"].get<std::string>();
+    return extract_search_params_from_content(content, model_name_without_namespace);
 }
 
 long NaturalLanguageSearchModel::post_response(const std::string& url, const std::string& body, std::string& response,

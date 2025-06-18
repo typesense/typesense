@@ -705,3 +705,90 @@ TEST_F(NaturalLanguageSearchModelManagerTest, ExcludeParsedNLQuery) {
   NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &req_params, 1);
   ASSERT_EQ(results_json.contains("parsed_nl_query"), false);
 }
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AddGoogleModelSuccess) {
+    nlohmann::json model_config = {
+      {"model_name", "google/gemini-2.5-flash"},
+      {"api_key", "YOUR_GOOGLE_API_KEY"},
+      {"max_bytes", size_t(1024)},
+      {"temperature", 0.0}
+    };
+    std::string model_id = "test_google_model_id";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "");
+    ASSERT_TRUE(result.ok());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AddGoogleModelWithOptionalParams) {
+    nlohmann::json model_config = {
+      {"model_name", "google/gemini-2.5-pro"},
+      {"api_key", "YOUR_GOOGLE_API_KEY"},
+      {"max_bytes", size_t(2048)},
+      {"temperature", 0.7},
+      {"top_p", 0.95},
+      {"top_k", 40},
+      {"stop_sequences", nlohmann::json::array({"END", "STOP"})},
+      {"api_version", "v1"},
+      {"system_prompt", "You are a helpful assistant"}
+    };
+    std::string model_id = "test_google_model_advanced";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "");
+    ASSERT_TRUE(result.ok());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, GoogleModelValidationFailures) {
+    // Test missing API key
+    nlohmann::json model_config = {
+      {"model_name", "google/gemini-2.5-flash"},
+      {"max_bytes", size_t(1024)}
+    };
+    std::string model_id = "test_google_invalid";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `api_key` is missing or is not a non-empty string.");
+    ASSERT_FALSE(result.ok());
+
+    // Test invalid temperature
+    model_config = {
+      {"model_name", "google/gemini-2.5-flash"},
+      {"api_key", "YOUR_GOOGLE_API_KEY"},
+      {"max_bytes", size_t(1024)},
+      {"temperature", 3.0}
+    };
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `temperature` must be a number between 0 and 2.");
+    ASSERT_FALSE(result.ok());
+
+    // Test invalid top_p
+    model_config = {
+      {"model_name", "google/gemini-2.5-flash"},
+      {"api_key", "YOUR_GOOGLE_API_KEY"},
+      {"max_bytes", size_t(1024)},
+      {"top_p", 1.5}
+    };
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `top_p` must be a number between 0 and 1.");
+    ASSERT_FALSE(result.ok());
+
+    // Test invalid top_k
+    model_config = {
+      {"model_name", "google/gemini-2.5-flash"},
+      {"api_key", "YOUR_GOOGLE_API_KEY"},
+      {"max_bytes", size_t(1024)},
+      {"top_k", -5}
+    };
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `top_k` must be a non-negative integer.");
+    ASSERT_FALSE(result.ok());
+
+    // Test invalid stop_sequences
+    model_config = {
+      {"model_name", "google/gemini-2.5-flash"},
+      {"api_key", "YOUR_GOOGLE_API_KEY"},
+      {"max_bytes", size_t(1024)},
+      {"stop_sequences", "not an array"}
+    };
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `stop_sequences` must be an array of strings.");
+    ASSERT_FALSE(result.ok());
+}

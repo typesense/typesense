@@ -31,6 +31,11 @@ public:
 
     static Option<bool> validate_vllm_model(const nlohmann::json& model_config);
 
+    static Option<bool> validate_google_model(const nlohmann::json& model_config);
+    static Option<nlohmann::json> google_generate_search_params(const std::string& query, 
+                                                              const std::string& collection_schema_prompt,
+                                                              const nlohmann::json& model_config);
+
     static long post_response(const std::string& url, const std::string& body, std::string& response,
                                     std::map<std::string, std::string>& res_headers,
                                     const std::unordered_map<std::string, std::string>& headers = {},

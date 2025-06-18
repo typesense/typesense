@@ -560,3 +560,124 @@ TEST_F(NaturalLanguageSearchModelTest, ValidateModelFailure) {
   ASSERT_EQ(result.code(), 400);
   ASSERT_EQ(result.error(), "Property `temperature` must be a number between 0 and 2.");
 }
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleSuccess) {
+    NaturalLanguageSearchModel::set_mock_response(R"({
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "{\n  \"q\": \"laptops\",\n  \"filter_by\": \"price:>1000\",\n  \"sort_by\": \"price:desc\"\n}"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP",
+          "index": 0,
+        }
+      ],
+      "promptFeedback": {
+      }
+    })", 200, {});
+
+    std::string query = "Find expensive laptops";
+    std::string collection_schema_prompt = "Fields: price, name, category...";
+    nlohmann::json model_config = {
+        {"model_name", "google/gemini-2.5-flash"},
+        {"api_key", "test-api-key"},
+        {"max_bytes", 1024},
+        {"temperature", 0.0}
+    };
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+    ASSERT_TRUE(result.ok());
+    auto params = result.get();
+    ASSERT_EQ(params["q"], "laptops");
+    ASSERT_EQ(params["filter_by"], "price:>1000");
+    ASSERT_EQ(params["sort_by"], "price:desc");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleWithOptionalParams) {
+    NaturalLanguageSearchModel::set_mock_response(R"({
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "{\n  \"q\": \"*\",\n  \"filter_by\": \"category:electronics && price:[500..2000]\",\n  \"sort_by\": \"rating:desc\"\n}"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }
+      ]
+    })", 200, {});
+
+    std::string query = "Best electronics between $500 and $2000";
+    std::string collection_schema_prompt = "Fields: price, name, category, rating...";
+    nlohmann::json model_config = {
+        {"model_name", "google/gemini-2.5-pro"},
+        {"api_key", "test-api-key"},
+        {"max_bytes", 2048},
+        {"temperature", 0.7},
+        {"top_p", 0.95},
+        {"top_k", 40},
+        {"stop_sequences", nlohmann::json::array({"END", "STOP"})},
+        {"api_version", "v1"},
+        {"system_prompt", "You are a helpful search assistant"}
+    };
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+    ASSERT_TRUE(result.ok());
+    auto params = result.get();
+    ASSERT_EQ(params["q"], "*");
+    ASSERT_EQ(params["filter_by"], "category:electronics && price:[500..2000]");
+    ASSERT_EQ(params["sort_by"], "rating:desc");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleFailure) {
+    NaturalLanguageSearchModel::set_mock_response("Internal Server Error", 500, {});
+
+    std::string query = "Find laptops";
+    std::string collection_schema_prompt = "Fields: price, name...";
+    nlohmann::json model_config = {
+        {"model_name", "google/gemini-2.5-flash"},
+        {"api_key", "test-api-key"},
+        {"max_bytes", 1024}
+    };
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 500);
+    ASSERT_EQ(result.error(), "Failed to get response from Google Gemini: 500");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleInvalidResponse) {
+    NaturalLanguageSearchModel::set_mock_response(R"({
+      "error": {
+        "code": 400,
+        "message": "Invalid request",
+        "status": "INVALID_ARGUMENT"
+      }
+    })", 200, {});
+
+    std::string query = "Find laptops";
+    std::string collection_schema_prompt = "Fields: price, name...";
+    nlohmann::json model_config = {
+        {"model_name", "google/gemini-2.5-flash"},
+        {"api_key", "test-api-key"},
+        {"max_bytes", 1024}
+    };
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 500);
+    ASSERT_EQ(result.error(), "No valid candidates in Google Gemini response");
+}
