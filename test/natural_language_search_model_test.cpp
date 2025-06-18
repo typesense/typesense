@@ -574,7 +574,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleSuccess) {
             "role": "model"
           },
           "finishReason": "STOP",
-          "index": 0,
+          "index": 0
         }
       ],
       "promptFeedback": {
