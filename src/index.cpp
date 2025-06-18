@@ -4377,7 +4377,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                   facet_index_types, is_group_by_first_pass, group_by_missing_value_ids);
     }
 
-    all_result_ids_len += curated_topster->size;
+    all_result_ids_len += (is_group_by_first_pass ? 0 : curated_topster->size);
 
     if(!included_ids_map.empty() && group_limit != 0) {
         for (auto &acc_facet: facets) {
