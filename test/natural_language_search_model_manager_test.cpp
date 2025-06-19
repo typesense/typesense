@@ -21,6 +21,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
         NaturalLanguageSearchModelManager::init(store);
+        NaturalLanguageSearchModel::clear_mock_responses();
     }
 
     void TearDown() override {
@@ -456,7 +457,7 @@ The output should be in JSON format like this:
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQuerySucess) {
-  NaturalLanguageSearchModel::set_mock_response(R"({
+  NaturalLanguageSearchModel::add_mock_response(R"({
     "object": "chat.completion",
     "model": "gpt-3.5-turbo",
     "choices": [
@@ -529,6 +530,31 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQuerySucess) {
   ASSERT_EQ(req_params["llm_generated_filter_by"], "make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
 
   req_params["filter_by"] = "engine_hp:>=300";
+  
+  // Add another mock response for the second call
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"q\": \"test\",\n  \"filter_by\": \"make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014\",\n  \"sort_by\": \"msrp:desc\"\n}",
+          "refusal": null,
+          "annotations": []
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 920,
+      "completion_tokens": 58,
+      "total_tokens": 978
+    }
+  })", 200, {});
+  
   nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
   ASSERT_TRUE(nl_search_op.ok());
   ASSERT_EQ(req_params["filter_by"], "engine_hp:>=300 && make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
@@ -590,7 +616,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidCollec
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidResponse) {
-  NaturalLanguageSearchModel::set_mock_response("", 200, {});
+  NaturalLanguageSearchModel::add_mock_response("", 200, {});
 
   nlohmann::json titles_schema = R"({
     "name": "titles",
@@ -627,7 +653,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidRespon
   ASSERT_EQ(req_params["_nl_processing_failed"], "true");
   ASSERT_EQ(req_params["error"], "Error generating search parameters: Failed to parse OpenAI response: Invalid JSON");
 
-  NaturalLanguageSearchModel::set_mock_response("", 400, {});
+  NaturalLanguageSearchModel::add_mock_response("", 400, {});
   nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
   ASSERT_FALSE(nl_search_op.ok());
   ASSERT_EQ(nl_search_op.error(), "Error generating search parameters: Failed to get response from OpenAI: 400");

@@ -5,7 +5,7 @@
 class NaturalLanguageSearchModelTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        NaturalLanguageSearchModel::set_mock_response("", 200, {});
+        NaturalLanguageSearchModel::clear_mock_responses();
         NaturalLanguageSearchModel::enable_request_capture();
         // Clear any captured requests from previous tests
         NaturalLanguageSearchModel::disable_request_capture();
@@ -13,13 +13,13 @@ protected:
     }
 
     void TearDown() override {
-        NaturalLanguageSearchModel::clear_mock_response();
+        NaturalLanguageSearchModel::clear_mock_responses();
         NaturalLanguageSearchModel::disable_request_capture();
     }
 };
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAISuccess) {
-    NaturalLanguageSearchModel::set_mock_response(R"({
+    NaturalLanguageSearchModel::add_mock_response(R"({
       "object": "chat.completion",
       "model": "gpt-3.5-turbo",
       "choices": [
@@ -70,7 +70,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAISuccess) {
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIRegexJSONSuccess) {
-  NaturalLanguageSearchModel::set_mock_response(R"({
+  NaturalLanguageSearchModel::add_mock_response(R"({
     "object": "chat.completion",
     "model": "gpt-3.5-turbo",
     "choices": [
@@ -121,7 +121,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIRegexJSONSucces
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIFailure) {
-  NaturalLanguageSearchModel::set_mock_response("No response", 400, {});
+  NaturalLanguageSearchModel::add_mock_response("No response", 400, {});
 
   std::string query = "Find expensive laptops";
   std::string collection_schema_prompt = "Fields: price, name, ...";
@@ -139,7 +139,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIInvalidJSON) {
-  NaturalLanguageSearchModel::set_mock_response("Invalid JSON", 200, {});
+  NaturalLanguageSearchModel::add_mock_response("Invalid JSON", 200, {});
 
   std::string query = "Find expensive laptops";
   std::string collection_schema_prompt = "Fields: price, name, ...";
@@ -157,7 +157,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIInvalidJSON) {
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIInvalidResponse) {
-  NaturalLanguageSearchModel::set_mock_response(R"({
+  NaturalLanguageSearchModel::add_mock_response(R"({
       "object": "chat.completion",
       "model": "gpt-3.5-turbo",
       "usage": {
@@ -193,7 +193,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIInvalidResponse
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIInvalidContentResponse) {
-  NaturalLanguageSearchModel::set_mock_response(R"({
+  NaturalLanguageSearchModel::add_mock_response(R"({
       "object": "chat.completion",
       "model": "gpt-3.5-turbo",
       "choices": [
@@ -234,7 +234,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIInvalidContentR
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareSuccess) {
-    NaturalLanguageSearchModel::set_mock_response(R"({
+    NaturalLanguageSearchModel::add_mock_response(R"({
       "result": {
         "response": "To extract the relevant SQL-like query parameters from the user's search query, let's analyze the given information:\n\n- The make can be Honda or BMW.\n- The engine_hp should be at least 200.\n- The driven_wheels should be rear wheel drive.\n- The price range (msrp) is from 20K to 50K.\n- The year should be newer than 2014.\n\nBased on the provided database schema and the Typesense Query Syntax, here's how we can map the user's search query:\n\n### Query Parameters:\n\n- **Make**: Honda or BMW\n- **Engine HP**: at least 200\n- **Driven Wheels**: rear-wheel drive\n- **Price Range (MSRP)**: 20K to 50K\n- **Year**: newer than 2014\n\n### Typesense Query:\n\n```json\n{\n  \"q\": \"test\",\n  \"filter_by\": \"make:[Honda, BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014\",\n  \"sort_by\": \"\"\n}\n```\n\n### Explanation:\n\n- **Make**: We use `make:[Honda, BMW]` to filter by Honda or BMW.\n- **Engine HP**: We use `engine_hp:>=200` to filter by at least 200hp.\n- **Driven Wheels**: We use `driven_wheels:rear wheel drive` to filter by rear-wheel drive.\n- **Price Range (MSRP)**: We assume `20K` and `50K` are in dollars and map them to `msrp:[20000..50000]`.\n- **Year**: We use `year:>2014` to filter by cars newer than 2014.\n\nSince there are no specific sorting criteria mentioned in the query, we leave `sort_by` empty. The query string `q` is also left empty as the user's query can be adequately represented using `filter_by`. \n\nThis query will return results that match the specified criteria.",
         "tool_calls": [],
@@ -267,7 +267,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareSuccess) {
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareResponseFailure) {
-    NaturalLanguageSearchModel::set_mock_response("No response", 200, {});
+    NaturalLanguageSearchModel::add_mock_response("No response", 200, {});
 
     std::string query = "Find expensive laptops";
     std::string collection_schema_prompt = "Fields: price, name, ...";
@@ -286,7 +286,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareResponseFai
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareInvalidResponse) {
-  NaturalLanguageSearchModel::set_mock_response(R"({
+  NaturalLanguageSearchModel::add_mock_response(R"({
     "result": {
       "response1": "To extract the relevant SQL-like query parameters from the user's search query, let's analyze the given information:\n\n- The make can be Honda or BMW.\n- The engine_hp should be at least 200.\n- The driven_wheels should be rear wheel drive.\n- The price range (msrp) is from 20K to 50K.\n- The year should be newer than 2014.\n\nBased on the provided database schema and the Typesense Query Syntax, here's how we can map the user's search query:\n\n### Query Parameters:\n\n- **Make**: Honda or BMW\n- **Engine HP**: at least 200\n- **Driven Wheels**: rear-wheel drive\n- **Price Range (MSRP)**: 20K to 50K\n- **Year**: newer than 2014\n\n### Typesense Query:\n\n```json\n{\n  \"q\": \"test\",\n  \"filter_by\": \"make:[Honda, BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014\",\n  \"sort_by\": \"\"\n}\n```\n\n### Explanation:\n\n- **Make**: We use `make:[Honda, BMW]` to filter by Honda or BMW.\n- **Engine HP**: We use `engine_hp:>=200` to filter by at least 200hp.\n- **Driven Wheels**: We use `driven_wheels:rear wheel drive` to filter by rear-wheel drive.\n- **Price Range (MSRP)**: We assume `20K` and `50K` are in dollars and map them to `msrp:[20000..50000]`.\n- **Year**: We use `year:>2014` to filter by cars newer than 2014.\n\nSince there are no specific sorting criteria mentioned in the query, we leave `sort_by` empty. The query string `q` is also left empty as the user's query can be adequately represented using `filter_by`. \n\nThis query will return results that match the specified criteria.",
       "tool_calls": [],
@@ -318,7 +318,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareInvalidResp
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareFailure) {
-  NaturalLanguageSearchModel::set_mock_response("No response", 400, {});
+  NaturalLanguageSearchModel::add_mock_response("No response", 400, {});
 
   std::string query = "Find expensive laptops";
   std::string collection_schema_prompt = "Fields: price, name, ...";
@@ -337,7 +337,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsJSONFailure) {
-  NaturalLanguageSearchModel::set_mock_response(R"({
+  NaturalLanguageSearchModel::add_mock_response(R"({
     "object": "chat.completion",
     "model": "gpt-3.5-turbo",
     "choices": [
@@ -386,7 +386,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsJSONFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsRegexJSONFailure) {
-  NaturalLanguageSearchModel::set_mock_response(R"({
+  NaturalLanguageSearchModel::add_mock_response(R"({
     "object": "chat.completion",
     "model": "gpt-3.5-turbo",
     "choices": [
@@ -567,7 +567,7 @@ TEST_F(NaturalLanguageSearchModelTest, ValidateModelFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleSuccess) {
-    NaturalLanguageSearchModel::set_mock_response(R"({
+    NaturalLanguageSearchModel::add_mock_response(R"({
       "candidates": [
         {
           "content": {
@@ -606,7 +606,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleSuccess) {
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleRequestBody) {
     // Test that Google API request is properly constructed
-    NaturalLanguageSearchModel::set_mock_response(R"({
+    NaturalLanguageSearchModel::add_mock_response(R"({
       "candidates": [
         {
           "content": {
@@ -671,7 +671,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleRequestBody) {
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleWithOptionalParams) {
-    NaturalLanguageSearchModel::set_mock_response(R"({
+    NaturalLanguageSearchModel::add_mock_response(R"({
       "candidates": [
         {
           "content": {
@@ -712,7 +712,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleWithOptionalPar
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleFailure) {
-    NaturalLanguageSearchModel::set_mock_response("Internal Server Error", 500, {});
+    NaturalLanguageSearchModel::add_mock_response("Internal Server Error", 500, {});
 
     std::string query = "Find laptops";
     std::string collection_schema_prompt = "Fields: price, name...";
@@ -730,7 +730,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleInvalidResponse) {
-    NaturalLanguageSearchModel::set_mock_response(R"({
+    NaturalLanguageSearchModel::add_mock_response(R"({
       "error": {
         "code": 400,
         "message": "Invalid request",
@@ -754,7 +754,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleInvalidResponse
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPSuccess) {
-    NaturalLanguageSearchModel::set_mock_response(R"({
+    NaturalLanguageSearchModel::add_mock_response(R"({
       "candidates": [
         {
           "content": {
@@ -808,7 +808,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPSuccess) {
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPTokenRefresh) {
-    NaturalLanguageSearchModel::clear_mock_response();
+    NaturalLanguageSearchModel::clear_mock_responses();
     
     // 1. First API call returns 401
     NaturalLanguageSearchModel::add_mock_response("Unauthorized", 401, {});
@@ -883,7 +883,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPTokenRefresh) {
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPTokenRefreshFailure) {
     // Test token refresh failure
-    NaturalLanguageSearchModel::set_mock_response(R"({
+    NaturalLanguageSearchModel::add_mock_response(R"({
       "error": {
         "message": "The refresh token is invalid"
       }
@@ -898,7 +898,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPTokenRefreshFailur
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPRequestBody) {
     // Test that request body is properly constructed with all parameters
-    NaturalLanguageSearchModel::set_mock_response(R"({
+    NaturalLanguageSearchModel::add_mock_response(R"({
       "candidates": [
         {
           "content": {
@@ -959,7 +959,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPRequestBody) {
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPDifferentRegions) {
     // Test that different regions are properly reflected in the URL
-    NaturalLanguageSearchModel::set_mock_response(R"({
+    NaturalLanguageSearchModel::add_mock_response(R"({
       "candidates": [
         {
           "content": {
@@ -999,6 +999,25 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPDifferentRegions) 
 
     // Test with custom region
     model_config["region"] = "europe-west1";
+    
+    // Add another mock response for the second call
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "{\n  \"q\": \"test\",\n  \"filter_by\": \"\",\n  \"sort_by\": \"\"\n}"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }
+      ]
+    })", 200, {});
+    
     result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
     ASSERT_TRUE(result.ok());
     

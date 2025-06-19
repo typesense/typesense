@@ -623,37 +623,13 @@ long NaturalLanguageSearchModel::post_response(const std::string& url, const std
         captured_requests.push_back({url, body, headers});
     }
     
-    if (use_mock_response) {
-        // Use queued mock response if available
-        if (!mock_responses.empty() && mock_response_index < mock_responses.size()) {
-            auto& [mock_body, status, mock_headers] = mock_responses[mock_response_index++];
-            response = mock_body;
-            res_headers = mock_headers;
-            return status;
-        }
-        
-        // Fall back to single mock response
-        response = mock_response_body;
-        res_headers = mock_response_headers;
-        return mock_status_code;
+    if (use_mock_response && !mock_responses.empty() && mock_response_index < mock_responses.size()) {
+        auto& [mock_body, status, mock_headers] = mock_responses[mock_response_index++];
+        response = mock_body;
+        res_headers = mock_headers;
+        return status;
     }
     return HttpClient::post_response(url, body, response, res_headers, headers, timeout_ms, send_ts_api_header);
-}
-
-void NaturalLanguageSearchModel::set_mock_response(const std::string& response_body, long status_code, const std::map<std::string, std::string>& response_headers) {
-    use_mock_response = true;
-    mock_response_body = response_body;
-    mock_status_code = status_code;
-    mock_response_headers = response_headers;
-}
-
-void NaturalLanguageSearchModel::clear_mock_response() {
-    use_mock_response = false;
-    mock_response_body.clear();
-    mock_status_code = 200;
-    mock_response_headers.clear();
-    clear_mock_responses();
-    captured_requests.clear();
 }
 
 void NaturalLanguageSearchModel::add_mock_response(const std::string& response_body, long status_code, const std::map<std::string, std::string>& response_headers) {
@@ -662,6 +638,8 @@ void NaturalLanguageSearchModel::add_mock_response(const std::string& response_b
 }
 
 void NaturalLanguageSearchModel::clear_mock_responses() {
+    use_mock_response = false;
     mock_responses.clear();
     mock_response_index = 0;
+    captured_requests.clear();
 }
