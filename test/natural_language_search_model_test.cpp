@@ -54,11 +54,11 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAISuccess) {
 
     std::string query = "Find expensive laptops";
     std::string collection_schema_prompt = "Fields: price, name, ...";
-    nlohmann::json model_config = {
-        {"model_name", "openai/gpt-3.5-turbo"},
-        {"api_key", "sk-test"},
-        {"max_bytes", 1024}
-    };
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-3.5-turbo",
+        "api_key": "sk-test",
+        "max_bytes": 1024
+    })"_json;
 
     auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -105,11 +105,11 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIRegexJSONSucces
 
   std::string query = "Find expensive laptops";
   std::string collection_schema_prompt = "Fields: price, name, ...";
-  nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "sk-test"},
-      {"max_bytes", 1024}
-  };
+  nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "sk-test",
+      "max_bytes": 1024
+  })"_json;
 
   auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -125,11 +125,11 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIFailure) {
 
   std::string query = "Find expensive laptops";
   std::string collection_schema_prompt = "Fields: price, name, ...";
-  nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "sk-test"},
-      {"max_bytes", 1024}
-  };
+  nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "sk-test",
+      "max_bytes": 1024
+  })"_json;
 
   auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -143,11 +143,11 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIInvalidJSON) {
 
   std::string query = "Find expensive laptops";
   std::string collection_schema_prompt = "Fields: price, name, ...";
-  nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "sk-test"},
-      {"max_bytes", 1024}
-  };
+  nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "sk-test",
+      "max_bytes": 1024
+  })"_json;
 
   auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -179,11 +179,11 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIInvalidResponse
 
   std::string query = "Find expensive laptops";
   std::string collection_schema_prompt = "Fields: price, name, ...";
-  nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "sk-test"},
-      {"max_bytes", 1024}
-  };
+  nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "sk-test",
+      "max_bytes": 1024
+  })"_json;
 
   auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -220,11 +220,11 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsOpenAIInvalidContentR
 
   std::string query = "Find expensive laptops";
   std::string collection_schema_prompt = "Fields: price, name, ...";
-  nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "sk-test"},
-      {"max_bytes", 1024}
-  };
+  nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "sk-test",
+      "max_bytes": 1024
+  })"_json;
 
   auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -251,12 +251,12 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareSuccess) {
 
     std::string query = "Find expensive laptops";
     std::string collection_schema_prompt = "Fields: price, name, ...";
-    nlohmann::json model_config = {
-        {"model_name", "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct"},
-        {"api_key", "sk-test"},
-        {"account_id", "test"},
-        {"max_bytes", 1024}
-    };
+    nlohmann::json model_config = R"({
+        "model_name": "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct",
+        "api_key": "sk-test",
+        "account_id": "test",
+        "max_bytes": 1024
+    })"_json;
 
     auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -271,12 +271,12 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareResponseFai
 
     std::string query = "Find expensive laptops";
     std::string collection_schema_prompt = "Fields: price, name, ...";
-    nlohmann::json model_config = {
-        {"model_name", "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct"},
-        {"api_key", "sk-test"},
-        {"account_id", "test"},
-        {"max_bytes", 1024}
-    };
+    nlohmann::json model_config = R"({
+        "model_name": "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct",
+        "api_key": "sk-test",
+        "account_id": "test",
+        "max_bytes": 1024
+    })"_json;
 
     auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -303,12 +303,12 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareInvalidResp
 
   std::string query = "Find expensive laptops";
   std::string collection_schema_prompt = "Fields: price, name, ...";
-  nlohmann::json model_config = {
-      {"model_name", "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct"},
-      {"api_key", "sk-test"},
-      {"account_id", "test"},
-      {"max_bytes", 1024}
-  };
+  nlohmann::json model_config = R"({
+      "model_name": "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct",
+      "api_key": "sk-test",
+      "account_id": "test",
+      "max_bytes": 1024
+  })"_json;
 
   auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -322,12 +322,12 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsCloudflareFailure) {
 
   std::string query = "Find expensive laptops";
   std::string collection_schema_prompt = "Fields: price, name, ...";
-  nlohmann::json model_config = {
-      {"model_name", "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct"},
-      {"api_key", "sk-test"},
-      {"account_id", "test"},
-      {"max_bytes", 1024}
-  };
+  nlohmann::json model_config = R"({
+      "model_name": "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct",
+      "api_key": "sk-test",
+      "account_id": "test",
+      "max_bytes": 1024
+  })"_json;
 
   auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -372,11 +372,11 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsJSONFailure) {
 
   std::string query = "Find expensive laptops";
   std::string collection_schema_prompt = "Fields: price, name, ...";
-  nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "sk-test"},
-      {"max_bytes", 1024}
-  };
+  nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "sk-test",
+      "max_bytes": 1024
+  })"_json;
 
   auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -421,11 +421,11 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsRegexJSONFailure) {
 
   std::string query = "Find expensive laptops";
   std::string collection_schema_prompt = "Fields: price, name, ...";
-  nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "sk-test"},
-      {"max_bytes", 1024}
-  };
+  nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "sk-test",
+      "max_bytes": 1024
+  })"_json;
 
   auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -435,130 +435,130 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsRegexJSONFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelTest, ValidateModelSuccess) {
-  nlohmann::json model_config = {
-    {"model_name", "openai/gpt-3.5-turbo"},
-    {"api_key", "sk-test"},
-    {"max_bytes", size_t(1024)}
-  };
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "sk-test",
+    "max_bytes": 1024
+  })"_json;
 
   auto result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_TRUE(result.ok());
 
-  model_config = {
-    {"model_name", "cloudflare/@cf/meta/llama-2-7b-chat-int8"},
-    {"api_key", "YOUR_CLOUDFLARE_API_KEY"},
-    {"account_id", "YOUR_CLOUDFLARE_ACCOUNT_ID"},
-    {"max_bytes", size_t(16000)}
-  };
+  model_config = R"({
+    "model_name": "cloudflare/@cf/meta/llama-2-7b-chat-int8",
+    "api_key": "YOUR_CLOUDFLARE_API_KEY",
+    "account_id": "YOUR_CLOUDFLARE_ACCOUNT_ID",
+    "max_bytes": 16000
+  })"_json;
 
   result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_TRUE(result.ok());
 
-  model_config = {
-    {"model_name", "vllm/mistral-7b-instruct"},
-    {"api_url", "http://your-vllm-server:8000/generate"},
-    {"max_bytes", size_t(16000)},
-    {"temperature", 0.0}
-  };
+  model_config = R"({
+    "model_name": "vllm/mistral-7b-instruct",
+    "api_url": "http://your-vllm-server:8000/generate",
+    "max_bytes": 16000,
+    "temperature": 0.0
+  })"_json;
 
   result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_TRUE(result.ok());
 }
 
 TEST_F(NaturalLanguageSearchModelTest, ValidateModelFailure) {
-  nlohmann::json model_config = {
-    {"api_key", "sk-test"},
-    {"max_bytes", size_t(1024)}
-  };
+  nlohmann::json model_config = R"({
+    "api_key": "sk-test",
+    "max_bytes": 1024
+  })"_json;
 
   auto result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_FALSE(result.ok());
   ASSERT_EQ(result.code(), 400);
   ASSERT_EQ(result.error(), "Property `model_name` is not provided or not a string.");
 
-  model_config = {
-    {"model_name", "openai/gpt-3.5-turbo"},
-    {"max_bytes", size_t(1024)}
-  };
+  model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "max_bytes": 1024
+  })"_json;
 
   result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_FALSE(result.ok());
   ASSERT_EQ(result.code(), 400);
   ASSERT_EQ(result.error(), "Property `api_key` is missing or is not a non-empty string.");
 
-  model_config = {
-    {"model_name", "openai/gpt-3.5-turbo"},
-    {"api_key", "sk-test"},
-    {"max_bytes", -1}
-  };
+  model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "sk-test",
+    "max_bytes": -1
+  })"_json;
 
   result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_FALSE(result.ok());
   ASSERT_EQ(result.code(), 400);
   ASSERT_EQ(result.error(), "Property `max_bytes` is not provided or not a positive integer.");
 
-  model_config = {
-    {"model_name", "openai/gpt-3.5-turbo"},
-    {"api_key", "sk-test"},
-    {"max_bytes", size_t(1024)},
-    {"temperature", -1.0}
-  };
+  model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "sk-test",
+    "max_bytes": 1024,
+    "temperature": -1.0
+  })"_json;
 
   result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_FALSE(result.ok());
   ASSERT_EQ(result.code(), 400);
   ASSERT_EQ(result.error(), "Property `temperature` must be a number between 0 and 2.");
 
-  model_config = {
-    {"model_name", "cloudflare/@cf/meta/llama-2-7b-chat-int8"},
-    {"api_key", "YOUR_CLOUDFLARE_API_KEY"},
-    {"max_bytes", size_t(16000)}
-  };
+  model_config = R"({
+    "model_name": "cloudflare/@cf/meta/llama-2-7b-chat-int8",
+    "api_key": "YOUR_CLOUDFLARE_API_KEY",
+    "max_bytes": 16000
+  })"_json;
 
   result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_FALSE(result.ok());
   ASSERT_EQ(result.code(), 400);
   ASSERT_EQ(result.error(), "Property `account_id` is missing or is not a non-empty string.");
 
-  model_config = {
-    {"model_name", "cloudflare/@cf/meta/llama-2-7b-chat-int8"},
-    {"account_id", "YOUR_CLOUDFLARE_ACCOUNT_ID"},
-    {"max_bytes", size_t(16000)}
-  };
+  model_config = R"({
+    "model_name": "cloudflare/@cf/meta/llama-2-7b-chat-int8",
+    "account_id": "YOUR_CLOUDFLARE_ACCOUNT_ID",
+    "max_bytes": 16000
+  })"_json;
 
   result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_FALSE(result.ok());
   ASSERT_EQ(result.code(), 400);
   ASSERT_EQ(result.error(), "Property `api_key` is missing or is not a non-empty string.");
 
-  model_config = {
-    {"model_name", "cloudflare/@cf/meta/llama-2-7b-chat-int8"},
-    {"api_key", "YOUR_CLOUDFLARE_API_KEY"},
-    {"account_id", "YOUR_CLOUDFLARE_ACCOUNT_ID"}
-  };
+  model_config = R"({
+    "model_name": "cloudflare/@cf/meta/llama-2-7b-chat-int8",
+    "api_key": "YOUR_CLOUDFLARE_API_KEY",
+    "account_id": "YOUR_CLOUDFLARE_ACCOUNT_ID"
+  })"_json;
 
   result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_FALSE(result.ok());
   ASSERT_EQ(result.code(), 400);
   ASSERT_EQ(result.error(), "Property `max_bytes` is not provided or not a positive integer.");
 
-  model_config = {
-    {"model_name", "vllm/mistral-7b-instruct"},
-    {"max_bytes", size_t(16000)},
-    {"temperature", 0.0}
-  };
+  model_config = R"({
+    "model_name": "vllm/mistral-7b-instruct",
+    "max_bytes": 16000,
+    "temperature": 0.0
+  })"_json;
 
   result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_FALSE(result.ok());
   ASSERT_EQ(result.code(), 400);
   ASSERT_EQ(result.error(), "Property `api_url` is missing or is not a non-empty string.");
 
-  model_config = {
-    {"model_name", "vllm/mistral-7b-instruct"},
-    {"api_url", "http://your-vllm-server:8000/generate"},
-    {"temperature", -1.0},
-    {"max_bytes", size_t(16000)}
-  };
+  model_config = R"({
+    "model_name": "vllm/mistral-7b-instruct",
+    "api_url": "http://your-vllm-server:8000/generate",
+    "temperature": -1.0,
+    "max_bytes": 16000
+  })"_json;
 
   result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_FALSE(result.ok());
@@ -588,12 +588,12 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleSuccess) {
 
     std::string query = "Find expensive laptops";
     std::string collection_schema_prompt = "Fields: price, name, category...";
-    nlohmann::json model_config = {
-        {"model_name", "google/gemini-2.5-flash"},
-        {"api_key", "test-api-key"},
-        {"max_bytes", 1024},
-        {"temperature", 0.0}
-    };
+    nlohmann::json model_config = R"({
+        "model_name": "google/gemini-2.5-flash",
+        "api_key": "test-api-key",
+        "max_bytes": 1024,
+        "temperature": 0.0
+    })"_json;
 
     auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -625,17 +625,17 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleRequestBody) {
 
     std::string query = "Find products";
     std::string collection_schema_prompt = "Schema information";
-    nlohmann::json model_config = {
-        {"model_name", "google/gemini-2.5-flash"},
-        {"api_key", "test-api-key"},
-        {"max_bytes", 1024},
-        {"temperature", 0.5},
-        {"top_p", 0.9},
-        {"top_k", 30},
-        {"stop_sequences", nlohmann::json::array({"STOP", "END"})},
-        {"api_version", "v1beta"},
-        {"system_prompt", "Custom instructions"}
-    };
+    nlohmann::json model_config = R"({
+        "model_name": "google/gemini-2.5-flash",
+        "api_key": "test-api-key",
+        "max_bytes": 1024,
+        "temperature": 0.5,
+        "top_p": 0.9,
+        "top_k": 30,
+        "stop_sequences": ["STOP", "END"],
+        "api_version": "v1beta",
+        "system_prompt": "Custom instructions"
+    })"_json;
 
     auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
     ASSERT_TRUE(result.ok());
@@ -659,7 +659,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleRequestBody) {
     ASSERT_FLOAT_EQ(gen_config["topP"].get<float>(), 0.9f);
     ASSERT_EQ(gen_config["topK"], 30);
     ASSERT_EQ(gen_config["maxOutputTokens"], 1024);
-    ASSERT_EQ(gen_config["stopSequences"], nlohmann::json::array({"STOP", "END"}));
+    ASSERT_EQ(gen_config["stopSequences"], nlohmann::json::parse(R"(["STOP", "END"])"));
     
     // Check contents
     ASSERT_TRUE(request_body.contains("contents"));
@@ -690,17 +690,17 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleWithOptionalPar
 
     std::string query = "Best electronics between $500 and $2000";
     std::string collection_schema_prompt = "Fields: price, name, category, rating...";
-    nlohmann::json model_config = {
-        {"model_name", "google/gemini-2.5-pro"},
-        {"api_key", "test-api-key"},
-        {"max_bytes", 2048},
-        {"temperature", 0.7},
-        {"top_p", 0.95},
-        {"top_k", 40},
-        {"stop_sequences", nlohmann::json::array({"END", "STOP"})},
-        {"api_version", "v1"},
-        {"system_prompt", "You are a helpful search assistant"}
-    };
+    nlohmann::json model_config = R"({
+        "model_name": "google/gemini-2.5-pro",
+        "api_key": "test-api-key",
+        "max_bytes": 2048,
+        "temperature": 0.7,
+        "top_p": 0.95,
+        "top_k": 40,
+        "stop_sequences": ["END", "STOP"],
+        "api_version": "v1",
+        "system_prompt": "You are a helpful search assistant"
+    })"_json;
 
     auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -716,11 +716,11 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleFailure) {
 
     std::string query = "Find laptops";
     std::string collection_schema_prompt = "Fields: price, name...";
-    nlohmann::json model_config = {
-        {"model_name", "google/gemini-2.5-flash"},
-        {"api_key", "test-api-key"},
-        {"max_bytes", 1024}
-    };
+    nlohmann::json model_config = R"({
+        "model_name": "google/gemini-2.5-flash",
+        "api_key": "test-api-key",
+        "max_bytes": 1024
+    })"_json;
 
     auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -740,11 +740,11 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleInvalidResponse
 
     std::string query = "Find laptops";
     std::string collection_schema_prompt = "Fields: price, name...";
-    nlohmann::json model_config = {
-        {"model_name", "google/gemini-2.5-flash"},
-        {"api_key", "test-api-key"},
-        {"max_bytes", 1024}
-    };
+    nlohmann::json model_config = R"({
+        "model_name": "google/gemini-2.5-flash",
+        "api_key": "test-api-key",
+        "max_bytes": 1024
+    })"_json;
 
     auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -787,16 +787,16 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPSuccess) {
 
     std::string query = "Find good laptops between $1000 and $3000";
     std::string collection_schema_prompt = "Fields: price, name, category, rating...";
-    nlohmann::json model_config = {
-        {"model_name", "gcp/gemini-2.5-flash"},
-        {"project_id", "test-project"},
-        {"access_token", "test-access-token"},
-        {"refresh_token", "test-refresh-token"},
-        {"client_id", "test-client-id"},
-        {"client_secret", "test-client-secret"},
-        {"max_bytes", 1024},
-        {"temperature", 0.0}
-    };
+    nlohmann::json model_config = R"({
+        "model_name": "gcp/gemini-2.5-flash",
+        "project_id": "test-project",
+        "access_token": "test-access-token",
+        "refresh_token": "test-refresh-token",
+        "client_id": "test-client-id",
+        "client_secret": "test-client-secret",
+        "max_bytes": 1024,
+        "temperature": 0.0
+    })"_json;
 
     auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
 
@@ -840,15 +840,15 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPTokenRefresh) {
 
     std::string query = "Find products";
     std::string collection_schema_prompt = "Fields: name, price...";
-    nlohmann::json model_config = {
-        {"model_name", "gcp/gemini-2.5-flash"},
-        {"project_id", "test-project"},
-        {"access_token", "expired-token"},
-        {"refresh_token", "test-refresh-token"},
-        {"client_id", "test-client-id"},
-        {"client_secret", "test-client-secret"},
-        {"max_bytes", 1024}
-    };
+    nlohmann::json model_config = R"({
+        "model_name": "gcp/gemini-2.5-flash",
+        "project_id": "test-project",
+        "access_token": "expired-token",
+        "refresh_token": "test-refresh-token",
+        "client_id": "test-client-id",
+        "client_secret": "test-client-secret",
+        "max_bytes": 1024
+    })"_json;
 
     // This should trigger the full flow: 401 -> token refresh -> retry
     auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
@@ -917,19 +917,19 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPRequestBody) {
 
     std::string query = "Find products";
     std::string collection_schema_prompt = "Schema information";
-    nlohmann::json model_config = {
-        {"model_name", "gcp/gemini-2.5-pro"},
-        {"project_id", "test-project"},
-        {"access_token", "test-token"},
-        {"refresh_token", "refresh-token"},
-        {"client_id", "client-id"},
-        {"client_secret", "client-secret"},
-        {"max_bytes", 2048},
-        {"temperature", 0.7},
-        {"top_p", 0.95},
-        {"top_k", 40},
-        {"max_output_tokens", 4096}
-    };
+    nlohmann::json model_config = R"({
+        "model_name": "gcp/gemini-2.5-pro",
+        "project_id": "test-project",
+        "access_token": "test-token",
+        "refresh_token": "refresh-token",
+        "client_id": "client-id",
+        "client_secret": "client-secret",
+        "max_bytes": 2048,
+        "temperature": 0.7,
+        "top_p": 0.95,
+        "top_k": 40,
+        "max_output_tokens": 4096
+    })"_json;
 
     auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
     ASSERT_TRUE(result.ok());
@@ -980,15 +980,15 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPDifferentRegions) 
     std::string collection_schema_prompt = "Fields: name...";
     
     // Test with default region (us-central1)
-    nlohmann::json model_config = {
-        {"model_name", "gcp/gemini-2.5-flash"},
-        {"project_id", "test-project"},
-        {"access_token", "test-token"},
-        {"refresh_token", "refresh-token"},
-        {"client_id", "client-id"},
-        {"client_secret", "client-secret"},
-        {"max_bytes", 1024}
-    };
+    nlohmann::json model_config = R"({
+        "model_name": "gcp/gemini-2.5-flash",
+        "project_id": "test-project",
+        "access_token": "test-token",
+        "refresh_token": "refresh-token",
+        "client_id": "client-id",
+        "client_secret": "client-secret",
+        "max_bytes": 1024
+    })"_json;
 
     auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
     ASSERT_TRUE(result.ok());

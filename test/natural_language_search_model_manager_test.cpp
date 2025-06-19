@@ -32,12 +32,12 @@ protected:
 };
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AddModelSuccess) {
-    nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "YOUR_OPENAI_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 0.0}
-    };
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "");
@@ -45,11 +45,11 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AddModelSuccess) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AddModelFailure) {
-    nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "YOUR_OPENAI_API_KEY"},
-      {"temperature", 0.0}
-    };
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "temperature": 0.0
+    })"_json;
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "Property `max_bytes` is not provided or not a positive integer.");
@@ -59,12 +59,12 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AddModelFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, GetModelSuccess) {
-    nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "YOUR_OPENAI_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 0.0}
-    };
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_TRUE(result.ok());
@@ -80,12 +80,12 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GetModelFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, DeleteModelSuccess) {
-    nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "YOUR_OPENAI_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 0.0}
-    };
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_TRUE(result.ok());
@@ -105,12 +105,12 @@ TEST_F(NaturalLanguageSearchModelManagerTest, DeleteModelFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, GetAllModelsSuccess) {
-    nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "YOUR_OPENAI_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 0.0}
-    };
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
     std::string model_id_1 = "test_model_id_1";
     std::string model_id_2 = "test_model_id_2";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id_1, false);
@@ -127,12 +127,12 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GetAllModelsSuccess) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, UpdateModelSuccess) {
-    nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "YOUR_OPENAI_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 0.0}
-    };
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_TRUE(result.ok());
@@ -147,12 +147,12 @@ TEST_F(NaturalLanguageSearchModelManagerTest, UpdateModelSuccess) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, UpdateModelFailure) {
-  nlohmann::json model_config = {
-    {"model_name", "openai/gpt-3.5-turbo"},
-    {"api_key", "YOUR_OPENAI_API_KEY"},
-    {"max_bytes", size_t(1024)},
-    {"temperature", 0.0}
-  };
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "YOUR_OPENAI_API_KEY",
+    "max_bytes": 1024,
+    "temperature": 0.0
+  })"_json;
   std::string model_id = "test_model_id";
   auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
   ASSERT_TRUE(result.ok());
@@ -509,12 +509,12 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQuerySucess) {
   req_params["collection"] = "titles";
   req_params["query_by"] = "title";
 
-  nlohmann::json model_config = {
-    {"model_name", "openai/gpt-3.5-turbo"},
-    {"api_key", "YOUR_OPENAI_API_KEY"},
-    {"max_bytes", size_t(1024)},
-    {"temperature", 0.0}
-  };
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "YOUR_OPENAI_API_KEY",
+    "max_bytes": 1024,
+    "temperature": 0.0
+  })"_json;
   std::string model_id = "default";
   auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
   ASSERT_TRUE(result.ok());
@@ -599,12 +599,12 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidCollec
   req_params["collection"] = "titles";
   req_params["query_by"] = "title";
 
-  nlohmann::json model_config = {
-    {"model_name", "openai/gpt-3.5-turbo"},
-    {"api_key", "YOUR_OPENAI_API_KEY"},
-    {"max_bytes", size_t(1024)},
-    {"temperature", 0.0}
-  };
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "YOUR_OPENAI_API_KEY",
+    "max_bytes": 1024,
+    "temperature": 0.0
+  })"_json;
   std::string model_id = "default";
   auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
   ASSERT_TRUE(result.ok());
@@ -637,12 +637,12 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidRespon
   req_params["collection"] = "titles";
   req_params["query_by"] = "title";
 
-  nlohmann::json model_config = {
-    {"model_name", "openai/gpt-3.5-turbo"},
-    {"api_key", "YOUR_OPENAI_API_KEY"},
-    {"max_bytes", size_t(1024)},
-    {"temperature", 0.0}
-  };
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "YOUR_OPENAI_API_KEY",
+    "max_bytes": 1024,
+    "temperature": 0.0
+  })"_json;
   std::string model_id = "default";
   auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
   ASSERT_TRUE(result.ok());
@@ -733,12 +733,12 @@ TEST_F(NaturalLanguageSearchModelManagerTest, ExcludeParsedNLQuery) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AddGoogleModelSuccess) {
-    nlohmann::json model_config = {
-      {"model_name", "google/gemini-2.5-flash"},
-      {"api_key", "YOUR_GOOGLE_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 0.0}
-    };
+    nlohmann::json model_config = R"({
+      "model_name": "google/gemini-2.5-flash",
+      "api_key": "YOUR_GOOGLE_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
     std::string model_id = "test_google_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "");
@@ -746,17 +746,17 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AddGoogleModelSuccess) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AddGoogleModelWithOptionalParams) {
-    nlohmann::json model_config = {
-      {"model_name", "google/gemini-2.5-pro"},
-      {"api_key", "YOUR_GOOGLE_API_KEY"},
-      {"max_bytes", size_t(2048)},
-      {"temperature", 0.7},
-      {"top_p", 0.95},
-      {"top_k", 40},
-      {"stop_sequences", nlohmann::json::array({"END", "STOP"})},
-      {"api_version", "v1"},
-      {"system_prompt", "You are a helpful assistant"}
-    };
+    nlohmann::json model_config = R"({
+      "model_name": "google/gemini-2.5-pro",
+      "api_key": "YOUR_GOOGLE_API_KEY",
+      "max_bytes": 2048,
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "top_k": 40,
+      "stop_sequences": ["END", "STOP"],
+      "api_version": "v1",
+      "system_prompt": "You are a helpful assistant"
+    })"_json;
     std::string model_id = "test_google_model_advanced";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "");
@@ -765,71 +765,71 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AddGoogleModelWithOptionalParams) 
 
 TEST_F(NaturalLanguageSearchModelManagerTest, GoogleModelValidationFailures) {
     // Test missing API key
-    nlohmann::json model_config = {
-      {"model_name", "google/gemini-2.5-flash"},
-      {"max_bytes", size_t(1024)}
-    };
+    nlohmann::json model_config = R"({
+      "model_name": "google/gemini-2.5-flash",
+      "max_bytes": 1024
+    })"_json;
     std::string model_id = "test_google_invalid";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "Property `api_key` is missing or is not a non-empty string.");
     ASSERT_FALSE(result.ok());
 
     // Test invalid temperature
-    model_config = {
-      {"model_name", "google/gemini-2.5-flash"},
-      {"api_key", "YOUR_GOOGLE_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 3.0}
-    };
+    model_config = R"({
+      "model_name": "google/gemini-2.5-flash",
+      "api_key": "YOUR_GOOGLE_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 3.0
+    })"_json;
     result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "Property `temperature` must be a number between 0 and 2.");
     ASSERT_FALSE(result.ok());
 
     // Test invalid top_p
-    model_config = {
-      {"model_name", "google/gemini-2.5-flash"},
-      {"api_key", "YOUR_GOOGLE_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"top_p", 1.5}
-    };
+    model_config = R"({
+      "model_name": "google/gemini-2.5-flash",
+      "api_key": "YOUR_GOOGLE_API_KEY",
+      "max_bytes": 1024,
+      "top_p": 1.5
+    })"_json;
     result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "Property `top_p` must be a number between 0 and 1.");
     ASSERT_FALSE(result.ok());
 
     // Test invalid top_k
-    model_config = {
-      {"model_name", "google/gemini-2.5-flash"},
-      {"api_key", "YOUR_GOOGLE_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"top_k", -5}
-    };
+    model_config = R"({
+      "model_name": "google/gemini-2.5-flash",
+      "api_key": "YOUR_GOOGLE_API_KEY",
+      "max_bytes": 1024,
+      "top_k": -5
+    })"_json;
     result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "Property `top_k` must be a non-negative integer.");
     ASSERT_FALSE(result.ok());
 
     // Test invalid stop_sequences
-    model_config = {
-      {"model_name", "google/gemini-2.5-flash"},
-      {"api_key", "YOUR_GOOGLE_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"stop_sequences", "not an array"}
-    };
+    model_config = R"({
+      "model_name": "google/gemini-2.5-flash",
+      "api_key": "YOUR_GOOGLE_API_KEY",
+      "max_bytes": 1024,
+      "stop_sequences": "not an array"
+    })"_json;
     result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "Property `stop_sequences` must be an array of strings.");
     ASSERT_FALSE(result.ok());
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AddGCPModelSuccess) {
-    nlohmann::json model_config = {
-      {"model_name", "gcp/gemini-2.5-flash"},
-      {"project_id", "my-gcp-project"},
-      {"access_token", "initial-access-token"},
-      {"refresh_token", "refresh-token"},
-      {"client_id", "client-id"},
-      {"client_secret", "client-secret"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 0.0}
-    };
+    nlohmann::json model_config = R"({
+      "model_name": "gcp/gemini-2.5-flash",
+      "project_id": "my-gcp-project",
+      "access_token": "initial-access-token",
+      "refresh_token": "refresh-token",
+      "client_id": "client-id",
+      "client_secret": "client-secret",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
     std::string model_id = "test_gcp_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "");
@@ -837,21 +837,21 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AddGCPModelSuccess) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AddGCPModelWithOptionalParams) {
-    nlohmann::json model_config = {
-      {"model_name", "gcp/gemini-2.5-pro"},
-      {"project_id", "my-gcp-project"},
-      {"access_token", "initial-access-token"},
-      {"refresh_token", "refresh-token"},
-      {"client_id", "client-id"},
-      {"client_secret", "client-secret"},
-      {"max_bytes", size_t(2048)},
-      {"region", "europe-west1"},
-      {"temperature", 0.7},
-      {"top_p", 0.95},
-      {"top_k", 40},
-      {"max_output_tokens", 4096},
-      {"system_prompt", "You are a helpful search assistant"}
-    };
+    nlohmann::json model_config = R"({
+      "model_name": "gcp/gemini-2.5-pro",
+      "project_id": "my-gcp-project",
+      "access_token": "initial-access-token",
+      "refresh_token": "refresh-token",
+      "client_id": "client-id",
+      "client_secret": "client-secret",
+      "max_bytes": 2048,
+      "region": "europe-west1",
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "top_k": 40,
+      "max_output_tokens": 4096,
+      "system_prompt": "You are a helpful search assistant"
+    })"_json;
     std::string model_id = "test_gcp_model_advanced";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "");
@@ -860,58 +860,58 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AddGCPModelWithOptionalParams) {
 
 TEST_F(NaturalLanguageSearchModelManagerTest, GCPModelValidationFailures) {
     // Test missing project_id
-    nlohmann::json model_config = {
-      {"model_name", "gcp/gemini-2.5-flash"},
-      {"access_token", "token"},
-      {"refresh_token", "refresh"},
-      {"client_id", "id"},
-      {"client_secret", "secret"},
-      {"max_bytes", size_t(1024)}
-    };
+    nlohmann::json model_config = R"({
+      "model_name": "gcp/gemini-2.5-flash",
+      "access_token": "token",
+      "refresh_token": "refresh",
+      "client_id": "id",
+      "client_secret": "secret",
+      "max_bytes": 1024
+    })"_json;
     std::string model_id = "test_gcp_invalid";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "Property `project_id` is missing or is not a non-empty string.");
     ASSERT_FALSE(result.ok());
 
     // Test missing access_token
-    model_config = {
-      {"model_name", "gcp/gemini-2.5-flash"},
-      {"project_id", "my-project"},
-      {"refresh_token", "refresh"},
-      {"client_id", "id"},
-      {"client_secret", "secret"},
-      {"max_bytes", size_t(1024)}
-    };
+    model_config = R"({
+      "model_name": "gcp/gemini-2.5-flash",
+      "project_id": "my-project",
+      "refresh_token": "refresh",
+      "client_id": "id",
+      "client_secret": "secret",
+      "max_bytes": 1024
+    })"_json;
     result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "Property `access_token` is missing or is not a non-empty string.");
     ASSERT_FALSE(result.ok());
 
     // Test invalid temperature
-    model_config = {
-      {"model_name", "gcp/gemini-2.5-flash"},
-      {"project_id", "my-project"},
-      {"access_token", "token"},
-      {"refresh_token", "refresh"},
-      {"client_id", "id"},
-      {"client_secret", "secret"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 3.0}
-    };
+    model_config = R"({
+      "model_name": "gcp/gemini-2.5-flash",
+      "project_id": "my-project",
+      "access_token": "token",
+      "refresh_token": "refresh",
+      "client_id": "id",
+      "client_secret": "secret",
+      "max_bytes": 1024,
+      "temperature": 3.0
+    })"_json;
     result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "Property `temperature` must be a number between 0 and 2.");
     ASSERT_FALSE(result.ok());
 
     // Test invalid max_output_tokens
-    model_config = {
-      {"model_name", "gcp/gemini-2.5-flash"},
-      {"project_id", "my-project"},
-      {"access_token", "token"},
-      {"refresh_token", "refresh"},
-      {"client_id", "id"},
-      {"client_secret", "secret"},
-      {"max_bytes", size_t(1024)},
-      {"max_output_tokens", -100}
-    };
+    model_config = R"({
+      "model_name": "gcp/gemini-2.5-flash",
+      "project_id": "my-project",
+      "access_token": "token",
+      "refresh_token": "refresh",
+      "client_id": "id",
+      "client_secret": "secret",
+      "max_bytes": 1024,
+      "max_output_tokens": -100
+    })"_json;
     result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "Property `max_output_tokens` must be a positive integer.");
     ASSERT_FALSE(result.ok());
