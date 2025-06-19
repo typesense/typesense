@@ -169,7 +169,6 @@ export class TypesenseProcessManager {
       await instance.process.exited;
     }
     this.processes.clear();
-    process.exit(0);
   };
 
   private installSignalHandlers() {

@@ -4,6 +4,7 @@ import { Phases } from "./constants";
 class TypesenseTestRunner {
   private manager: TypesenseProcessManager;
   private static instance: TypesenseTestRunner;
+  private exit_code: number = 0;
 
   constructor() {
     this.manager = new TypesenseProcessManager();
@@ -25,6 +26,7 @@ class TypesenseTestRunner {
         this.noPhase(),
       ]);
       await this.manager.shutdown();
+      process.exit(this.exit_code);
     } catch (err) {
       await this.manager.shutdown();
       throw err;
@@ -90,6 +92,7 @@ class TypesenseTestRunner {
     });
     if (proc.exitCode !== 0) {
       console.error(`\n=== ❌ Phase ${Phases.SINGLE_FRESH} failed ===\n`);
+      this.exit_code = 1;
     }
   }
 
@@ -103,6 +106,7 @@ class TypesenseTestRunner {
     });
     if (proc.exitCode !== 0) {
       console.error(`\n=== ❌ Phase ${Phases.SINGLE_RESTARTED} failed ===\n`);
+      this.exit_code = 1;
     }
   }
 
@@ -117,6 +121,7 @@ class TypesenseTestRunner {
     });
     if (proc.exitCode !== 0) {
       console.error(`\n=== ❌ Phase ${Phases.SINGLE_SNAPSHOT} failed ===\n`);
+      this.exit_code = 1;
     }
   }
 
@@ -130,6 +135,7 @@ class TypesenseTestRunner {
     });
     if (proc.exitCode !== 0) {
       console.error(`\n=== ❌ Phase ${Phases.MULTI_FRESH} failed ===\n`);
+      this.exit_code = 1;
     }
   }
 
@@ -143,6 +149,7 @@ class TypesenseTestRunner {
     });
     if (proc.exitCode !== 0) {
       console.error(`\n=== ❌ Phase ${Phases.MULTI_RESTARTED} failed ===\n`);
+      this.exit_code = 1;
     }
   }
 
@@ -157,6 +164,7 @@ class TypesenseTestRunner {
     });
     if (proc.exitCode !== 0) {
       console.error(`\n=== ❌ Phase ${Phases.MULTI_SNAPSHOT} failed ===\n`);
+      this.exit_code = 1;
     }
   }
 }
