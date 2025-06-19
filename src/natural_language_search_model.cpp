@@ -63,6 +63,8 @@ Option<bool> NaturalLanguageSearchModel::validate_model(const nlohmann::json& mo
         return validate_vllm_model(model_config);
     } else if(model_namespace == "google") {
         return validate_google_model(model_config);
+    } else if(model_namespace == "gcp") {
+        return validate_gcp_model(model_config);
     }
 
     return Option<bool>(400, "Model namespace `" + model_namespace + "` is not supported.");
@@ -95,6 +97,8 @@ Option<nlohmann::json> NaturalLanguageSearchModel::generate_search_params(
         return openai_vllm_generate_search_params(query, full_system_prompt, model_config);
     } else if(model_namespace == "google") {
         return google_generate_search_params(query, full_system_prompt, model_config);
+    } else if(model_namespace == "gcp") {
+        return gcp_generate_search_params(query, full_system_prompt, model_config);
     }
     return Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
 }
@@ -387,12 +391,248 @@ Option<nlohmann::json> NaturalLanguageSearchModel::google_generate_search_params
     return extract_search_params_from_content(content, model_name_without_namespace);
 }
 
+Option<bool> NaturalLanguageSearchModel::validate_gcp_model(const nlohmann::json& model_config) {
+    // Required fields
+    if(model_config.count("project_id") == 0 || !model_config["project_id"].is_string() || 
+       model_config["project_id"].get<std::string>().empty()) {
+        return Option<bool>(400, "Property `project_id` is missing or is not a non-empty string.");
+    }
+
+    if(model_config.count("access_token") == 0 || !model_config["access_token"].is_string() || 
+       model_config["access_token"].get<std::string>().empty()) {
+        return Option<bool>(400, "Property `access_token` is missing or is not a non-empty string.");
+    }
+
+    if(model_config.count("refresh_token") == 0 || !model_config["refresh_token"].is_string() || 
+       model_config["refresh_token"].get<std::string>().empty()) {
+        return Option<bool>(400, "Property `refresh_token` is missing or is not a non-empty string.");
+    }
+
+    if(model_config.count("client_id") == 0 || !model_config["client_id"].is_string() || 
+       model_config["client_id"].get<std::string>().empty()) {
+        return Option<bool>(400, "Property `client_id` is missing or is not a non-empty string.");
+    }
+
+    if(model_config.count("client_secret") == 0 || !model_config["client_secret"].is_string() || 
+       model_config["client_secret"].get<std::string>().empty()) {
+        return Option<bool>(400, "Property `client_secret` is missing or is not a non-empty string.");
+    }
+
+    // Optional fields
+    if(model_config.count("region") != 0 && !model_config["region"].is_string()) {
+        return Option<bool>(400, "Property `region` must be a string.");
+    }
+
+    if(model_config.count("temperature") != 0 && 
+       (!model_config["temperature"].is_number() || 
+        model_config["temperature"].get<float>() < 0 || 
+        model_config["temperature"].get<float>() > 2)) {
+        return Option<bool>(400, "Property `temperature` must be a number between 0 and 2.");
+    }
+
+    if(model_config.count("top_p") != 0 && 
+       (!model_config["top_p"].is_number() || 
+        model_config["top_p"].get<float>() < 0 || 
+        model_config["top_p"].get<float>() > 1)) {
+        return Option<bool>(400, "Property `top_p` must be a number between 0 and 1.");
+    }
+
+    if(model_config.count("top_k") != 0 && 
+       (!model_config["top_k"].is_number_integer() || 
+        model_config["top_k"].get<int>() < 0)) {
+        return Option<bool>(400, "Property `top_k` must be a non-negative integer.");
+    }
+
+    if(model_config.count("max_output_tokens") != 0 && 
+       (!model_config["max_output_tokens"].is_number_integer() || 
+        model_config["max_output_tokens"].get<int>() <= 0)) {
+        return Option<bool>(400, "Property `max_output_tokens` must be a positive integer.");
+    }
+
+    return Option<bool>(true);
+}
+
+Option<nlohmann::json> NaturalLanguageSearchModel::gcp_generate_search_params(
+    const std::string& query,
+    const std::string& system_prompt,
+    const nlohmann::json& model_config) {
+
+    const std::string& model_name = model_config["model_name"].get<std::string>();
+    const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
+    const std::string& project_id = model_config["project_id"].get<std::string>();
+    const std::string& region = model_config.value("region", std::string("us-central1"));
+    std::string access_token = model_config["access_token"].get<std::string>();
+    const std::string& refresh_token = model_config["refresh_token"].get<std::string>();
+    const std::string& client_id = model_config["client_id"].get<std::string>();
+    const std::string& client_secret = model_config["client_secret"].get<std::string>();
+    
+    float temperature = model_config.value("temperature", 0.0f);
+    size_t max_bytes = model_config["max_bytes"].get<size_t>();
+    
+    // Construct Vertex AI URL
+    std::string api_url = "https://" + region + "-aiplatform.googleapis.com/v1/projects/" + 
+                         project_id + "/locations/" + region + "/publishers/google/models/" + 
+                         model_name_without_namespace + ":generateContent";
+
+    // Build request body
+    nlohmann::json request_body;
+    
+    // Combine system prompt and query
+    std::string full_prompt = system_prompt;
+    if (!full_prompt.empty()) {
+        full_prompt += "\n\n";
+    }
+    full_prompt += query;
+    
+    // Add contents
+    request_body["contents"] = {{
+        {"role", "user"},
+        {"parts", {{{"text", full_prompt}}}}
+    }};
+    
+    // Add generation config
+    nlohmann::json generation_config;
+    generation_config["temperature"] = temperature;
+    generation_config["maxOutputTokens"] = max_bytes;
+    
+    if(model_config.count("top_p") != 0) {
+        generation_config["topP"] = model_config["top_p"].get<float>();
+    }
+    
+    if(model_config.count("top_k") != 0) {
+        generation_config["topK"] = model_config["top_k"].get<int>();
+    }
+    
+    if(model_config.count("max_output_tokens") != 0) {
+        generation_config["maxOutputTokens"] = model_config["max_output_tokens"].get<int>();
+    }
+    
+    request_body["generationConfig"] = generation_config;
+
+    std::unordered_map<std::string, std::string> headers = {
+        {"Content-Type", "application/json"},
+        {"Authorization", "Bearer " + access_token}
+    };
+
+    std::string response;
+    std::map<std::string, std::string> response_headers;
+    
+    long status_code = post_response(api_url, request_body.dump(), response, response_headers, headers, DEFAULT_TIMEOUT_MS);
+
+    // Handle 401 Unauthorized - refresh token and retry
+    if(status_code == 401) {
+        auto refresh_op = generate_gcp_access_token(refresh_token, client_id, client_secret);
+        if(!refresh_op.ok()) {
+            return Option<nlohmann::json>(401, "Failed to refresh GCP access token: " + refresh_op.error());
+        }
+        
+        access_token = refresh_op.get();
+        headers["Authorization"] = "Bearer " + access_token;
+        
+        // Retry with new token
+        response.clear();
+        status_code = post_response(api_url, request_body.dump(), response, response_headers, headers, DEFAULT_TIMEOUT_MS);
+    }
+
+    if(status_code != 200) {
+        return Option<nlohmann::json>(500, "Failed to get response from GCP Vertex AI: " + std::to_string(status_code));
+    }
+
+    nlohmann::json response_json;
+    try {
+        response_json = nlohmann::json::parse(response);
+    } catch(const std::exception& e) {
+        return Option<nlohmann::json>(500, "Failed to parse GCP Vertex AI response: Invalid JSON");
+    }
+
+    // Extract text from Vertex AI response format
+    if(!response_json.contains("candidates") || !response_json["candidates"].is_array() || 
+       response_json["candidates"].empty()) {
+        return Option<nlohmann::json>(500, "No valid candidates in GCP Vertex AI response");
+    }
+
+    auto& candidate = response_json["candidates"][0];
+    if(!candidate.contains("content") || !candidate["content"].contains("parts") || 
+       !candidate["content"]["parts"].is_array() || candidate["content"]["parts"].empty()) {
+        return Option<nlohmann::json>(500, "No valid content in GCP Vertex AI response");
+    }
+
+    auto& part = candidate["content"]["parts"][0];
+    if(!part.contains("text") || !part["text"].is_string()) {
+        return Option<nlohmann::json>(500, "No valid text in GCP Vertex AI response");
+    }
+
+    std::string content = part["text"].get<std::string>();
+    return extract_search_params_from_content(content, model_name_without_namespace);
+}
+
+Option<std::string> NaturalLanguageSearchModel::generate_gcp_access_token(
+    const std::string& refresh_token, 
+    const std::string& client_id, 
+    const std::string& client_secret) {
+    
+    const std::string GCP_AUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
+    
+    std::unordered_map<std::string, std::string> headers;
+    headers["Content-Type"] = "application/x-www-form-urlencoded";
+    
+    std::map<std::string, std::string> res_headers;
+    std::string res;
+    std::string req_body = "grant_type=refresh_token&client_id=" + client_id + 
+                          "&client_secret=" + client_secret + "&refresh_token=" + refresh_token;
+
+    auto res_code = post_response(GCP_AUTH_TOKEN_URL, req_body, res, res_headers, headers, DEFAULT_TIMEOUT_MS);
+    
+    if(res_code != 200) {
+        nlohmann::json json_res;
+        try {
+            json_res = nlohmann::json::parse(res);
+        } catch (const std::exception& e) {
+            return Option<std::string>(400, "Got malformed response from GCP OAuth API.");
+        }
+        
+        if(json_res.count("error") != 0 && json_res["error"].count("message") != 0) {
+            return Option<std::string>(400, "GCP OAuth API error: " + json_res["error"]["message"].get<std::string>());
+        }
+        
+        return Option<std::string>(400, "GCP OAuth API error: " + res);
+    }
+    
+    nlohmann::json res_json;
+    try {
+        res_json = nlohmann::json::parse(res);
+    } catch (const std::exception& e) {
+        return Option<std::string>(400, "Got malformed response from GCP OAuth API.");
+    }
+    
+    if(!res_json.contains("access_token") || !res_json["access_token"].is_string()) {
+        return Option<std::string>(400, "No access token in GCP OAuth response");
+    }
+    
+    std::string access_token = res_json["access_token"].get<std::string>();
+    return Option<std::string>(access_token);
+}
+
 long NaturalLanguageSearchModel::post_response(const std::string& url, const std::string& body, std::string& response,
                                     std::map<std::string, std::string>& res_headers,
                                     const std::unordered_map<std::string, std::string>& headers,
                                     long timeout_ms,
                                     bool send_ts_api_header) {
+    // Capture request if enabled
+    if (capture_request) {
+        captured_requests.push_back({url, body, headers});
+    }
+    
     if (use_mock_response) {
+        // Use queued mock response if available
+        if (!mock_responses.empty() && mock_response_index < mock_responses.size()) {
+            auto& [mock_body, status, mock_headers] = mock_responses[mock_response_index++];
+            response = mock_body;
+            res_headers = mock_headers;
+            return status;
+        }
+        
+        // Fall back to single mock response
         response = mock_response_body;
         res_headers = mock_response_headers;
         return mock_status_code;
@@ -412,4 +652,16 @@ void NaturalLanguageSearchModel::clear_mock_response() {
     mock_response_body.clear();
     mock_status_code = 200;
     mock_response_headers.clear();
+    clear_mock_responses();
+    captured_requests.clear();
+}
+
+void NaturalLanguageSearchModel::add_mock_response(const std::string& response_body, long status_code, const std::map<std::string, std::string>& response_headers) {
+    use_mock_response = true;
+    mock_responses.push_back(std::make_tuple(response_body, status_code, response_headers));
+}
+
+void NaturalLanguageSearchModel::clear_mock_responses() {
+    mock_responses.clear();
+    mock_response_index = 0;
 }

@@ -792,3 +792,101 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GoogleModelValidationFailures) {
     ASSERT_EQ(result.error(), "Property `stop_sequences` must be an array of strings.");
     ASSERT_FALSE(result.ok());
 }
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AddGCPModelSuccess) {
+    nlohmann::json model_config = {
+      {"model_name", "gcp/gemini-2.5-flash"},
+      {"project_id", "my-gcp-project"},
+      {"access_token", "initial-access-token"},
+      {"refresh_token", "refresh-token"},
+      {"client_id", "client-id"},
+      {"client_secret", "client-secret"},
+      {"max_bytes", size_t(1024)},
+      {"temperature", 0.0}
+    };
+    std::string model_id = "test_gcp_model_id";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "");
+    ASSERT_TRUE(result.ok());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AddGCPModelWithOptionalParams) {
+    nlohmann::json model_config = {
+      {"model_name", "gcp/gemini-2.5-pro"},
+      {"project_id", "my-gcp-project"},
+      {"access_token", "initial-access-token"},
+      {"refresh_token", "refresh-token"},
+      {"client_id", "client-id"},
+      {"client_secret", "client-secret"},
+      {"max_bytes", size_t(2048)},
+      {"region", "europe-west1"},
+      {"temperature", 0.7},
+      {"top_p", 0.95},
+      {"top_k", 40},
+      {"max_output_tokens", 4096},
+      {"system_prompt", "You are a helpful search assistant"}
+    };
+    std::string model_id = "test_gcp_model_advanced";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "");
+    ASSERT_TRUE(result.ok());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, GCPModelValidationFailures) {
+    // Test missing project_id
+    nlohmann::json model_config = {
+      {"model_name", "gcp/gemini-2.5-flash"},
+      {"access_token", "token"},
+      {"refresh_token", "refresh"},
+      {"client_id", "id"},
+      {"client_secret", "secret"},
+      {"max_bytes", size_t(1024)}
+    };
+    std::string model_id = "test_gcp_invalid";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `project_id` is missing or is not a non-empty string.");
+    ASSERT_FALSE(result.ok());
+
+    // Test missing access_token
+    model_config = {
+      {"model_name", "gcp/gemini-2.5-flash"},
+      {"project_id", "my-project"},
+      {"refresh_token", "refresh"},
+      {"client_id", "id"},
+      {"client_secret", "secret"},
+      {"max_bytes", size_t(1024)}
+    };
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `access_token` is missing or is not a non-empty string.");
+    ASSERT_FALSE(result.ok());
+
+    // Test invalid temperature
+    model_config = {
+      {"model_name", "gcp/gemini-2.5-flash"},
+      {"project_id", "my-project"},
+      {"access_token", "token"},
+      {"refresh_token", "refresh"},
+      {"client_id", "id"},
+      {"client_secret", "secret"},
+      {"max_bytes", size_t(1024)},
+      {"temperature", 3.0}
+    };
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `temperature` must be a number between 0 and 2.");
+    ASSERT_FALSE(result.ok());
+
+    // Test invalid max_output_tokens
+    model_config = {
+      {"model_name", "gcp/gemini-2.5-flash"},
+      {"project_id", "my-project"},
+      {"access_token", "token"},
+      {"refresh_token", "refresh"},
+      {"client_id", "id"},
+      {"client_secret", "secret"},
+      {"max_bytes", size_t(1024)},
+      {"max_output_tokens", -100}
+    };
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `max_output_tokens` must be a positive integer.");
+    ASSERT_FALSE(result.ok());
+}

@@ -6,10 +6,15 @@ class NaturalLanguageSearchModelTest : public ::testing::Test {
 protected:
     void SetUp() override {
         NaturalLanguageSearchModel::set_mock_response("", 200, {});
+        NaturalLanguageSearchModel::enable_request_capture();
+        // Clear any captured requests from previous tests
+        NaturalLanguageSearchModel::disable_request_capture();
+        NaturalLanguageSearchModel::enable_request_capture();
     }
 
     void TearDown() override {
         NaturalLanguageSearchModel::clear_mock_response();
+        NaturalLanguageSearchModel::disable_request_capture();
     }
 };
 
@@ -599,6 +604,72 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleSuccess) {
     ASSERT_EQ(params["sort_by"], "price:desc");
 }
 
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleRequestBody) {
+    // Test that Google API request is properly constructed
+    NaturalLanguageSearchModel::set_mock_response(R"({
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "{\n  \"q\": \"test\",\n  \"filter_by\": \"\",\n  \"sort_by\": \"\"\n}"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }
+      ]
+    })", 200, {});
+
+    std::string query = "Find products";
+    std::string collection_schema_prompt = "Schema information";
+    nlohmann::json model_config = {
+        {"model_name", "google/gemini-2.5-flash"},
+        {"api_key", "test-api-key"},
+        {"max_bytes", 1024},
+        {"temperature", 0.5},
+        {"top_p", 0.9},
+        {"top_k", 30},
+        {"stop_sequences", nlohmann::json::array({"STOP", "END"})},
+        {"api_version", "v1beta"},
+        {"system_prompt", "Custom instructions"}
+    };
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+    ASSERT_TRUE(result.ok());
+    
+    // Verify URL construction
+    std::string url = NaturalLanguageSearchModel::get_last_request_url();
+    ASSERT_EQ(url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=test-api-key");
+    
+    // Verify request body
+    std::string request_body_str = NaturalLanguageSearchModel::get_last_request_body();
+    nlohmann::json request_body = nlohmann::json::parse(request_body_str);
+    
+    // Check system instruction
+    ASSERT_TRUE(request_body.contains("systemInstruction"));
+    ASSERT_EQ(request_body["systemInstruction"]["parts"][0]["text"], "Custom instructions\n\nSchema information");
+    
+    // Check generation config
+    ASSERT_TRUE(request_body.contains("generationConfig"));
+    auto& gen_config = request_body["generationConfig"];
+    ASSERT_EQ(gen_config["temperature"], 0.5);
+    ASSERT_FLOAT_EQ(gen_config["topP"].get<float>(), 0.9f);
+    ASSERT_EQ(gen_config["topK"], 30);
+    ASSERT_EQ(gen_config["maxOutputTokens"], 1024);
+    ASSERT_EQ(gen_config["stopSequences"], nlohmann::json::array({"STOP", "END"}));
+    
+    // Check contents
+    ASSERT_TRUE(request_body.contains("contents"));
+    ASSERT_EQ(request_body["contents"][0]["parts"][0]["text"], "Find products");
+    
+    // Verify headers
+    auto headers = NaturalLanguageSearchModel::get_last_request_headers();
+    ASSERT_EQ(headers["Content-Type"], "application/json");
+}
+
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleWithOptionalParams) {
     NaturalLanguageSearchModel::set_mock_response(R"({
       "candidates": [
@@ -681,3 +752,258 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleInvalidResponse
     ASSERT_EQ(result.code(), 500);
     ASSERT_EQ(result.error(), "No valid candidates in Google Gemini response");
 }
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPSuccess) {
+    NaturalLanguageSearchModel::set_mock_response(R"({
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "{\n  \"q\": \"electronics\",\n  \"filter_by\": \"category:laptops && price:[1000..3000]\",\n  \"sort_by\": \"rating:desc\"\n}"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP",
+          "index": 0,
+          "safetyRatings": [
+            {
+              "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+              "probability": "NEGLIGIBLE"
+            }
+          ]
+        }
+      ],
+      "promptFeedback": {
+        "safetyRatings": [
+          {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "probability": "NEGLIGIBLE"
+          }
+        ]
+      }
+    })", 200, {});
+
+    std::string query = "Find good laptops between $1000 and $3000";
+    std::string collection_schema_prompt = "Fields: price, name, category, rating...";
+    nlohmann::json model_config = {
+        {"model_name", "gcp/gemini-2.5-flash"},
+        {"project_id", "test-project"},
+        {"access_token", "test-access-token"},
+        {"refresh_token", "test-refresh-token"},
+        {"client_id", "test-client-id"},
+        {"client_secret", "test-client-secret"},
+        {"max_bytes", 1024},
+        {"temperature", 0.0}
+    };
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+    ASSERT_TRUE(result.ok());
+    auto params = result.get();
+    ASSERT_EQ(params["q"], "electronics");
+    ASSERT_EQ(params["filter_by"], "category:laptops && price:[1000..3000]");
+    ASSERT_EQ(params["sort_by"], "rating:desc");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPTokenRefresh) {
+    NaturalLanguageSearchModel::clear_mock_response();
+    
+    // 1. First API call returns 401
+    NaturalLanguageSearchModel::add_mock_response("Unauthorized", 401, {});
+    
+    // 2. Token refresh call returns new token
+    NaturalLanguageSearchModel::add_mock_response(R"({
+        "access_token": "new-access-token",
+        "expires_in": 3600,
+        "token_type": "Bearer"
+    })", 200, {});
+    
+    // 3. Retry API call with new token succeeds
+    NaturalLanguageSearchModel::add_mock_response(R"({
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": "{\n  \"q\": \"products\",\n  \"filter_by\": \"\",\n  \"sort_by\": \"\"\n}"
+                        }
+                    ],
+                    "role": "model"
+                },
+                "finishReason": "STOP",
+                "index": 0
+            }
+        ]
+    })", 200, {});
+
+    std::string query = "Find products";
+    std::string collection_schema_prompt = "Fields: name, price...";
+    nlohmann::json model_config = {
+        {"model_name", "gcp/gemini-2.5-flash"},
+        {"project_id", "test-project"},
+        {"access_token", "expired-token"},
+        {"refresh_token", "test-refresh-token"},
+        {"client_id", "test-client-id"},
+        {"client_secret", "test-client-secret"},
+        {"max_bytes", 1024}
+    };
+
+    // This should trigger the full flow: 401 -> token refresh -> retry
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+    
+    ASSERT_TRUE(result.ok());
+    auto params = result.get();
+    ASSERT_EQ(params["q"], "products");
+    
+    // Verify all three requests were made
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 3);
+    
+    // First request: Initial API call that gets 401
+    const auto& first_request = NaturalLanguageSearchModel::get_captured_request(0);
+    ASSERT_TRUE(first_request.url.find("https://us-central1-aiplatform.googleapis.com") != std::string::npos);
+    ASSERT_TRUE(first_request.url.find("gemini-2.5-flash:generateContent") != std::string::npos);
+    ASSERT_EQ(first_request.headers.at("Authorization"), "Bearer expired-token");
+    
+    // Second request: Token refresh
+    const auto& token_request = NaturalLanguageSearchModel::get_captured_request(1);
+    ASSERT_EQ(token_request.url, "https://oauth2.googleapis.com/token");
+    ASSERT_TRUE(token_request.body.find("grant_type=refresh_token") != std::string::npos);
+    ASSERT_TRUE(token_request.body.find("refresh_token=test-refresh-token") != std::string::npos);
+    ASSERT_TRUE(token_request.body.find("client_id=test-client-id") != std::string::npos);
+    ASSERT_TRUE(token_request.body.find("client_secret=test-client-secret") != std::string::npos);
+    
+    // Third request: Retry with new token
+    const auto& retry_request = NaturalLanguageSearchModel::get_captured_request(2);
+    ASSERT_EQ(retry_request.url, first_request.url); // Same URL as first request
+    ASSERT_EQ(retry_request.body, first_request.body); // Same body as first request
+    ASSERT_EQ(retry_request.headers.at("Authorization"), "Bearer new-access-token"); // New token!
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPTokenRefreshFailure) {
+    // Test token refresh failure
+    NaturalLanguageSearchModel::set_mock_response(R"({
+      "error": {
+        "message": "The refresh token is invalid"
+      }
+    })", 400, {});
+
+    auto token_result = NaturalLanguageSearchModel::generate_gcp_access_token(
+        "invalid-refresh-token", "test-client-id", "test-client-secret");
+    
+    ASSERT_FALSE(token_result.ok());
+    ASSERT_EQ(token_result.error(), "GCP OAuth API error: The refresh token is invalid");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPRequestBody) {
+    // Test that request body is properly constructed with all parameters
+    NaturalLanguageSearchModel::set_mock_response(R"({
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "{\n  \"q\": \"test\",\n  \"filter_by\": \"\",\n  \"sort_by\": \"\"\n}"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }
+      ]
+    })", 200, {});
+
+    std::string query = "Find products";
+    std::string collection_schema_prompt = "Schema information";
+    nlohmann::json model_config = {
+        {"model_name", "gcp/gemini-2.5-pro"},
+        {"project_id", "test-project"},
+        {"access_token", "test-token"},
+        {"refresh_token", "refresh-token"},
+        {"client_id", "client-id"},
+        {"client_secret", "client-secret"},
+        {"max_bytes", 2048},
+        {"temperature", 0.7},
+        {"top_p", 0.95},
+        {"top_k", 40},
+        {"max_output_tokens", 4096}
+    };
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+    ASSERT_TRUE(result.ok());
+    
+    // Verify request body
+    std::string request_body_str = NaturalLanguageSearchModel::get_last_request_body();
+    nlohmann::json request_body = nlohmann::json::parse(request_body_str);
+    
+    // Check generation config
+    ASSERT_TRUE(request_body.contains("generationConfig"));
+    auto& gen_config = request_body["generationConfig"];
+    ASSERT_FLOAT_EQ(gen_config["temperature"].get<float>(), 0.7f);
+    ASSERT_FLOAT_EQ(gen_config["topP"].get<float>(), 0.95f);
+    ASSERT_EQ(gen_config["topK"], 40);
+    ASSERT_EQ(gen_config["maxOutputTokens"], 4096);
+    
+    // Check contents
+    ASSERT_TRUE(request_body.contains("contents"));
+    ASSERT_TRUE(request_body["contents"].is_array());
+    ASSERT_EQ(request_body["contents"].size(), 1);
+    
+    // Verify headers
+    auto headers = NaturalLanguageSearchModel::get_last_request_headers();
+    ASSERT_EQ(headers["Authorization"], "Bearer test-token");
+    ASSERT_EQ(headers["Content-Type"], "application/json");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPDifferentRegions) {
+    // Test that different regions are properly reflected in the URL
+    NaturalLanguageSearchModel::set_mock_response(R"({
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "{\n  \"q\": \"test\",\n  \"filter_by\": \"\",\n  \"sort_by\": \"\"\n}"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }
+      ]
+    })", 200, {});
+
+    std::string query = "test query";
+    std::string collection_schema_prompt = "Fields: name...";
+    
+    // Test with default region (us-central1)
+    nlohmann::json model_config = {
+        {"model_name", "gcp/gemini-2.5-flash"},
+        {"project_id", "test-project"},
+        {"access_token", "test-token"},
+        {"refresh_token", "refresh-token"},
+        {"client_id", "client-id"},
+        {"client_secret", "client-secret"},
+        {"max_bytes", 1024}
+    };
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+    ASSERT_TRUE(result.ok());
+    
+    // Verify default region URL
+    std::string url = NaturalLanguageSearchModel::get_last_request_url();
+    ASSERT_TRUE(url.find("https://us-central1-aiplatform.googleapis.com/v1/projects/test-project/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent") != std::string::npos);
+
+    // Test with custom region
+    model_config["region"] = "europe-west1";
+    result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+    ASSERT_TRUE(result.ok());
+    
+    // Verify custom region URL
+    url = NaturalLanguageSearchModel::get_last_request_url();
+    ASSERT_TRUE(url.find("https://europe-west1-aiplatform.googleapis.com/v1/projects/test-project/locations/europe-west1/publishers/google/models/gemini-2.5-flash:generateContent") != std::string::npos);
+}
+
