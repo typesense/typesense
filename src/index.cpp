@@ -2557,7 +2557,7 @@ Option<bool> Index::run_search(search_args* search_params) {
         if (!res.ok()) {
             return res;
         }
-        if (search_params->raw_result_kvs.empty()) {
+        if (search_params->raw_result_kvs.empty() && search_params->override_result_kvs.empty()) {
             return Option<bool>(true);
         }
 
@@ -2636,7 +2636,7 @@ Option<bool> Index::run_search(search_args* search_params) {
         }
 
         // for grouping found_count reflects how many groups were found for the query.
-        search_params->found_count = search_params->topster->getGroupsCount() + search_params->curated_topster->size;
+        search_params->found_count = search_params->topster->getGroupsCount() + search_params->curated_topster->getGroupsCount();
         search_params->found_docs = search_params->all_result_ids_len;
 
         delete search_params->topster;
@@ -2984,7 +2984,7 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
             if(override->rule.dynamic_query) {
                 StringUtils::split(override->rule.normalized_query, rule_parts, " ");
                 processed_tokens = query_tokens;
-            } else if(override->rule.dynamic_filter) {
+            } else if(override->rule.dynamic_filter && filter_tree_root != nullptr) {
                 tokenize_filter_str(override->rule.filter_by, rule_parts);
 
                 // tokenize filter_by string from search query
@@ -3034,6 +3034,9 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                 if (override->stop_processing) {
                     return;
                 }
+            } else {
+                //reset the curated sort if override is not matched
+                sort_by_clause.clear();
             }
         }
     }
@@ -3436,7 +3439,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
     }
 
-    size_t topster_size = std::max<size_t>(fetch_size, DEFAULT_TOPSTER_SIZE);
+    size_t topster_size = std::max<size_t>(fetch_size, std::max<size_t>(DEFAULT_TOPSTER_SIZE, included_ids.size()));
     if(filter_result_iterator->approx_filter_ids_length != 0 && filter_result_iterator->reference.empty()) {
         topster_size = std::min<size_t>(topster_size, filter_result_iterator->approx_filter_ids_length);
     } else {
@@ -3444,7 +3447,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
     topster_size = std::max((size_t)1, topster_size);  // needs to be atleast 1 since scoring is mandatory
     topster = new Topster<KV>(topster_size, group_limit, is_group_by_first_pass, group_found_params);
-    curated_topster = new Topster<KV>(topster_size, group_limit, false);
+    curated_topster = new Topster<KV>(topster_size, group_limit, is_group_by_first_pass, group_found_params);
 
     std::set<uint32_t> curated_ids;
     std::map<size_t, std::map<size_t, uint32_t>> included_ids_map;  // outer pos => inner pos => list of IDs
@@ -4374,7 +4377,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                   facet_index_types, is_group_by_first_pass, group_by_missing_value_ids);
     }
 
-    all_result_ids_len += curated_topster->size;
+    all_result_ids_len += (is_group_by_first_pass ? 0 : curated_topster->size);
 
     if(!included_ids_map.empty() && group_limit != 0) {
         for (auto &acc_facet: facets) {

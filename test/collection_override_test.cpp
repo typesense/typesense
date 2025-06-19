@@ -3575,6 +3575,23 @@ TEST_F(CollectionOverrideTest, DynamicSorting) {
     ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
 
+    //no overrides matched, hence no sorting
+    results = coll1->search("store", {"store"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+
     collectionManager.drop_collection("coll1");
 }
 
@@ -5010,6 +5027,106 @@ TEST_F(CollectionOverrideTest, NestedObjectOverride) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_TRUE(results.contains("metadata"));
     ASSERT_TRUE(results["metadata"]["filtered"].get<bool>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOverrideTest, CurationWithGroupBy) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "title", "index": true, "type": "string" },
+          {"name": "category", "index": true, "type": "string", "facet": true },
+          {"name": "brand", "index": true, "type": "string", "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    // Add test documents
+    nlohmann::json doc1 = R"({"id": "1", "title": "winter dress", "category": "clothing", "brand": "brandA"})"_json;
+    nlohmann::json doc2 = R"({"id": "2", "title": "winter shoes", "category": "footwear", "brand": "brandB"})"_json;
+    nlohmann::json doc3 = R"({"id": "3", "title": "winter hat", "category": "accessories", "brand": "brandA"})"_json;
+    nlohmann::json doc4 = R"({"id": "4", "title": "winter coat", "category": "clothing", "brand": "brandB"})"_json;
+    nlohmann::json doc5 = R"({"id": "5", "title": "winter bag", "category": "something-else", "brand": "brandA"})"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+
+    // Create override rule that pins documents for exact query "summer"
+    nlohmann::json override_json = R"({
+       "id": "summer-curation",
+       "rule": {
+            "query": "summer",
+            "match": "exact"
+        },
+        "includes": [
+            {"id": "3", "position": 1},
+            {"id": "5", "position": 2}
+        ]
+    })"_json;
+
+    override_t override_rule;
+    auto parse_op = override_t::parse(override_json, "summer-curation", override_rule);
+    ASSERT_TRUE(parse_op.ok());
+    coll1->add_override(override_rule);
+
+    // Test 1: Search without group_by - should show curated results first
+    auto results_no_group = coll1->search("summer", {"title"}, "", {}, {},
+                                          {0}, 50, 1, FREQUENCY,
+                                          {false}, Index::DROP_TOKENS_THRESHOLD,
+                                          spp::sparse_hash_set<std::string>(),
+                                          spp::sparse_hash_set<std::string>(), 10,
+                                          "", 30, 5, "",
+                                         10, {}, {}, {}, 0).get();
+
+    ASSERT_EQ(2, results_no_group["hits"].size());
+    // First two should be curated (pinned) documents
+    ASSERT_EQ("3", results_no_group["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results_no_group["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(true, results_no_group["hits"][0]["curated"].get<bool>());
+    ASSERT_EQ(true, results_no_group["hits"][1]["curated"].get<bool>());
+
+    // Test 2: Search with group_by category - should still show curated results
+    auto results_with_group = coll1->search("summer", {"title"}, "", {}, {},
+                                            {0}, 50, 1, FREQUENCY,
+                                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                                            spp::sparse_hash_set<std::string>(),
+                                            spp::sparse_hash_set<std::string>(), 10,
+                                            "", 30, 5, "",
+                                            10, {}, {}, {"category"}, 2).get();
+
+    // Should have grouped results
+    ASSERT_TRUE(results_with_group.contains("grouped_hits"));
+    ASSERT_GE(results_with_group["grouped_hits"].size(), 1);
+
+    // Look for curated results in grouped hits
+    bool found_curated_doc3 = false;
+    bool found_curated_doc5 = false;
+    // Debug: Print the grouped results structure
+    
+    for (const auto& group : results_with_group["grouped_hits"]) {
+        for (const auto& hit : group["hits"]) {
+            std::string doc_id = hit["document"]["id"].get<std::string>();
+            bool is_curated = hit.contains("curated") && hit["curated"].get<bool>();
+            
+            if (doc_id == "3" && is_curated) {
+                found_curated_doc3 = true;
+            }
+            if (doc_id == "5" && is_curated) {
+                found_curated_doc5 = true;
+            }
+        }
+    }
+    
+    // Verify that curated documents are present and marked as curated
+    ASSERT_TRUE(found_curated_doc3) << "Document 3 should be marked as curated in grouped results";
+    ASSERT_TRUE(found_curated_doc5) << "Document 5 should be marked as curated in grouped results";
 
     collectionManager.drop_collection("coll1");
 }
