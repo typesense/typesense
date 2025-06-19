@@ -8,6 +8,7 @@ class NaturalLanguageSearchModel {
 private:
     static inline bool use_mock_response = false;
     static constexpr const size_t DEFAULT_TIMEOUT_MS = 200000;
+    static constexpr const size_t VALIDATION_TIMEOUT_MS = 30000;
     
     // Request capture for testing
     static inline bool capture_request = false;
@@ -59,6 +60,26 @@ public:
                                     const std::unordered_map<std::string, std::string>& headers = {},
                                     long timeout_ms = DEFAULT_TIMEOUT_MS,
                                     bool send_ts_api_header = false);
+
+private:
+    // Helper methods for making API calls to each provider
+    static Option<nlohmann::json> call_openai_api(const nlohmann::json& request_body,
+                                                  const nlohmann::json& model_config,
+                                                  long timeout_ms = DEFAULT_TIMEOUT_MS);
+    
+    static Option<nlohmann::json> call_cloudflare_api(const nlohmann::json& request_body,
+                                                      const nlohmann::json& model_config,
+                                                      long timeout_ms = DEFAULT_TIMEOUT_MS);
+    
+    static Option<nlohmann::json> call_google_api(const nlohmann::json& request_body,
+                                                  const nlohmann::json& model_config,
+                                                  long timeout_ms = DEFAULT_TIMEOUT_MS);
+    
+    static Option<nlohmann::json> call_gcp_api(const nlohmann::json& request_body,
+                                               const nlohmann::json& model_config,
+                                               long timeout_ms = DEFAULT_TIMEOUT_MS);
+
+public:
 
     // Mock responses support
     static void add_mock_response(const std::string& response_body, long status_code = 200, const std::map<std::string, std::string>& response_headers = {});

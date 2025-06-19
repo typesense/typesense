@@ -435,6 +435,22 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsRegexJSONFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelTest, ValidateModelSuccess) {
+  // Mock successful OpenAI validation
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Hello!"
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  })", 200, {});
+  
   nlohmann::json model_config = R"({
     "model_name": "openai/gpt-3.5-turbo",
     "api_key": "sk-test",
@@ -444,6 +460,14 @@ TEST_F(NaturalLanguageSearchModelTest, ValidateModelSuccess) {
   auto result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_TRUE(result.ok());
 
+  // Mock successful Cloudflare validation
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "result": {
+      "response": "Hello from Cloudflare!"
+    },
+    "success": true
+  })", 200, {});
+  
   model_config = R"({
     "model_name": "cloudflare/@cf/meta/llama-2-7b-chat-int8",
     "api_key": "YOUR_CLOUDFLARE_API_KEY",
@@ -454,6 +478,22 @@ TEST_F(NaturalLanguageSearchModelTest, ValidateModelSuccess) {
   result = NaturalLanguageSearchModel::validate_model(model_config);
   ASSERT_TRUE(result.ok());
 
+  // Mock successful vLLM validation
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "mistral-7b-instruct",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Hello from vLLM!"
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  })", 200, {});
+  
   model_config = R"({
     "model_name": "vllm/mistral-7b-instruct",
     "api_url": "http://your-vllm-server:8000/generate",
@@ -726,7 +766,7 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleFailure) {
 
     ASSERT_FALSE(result.ok());
     ASSERT_EQ(result.code(), 500);
-    ASSERT_EQ(result.error(), "Failed to get response from Google Gemini: 500");
+    ASSERT_EQ(result.error(), "Failed to get response from Google Gemini: Google Gemini API error: HTTP 500");
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGoogleInvalidResponse) {
@@ -955,6 +995,206 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPRequestBody) {
     auto headers = NaturalLanguageSearchModel::get_last_request_headers();
     ASSERT_EQ(headers["Authorization"], "Bearer test-token");
     ASSERT_EQ(headers["Content-Type"], "application/json");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateOpenAIModelWithValidAPIKey) {
+    // Test successful API key validation
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-3.5-turbo",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Hello! How can I help you today?"
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-3.5-turbo",
+        "api_key": "sk-test-valid-key",
+        "max_bytes": 1024
+    })"_json;
+    
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(result.ok());
+    
+    // Verify validation API call was made
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 1);
+    std::string url = NaturalLanguageSearchModel::get_last_request_url();
+    ASSERT_EQ(url, "https://api.openai.com/v1/chat/completions");
+    
+    std::string request_body_str = NaturalLanguageSearchModel::get_last_request_body();
+    nlohmann::json request_body = nlohmann::json::parse(request_body_str);
+    ASSERT_EQ(request_body["model"], "gpt-3.5-turbo");
+    ASSERT_EQ(request_body["messages"], R"([{"role":"user","content":"hello"}])"_json);
+    ASSERT_EQ(request_body["max_tokens"], 10);
+    ASSERT_EQ(request_body["temperature"], 0);
+}
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateOpenAIModelWithInvalidAPIKey) {
+    // Test API key validation failure
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "error": {
+        "message": "Incorrect API key provided: sk-test-invalid. You can find your API key at https://platform.openai.com/account/api-keys.",
+        "type": "invalid_request_error",
+        "param": null,
+        "code": "invalid_api_key"
+      }
+    })", 401, {});
+    
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-3.5-turbo",
+        "api_key": "sk-test-invalid-key",
+        "max_bytes": 1024
+    })"_json;
+    
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_FALSE(result.ok());
+    ASSERT_NE(result.error().find("Incorrect API key provided"), std::string::npos);
+}
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateCloudflareModelWithValidCredentials) {
+    // Test successful Cloudflare validation
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "result": {
+        "response": "Hello! I'm here to help."
+      },
+      "success": true
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+        "model_name": "cloudflare/@cf/meta/llama-2-7b-chat-int8",
+        "api_key": "valid-cf-key",
+        "account_id": "valid-account-id",
+        "max_bytes": 1024
+    })"_json;
+    
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(result.ok());
+    
+    // Verify validation API call
+    std::string url = NaturalLanguageSearchModel::get_last_request_url();
+    ASSERT_EQ(url, "https://api.cloudflare.com/client/v4/accounts/valid-account-id/ai/run/@cf/meta/llama-2-7b-chat-int8");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateVLLMModelWithAPIUrl) {
+    // Test successful vLLM validation
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "custom-model",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Hello from vLLM!"
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+        "model_name": "vllm/custom-model",
+        "api_url": "http://localhost:8000/v1/chat/completions",
+        "max_bytes": 1024
+    })"_json;
+    
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(result.ok());
+    
+    // Verify validation API call
+    std::string url = NaturalLanguageSearchModel::get_last_request_url();
+    ASSERT_EQ(url, "http://localhost:8000/v1/chat/completions");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateGoogleModelWithValidAPIKey) {
+    // Test successful Google Gemini validation
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "Hello from Gemini!"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+        "model_name": "google/gemini-pro",
+        "api_key": "valid-google-api-key",
+        "max_bytes": 1024
+    })"_json;
+    
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(result.ok());
+    
+    // Verify validation API call
+    std::string url = NaturalLanguageSearchModel::get_last_request_url();
+    ASSERT_TRUE(url.find("https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=valid-google-api-key") != std::string::npos);
+}
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateGCPModelWithTokenRefresh) {
+    // Test GCP validation with token refresh
+    // First call returns 401
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "error": {
+        "code": 401,
+        "message": "Request had invalid authentication credentials.",
+        "status": "UNAUTHENTICATED"
+      }
+    })", 401, {});
+    
+    // Token refresh succeeds
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "access_token": "new-access-token",
+      "token_type": "Bearer",
+      "expires_in": 3600
+    })", 200, {});
+    
+    // Retry with new token succeeds
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "Hello from Vertex AI!"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+        "model_name": "gcp/gemini-pro",
+        "project_id": "test-project",
+        "access_token": "expired-token",
+        "refresh_token": "valid-refresh-token",
+        "client_id": "test-client-id",
+        "client_secret": "test-client-secret",
+        "max_bytes": 1024
+    })"_json;
+    
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(result.ok());
+    
+    // Verify 3 API calls were made (initial, refresh, retry)
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 3);
 }
 
 TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPDifferentRegions) {
