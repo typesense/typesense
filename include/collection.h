@@ -769,7 +769,7 @@ public:
 
     tsl::htrie_map<char, field> get_embedding_fields_unsafe();
 
-    tsl::htrie_set<char> get_object_reference_helper_fields();
+    tsl::htrie_set<char> get_object_reference_helper_fields() const;
 
     std::string get_default_sorting_field();
 
@@ -996,7 +996,31 @@ public:
 
     std::shared_ptr<VQModel> get_vq_model();
 
+    Option<bool> parse_facet_with_lock(const std::string& facet_field, std::vector<facet>& facets) const;
+
     Option<bool> parse_facet(const std::string& facet_field, std::vector<facet>& facets) const;
+
+    Option<bool> compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
+                                       const uint32_t facet_query_num_typos,
+                                       uint32_t* all_result_ids, const size_t& all_result_ids_len,
+                                       const std::vector<std::string>& group_by_fields,
+                                       size_t group_limit, bool is_wildcard_no_filter_query,
+                                       size_t max_candidates,
+                                       std::vector<facet_info_t>& facet_infos,
+                                       const std::vector<facet_index_type_t>& facet_index_types,
+                                       bool is_group_by_first_pass,
+                                       std::set<uint32_t>& group_by_missing_value_ids) const;
+
+    Option<bool> do_facets_with_lock(std::vector<facet> & facets, facet_query_t & facet_query,
+                                     bool estimate_facets, size_t facet_sample_percent,
+                                     const std::vector<facet_info_t>& facet_infos,
+                                     size_t group_limit, const std::vector<std::string>& group_by_fields,
+                                     const bool group_missing_values,
+                                     const uint32_t* result_ids, size_t results_size,
+                                     int max_facet_count, bool is_wildcard_query,
+                                     const std::vector<facet_index_type_t>& facet_index_types,
+                                     bool is_group_by_first_pass,
+                                     std::set<uint32_t>& group_by_missing_value_ids) const;
 
     // Override operations
 
@@ -1141,6 +1165,8 @@ public:
     Option<size_t> remove_all_docs();
 
     bool check_store_alter_status_msg(bool success, const std::string& msg = "");
+
+    std::string get_facet_str_val(const std::string& field_name, uint32_t facet_id);
 };
 
 template<class T>

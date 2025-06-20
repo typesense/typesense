@@ -1492,27 +1492,77 @@ std::vector<group_by_field_it_t> Index::get_group_by_field_iterators(const std::
     return group_by_field_it_vec;
 }
 
-void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
-                      bool estimate_facets, size_t facet_sample_percent,
-                      const std::vector<facet_info_t>& facet_infos,
-                      const size_t group_limit, const std::vector<std::string>& group_by_fields,
-                      const bool group_missing_values,
-                      const uint32_t* result_ids, size_t results_size, 
-                      int max_facet_count, bool is_wildcard_no_filter_query,
-                      const std::vector<facet_index_type_t>& facet_index_types,
-                      bool is_group_by_first_pass,
-                      std::set<uint32_t>& group_by_missing_value_ids) const {
+Option<bool> Index::do_facets_with_lock(std::vector<facet>& facets, facet_query_t & facet_query,
+                                        bool estimate_facets, size_t facet_sample_percent,
+                                        const std::vector<facet_info_t>& facet_infos,
+                                        size_t group_limit, const std::vector<std::string>& group_by_fields,
+                                        const bool group_missing_values,
+                                        const uint32_t* result_ids, size_t results_size,
+                                        int max_facet_count, bool is_wildcard_query,
+                                        const std::vector<facet_index_type_t>& facet_index_types,
+                                        bool is_group_by_first_pass,
+                                        std::set<uint32_t>& group_by_missing_value_ids,
+                                        Collection const *const collection) const {
+    std::shared_lock lock(mutex);
+    return do_facets(facets, facet_query, estimate_facets, facet_sample_percent, facet_infos, group_limit, group_by_fields,
+                     group_missing_values, result_ids, results_size, max_facet_count, is_wildcard_query, facet_index_types,
+                     is_group_by_first_pass, group_by_missing_value_ids, collection, nullptr);
+}
+
+Option<bool> Index::do_facets(std::vector<facet>& facets, facet_query_t & facet_query,
+                              bool estimate_facets, size_t facet_sample_percent,
+                              const std::vector<facet_info_t>& facet_infos,
+                              size_t group_limit, const std::vector<std::string>& group_by_fields,
+                              const bool group_missing_values,
+                              const uint32_t* result_ids, size_t results_size,
+                              int max_facet_count, bool is_wildcard_no_filter_query,
+                              const std::vector<facet_index_type_t>& facet_index_types,
+                              bool is_group_by_first_pass,
+                              std::set<uint32_t>& group_by_missing_value_ids,
+                              Collection const *const collection,
+                              std::unordered_map<std::string, reference_filter_result_t>* reference_facet_ids) const {
 
     if(results_size == 0) {
-        return ;
+        return Option<bool>(true);
     }
 
     std::vector<group_by_field_it_t> group_by_field_it_vec;
 
-    size_t total_docs = seq_ids->num_ids();
     // assumed that facet fields have already been validated upstream
     for(auto& a_facet : facets) {
         auto findex = a_facet.orig_index;
+        if (!a_facet.reference_collection_name.empty()) {
+            auto const& ref_collection_name = a_facet.reference_collection_name;
+            if (reference_facet_ids->count(ref_collection_name) == 0 ||
+                reference_facet_ids->at(ref_collection_name).count == 0) {
+                continue;
+            }
+
+            auto& cm = CollectionManager::get_instance();
+            auto ref_collection = cm.get_collection(ref_collection_name);
+            if (ref_collection == nullptr) {
+                return Option<bool>(400, "Referenced collection `" + ref_collection_name + "` in `facet_by` not found.");
+            }
+
+            auto& ref_facet_result = reference_facet_ids->at(ref_collection_name);
+            a_facet.reference_collection_name.clear();
+            std::vector<facet> ref_facets{a_facet};
+
+            ref_collection->do_facets_with_lock(ref_facets, facet_query, estimate_facets, facet_sample_percent,
+                                                {facet_infos[findex]}, group_limit, group_by_fields, group_missing_values,
+                                                ref_facet_result.docs, ref_facet_result.count, max_facet_count,
+                                                is_wildcard_no_filter_query, facet_index_types, is_group_by_first_pass, group_by_missing_value_ids);
+            if (ref_facets.empty()) {
+                // Shouldn't happen, still adding safeguard to prevent crash.
+                LOG(ERROR) << "Reference faceting on `" << ref_collection_name << "." << a_facet.field_name << "` unsuccessful.";
+                continue;
+            }
+            ref_facets[0].reference_collection_name = ref_collection_name;
+            a_facet = std::move(ref_facets[0]);
+            a_facet.references = std::move(ref_facet_result);
+            continue;
+        }
+
         const auto& facet_field = facet_infos[findex].facet_field;
         const bool use_facet_query = facet_infos[findex].use_facet_query;
         const auto& fquery_hashes = facet_infos[findex].hashes;
@@ -1645,7 +1695,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 }
                 //LOG(INFO) << "facet_hash_count " << facet_hash_count;
                 if(((i + 1) % 16384) == 0) {
-                    RETURN_CIRCUIT_BREAKER
+                    RETURN_CIRCUIT_BREAKER_OP
                 }
 
                 std::set<uint32_t> unique_facet_hashes;
@@ -1711,6 +1761,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             }
         }
     }
+    return Option<bool>(true);
 }
 
 void Index::aggregate_topster(Topster<KV>* agg_topster, Topster<KV>* index_topster, const bool& is_group_by_first_pass) {
@@ -1900,7 +1951,7 @@ void aggregate_nested_references(single_filter_result_t *const reference_result,
 }
 
 template <typename F>
-void negate_left_join(id_list_t* const seq_ids, std::unique_ptr<uint32_t[]>& reference_docs, uint32_t& reference_docs_count,
+void negate_left_join(id_list_t* const seq_ids, uint32_t* reference_docs, uint32_t& reference_docs_count,
                       F&& get_doc_id, const bool& is_match_all_ids_filter, std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
                       std::set<uint32_t>& unique_doc_ids,
                       negate_left_join_t& negate_left_join_info) {
@@ -1970,7 +2021,7 @@ void negate_left_join(id_list_t* const seq_ids, std::unique_ptr<uint32_t[]>& ref
         }
     }
 
-    reference_docs.reset(negate_reference_docs);
+    reference_docs = negate_reference_docs;
     reference_docs_count = negate_index;
 
     // Main purpose of `negate_left_join_info.excluded_ids` is help identify the doc_ids that don't have any references.
@@ -2013,8 +2064,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
         return Option<bool>(true);
     }
 
-    auto reference_docs = std::unique_ptr<uint32_t[]>(ref_filter_result->docs);
-    ref_filter_result->docs = nullptr;
+    auto reference_docs = ref_filter_result->docs;
 
     auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
     auto const is_nested_join = !ref_filter_result_iterator.reference.empty();
@@ -2552,7 +2602,8 @@ Option<bool> Index::run_search(search_args* search_params) {
                           search_params->rerank_hybrid_matches,
                           search_params->validate_field_names,
                           true,
-                          group_by_missing_value_ids
+                          group_by_missing_value_ids,
+                          search_params->collection
         );
         if (!res.ok()) {
             return res;
@@ -2700,7 +2751,8 @@ Option<bool> Index::run_search(search_args* search_params) {
                   search_params->rerank_hybrid_matches,
                   search_params->validate_field_names,
                   false,
-                  group_by_missing_value_ids
+                  group_by_missing_value_ids,
+                  search_params->collection
     );
 
     if (search_params->group_limit) {
@@ -3384,7 +3436,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool enable_lazy_filter,
                    bool enable_typos_for_alpha_numerical_tokens, const size_t& max_filter_by_candidates,
                    bool rerank_hybrid_matches, const bool& validate_field_names, bool is_group_by_first_pass,
-                   std::set<uint32_t>& group_by_missing_value_ids) const {
+                   std::set<uint32_t>& group_by_missing_value_ids, Collection const *const collection) const {
     std::shared_lock lock(mutex);
 
     if(field_query_tokens.empty()) {
@@ -4186,13 +4238,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         std::condition_variable cv_process;
 
         std::vector<facet_info_t> facet_infos(facets.size());
+        std::unordered_map<std::string, reference_filter_result_t> reference_facet_ids;
         compute_facet_infos(facets, facet_query, facet_query_num_typos, all_result_ids, all_result_ids_len,
                             group_by_fields, group_limit, is_wildcard_no_filter_query,
                             max_candidates, facet_infos, facet_index_types, is_group_by_first_pass,
-                            group_by_missing_value_ids);
+                            group_by_missing_value_ids, collection, *filter_result_iterator, reference_facet_ids);
 
         std::vector<std::vector<facet>> facet_batches(num_threads);
         std::vector<std::vector<facet>> value_facets(concurrency);
+        std::vector<std::unordered_map<std::string, reference_filter_result_t>> batch_reference_facet_ids;
 
         size_t num_value_facets = 0;
 
@@ -4210,7 +4264,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 value_facets[num_value_facets % num_threads].emplace_back(this_facet.field_name, this_facet.orig_index,
                                           this_facet.is_top_k, this_facet.facet_range_map,
                                           this_facet.is_range_query, this_facet.is_sort_by_alpha,
-                                          this_facet.sort_order, this_facet.sort_field);
+                                          this_facet.sort_order, this_facet.sort_field, this_facet.reference_collection_name);
                 num_value_facets++;
                 continue;
             }
@@ -4218,7 +4272,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             for(size_t j = 0; j < num_threads; j++) {
                 facet_batches[j].emplace_back(this_facet.field_name, this_facet.orig_index, this_facet.is_top_k,
                                               this_facet.facet_range_map, this_facet.is_range_query,
-                                              this_facet.is_sort_by_alpha, this_facet.sort_order, this_facet.sort_field);
+                                              this_facet.is_sort_by_alpha, this_facet.sort_order, this_facet.sort_field,
+                                              this_facet.reference_collection_name);
             }
         }
 
@@ -4237,10 +4292,37 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             do_facets(top_k_facets, facet_query, estimate_facets, facet_sample_percent,
                       facet_infos, group_limit, group_by_fields, group_missing_values, top_k_result_ids.data(),
                       top_k_result_ids.size(), max_facet_values, is_wildcard_no_filter_query,
-                      facet_index_types, is_group_by_first_pass, group_by_missing_value_ids);
+                      facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, collection, &reference_facet_ids);
         }
 
-        for(size_t thread_id = 0; thread_id < num_threads && result_index < all_result_ids_len; thread_id++) {
+        bool is_one_valid = true;
+
+        for (auto& item: reference_facet_ids) {
+            auto& reference_facet_result = item.second;
+            uint32_t batch_reference_facet_len = window_size;
+            for(auto reference_facet_index = 0; reference_facet_index < reference_facet_result.count; ) {
+                if (reference_facet_index + window_size > reference_facet_result.count) {
+                    batch_reference_facet_len = reference_facet_result.count - reference_facet_index;
+                }
+
+                auto batch_res_ids = new uint32_t[batch_reference_facet_len];
+                // Copying reference ids since they will be required further in `Collection::facet_value_to_string`.
+                std::copy(reference_facet_result.docs + reference_facet_index,
+                          reference_facet_result.docs + reference_facet_index + batch_reference_facet_len,
+                          batch_res_ids);
+
+                std::unordered_map<std::string, reference_filter_result_t> batch_reference_facets;
+                batch_reference_facets[item.first] = reference_filter_result_t(batch_reference_facet_len, batch_res_ids);
+                batch_reference_facet_ids.emplace_back(std::move(batch_reference_facets));
+
+                reference_facet_index += batch_reference_facet_len;
+                if (reference_facet_index < reference_facet_result.count) {
+                    is_one_valid = true;
+                }
+            }
+        }
+
+        for(size_t thread_id = 0; thread_id < num_threads && (result_index < all_result_ids_len || is_one_valid); thread_id++) {
             size_t batch_res_len = window_size;
 
             if(result_index + window_size > all_result_ids_len) {
@@ -4252,6 +4334,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
 
             uint32_t* batch_result_ids = all_result_ids + result_index;
+            is_one_valid = false;
             num_queued++;
 
             thread_pool->enqueue([this, thread_id, &facets, &facet_batches, &facet_query, group_limit, group_by_fields,
@@ -4260,7 +4343,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                          facet_sample_percent, group_missing_values,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
                                          &num_processed, &m_process, &cv_process, &facet_index_types,
-                                         &is_group_by_first_pass, &group_by_missing_value_ids]() {
+                                         &is_group_by_first_pass, &group_by_missing_value_ids, &collection,
+                                         &batch_reference_facet_ids]() {
+
+
                 search_begin_us = parent_search_begin;
                 search_stop_us = parent_search_stop_ms;
                 search_cutoff = false;
@@ -4270,7 +4356,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                           facet_infos, group_limit, group_by_fields, group_missing_values,
                           batch_result_ids, batch_res_len, max_facet_values,
                           is_wildcard_no_filter_query, facet_index_types,
-                          is_group_by_first_pass, group_by_missing_value_ids);
+                          is_group_by_first_pass, group_by_missing_value_ids, collection,
+                          &batch_reference_facet_ids[thread_id]);
 
                 std::unique_lock<std::mutex> lock(m_process);
 
@@ -4302,7 +4389,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                          facet_sample_percent, group_missing_values,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
                                          &num_processed, &m_process, &cv_process, facet_index_types,
-                                         &is_group_by_first_pass, &group_by_missing_value_ids]() {
+                                         &is_group_by_first_pass, &group_by_missing_value_ids, &collection,
+                                         &batch_reference_facet_ids]() {
+
                 search_begin_us = parent_search_begin;
                 search_stop_us = parent_search_stop_ms;
                 search_cutoff = false;
@@ -4313,7 +4402,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                           facet_infos, group_limit, group_by_fields, group_missing_values,
                           all_result_ids, all_result_ids_len, max_facet_values,
                           is_wildcard_no_filter_query, facet_index_types, is_group_by_first_pass,
-                          group_by_missing_value_ids);
+                          group_by_missing_value_ids, collection, &batch_reference_facet_ids[thread_id]);
 
                 std::unique_lock<std::mutex> lock(m_process);
 
@@ -4356,22 +4445,25 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
 
     std::vector<facet_info_t> facet_infos(facets.size());
+    std::unordered_map<std::string, reference_filter_result_t> reference_facet_ids;
+
     compute_facet_infos(facets, facet_query, facet_query_num_typos,
                         &included_ids_vec[0], included_ids_vec.size(), group_by_fields,
                         group_limit, is_wildcard_no_filter_query,
                         max_candidates, facet_infos, facet_index_types, is_group_by_first_pass,
-                        group_by_missing_value_ids);
+                        group_by_missing_value_ids, collection, *filter_result_iterator, reference_facet_ids);
+
     do_facets(facets, facet_query, estimate_facets, facet_sample_percent,
               facet_infos, group_limit, group_by_fields, group_missing_values, &included_ids_vec[0], 
               included_ids_vec.size(), max_facet_values, is_wildcard_no_filter_query,
-              facet_index_types, is_group_by_first_pass, group_by_missing_value_ids);
+              facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, collection, &reference_facet_ids);
 
     if(top_k_facets.size() >  0) {
         get_top_k_result_ids(override_result_kvs, top_k_curated_result_ids);
         do_facets(top_k_facets, facet_query, estimate_facets, facet_sample_percent,
                   facet_infos, group_limit, group_by_fields, group_missing_values, top_k_curated_result_ids.data(),
                   top_k_curated_result_ids.size(), max_facet_values, is_wildcard_no_filter_query,
-                  facet_index_types, is_group_by_first_pass, group_by_missing_value_ids);
+                  facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, collection, &reference_facet_ids);
     }
 
     all_result_ids_len += curated_topster->size;
@@ -4401,12 +4493,103 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
 
     delete [] all_result_ids;
-
     //LOG(INFO) << "all_result_ids_len " << all_result_ids_len << " for index " << name;
     //long long int timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //LOG(INFO) << "Time taken for result calc: " << timeMillis << "ms";
 
     return Option(true);
+}
+
+void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t& all_result_ids_len,
+                                    const std::string& collection_name, Collection const *const ref_collection,
+                                    filter_result_iterator_t& fit,
+                                    std::unordered_map<std::string, reference_filter_result_t>& reference_facet_ids) const {
+    auto const& ref_collection_name = ref_collection->get_name();
+    reference_facet_ids[ref_collection_name] = reference_filter_result_t();
+
+    auto const joined_on_ref_collection = fit.reference.count(ref_collection_name) > 0;
+    auto const has_filter_reference = (joined_on_ref_collection && fit.reference.at(ref_collection_name).count > 0);
+    auto doc_has_reference = false, joined_coll_has_reference = false;
+
+    // Reference facet_by without join, check if doc itself contains the reference.
+    if (!joined_on_ref_collection) {
+        doc_has_reference = ref_collection->is_referenced_in(collection_name);
+    }
+
+    std::string joined_coll_having_reference;
+    // Check if the joined collection has a reference.
+    if (!joined_on_ref_collection && !doc_has_reference) {
+        for (const auto &reference_filter_result: fit.reference) {
+            joined_coll_has_reference = ref_collection->is_referenced_in(reference_filter_result.first);
+            if (joined_coll_has_reference) {
+                joined_coll_having_reference = reference_filter_result.first;
+                break;
+            }
+        }
+    }
+
+    if (!has_filter_reference && !doc_has_reference && !joined_coll_has_reference) {
+        return;
+    }
+
+    // Only collecting the references of docs in the final result.
+    std::vector<uint32_t> ref_doc_ids;
+    ref_doc_ids.reserve(all_result_ids_len);
+    if (has_filter_reference) {
+        for (uint32_t i = 0; i < all_result_ids_len; i++) {
+            if (fit.is_valid(all_result_ids[i]) == 1) {
+                auto const& ref_result = fit.reference[ref_collection_name];
+                for (uint32_t j = 0; j < ref_result.count; j++) {
+                    ref_doc_ids.push_back(ref_result.docs[j]);
+                }
+            }
+        }
+        fit.reset();
+    } else if (doc_has_reference) {
+        auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(collection_name);
+        if (!get_reference_field_op.ok()) {
+            return;
+        }
+        auto const& reference_field_name = get_reference_field_op.get();
+        if (search_schema.count(reference_field_name) == 0) {
+            return;
+        }
+
+        for (uint32_t i = 0; i < all_result_ids_len; i++) {
+            get_related_ids(collection_name, reference_field_name, all_result_ids[i], ref_doc_ids);
+        }
+    } else if (joined_coll_has_reference) {
+        auto& cm = CollectionManager::get_instance();
+        auto joined_collection = cm.get_collection(joined_coll_having_reference);
+        if (joined_collection == nullptr) {
+            return;
+        }
+
+        auto reference_field_name_op = ref_collection->get_referenced_in_field_with_lock(joined_coll_having_reference);
+        if (!reference_field_name_op.ok() || joined_collection->get_schema().count(reference_field_name_op.get()) == 0) {
+            return;
+        }
+
+        auto const& reference_field_name = reference_field_name_op.get();
+        for (uint32_t i = 0; i < all_result_ids_len; i++) {
+            if (fit.is_valid(all_result_ids[i]) == 1) {
+                auto const& ref_result = fit.reference[joined_coll_having_reference];
+                for (uint32_t j = 0; j < ref_result.count; j++) {
+                    joined_collection->get_related_ids_with_lock(reference_field_name, ref_result.docs[j],
+                                                                 ref_doc_ids);
+                }
+            }
+        }
+        fit.reset();
+    }
+
+    gfx::timsort(ref_doc_ids.begin(), ref_doc_ids.end());
+    ref_doc_ids.erase(unique(ref_doc_ids.begin(), ref_doc_ids.end()), ref_doc_ids.end());
+
+    auto& result = reference_facet_ids[ref_collection_name];
+    result.count = ref_doc_ids.size();
+    result.docs = new uint32_t[ref_doc_ids.size()];
+    std::copy(ref_doc_ids.begin(), ref_doc_ids.end(), result.docs);
 }
 
 void Index::aggregate_facet(const size_t group_limit, facet& this_facet, facet& acc_facet) const {
@@ -6092,25 +6275,89 @@ void Index::handle_exclusion(const size_t num_search_fields, std::vector<query_t
     }
 }
 
-void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t& facet_query,
-                                const uint32_t facet_query_num_typos,
-                                uint32_t* all_result_ids, const size_t& all_result_ids_len,
-                                const std::vector<std::string>& group_by_fields,
-                                const size_t group_limit, const bool is_wildcard_no_filter_query,
-                                const size_t max_candidates,
-                                std::vector<facet_info_t>& facet_infos,
-                                const std::vector<facet_index_type_t>& facet_index_types,
-                                bool is_group_by_first_pass,
-                                std::set<uint32_t>& group_by_missing_value_ids) const {
+Option<bool> Index::compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
+                                        const uint32_t facet_query_num_typos,
+                                        uint32_t* all_result_ids, const size_t& all_result_ids_len,
+                                        const std::vector<std::string>& group_by_fields,
+                                        const size_t group_limit, const bool is_wildcard_no_filter_query,
+                                        const size_t max_candidates,
+                                        std::vector<facet_info_t>& facet_infos,
+                                        const std::vector<facet_index_type_t>& facet_index_types,
+                                        bool is_group_by_first_pass,
+                                        std::set<uint32_t>& group_by_missing_value_ids,
+                                        Collection const *const collection) const {
+    std::shared_lock lock(mutex);
+
+    auto filter_result_iterator = filter_result_iterator_t(nullptr, 0);
+    std::unordered_map<std::string, reference_filter_result_t> reference_facet_ids;
+    return compute_facet_infos(facets, facet_query, facet_query_num_typos, all_result_ids, all_result_ids_len,
+                               group_by_fields, group_limit, is_wildcard_no_filter_query, max_candidates, facet_infos,
+                               facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, collection, filter_result_iterator,
+                               reference_facet_ids);
+}
+
+Option<bool> Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t& facet_query,
+                                        const uint32_t facet_query_num_typos,
+                                        uint32_t* all_result_ids, const size_t& all_result_ids_len,
+                                        const std::vector<std::string>& group_by_fields,
+                                        const size_t group_limit, const bool is_wildcard_no_filter_query,
+                                        const size_t max_candidates,
+                                        std::vector<facet_info_t>& facet_infos,
+                                        const std::vector<facet_index_type_t>& facet_index_types,
+                                        bool is_group_by_first_pass,
+                                        std::set<uint32_t>& group_by_missing_value_ids,
+                                        Collection const *const collection,
+                                        filter_result_iterator_t& fit,
+                                        std::unordered_map<std::string, reference_filter_result_t>& reference_facet_ids) const {
 
     if(all_result_ids_len == 0) {
-        return;
+        return Option<bool>(true);
     }
 
     size_t total_docs = seq_ids->num_ids();
 
     for(size_t findex=0; findex < facets.size(); findex++) {
         const auto& a_facet = facets[findex];
+
+        if (!a_facet.reference_collection_name.empty()) {
+            auto const& ref_collection_name = a_facet.reference_collection_name;
+
+            auto& cm = CollectionManager::get_instance();
+            auto ref_collection = cm.get_collection(ref_collection_name);
+            if (ref_collection == nullptr) {
+                return Option<bool>(400, "Referenced collection `" + ref_collection_name + "` in `facet_by` not found.");
+            }
+
+            if (reference_facet_ids.count(ref_collection_name) == 0) {
+                get_reference_facet_ids(all_result_ids, all_result_ids_len, collection->get_name(),
+                                        ref_collection.get(), fit, reference_facet_ids);
+            }
+
+            if (reference_facet_ids.at(ref_collection_name).count == 0) {
+                continue;
+            }
+
+            auto ref_facet = a_facet;
+            ref_facet.reference_collection_name.clear();
+            std::vector<facet> ref_facets = {ref_facet};
+            auto const& reference_doc_ids = reference_facet_ids.at(ref_collection_name).docs;
+            auto const& reference_doc_ids_len = reference_facet_ids.at(ref_collection_name).count;
+            std::vector<facet_info_t> ref_facet_infos(1);
+            ref_collection->compute_facet_infos_with_lock(ref_facets, facet_query, facet_query_num_typos,
+                                                          reference_doc_ids, reference_doc_ids_len,
+                                                          {}, group_limit,
+                                                          is_wildcard_no_filter_query, max_candidates, ref_facet_infos,
+                                                          facet_index_types, is_group_by_first_pass, group_by_missing_value_ids);
+            if (ref_facet_infos.empty()) {
+                continue;
+            }
+
+            auto& ref_facet_info = ref_facet_infos.front();
+            ref_facet_info.reference_collection_name = ref_collection_name;
+            facet_infos[findex] = std::move(ref_facet_info);
+            continue;
+        }
+
         const field &facet_field = search_schema.at(a_facet.field_name);
         const auto facet_index_type = facet_index_types[a_facet.orig_index];
 
@@ -6294,6 +6541,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
             delete [] field_result_ids;
         }
     }
+    return Option<bool>(true);
 }
 
 void Index::curate_filtered_ids(const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
@@ -8051,9 +8299,14 @@ int64_t Index::reference_string_sort_score(const string &field_name,  const std:
     return score;
 }
 
-Option<bool> Index::get_related_ids(const string& field_name, const uint32_t& seq_id,
+Option<bool> Index::get_related_ids_with_lock(const std::string& coll, const std::string& field_name, const uint32_t& seq_id,
                                     std::vector<uint32_t>& result) const {
     std::shared_lock lock(mutex);
+    return get_related_ids(coll, field_name, seq_id, result);
+}
+
+Option<bool> Index::get_related_ids(const std::string& coll, const std::string& field_name, const uint32_t& seq_id,
+                                    std::vector<uint32_t>& result) const {
 
     auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
     if (search_schema.count(reference_helper_field_name) == 0) {
@@ -8336,7 +8589,7 @@ Option<std::vector<uint32_t>> Index::get_ref_seq_ids_helper(const std::vector<ui
         for (const auto& seq_id: seq_ids_vec) {
             auto related_ids_op = Option<bool>(true);
             if (coll_name == get_collection_name_with_lock()) {
-                related_ids_op = get_related_ids(field_name, seq_id, ref_seq_ids);
+                related_ids_op = get_related_ids(coll_name, field_name, seq_id, ref_seq_ids);
             } else {
                 auto prev_coll = cm.get_collection(coll_name);
                 if (prev_coll == nullptr) {

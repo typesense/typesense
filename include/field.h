@@ -14,6 +14,7 @@
 #include "vector_query_ops.h"
 #include <mutex>
 #include "stemmer_manager.h"
+#include "filter_result_iterator.h"
 
 namespace field_types {
     // first field value indexed will determine the type
@@ -189,6 +190,32 @@ struct field {
         }
 
         this->infix = (infix != -1) ? bool(infix) : false;
+    }
+
+    field& operator=(const field& obj) noexcept {
+        if (&obj == this) {
+            return *this;
+        }
+
+        name = obj.name;
+        type = obj.type;
+        facet = obj.facet;
+        optional = obj.optional;
+        index = obj.index;
+        locale = obj.locale;
+        sort = obj.sort;
+        infix = obj.infix;
+        nested = obj.nested;
+        store = obj.store;
+        nested_array = obj.nested_array;
+        num_dim = obj.num_dim;
+        embed = obj.embed;
+        vec_dist = obj.vec_dist;
+        reference = obj.reference;
+        range_index = obj.range_index;
+        is_reference_helper = obj.is_reference_helper;
+
+        return *this;
     }
 
     bool operator<(const field& f) const {
@@ -771,7 +798,7 @@ struct range_specs_t {
 };
 
 struct facet {
-    const std::string field_name;
+    std::string field_name;
     spp::sparse_hash_map<uint64_t, facet_count_t> result_map;
     spp::sparse_hash_map<std::string, facet_count_t> value_result_map;
 
@@ -803,6 +830,10 @@ struct facet {
 
     uint32_t orig_index;
 
+    std::string reference_collection_name;
+
+    reference_filter_result_t references;
+
     bool is_top_k = false;
 
     bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair) {
@@ -827,10 +858,64 @@ struct facet {
 
     explicit facet(const std::string& field_name, uint32_t orig_index, bool is_top_k = false, std::map<int64_t, range_specs_t> facet_range = {},
                    bool is_range_q = false, bool sort_by_alpha=false, const std::string& order="",
-                   const std::string& sort_by_field="")
+                   const std::string& sort_by_field="", const std::string& reference_collection_name = "")
                    : field_name(field_name), facet_range_map(facet_range),
                    is_range_query(is_range_q), is_sort_by_alpha(sort_by_alpha), sort_order(order),
-                   sort_field(sort_by_field), orig_index(orig_index), is_top_k(is_top_k) {
+                   sort_field(sort_by_field), orig_index(orig_index), is_top_k(is_top_k), reference_collection_name(reference_collection_name) {
+    }
+
+    facet(const facet& obj) {
+        if (&obj == this) {
+            return;
+        }
+
+        field_name = obj.field_name;
+        result_map = obj.result_map;
+        value_result_map = obj.value_result_map;
+        fvalue_tokens = obj.fvalue_tokens;
+        hash_tokens = obj.hash_tokens;
+        hash_groups = obj.hash_groups;
+        stats = obj.stats;
+        facet_range_map = obj.facet_range_map;
+        is_range_query = obj.is_range_query;
+        sampled = obj.sampled;
+        is_wildcard_match = obj.is_wildcard_match;
+        is_intersected = obj.is_intersected;
+        is_sort_by_alpha = obj.is_sort_by_alpha;
+        sort_order = obj.sort_order;
+        sort_field = obj.sort_field;
+        orig_index = obj.orig_index;
+        reference_collection_name = obj.reference_collection_name;
+        references = obj.references;
+        is_top_k = obj.is_top_k;
+    }
+
+    facet& operator=(facet&& obj) noexcept {
+        if (&obj == this) {
+            return *this;
+        }
+
+        field_name = obj.field_name;
+        result_map = obj.result_map;
+        value_result_map = obj.value_result_map;
+        fvalue_tokens = obj.fvalue_tokens;
+        hash_tokens = obj.hash_tokens;
+        hash_groups = obj.hash_groups;
+        stats = obj.stats;
+        facet_range_map = std::move(obj.facet_range_map);
+        is_range_query = obj.is_range_query;
+        sampled = obj.sampled;
+        is_wildcard_match = obj.is_wildcard_match;
+        is_intersected = obj.is_intersected;
+        is_sort_by_alpha = obj.is_sort_by_alpha;
+        sort_order = obj.sort_order;
+        sort_field = obj.sort_field;
+        orig_index = obj.orig_index;
+        reference_collection_name = obj.reference_collection_name;
+        references = std::move(obj.references);
+        is_top_k = obj.is_top_k;
+
+        return *this;
     }
 };
 
@@ -842,6 +927,7 @@ struct facet_info_t {
     bool should_compute_stats = false;
     bool use_value_index = false;
     field facet_field{"", "", false};
+    std::string reference_collection_name;
 };
 
 struct facet_query_t {
