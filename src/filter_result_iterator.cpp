@@ -2574,7 +2574,8 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
     return *this;
 }
 
-void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout) {
+void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout,
+                                         const bool& is_group_by_first_pass) {
     if (!is_filter_result_initialized) {
         return;
     }
@@ -2602,9 +2603,15 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
         }
 
         auto& result_reference = result->coll_to_references[i];
-        // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
-        // not used afterwards.
-        result_reference = std::move(filter_result.coll_to_references[result_index]);
+        if (is_group_by_first_pass) {
+            // Copying since the references will be required in the second pass.
+            result_reference.insert(filter_result.coll_to_references[result_index].begin(),
+                                    filter_result.coll_to_references[result_index].end());
+        } else {
+            // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
+            // not used afterwards.
+            result_reference = std::move(filter_result.coll_to_references[result_index]);
+        }
     }
 
     validity = result_index < filter_result.count ? valid : invalid;
@@ -2613,10 +2620,11 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
 void filter_result_iterator_t::get_n_ids(const uint32_t& n,
                                          uint32_t& excluded_result_index,
                                          uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                                         filter_result_t*& result, const bool& override_timeout) {
+                                         filter_result_t*& result, const bool& override_timeout,
+                                         const bool& is_group_by_first_pass) {
     if (excluded_result_ids == nullptr || excluded_result_ids_size == 0 ||
         excluded_result_index >= excluded_result_ids_size) {
-        return get_n_ids(n, result, override_timeout);
+        return get_n_ids(n, result, override_timeout, is_group_by_first_pass);
     }
 
     // This method is only called in Index::search_wildcard after filter_result_iterator_t::compute_iterators.
@@ -2658,9 +2666,15 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
         }
 
         auto& result_reference = result->coll_to_references[i];
-        // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
-        // not used afterwards.
-        result_reference = std::move(filter_result.coll_to_references[match_index]);
+        if (is_group_by_first_pass) {
+            // Copying since the references will be required in the second pass.
+            result_reference.insert(filter_result.coll_to_references[match_index].begin(),
+                                    filter_result.coll_to_references[match_index].end());
+        } else {
+            // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
+            // not used afterwards.
+            result_reference = std::move(filter_result.coll_to_references[match_index]);
+        }
     }
 
     validity = result_index < filter_result.count ? valid : invalid;
@@ -3196,4 +3210,32 @@ bool filter_result_iterator_t::validate_object_filter() {
         }
     }
     return false;
+}
+
+filter_result_iterator_t::filter_result_iterator_t(FILTER_OPERATOR filter_operator,
+                                                   filter_result_iterator_t* filter_result_iterator,
+                                                   filter_result_iterator_t* new_iterator,
+                                                   std::unique_ptr<filter_node_t>& filter_root,
+                                                   filter_node_t* new_filter_tree_root) {
+    filter_result_iterator->reset();
+
+    timeout_info = std::move(filter_result_iterator->timeout_info);
+    new_iterator->timeout_info.reset(nullptr);
+
+    if (filter_result_iterator->approx_filter_ids_length < new_iterator->approx_filter_ids_length) {
+        left_it = filter_result_iterator;
+        right_it = new_iterator;
+
+        auto root = new filter_node_t(filter_operator, filter_root.release(), new_filter_tree_root);
+        filter_root.reset(root);
+    } else {
+        left_it = new_iterator;
+        right_it = filter_result_iterator;
+
+        auto root = new filter_node_t(filter_operator, new_filter_tree_root, filter_root.release());
+        filter_root.reset(root);
+    }
+    filter_node = filter_root.get();
+
+    init(false, false);
 }
