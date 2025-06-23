@@ -126,12 +126,87 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
 }
 
 int HttpServer::create_listener() {
-    struct sockaddr_in addr;
-    int fd, reuseaddr_flag = 1;
+    struct addrinfo hints;
+    struct addrinfo *result, *rp;
+    int fd = -1, reuseaddr_flag = 1;
+    std::string port_str = std::to_string(listen_port);
+
+    std::string actual_address = listen_address;
+    if (actual_address.size() >= 2 && actual_address[0] == '[' &&
+        actual_address[actual_address.size()-1] == ']') {
+        actual_address = actual_address.substr(1, actual_address.size()-2);
+    }
+
+    memset(&hints, 0, sizeof(hints));
+    // If :: was explicitly requested, prefer IPv6
+    hints.ai_family = (actual_address == "::") ? AF_INET6 : AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM; // TCP socket
+    hints.ai_protocol = 0;           // Any protocol
+
+    // Handle special case for any-address binding
+    const char* host = NULL;  // NULL with AI_PASSIVE means bind to all interfaces
+    if (actual_address != "0.0.0.0" && actual_address != "::") {
+        host = actual_address.c_str();
+        hints.ai_flags = AI_NUMERICHOST;  // Prevent DNS lookup for IP addresses
+    } else {
+        hints.ai_flags = AI_PASSIVE;  // Used only when host is NULL
+    }
+
+    int s = getaddrinfo(host, port_str.c_str(), &hints, &result);
+    if (s != 0) {
+        LOG(ERROR) << "getaddrinfo failed: " << gai_strerror(s);
+        LOG(ERROR) << "actual_address: " << actual_address;
+        return -1;
+    }
+
+    // Try each address until we successfully bind.
+    // getaddrinfo() returns list with most relevant address first.
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
+        fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (fd == -1) {
+            continue;
+        }
+
+        // For IPv6, ensure we accept both IPv4 and IPv6 connections
+        if (rp->ai_family == AF_INET6) {
+            int off = 0;
+            if (setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off)) != 0) {
+                LOG(WARNING) << "Failed to set IPV6_V6ONLY=0";
+            }
+        }
+
+        if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr_flag, sizeof(reuseaddr_flag)) != 0) {
+            LOG(WARNING) << "Failed to set SO_REUSEADDR";
+        }
+
+        if (bind(fd, rp->ai_addr, rp->ai_addrlen) == 0) {
+            // Successfully bound
+            break;
+        }
+
+        // Log the specific bind error to help with debugging
+        LOG(WARNING) << "Failed to bind to address (family=" << rp->ai_family
+                    << "): " << strerror(errno);
+        close(fd);
+    }
+
+    freeaddrinfo(result);
+
+    if (rp == NULL) {
+        LOG(ERROR) << "Could not bind to " << listen_address << ":" << listen_port;
+        return -1;
+    }
+
+    if (listen(fd, SOMAXCONN) != 0) {
+        LOG(ERROR) << "Failed to listen on socket";
+        close(fd);
+        return -1;
+    }
 
     if(!ssl_cert_path.empty() && !ssl_cert_key_path.empty()) {
         int ssl_setup_code = setup_ssl(ssl_cert_path.c_str(), ssl_cert_key_path.c_str());
         if(ssl_setup_code != 0) {
+            close(fd);
             return -1;
         }
     }
@@ -146,18 +221,6 @@ int HttpServer::create_listener() {
 
     accept_ctx->ctx = &ctx;
     accept_ctx->hosts = config.hosts;
-
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(listen_port);
-    inet_pton(AF_INET, listen_address.c_str(), &(addr.sin_addr));
-
-    if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1 ||
-        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr_flag, sizeof(reuseaddr_flag)) != 0 ||
-        bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0 ||
-        listen(fd, SOMAXCONN) != 0) {
-        return -1;
-    }
 
     listener_socket = h2o_evloop_socket_create(ctx.loop, fd, H2O_SOCKET_FLAG_DONT_READ);
     listener_socket->data = this;
