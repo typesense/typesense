@@ -41,14 +41,10 @@ void Tokenizer::init(const std::string& input) {
     }
 
     if(locale == "zh") {
-        UErrorCode translit_status = U_ZERO_ERROR;
-        if(!transliterator) {
-            transliterator = icu::Transliterator::createInstance("Traditional-Simplified",
-                                                                 UTRANS_FORWARD, translit_status);
-        }
-        if(U_FAILURE(translit_status)) {
+        transliterator = Transliterators::get_instance().get_transliterator("Traditional-Simplified");
+
+        if(transliterator == nullptr) {
             //LOG(ERROR) << "Unable to create transliteration instance for `zh` locale.";
-            transliterator = nullptr;
             text = input;
         } else {
             icu::UnicodeString unicode_input = icu::UnicodeString::fromUTF8(input);
@@ -69,12 +65,7 @@ void Tokenizer::init(const std::string& input) {
             text = input;
         }
     } else if(is_cyrillic(locale)) {
-        // init transliterator but will only transliterate during tokenization
-        UErrorCode translit_status = U_ZERO_ERROR;
-        if(!transliterator) {
-            transliterator = icu::Transliterator::createInstance("Any-Latin; Latin-ASCII",
-                                                                 UTRANS_FORWARD, translit_status);
-        }
+        transliterator = Transliterators::get_instance().get_transliterator("Any-Latin; Latin-ASCII");
         text = input;
     } else {
         text = input;

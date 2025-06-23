@@ -10,6 +10,40 @@
 #include "logger.h"
 #include "stemmer_manager.h"
 
+class Transliterators {
+    spp::sparse_hash_map<std::string, icu::Transliterator*> cached_pool;
+
+public:
+    Transliterators() = default;
+
+    ~Transliterators() {
+        for (const auto& kv: cached_pool) {
+            delete kv.second;
+        }
+    }
+
+    static Transliterators & get_instance() {
+        static Transliterators instance;
+        return instance;
+    }
+
+    icu::Transliterator* get_transliterator(const std::string& id) {
+        auto kv = cached_pool.find(id);
+        if(kv == cached_pool.end()) {
+            UErrorCode translit_status = U_ZERO_ERROR;
+            auto transliterator = icu::Transliterator::createInstance(id.data(), UTRANS_FORWARD, translit_status);
+            if(U_FAILURE(translit_status)) {
+                delete transliterator;
+                return nullptr;
+            }
+            cached_pool.insert(std::make_pair(id, transliterator));
+            return transliterator;
+        } else {
+            return kv->second;
+        }
+    }
+};
+
 class Tokenizer {
 private:
     std::string text;
@@ -71,7 +105,6 @@ public:
         iconv_close(cd);
         free(normalized_text);
         delete bi;
-        delete transliterator;
     }
 
     void init(const std::string& input);
