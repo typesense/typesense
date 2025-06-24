@@ -41,14 +41,10 @@ void Tokenizer::init(const std::string& input) {
     }
 
     if(locale == "zh") {
-        UErrorCode translit_status = U_ZERO_ERROR;
-        if(!transliterator) {
-            transliterator = icu::Transliterator::createInstance("Traditional-Simplified",
-                                                                 UTRANS_FORWARD, translit_status);
-        }
-        if(U_FAILURE(translit_status)) {
+        auto transliterator = TransliteratorPool::get_instance().acquire("Traditional-Simplified");
+
+        if(transliterator == nullptr) {
             //LOG(ERROR) << "Unable to create transliteration instance for `zh` locale.";
-            transliterator = nullptr;
             text = input;
         } else {
             icu::UnicodeString unicode_input = icu::UnicodeString::fromUTF8(input);
@@ -61,21 +57,9 @@ void Tokenizer::init(const std::string& input) {
         }
     }
 
-    else if(locale == "ja") {
-        if(normalize) {
+    else if(locale == "ja" && normalize) {
             normalized_text = JapaneseLocalizer::get_instance().normalize(input);
             text = normalized_text;
-        } else {
-            text = input;
-        }
-    } else if(is_cyrillic(locale)) {
-        // init transliterator but will only transliterate during tokenization
-        UErrorCode translit_status = U_ZERO_ERROR;
-        if(!transliterator) {
-            transliterator = icu::Transliterator::createInstance("Any-Latin; Latin-ASCII",
-                                                                 UTRANS_FORWARD, translit_status);
-        }
-        text = input;
     } else {
         text = input;
     }
@@ -146,6 +130,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                     raw_text = icu::UnicodeString::fromUTF8(stemmed_word);
                 }
 
+                auto transliterator = TransliteratorPool::get_instance().acquire("Any-Latin;Latin-ASCII");
                 transliterator->transliterate(raw_text);
                 raw_text.toUTF8String(word);
                 StringUtils::replace_all(word, "\"", "");
