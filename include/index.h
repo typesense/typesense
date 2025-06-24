@@ -765,7 +765,7 @@ public:
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
-                std::unique_ptr<filter_node_t>& filter_tree_root, std::vector<facet>& facets, facet_query_t facet_query,
+                filter_result_iterator_t*& filter_result_iterator, std::vector<facet>& facets, facet_query_t facet_query,
                 const int max_facet_values,
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
@@ -872,8 +872,7 @@ public:
 
     // the following methods are not synchronized because their parent calls are synchronized or they are const/static
 
-    Option<bool> search_wildcard(filter_node_t const* const& filter_tree_root,
-                                 const std::vector<sort_by>& sort_fields, Topster<KV>*& topster,
+    Option<bool> search_wildcard(const std::vector<sort_by>& sort_fields, Topster<KV>*& topster,
                                  spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                  std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                                  const std::vector<std::string>& group_by_fields,
@@ -948,7 +947,6 @@ public:
 
     [[nodiscard]] Option<bool> do_synonym_search(const std::vector<search_field_t>& the_fields,
                                                  const text_match_type_t match_type,
-                                                 filter_node_t const* const& filter_tree_root,
                                                  const std::vector<sort_by>& sort_fields_std,
                                                  const token_ordering& token_order,
                                                  const size_t typo_tokens_threshold, const size_t group_limit,
