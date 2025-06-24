@@ -3,34 +3,11 @@
 #include <string>
 #include <vector>
 #include <iconv.h>
-#include <unicode/brkiter.h>
-#include <unicode/normalizer2.h>
-#include <unicode/translit.h>
 #include "japanese_localizer.h"
 #include "logger.h"
 #include "stemmer_manager.h"
 #include "mutex"
-
-class Transliterators {
-    spp::sparse_hash_map<std::string, std::queue<icu::Transliterator*>> cached_pool;
-    std::mutex mut;
-    size_t max_count = std::thread::hardware_concurrency();
-    size_t allocated_count = 0;
-
-public:
-    Transliterators() = default;
-
-    ~Transliterators();
-
-    static Transliterators& get_instance() {
-        static Transliterators instance;
-        return instance;
-    }
-
-    icu::Transliterator* get_from_pool(const std::string& id);
-
-    void return_to_pool(icu::Transliterator* obj);
-};
+#include "transliterator_pool.h"
 
 class Tokenizer {
 private:
@@ -69,8 +46,6 @@ private:
     // non-deletable singletons
     const icu::Normalizer2* nfkd = nullptr;
     const icu::Normalizer2* nfkc = nullptr;
-
-    icu::Transliterator* transliterator = nullptr;
 
     std::shared_ptr<Stemmer> stemmer = nullptr;
 
