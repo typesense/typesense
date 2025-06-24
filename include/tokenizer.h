@@ -9,39 +9,27 @@
 #include "japanese_localizer.h"
 #include "logger.h"
 #include "stemmer_manager.h"
+#include "mutex"
 
 class Transliterators {
-    spp::sparse_hash_map<std::string, icu::Transliterator*> cached_pool;
+    spp::sparse_hash_map<std::string, std::queue<icu::Transliterator*>> cached_pool;
+    std::mutex mut;
+    size_t max_count = std::thread::hardware_concurrency();
+    size_t allocated_count = 0;
 
 public:
     Transliterators() = default;
 
-    ~Transliterators() {
-        for (const auto& kv: cached_pool) {
-            delete kv.second;
-        }
-    }
+    ~Transliterators();
 
-    static Transliterators & get_instance() {
+    static Transliterators& get_instance() {
         static Transliterators instance;
         return instance;
     }
 
-    icu::Transliterator* get_transliterator(const std::string& id) {
-        auto kv = cached_pool.find(id);
-        if(kv == cached_pool.end()) {
-            UErrorCode translit_status = U_ZERO_ERROR;
-            auto transliterator = icu::Transliterator::createInstance(id.data(), UTRANS_FORWARD, translit_status);
-            if(U_FAILURE(translit_status)) {
-                delete transliterator;
-                return nullptr;
-            }
-            cached_pool.insert(std::make_pair(id, transliterator));
-            return transliterator;
-        } else {
-            return kv->second;
-        }
-    }
+    icu::Transliterator* get_from_pool(const std::string& id);
+
+    void return_to_pool(icu::Transliterator* obj);
 };
 
 class Tokenizer {

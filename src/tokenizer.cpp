@@ -4,6 +4,64 @@
 #include "tokenizer.h"
 #include <unicode/uchar.h>
 
+Transliterators::~Transliterators() {
+    for(auto& kv : cached_pool) {
+        while (!kv.second.empty()) {
+            auto obj = kv.second.front();
+            delete obj;
+            kv.second.pop();
+        }
+    }
+}
+
+icu::Transliterator* Transliterators::get_from_pool(const std::string& id) {
+    std::lock_guard<std::mutex> lock(mut);
+    icu::Transliterator* transliterator = nullptr;
+
+    auto it = cached_pool.find(id);
+    if ((it == cached_pool.end()) || (it->second.size() == 0)) {
+        if(allocated_count < max_count) {
+            UErrorCode translit_status = U_ZERO_ERROR;
+            transliterator = icu::Transliterator::createInstance(id.data(), UTRANS_FORWARD,
+                                                                      translit_status);
+            if (U_FAILURE(translit_status)) {
+                delete transliterator;
+                return nullptr;
+            }
+
+            cached_pool[id].push(transliterator);
+            ++allocated_count;
+            cached_pool[id].pop();
+
+            return transliterator;
+        } else {
+            LOG(ERROR) << "max transliterator objects limit reached.";
+        }
+    } else {
+        transliterator = it->second.front();
+        it->second.pop();
+        return transliterator;
+    }
+
+    //no objects are available in  pool
+    return transliterator;
+}
+
+void Transliterators::return_to_pool(icu::Transliterator* obj) {
+    std::lock_guard<std::mutex> lock(mut);
+    std::string id;
+    obj->getID().toUTF8String(id);
+
+    auto it = cached_pool.find(id);
+    if(it == cached_pool.end()) {
+        //invalid object
+        LOG(ERROR) << "Invalid Transliterator object returned! Not found in pool.";
+        delete obj;
+    } else {
+        it->second.push(obj);
+    }
+}
+
 Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const std::string& locale,
                      const std::vector<char>& symbols_to_index,
                      const std::vector<char>& separators, std::shared_ptr<Stemmer> stemmer) :
@@ -41,7 +99,7 @@ void Tokenizer::init(const std::string& input) {
     }
 
     if(locale == "zh") {
-        transliterator = Transliterators::get_instance().get_transliterator("Traditional-Simplified");
+        transliterator = Transliterators::get_instance().get_from_pool("Traditional-Simplified");
 
         if(transliterator == nullptr) {
             //LOG(ERROR) << "Unable to create transliteration instance for `zh` locale.";
@@ -54,19 +112,14 @@ void Tokenizer::init(const std::string& input) {
             normalized_text = (char *)malloc(output.size()+1);
             strcpy(normalized_text, output.c_str());
             text = normalized_text;
+
+            Transliterators::get_instance().return_to_pool(transliterator);
         }
     }
 
-    else if(locale == "ja") {
-        if(normalize) {
+    else if(locale == "ja" && normalize) {
             normalized_text = JapaneseLocalizer::get_instance().normalize(input);
             text = normalized_text;
-        } else {
-            text = input;
-        }
-    } else if(is_cyrillic(locale)) {
-        transliterator = Transliterators::get_instance().get_transliterator("Any-Latin; Latin-ASCII");
-        text = input;
     } else {
         text = input;
     }
@@ -137,9 +190,13 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                     raw_text = icu::UnicodeString::fromUTF8(stemmed_word);
                 }
 
+                auto transliterator = Transliterators::get_instance().get_from_pool("Any-Latin;Latin-ASCII");
                 transliterator->transliterate(raw_text);
                 raw_text.toUTF8String(word);
                 StringUtils::replace_all(word, "\"", "");
+
+                Transliterators::get_instance().return_to_pool(transliterator);
+
             } else if(normalize && locale == "th") {
                 UErrorCode errcode = U_ZERO_ERROR;
                 icu::UnicodeString src = unicode_text.tempSubStringBetween(start_pos, end_pos);
