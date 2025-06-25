@@ -998,6 +998,8 @@ public:
 
     Option<bool> parse_facet(const std::string& facet_field, std::vector<facet>& facets) const;
 
+    Option<bool> process_facet_return_parent(std::vector<std::string>& facet_return_parent) const;
+
     // Override operations
 
     Option<uint32_t> add_override(const override_t & override, bool write_to_store = true);
