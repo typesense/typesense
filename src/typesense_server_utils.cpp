@@ -28,6 +28,7 @@
 #include "stemmer_manager.h"
 #include "natural_language_search_model_manager.h"
 #include "conversation_model.h"
+#include "async_write_handler.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -124,6 +125,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<int>("max-per-page", '\0', "Max number of hits per page", false, 250);
     options.add<uint32_t>("max-group-limit", '\0', "Max number of results to be returned per group", false, 99);
+    options.add<int>("async-batch-interval", '\0', "batch interval at which batched post_add_document request will be flushed", false);
 
     //rocksdb options
     options.add<uint32_t>("db-write-buffer-size", '\0', "rocksdb write buffer size.", false);
@@ -526,6 +528,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     size_t db_max_log_file_size = config.get_db_max_log_file_size();
     size_t db_keep_log_file_num = config.get_db_keep_log_file_num();
 
+    int async_batch_interval = config.get_async_batch_interval();
+
     size_t thread_pool_size = config.get_thread_pool_size();
 
     const size_t proc_count = std::max<size_t>(1, std::thread::hardware_concurrency());
@@ -568,6 +572,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     }
 
     AnalyticsManager::get_instance().init(&store, analytics_store, analytics_minute_rate_limit);
+
+    AsyncWriteHandler::get_instance().init(&store, async_batch_interval);
 
     RemoteEmbedder::cache.capacity(config.get_embedding_cache_num_entries());
 

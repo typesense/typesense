@@ -25,6 +25,7 @@
 #include "sole.hpp"
 #include "natural_language_search_model_manager.h"
 #include "natural_language_search_model.h"
+#include "async_write_handler.h"
 
 using namespace std::chrono_literals;
 
@@ -204,20 +205,6 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params,
         collections.emplace_back("", req_auth_key);
         embedded_params_vec.emplace_back(nlohmann::json::object());
     }
-}
-
-index_operation_t get_index_operation(const std::string& action) {
-    if(action == "create") {
-        return CREATE;
-    } else if(action == "update") {
-        return UPDATE;
-    } else if(action == "upsert") {
-        return UPSERT;
-    } else if(action == "emplace") {
-        return EMPLACE;
-    }
-
-    return CREATE;
 }
 
 bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -3873,5 +3860,43 @@ bool delete_nl_search_model(const std::shared_ptr<http_req>& req, const std::sha
     Collection::hide_credential(model, "api_key");
 
     res->set_200(model.dump());
+    return true;
+}
+
+bool get_async_req_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if(req->params.count("req_id") == 0) {
+        res->set_400("Bad Request. Must contain `req_id`");
+        return false;
+    }
+
+    auto req_id = req->params["req_id"];
+    auto op = AsyncWriteHandler::get_instance().get_req_status(req_id);
+    if(!op.ok()) {
+        res->set(op.code(), op.error());
+        return false;
+    }
+
+    res->status_code = 200;
+    res->body = op.get();
+    return true;
+}
+
+bool get_last_n_async_req_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const char* N = "n";
+
+    uint32_t n = 10;
+    if(req->params.count(N) != 0 && !StringUtils::is_uint32_t(req->params[N])) {
+        res->set_400("Parameter `n` must be a positive integer.");
+        return false;
+    }
+
+    if (req->params.count(N)) {
+        n = std::stoi(req->params[N]);
+    }
+
+    nlohmann::json result;
+    AsyncWriteHandler::get_instance().get_last_n_req_status(n, result);
+
+    res->set_200(result.dump());
     return true;
 }

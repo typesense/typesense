@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "async_write_handler.h"
+#include "core_api_utils.h"
 
 class CollectionSpecificTest : public ::testing::Test {
 protected:
@@ -3130,4 +3132,116 @@ TEST_F(CollectionSpecificTest, ExactMatchWithoutClosingSymbol) {
     ASSERT_EQ("Taj Mahal", result["hits"][0]["document"]["title"]);
     ASSERT_EQ("1", result["hits"][1]["document"]["id"]);
     ASSERT_EQ("Mahabalipuram", result["hits"][1]["document"]["title"]);
+}
+
+TEST_F(CollectionSpecificTest, ASyncDocRequestTest) {
+    auto batch_interval = 1;
+    auto async_db_size = 1;
+    auto async_db_size_check_interval = 2;
+    AsyncWriteHandler::get_instance().init(store, batch_interval, async_db_size, async_db_size_check_interval);
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll = collectionManager.create_collection("async_coll", 1, fields, "points").get();
+
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["async"] = "true";
+    req->params["collection"] = "async_coll";
+    nlohmann::json body;
+    body["id"] = "0";
+    body["title"] = "Stark Industries";
+    body["points"] = 100;
+
+    req->body = body.dump();
+
+    //enqueue the request
+    auto reqid = "1";
+    auto resp = AsyncWriteHandler::get_instance().enqueue(req, reqid);
+    ASSERT_EQ("1", resp["req_id"]);
+    ASSERT_EQ("Request Queued.", resp["message"]);
+
+    body["id"] = "1";
+    body["title"] = "Mark Industries";
+    body["points"] = 200;
+
+    req->body = body.dump();
+    reqid = "2";
+    resp = AsyncWriteHandler::get_instance().enqueue(req, reqid);
+    ASSERT_EQ("2", resp["req_id"]);
+    ASSERT_EQ("Request Queued.", resp["message"]);
+
+    ASSERT_EQ(2, AsyncWriteHandler::get_instance().get_async_batch_size());
+
+    sleep(1);
+    // process queued request
+    AsyncWriteHandler::get_instance().process_async_writes();
+
+    ASSERT_EQ(2, coll->get_num_documents());
+
+    //try adding malformed request
+    body.clear();
+    body["id"] = "2";
+    body["titl"] = "Taiwan Industries";
+    body["points"] = 200;
+
+    req->body = body.dump();
+    reqid = "3";
+    resp = AsyncWriteHandler::get_instance().enqueue(req, reqid);
+    ASSERT_EQ("3", resp["req_id"]);
+    ASSERT_EQ("Request Queued.", resp["message"]);
+
+    body.clear();
+    body["id"] = "3";
+    body["til"] = "Japan Industries";
+    body["points"] = 200;
+
+    req->body = body.dump();
+    reqid = "4";
+    resp = AsyncWriteHandler::get_instance().enqueue(req, reqid);
+    ASSERT_EQ("4", resp["req_id"]);
+    ASSERT_EQ("Request Queued.", resp["message"]);
+
+    sleep(1);
+    AsyncWriteHandler::get_instance().process_async_writes();
+    ASSERT_EQ(2, coll->get_num_documents());
+
+    //get the status of failed requests
+    auto op = AsyncWriteHandler::get_instance().get_req_status("3");
+    ASSERT_TRUE(op.ok());
+    ASSERT_EQ("{\"message\":\"Field `title` has been declared in the schema, but is not found in the document.\",\"req_id\":\"3\"}",op.get());
+
+    op = AsyncWriteHandler::get_instance().get_req_status("4");
+    ASSERT_TRUE(op.ok());
+    ASSERT_EQ("{\"message\":\"Field `title` has been declared in the schema, but is not found in the document.\",\"req_id\":\"4\"}",op.get());
+
+    //check db, malformed req will be erased
+    AsyncWriteHandler::get_instance().check_and_truncate();
+
+    op = AsyncWriteHandler::get_instance().get_req_status("3");
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("req_id not found.",op.error());
+
+    //update the doc in async
+    req->params["action"] = "update";
+    body["title"] = "Smith Industries";
+    body["id"] = "0";  //updating doc with id 0
+
+    req->body = body.dump();
+    reqid = "5";
+    resp = AsyncWriteHandler::get_instance().enqueue(req, reqid);
+    ASSERT_EQ("5", resp["req_id"]);
+    ASSERT_EQ("Request Queued.", resp["message"]);
+
+    sleep(1);
+    AsyncWriteHandler::get_instance().process_async_writes();
+    ASSERT_EQ(2, coll->get_num_documents());
+
+    nlohmann::json doc;
+    auto op2 = coll->get_document_from_store(0, doc);
+    ASSERT_TRUE(op2.ok());
+    ASSERT_EQ("Smith Industries", doc["title"]);
 }

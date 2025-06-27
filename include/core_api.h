@@ -242,3 +242,8 @@ bool post_nl_search_model(const std::shared_ptr<http_req>& req, const std::share
 bool put_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool delete_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+
+//async doc requests
+bool get_async_req_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool get_last_n_async_req_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

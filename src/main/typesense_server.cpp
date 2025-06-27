@@ -140,6 +140,10 @@ void master_server_routes() {
     server->get("/nl_search_models/:id", get_nl_search_model);
     server->put("/nl_search_models/:id", put_nl_search_model);
     server->del("/nl_search_models/:id", delete_nl_search_model);
+
+    //async doc request error status
+    server->get("/asyncwrites/:req_id", get_async_req_status);
+    server->get("/asyncwrites", get_last_n_async_req_status);
 }
 
 void (*backward::SignalHandling::_callback)(int sig, backward::StackTrace&) = nullptr;

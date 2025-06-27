@@ -706,7 +706,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                 symbols_to_index, token_separators,
                                                 enable_nested_fields, model,
                                                 spp::sparse_hash_map<std::string, std::string>(),
-                                                metadata);
+                                                metadata, spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
 
     add_to_collections(new_collection);
     lock.lock();

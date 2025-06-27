@@ -853,7 +853,8 @@ public:
                             const bool& return_doc=false, const bool& return_id=false,
                             const size_t remote_embedding_batch_size=200,
                             const size_t remote_embedding_timeout_ms=60000,
-                            const size_t remote_embedding_num_tries=2);
+                            const size_t remote_embedding_num_tries=2,
+                            bool is_async_docs = false);
 
     Option<nlohmann::json> update_matching_filter(const std::string& filter_query,
                                                   const std::string & json_str,
