@@ -283,7 +283,7 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(co
     schema_prompt += "  \"sort_by\": \"typesense sort syntax explained above\"\n";
     schema_prompt += "}\n";
     
-    LOG(INFO) << "Schema prompt for'" << collection_name << "': " << schema_prompt;
+    // LOG(INFO) << "Schema prompt for'" << collection_name << "': " << schema_prompt;
     
     std::unique_lock lock(schema_prompts_mutex);
     schema_prompts.insert(collection_name, SchemaPromptEntry(schema_prompt));
