@@ -190,7 +190,11 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(co
         if (!is_string_type) continue;
 
         auto results = coll->search("*", {facet_field}, "", {facet_field}, {}, {0}, 0, 1,
-          FREQUENCY, {false}, 0, {}, {}, 20).get();
+          FREQUENCY, {false}, 0, {}, {}, 20,
+          "", 30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3,
+          "<mark>", "</mark>", {}, 1000000, true, false, true, "", false,
+          6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX, 2,
+          false, false, "", true, 0, max_score, 20, 1000).get();
 
         if (results.contains("facet_counts") && results["facet_counts"].is_array()) {
             for (const auto& facet_result : results["facet_counts"]) {
