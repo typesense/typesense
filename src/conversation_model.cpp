@@ -76,7 +76,7 @@ Option<std::string> ConversationModel::get_answer(const std::string& context, co
         return CFConversationModel::get_answer(context, prompt, system_prompt, model_config);
     } else if(model_namespace == "vllm") {
         return vLLMConversationModel::get_answer(context, prompt, system_prompt, model_config);
-    } else if(model_namespace == "gcp") {
+    } else if(model_namespace == "google") {
         return GeminiConversationModel::get_answer(context, prompt, system_prompt, model_config);
     } else if(model_namespace == "azure") {
         return AzureConversationModel::get_answer(context, prompt, system_prompt, model_config);
