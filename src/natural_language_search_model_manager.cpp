@@ -198,7 +198,7 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(co
     // Perform a single search query for all facetable fields
     if (!string_facet_fields.empty()) {
         auto results = coll->search("*", {}, "", string_facet_fields, {}, {0}, 0, 1,
-          FREQUENCY, {false}, 0, {}, {}, 20,
+          FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 20,
           "", 30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3,
           "<mark>", "</mark>", {}, 1000000, true, false, true, "", false,
           6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX, 2,
