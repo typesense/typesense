@@ -2608,9 +2608,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
             result_reference.insert(filter_result.coll_to_references[result_index].begin(),
                                     filter_result.coll_to_references[result_index].end());
         } else {
-            // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
-            // not used afterwards.
-            result_reference = std::move(filter_result.coll_to_references[result_index]);
+            result_reference = filter_result.coll_to_references[result_index];
         }
     }
 
@@ -2671,9 +2669,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
             result_reference.insert(filter_result.coll_to_references[match_index].begin(),
                                     filter_result.coll_to_references[match_index].end());
         } else {
-            // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
-            // not used afterwards.
-            result_reference = std::move(filter_result.coll_to_references[match_index]);
+            result_reference = filter_result.coll_to_references[match_index];
         }
     }
 
