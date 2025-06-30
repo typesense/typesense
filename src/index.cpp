@@ -2551,11 +2551,48 @@ Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string
 Option<bool> Index::run_search(search_args* search_params) {
     auto& filter_root = search_params->filter_tree_root_guard;
     std::set<uint32_t> group_by_missing_value_ids;
+
+    if(search_params->field_query_tokens.empty()) {
+        // this can happen if missing query_by fields are configured to be ignored
+        return Option<bool>(true);
+    }
+
+    if(search_params->group_by_fields.empty() && search_params->group_limit == (Config::get_instance().get_max_group_limit() + 1)) {
+        // this can happen if missing group_by fields are configured to be ignored
+        // we will return empty set of results in that case
+        return Option<bool>(true);
+    }
+
+    auto filter_result_iterator = new filter_result_iterator_t(get_collection_name(), this, filter_root.get(),
+                                                               search_params->enable_lazy_filter,
+                                                               search_params->max_filter_by_candidates,
+                                                               search_begin_us, search_stop_us,
+                                                               search_params->validate_field_names);
+    std::unique_ptr<filter_result_iterator_t> filter_iterator_guard(filter_result_iterator);
+
+    auto filter_init_op = filter_result_iterator->init_status();
+    if (!filter_init_op.ok()) {
+        return filter_init_op;
+    }
+
+#ifdef TEST_BUILD
+
+    if (testing_not_equals_bug || filter_result_iterator->approx_filter_ids_length > 20) {
+        filter_result_iterator->compute_iterators();
+    }
+#else
+
+    if (!search_params->enable_lazy_filter ||
+            filter_result_iterator->approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
+        filter_result_iterator->compute_iterators();
+    }
+#endif
+
     if (search_params->group_limit) {
         auto res = search(search_params->field_query_tokens,
                           search_params->search_fields,
                           search_params->match_type,
-                          filter_root, search_params->facets, search_params->facet_query,
+                          filter_result_iterator, search_params->facets, search_params->facet_query,
                           search_params->max_facet_values,
                           search_params->included_ids, search_params->excluded_ids,
                           search_params->sort_fields_std, search_params->num_typos,
@@ -2605,10 +2642,15 @@ Option<bool> Index::run_search(search_args* search_params) {
                           group_by_missing_value_ids,
                           search_params->collection
         );
+
+        // The filter iterator can be updated in places like `Index::do_phrase_search`.
+        filter_iterator_guard.release();
+        filter_iterator_guard.reset(filter_result_iterator);
+
         if (!res.ok()) {
             return res;
         }
-        if (search_params->raw_result_kvs.empty()) {
+        if (search_params->raw_result_kvs.empty() && search_params->override_result_kvs.empty()) {
             return Option<bool>(true);
         }
 
@@ -2667,11 +2709,21 @@ Option<bool> Index::run_search(search_args* search_params) {
             return filter_op;
         }
 
+        auto new_iterator = new filter_result_iterator_t(get_collection_name(), this, new_filter_tree_root,
+                                                         search_params->enable_lazy_filter,
+                                                         search_params->max_filter_by_candidates,
+                                                         search_begin_us, search_stop_us,
+                                                         search_params->validate_field_names);
+
         if (filter_root == nullptr) {
             filter_root.reset(new_filter_tree_root);
+
+            filter_result_iterator = new_iterator;
+            filter_iterator_guard.reset(new_iterator);
         } else {
-            auto root = new filter_node_t(AND, filter_root.release(), new_filter_tree_root);
-            filter_root.reset(root);
+            filter_result_iterator = new filter_result_iterator_t(AND, filter_iterator_guard.release(), new_iterator,
+                                                                  filter_root, new_filter_tree_root);
+            filter_iterator_guard.reset(filter_result_iterator);
         }
 
         if (!group_by_missing_value_ids.empty()) {
@@ -2681,13 +2733,20 @@ Option<bool> Index::run_search(search_args* search_params) {
             }
             filter_exp.comparators = std::vector<NUM_COMPARATOR>(group_by_missing_value_ids.size(), EQUALS);
 
-            auto filter_node = new filter_node_t(filter_exp);
-            auto root = new filter_node_t(OR, filter_root.release(), filter_node);
-            filter_root.reset(root);
+            new_filter_tree_root = new filter_node_t(filter_exp);
+
+            new_iterator = new filter_result_iterator_t(get_collection_name(), this, new_filter_tree_root,
+                                                        search_params->enable_lazy_filter,
+                                                        search_params->max_filter_by_candidates,
+                                                        search_begin_us, search_stop_us,
+                                                        search_params->validate_field_names);
+            filter_result_iterator = new filter_result_iterator_t(OR, filter_iterator_guard.release(), new_iterator,
+                                                                  filter_root, new_filter_tree_root);
+            filter_iterator_guard.reset(filter_result_iterator);
         }
 
         // for grouping found_count reflects how many groups were found for the query.
-        search_params->found_count = search_params->topster->getGroupsCount() + search_params->curated_topster->size;
+        search_params->found_count = search_params->topster->getGroupsCount() + search_params->curated_topster->getGroupsCount();
         search_params->found_docs = search_params->all_result_ids_len;
 
         delete search_params->topster;
@@ -2704,7 +2763,7 @@ Option<bool> Index::run_search(search_args* search_params) {
     auto res = search(search_params->field_query_tokens,
                   search_params->search_fields,
                   search_params->match_type,
-                  filter_root, search_params->facets, search_params->facet_query,
+                  filter_result_iterator, search_params->facets, search_params->facet_query,
                   search_params->max_facet_values,
                   search_params->included_ids, search_params->excluded_ids,
                   search_params->sort_fields_std, search_params->num_typos,
@@ -2754,6 +2813,10 @@ Option<bool> Index::run_search(search_args* search_params) {
                   group_by_missing_value_ids,
                   search_params->collection
     );
+
+    // The filter iterator can be updated in places like `Index::do_phrase_search`.
+    filter_iterator_guard.release();
+    filter_iterator_guard.reset(filter_result_iterator);
 
     if (search_params->group_limit) {
         // Doing std::max since in case of group_by, loglog_counter returns an approximate count of the number of distinct
@@ -3036,7 +3099,7 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
             if(override->rule.dynamic_query) {
                 StringUtils::split(override->rule.normalized_query, rule_parts, " ");
                 processed_tokens = query_tokens;
-            } else if(override->rule.dynamic_filter) {
+            } else if(override->rule.dynamic_filter && filter_tree_root != nullptr) {
                 tokenize_filter_str(override->rule.filter_by, rule_parts);
 
                 // tokenize filter_by string from search query
@@ -3086,6 +3149,9 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                 if (override->stop_processing) {
                     return;
                 }
+            } else {
+                //reset the curated sort if override is not matched
+                sort_by_clause.clear();
             }
         }
     }
@@ -3404,7 +3470,7 @@ void process_results_hnsw_index(filter_result_iterator_t* filter_result_iterator
 
 Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                    const text_match_type_t match_type,
-                   std::unique_ptr<filter_node_t>& filter_tree_root, std::vector<facet>& facets, facet_query_t facet_query,
+                   filter_result_iterator_t*& filter_result_iterator, std::vector<facet>& facets, facet_query_t facet_query,
                    const int max_facet_values,
                    const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                    const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
@@ -3439,39 +3505,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    std::set<uint32_t>& group_by_missing_value_ids, Collection const *const collection) const {
     std::shared_lock lock(mutex);
 
-    if(field_query_tokens.empty()) {
-        // this can happen if missing query_by fields are configured to be ignored
-        return Option<bool>(true);
-    }
-
-    if(group_by_fields.empty() && group_limit == (Config::get_instance().get_max_group_limit() + 1)) {
-        // this can happen if missing group_by fields are configured to be ignored
-        // we will return empty set of results in that case
-        return Option<bool>(true);
-    }
-
-    auto filter_result_iterator = new filter_result_iterator_t(get_collection_name(), this, filter_tree_root.get(),
-                                                               enable_lazy_filter, max_filter_by_candidates,
-                                                               search_begin_us, search_stop_us, validate_field_names);
-    std::unique_ptr<filter_result_iterator_t> filter_iterator_guard(filter_result_iterator);
-
-    auto filter_init_op = filter_result_iterator->init_status();
-    if (!filter_init_op.ok()) {
-        return filter_init_op;
-    }
-
-#ifdef TEST_BUILD
-
-    if (testing_not_equals_bug || filter_result_iterator->approx_filter_ids_length > 20) {
-        filter_result_iterator->compute_iterators();
-    }
-#else
-
-    if (!enable_lazy_filter || filter_result_iterator->approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
-        filter_result_iterator->compute_iterators();
-    }
-#endif
-
     group_found_params_t group_found_params{};
     if (is_group_by_first_pass) {
         for (size_t i = 0; i < sort_fields_std.size(); i++) {
@@ -3488,7 +3521,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
     }
 
-    size_t topster_size = std::max<size_t>(fetch_size, DEFAULT_TOPSTER_SIZE);
+    size_t topster_size = std::max<size_t>(fetch_size, std::max<size_t>(DEFAULT_TOPSTER_SIZE, included_ids.size()));
     if(filter_result_iterator->approx_filter_ids_length != 0 && filter_result_iterator->reference.empty()) {
         topster_size = std::min<size_t>(topster_size, filter_result_iterator->approx_filter_ids_length);
     } else {
@@ -3496,7 +3529,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
     topster_size = std::max((size_t)1, topster_size);  // needs to be atleast 1 since scoring is mandatory
     topster = new Topster<KV>(topster_size, group_limit, is_group_by_first_pass, group_found_params);
-    curated_topster = new Topster<KV>(topster_size, group_limit, false);
+    curated_topster = new Topster<KV>(topster_size, group_limit, is_group_by_first_pass, group_found_params);
 
     std::set<uint32_t> curated_ids;
     std::map<size_t, std::map<size_t, uint32_t>> included_ids_map;  // outer pos => inner pos => list of IDs
@@ -3515,7 +3548,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     std::vector<uint32_t> curated_ids_sorted(curated_ids.begin(), curated_ids.end());
     std::sort(curated_ids_sorted.begin(), curated_ids_sorted.end());
 
-    bool const& filter_by_provided = filter_tree_root != nullptr;
+    bool const& filter_by_provided = filter_result_iterator->is_filter_provided();
     bool const& no_filter_by_matches = filter_by_provided && filter_result_iterator->approx_filter_ids_length == 0;
 
     // If curation is not involved and there are no filter matches, return early.
@@ -3565,9 +3598,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                     groups_processed,
                                                     excluded_result_ids, excluded_result_ids_size,
                                                     is_wildcard_query, is_group_by_first_pass, group_by_missing_value_ids);
-
-        filter_iterator_guard.release();
-        filter_iterator_guard.reset(filter_result_iterator);
 
         if (!do_phrase_search_op.ok()) {
             delete [] all_result_ids;
@@ -3724,10 +3754,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids(),
                                                                       max_filter_by_candidates,
                                                                       search_begin_us, search_stop_us);
-                filter_iterator_guard.reset(filter_result_iterator);
             }
 
-            auto search_wildcard_op = search_wildcard(filter_tree_root.get(), sort_fields_std, topster,
+            auto search_wildcard_op = search_wildcard(sort_fields_std, topster,
                                                       groups_processed, searched_queries, group_limit, group_by_fields,
                                                       group_missing_values,
                                                       excluded_result_ids, excluded_result_ids_size,
@@ -3880,7 +3909,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
 
         // do synonym based searches
-       auto do_synonym_search_op = do_synonym_search(the_fields, match_type, filter_tree_root.get(),
+       auto do_synonym_search_op = do_synonym_search(the_fields, match_type,
                                                      sort_fields_std, token_order, 0, group_limit,
                                                      group_by_fields, group_missing_values, prioritize_exact_match, prioritize_token_position,
                                                      prioritize_num_matching_fields, exhaustive_search, concurrency, prefixes,
@@ -4466,7 +4495,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                   facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, collection, &reference_facet_ids);
     }
 
-    all_result_ids_len += curated_topster->size;
+    all_result_ids_len += (is_group_by_first_pass ? 0 : curated_topster->size);
 
     if(!included_ids_map.empty() && group_limit != 0) {
         for (auto &acc_facet: facets) {
@@ -6042,7 +6071,6 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
 
 Option<bool> Index::do_synonym_search(const std::vector<search_field_t>& the_fields,
                                       const text_match_type_t match_type,
-                                      filter_node_t const* const& filter_tree_root,
                                       const std::vector<sort_by>& sort_fields_std,
                                       const token_ordering& token_order,
                                       const size_t typo_tokens_threshold, const size_t group_limit,
@@ -6565,8 +6593,7 @@ void Index::curate_filtered_ids(const uint32_t* exclude_token_ids, size_t exclud
     }
 }
 
-Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root,
-                                    const std::vector<sort_by>& sort_fields, Topster<KV>*& topster,
+Option<bool> Index::search_wildcard(const std::vector<sort_by>& sort_fields, Topster<KV>*& topster,
                                     spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                     std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                                     const std::vector<std::string>& group_by_fields, 
@@ -6628,7 +6655,8 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                                     filter_result_iterator->validity != filter_result_iterator_t::invalid; thread_id++) {
         auto batch_result = new filter_result_t();
         filter_result_iterator->get_n_ids(window_size, excluded_result_index, exclude_token_ids,
-                                          exclude_token_ids_size, batch_result, timed_out_before_processing);
+                                          exclude_token_ids_size, batch_result, timed_out_before_processing,
+                                          is_group_by_first_pass);
         if (batch_result->count == 0) {
             delete batch_result;
             break;
@@ -7689,14 +7717,24 @@ void Index::handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
             for(const auto& item: operations["increment"].items()) {
                 auto field_it = search_schema.find(item.key());
                 if(field_it != search_schema.end()) {
-                    if(field_it->type == field_types::INT32 && item.value().is_number_integer()) {
-                        int32_t existing_value = 0;
-                        if(old_doc.contains(item.key())) {
-                            existing_value = old_doc[item.key()].get<int32_t>();
-                        }
+                    if(field_it->is_integer() && item.value().is_number_integer()) {
+                        if(field_it->is_int32()) {
+                            int32_t existing_value = 0;
+                            if(old_doc.contains(item.key())) {
+                                existing_value = old_doc[item.key()].get<int32_t>();
+                            }
 
-                        auto updated_value = existing_value + item.value().get<int32>();
-                        update_doc[item.key()] = updated_value;
+                            auto updated_value = existing_value + item.value().get<int32_t>();
+                            update_doc[item.key()] = updated_value;
+                        } else {
+                            int64_t existing_value = 0;
+                            if(old_doc.contains(item.key())) {
+                                existing_value = old_doc[item.key()].get<int64_t>();
+                            }
+
+                            auto updated_value = existing_value + item.value().get<int64_t>();
+                            update_doc[item.key()] = updated_value;
+                        }
                     }
                 }
             }

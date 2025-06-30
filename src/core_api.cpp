@@ -4,6 +4,7 @@
 #include <regex>
 #include <analytics_manager.h>
 #include <housekeeper.h>
+#include <arpa/inet.h>
 #include "typesense_server_utils.h"
 #include "core_api.h"
 #include "string_utils.h"
@@ -551,7 +552,6 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
             const auto& cached_value = hit_it.value();
 
             // we still need to check that TTL has not expired
-            uint32_t ttl = cached_value.ttl;
             uint64_t seconds_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::high_resolution_clock::now() - cached_value.created_at).count();
 
@@ -841,7 +841,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             const auto& cached_value = hit_it.value();
 
             // we still need to check that TTL has not expired
-            uint32_t ttl = cached_value.ttl;
             uint64_t seconds_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::high_resolution_clock::now() - cached_value.created_at).count();
 
@@ -942,7 +941,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             return false;
         }
         const auto& api_key_ip = api_key_ip_op.get();
-        auto rate_limit_manager = RateLimitManager::getInstance();
 
         // Check rate limiting first before doing any search, don't want to waste time if we're rate limited
         for(size_t i = 0; i < searches.size(); i++) {
@@ -1015,7 +1013,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         common_query = orig_req_params["q"];
 
         if(conversation_history) {
-            const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
             auto conversation_id = orig_req_params["conversation_id"];
             auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id, conversation_model).get();
             auto generate_standalone_q = ConversationModel::get_standalone_question(conversation_history, common_query, conversation_model);
@@ -3080,39 +3077,47 @@ bool get_limit_exceed_counts(const std::shared_ptr<http_req>& req, const std::sh
 
 Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string& metadata) {
     // format <length of api_key>:<api_key><ip>
-    // length of api_key is a uint32_t
-    if(metadata.size() < 10) {
-        if(metadata.size() >= 2 && metadata[0] == '0' && metadata[1] == ':') {
-            // e.g. "0:0.0.0.0" (when api key is not provided at all)
-            std::string ip = metadata.substr(metadata.find(":") + 1);
+
+    const size_t colon_pos = metadata.find(":");
+    if (colon_pos == std::string::npos) {
+        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
+    }
+
+    // Handle empty API key case: "0:1.2.3.4" or "0:2001:db8::1"
+    if (metadata.size() >= 2 && metadata[0] == '0' && colon_pos == 1) {
+        const std::string ip = metadata.substr(colon_pos + 1);
+
+        // Validate the IP
+        struct sockaddr_in sa4;
+        struct sockaddr_in6 sa6;
+        if (inet_pton(AF_INET, ip.c_str(), &(sa4.sin_addr)) == 1 ||
+            inet_pton(AF_INET6, ip.c_str(), &(sa6.sin6_addr)) == 1) {
             return Option<std::pair<std::string,std::string>>(std::make_pair("", ip));
         }
-
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
-    if(metadata.find(":") == std::string::npos) {
+    // For normal API key case
+    const std::string key_len_str = metadata.substr(0, colon_pos);
+    if (!StringUtils::is_uint32_t(key_len_str)) {
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
-    std::string key_len_str = metadata.substr(0, metadata.find(":"));
+    const uint32_t api_key_length = static_cast<uint32_t>(std::stoul(key_len_str));
 
-    if(!StringUtils::is_uint32_t(key_len_str)) {
+    // Check if there's enough data after the colon
+    if (metadata.size() < api_key_length + colon_pos + 1) {
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
-    uint32_t api_key_length = static_cast<uint32_t>(std::stoul(key_len_str));
+    const std::string api_key = metadata.substr(colon_pos + 1, api_key_length);
+    const std::string ip = metadata.substr(colon_pos + 1 + api_key_length);
 
-    if(metadata.size() < api_key_length + metadata.find(":") + 7) {
-        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
-    }
-
-    std::string api_key = metadata.substr(metadata.find(":") + 1, api_key_length);
-    std::string ip = metadata.substr(metadata.find(":") + 1 + api_key_length);
-
-    // validate IP address
-    std::regex ip_pattern("\\b(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\b");
-    if(!std::regex_match(ip, ip_pattern)) {
+    // Validate the IP using inet_pton
+    struct sockaddr_in sa4;
+    struct sockaddr_in6 sa6;
+    if (inet_pton(AF_INET, ip.c_str(), &(sa4.sin_addr)) != 1 &&
+        inet_pton(AF_INET6, ip.c_str(), &(sa6.sin6_addr)) != 1) {
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
@@ -3596,7 +3601,10 @@ bool post_personalization_model(const std::shared_ptr<http_req>& req, const std:
     }
     
     auto model = create_op.get();
-    res->set_200(nlohmann::json{{"ok", true}, {"model_id", model}}.dump());
+    if (model.contains("model_path")) {
+      model.erase("model_path");
+    }
+    res->set_200(model.dump());
     
     return true;
 }
@@ -3763,6 +3771,9 @@ bool get_nl_search_models(const std::shared_ptr<http_req>& req, const std::share
 
      for(auto& model: models) {
          Collection::hide_credential(model, "api_key");
+         Collection::hide_credential(model, "access_token");
+         Collection::hide_credential(model, "refresh_token");
+         Collection::hide_credential(model, "client_secret");
      }
 
     res->set_200(models.dump());
@@ -3781,6 +3792,9 @@ bool get_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared
 
     auto model = model_op.get();
     Collection::hide_credential(model, "api_key");
+    Collection::hide_credential(model, "access_token");
+    Collection::hide_credential(model, "refresh_token");
+    Collection::hide_credential(model, "client_secret");
 
     res->set_200(model.dump());
     return true;
@@ -3812,6 +3826,9 @@ bool post_nl_search_model(const std::shared_ptr<http_req>& req, const std::share
     }
 
     Collection::hide_credential(model_json, "api_key");
+    Collection::hide_credential(model_json, "access_token");
+    Collection::hide_credential(model_json, "refresh_token");
+    Collection::hide_credential(model_json, "client_secret");
 
     res->set_200(model_json.dump());
     return true;
@@ -3845,6 +3862,9 @@ bool put_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared
     auto model = model_op.get();
 
     Collection::hide_credential(model, "api_key");
+    Collection::hide_credential(model, "access_token");
+    Collection::hide_credential(model, "refresh_token");
+    Collection::hide_credential(model, "client_secret");
 
     res->set_200(model.dump());
     return true;

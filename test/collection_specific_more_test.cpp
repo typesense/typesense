@@ -3413,6 +3413,26 @@ TEST_F(CollectionSpecificMoreTest, IgnoreMissingQueryByFields) {
     ASSERT_EQ(0, res["found"].get<size_t>());
 }
 
+TEST_F(CollectionSpecificMoreTest, CheckForSchemaAlterStatus) {
+    nlohmann::json schema = R"({
+                "name": "test",
+                "enable_nested_fields": true,
+                "fields": [
+                    {
+                        "name": "parts",
+                        "type": "object"
+                    }
+                ]
+                })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+    auto sop = coll->get_alter_schema_status();
+    ASSERT_FALSE(sop.ok());  // no alter in progress
+    ASSERT_EQ("No active alter operation running.", sop.error());  // no alter in progress
+}
 
 TEST_F(CollectionSpecificMoreTest, StemmingDictionary) {
     nlohmann::json schema = R"({
