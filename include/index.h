@@ -635,8 +635,7 @@ private:
                                    const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size = 200,
                                    const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);
 
-    Option<bool> get_related_ids(const std::string& collection_name,
-                                 const std::string& reference_helper_field_name,
+    Option<bool> get_related_ids(const std::string& reference_helper_field_name,
                                  const uint32_t& seq_id, std::vector<uint32_t>& result) const;
 
     static void process_embed_results(const std::vector<std::pair<index_record*, std::string>>& values_to_embed_text,
@@ -1204,8 +1203,7 @@ public:
 
     GeoPolygonIndex* get_geopolygon_index(const std::string& field_name) const;
 
-    Option<bool> get_related_ids_with_lock(const std::string& collection_name,
-                                           const std::string& reference_helper_field_name,
+    Option<bool> get_related_ids_with_lock(const std::string& reference_helper_field_name,
                                            const uint32_t& seq_id, std::vector<uint32_t>& result) const;
 
     Option<bool> do_facets_with_lock(std::vector<facet> & facets, facet_query_t & facet_query,

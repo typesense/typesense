@@ -3181,6 +3181,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 }
 
                 the_field = ref_collection->get_schema().at(a_facet.field_name);
+                facet_result["field_name"] = ref_collection->name + "(" + a_facet.field_name + ")";
             }
 
             bool should_return_parent = std::find(facet_return_parent.begin(), facet_return_parent.end(),
@@ -3194,7 +3195,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 if(a_facet.is_intersected) {
                     value = facet_count.fvalue;
                 } else if(ref_collection != nullptr) {
-                    value = ref_collection->get_facet_str_val(the_field.name, facet_count.fhash);
+                    value = ref_collection->get_facet_str_val_with_lock(the_field.name, facet_count.fhash);
                 } else {
                     value = index->get_facet_str_val(the_field.name, facet_count.fhash);
                 }
@@ -4426,7 +4427,7 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
 
 Option<bool> Collection::get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
                                          std::vector<uint32_t>& result) const {
-    return index->get_related_ids_with_lock(name, ref_field_name, seq_id, result);
+    return index->get_related_ids_with_lock(ref_field_name, seq_id, result);
 }
 
 Option<bool> Collection::get_object_array_related_id(const std::string& ref_field_name,
@@ -7584,7 +7585,7 @@ void Collection::update_reference_field(const std::string& field_name, const fie
 Option<bool> Collection::get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
                                                    std::vector<uint32_t>& result) const {
     std::shared_lock lock(mutex);
-    return index->get_related_ids_with_lock(name, field_name, seq_id, result);
+    return index->get_related_ids_with_lock(field_name, seq_id, result);
 }
 
 Option<uint32_t> Collection::get_sort_index_value_with_lock(const std::string& field_name,
@@ -8366,6 +8367,11 @@ void Collection::reset_alter_status_counters() {
 
 std::string Collection::get_facet_str_val(const std::string& field_name, uint32_t facet_id) {
     return index->get_facet_str_val(field_name, facet_id);
+}
+
+std::string Collection::get_facet_str_val_with_lock(const std::string& field_name, uint32_t facet_id) {
+    std::shared_lock lock(mutex);
+    return get_facet_str_val(field_name, facet_id);
 }
 
 union_global_params_t::union_global_params_t(const std::map<std::string, std::string> &req_params) {

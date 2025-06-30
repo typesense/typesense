@@ -4556,7 +4556,7 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
         }
 
         for (uint32_t i = 0; i < all_result_ids_len; i++) {
-            get_related_ids(collection_name, reference_field_name, all_result_ids[i], ref_doc_ids);
+            get_related_ids(reference_field_name, all_result_ids[i], ref_doc_ids);
         }
     } else if (joined_coll_has_reference) {
         auto& cm = CollectionManager::get_instance();
@@ -8299,13 +8299,13 @@ int64_t Index::reference_string_sort_score(const string &field_name,  const std:
     return score;
 }
 
-Option<bool> Index::get_related_ids_with_lock(const std::string& coll, const std::string& field_name, const uint32_t& seq_id,
+Option<bool> Index::get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
                                     std::vector<uint32_t>& result) const {
     std::shared_lock lock(mutex);
-    return get_related_ids(coll, field_name, seq_id, result);
+    return get_related_ids(field_name, seq_id, result);
 }
 
-Option<bool> Index::get_related_ids(const std::string& coll, const std::string& field_name, const uint32_t& seq_id,
+Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_t& seq_id,
                                     std::vector<uint32_t>& result) const {
 
     auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
@@ -8589,7 +8589,7 @@ Option<std::vector<uint32_t>> Index::get_ref_seq_ids_helper(const std::vector<ui
         for (const auto& seq_id: seq_ids_vec) {
             auto related_ids_op = Option<bool>(true);
             if (coll_name == get_collection_name_with_lock()) {
-                related_ids_op = get_related_ids(coll_name, field_name, seq_id, ref_seq_ids);
+                related_ids_op = get_related_ids(field_name, seq_id, ref_seq_ids);
             } else {
                 auto prev_coll = cm.get_collection(coll_name);
                 if (prev_coll == nullptr) {

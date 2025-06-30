@@ -690,6 +690,8 @@ private:
 
     void reset_alter_status_counters();
 
+    std::string get_facet_str_val(const std::string& field_name, uint32_t facet_id);
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
@@ -1166,7 +1168,7 @@ public:
 
     bool check_store_alter_status_msg(bool success, const std::string& msg = "");
 
-    std::string get_facet_str_val(const std::string& field_name, uint32_t facet_id);
+    std::string get_facet_str_val_with_lock(const std::string& field_name, uint32_t facet_id);
 };
 
 template<class T>

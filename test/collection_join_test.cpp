@@ -9619,6 +9619,7 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
 
     ASSERT_EQ(2, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Customers(product_price)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("143", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][1]["count"]);
