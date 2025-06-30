@@ -1089,10 +1089,106 @@ TEST_F(UnionTest, PinnedHits) {
     ASSERT_EQ(6, json_res["found"]);
     ASSERT_EQ(6, json_res["out_of"]);
     ASSERT_EQ(6, json_res["hits"].size());
-    ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]); //any one id will be pinned incase of same ids across multiple collections
     ASSERT_EQ("2", json_res["hits"][1]["document"]["id"]);
     ASSERT_EQ("0", json_res["hits"][2]["document"]["id"]);
     ASSERT_EQ("2", json_res["hits"][3]["document"]["id"]);
     ASSERT_EQ("0", json_res["hits"][4]["document"]["id"]);
     ASSERT_EQ("1", json_res["hits"][5]["document"]["id"]);
+
+    //with different id across collections
+    auto schema_json3 =
+            R"({
+                "name": "Cars2",
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+
+    auto schema_json4 =
+            R"({
+                "name": "Watches2",
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+
+    documents = {
+            R"({
+                "id": "C0",
+                "name": "Black McLaren"
+            })"_json,
+            R"({
+                "id": "C1",
+                "name": "Black Lamborghini"
+            })"_json,
+            R"({
+                "id": "C2",
+                "name": "Black Buggati"
+            })"_json,
+            R"({
+                "id": "W0",
+                "name": "Black Rolex"
+            })"_json,
+            R"({
+                "id": "W1",
+                "name": "Black Tissot"
+            })"_json,
+            R"({
+                "id": "W2",
+                "name": "Black Rado"
+            })"_json
+    };
+
+    collection_create_op = collectionManager.create_collection(schema_json3);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    coll = collection_create_op.get();
+    for (auto i = 0; i < 3; ++i) {
+        const auto& json = documents[i];
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    collection_create_op = collectionManager.create_collection(schema_json4);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    coll = collection_create_op.get();
+    for (auto i = 3; i < 6; ++i) {
+        const auto& json = documents[i];
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {{"pinned_hits", "C1:1"}};
+
+    searches = R"([
+                    {
+                        "collection": "Cars2",
+                        "q": "black",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "Watches2",
+                        "q": "black",
+                        "query_by": "name"
+                    }
+                ])"_json;
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(6, json_res["found"]);
+    ASSERT_EQ(6, json_res["out_of"]);
+    ASSERT_EQ(6, json_res["hits"].size());
+    ASSERT_EQ("C1", json_res["hits"][0]["document"]["id"]);  //with unique ids, given ids will be pinned
+    ASSERT_EQ("C2", json_res["hits"][1]["document"]["id"]);
+    ASSERT_EQ("C0", json_res["hits"][2]["document"]["id"]);
+    ASSERT_EQ("W2", json_res["hits"][3]["document"]["id"]);
+    ASSERT_EQ("W1", json_res["hits"][4]["document"]["id"]);
+    ASSERT_EQ("W0", json_res["hits"][5]["document"]["id"]);
 }
