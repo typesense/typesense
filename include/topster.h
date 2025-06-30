@@ -241,7 +241,6 @@ struct Topster {
     // For estimating the count of groups identified by `distinct_key`.
     bool is_group_by_first_pass;
     std::unique_ptr<LogLogBeta> loglog_counter;
-    size_t aggregate_counter = 0;
 
     // For estimating the size of each group in the first pass of group_by. We'll have the exact size of each group in
     // the second pass. Only required when `sort_by: _group_found` is mentioned.
@@ -475,7 +474,7 @@ struct Topster {
     }
 
     size_t getGroupsCount() {
-        return std::max(aggregate_counter, loglog_counter != nullptr ? loglog_counter->cardinality() : 0);
+        return loglog_counter != nullptr ? loglog_counter->cardinality() : 0;
     }
 
     void mergeGroupsCount(Topster& topster) {

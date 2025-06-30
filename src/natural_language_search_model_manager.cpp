@@ -182,22 +182,36 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(co
     schema_prompt += "|------------|-----------|------------|------------|-------------|\n";
 
     std::unordered_map<std::string, std::vector<std::string>> field_facet_values;
+    
+    // Collect all string facetable fields
+    std::vector<std::string> string_facet_fields;
     for (const auto& facet_field : coll->get_facet_fields()) {
         if (search_schema.count(facet_field) == 0) continue;
 
         const auto& field_type = search_schema.at(facet_field).type;
         bool is_string_type = (field_type == field_types::STRING || field_type == field_types::STRING_ARRAY);
-        if (!is_string_type) continue;
-
-        auto results = coll->search("*", {facet_field}, "", {facet_field}, {}, {0}, 0, 1,
-          FREQUENCY, {false}, 0, {}, {}, 20).get();
+        if (is_string_type) {
+            string_facet_fields.push_back(facet_field);
+        }
+    }
+    
+    // Perform a single search query for all facetable fields
+    if (!string_facet_fields.empty()) {
+        auto results = coll->search("*", {}, "", string_facet_fields, {}, {0}, 0, 1,
+          FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 20,
+          "", 30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3,
+          "<mark>", "</mark>", {}, 1000000, true, false, true, "", false,
+          6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX, 2,
+          false, false, "", true, 0, max_score, 20, 1000).get();
 
         if (results.contains("facet_counts") && results["facet_counts"].is_array()) {
             for (const auto& facet_result : results["facet_counts"]) {
-                if (facet_result["field_name"] == facet_field &&
+                if (facet_result.contains("field_name") && facet_result["field_name"].is_string() &&
                     facet_result.contains("counts") && facet_result["counts"].is_array()) {
-
-                    auto& values = field_facet_values[facet_field];
+                    
+                    std::string field_name = facet_result["field_name"].get<std::string>();
+                    auto& values = field_facet_values[field_name];
+                    
                     for (const auto& count : facet_result["counts"]) {
                         if (count.contains("value") && count["value"].is_string()) {
                             values.push_back(count["value"].get<std::string>());
@@ -268,6 +282,8 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(co
     schema_prompt += "  \"filter_by\": \"typesense filter syntax explained above\",\n";
     schema_prompt += "  \"sort_by\": \"typesense sort syntax explained above\"\n";
     schema_prompt += "}\n";
+    
+    // LOG(INFO) << "Schema prompt for'" << collection_name << "': " << schema_prompt;
     
     std::unique_lock lock(schema_prompts_mutex);
     schema_prompts.insert(collection_name, SchemaPromptEntry(schema_prompt));

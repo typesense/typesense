@@ -64,15 +64,26 @@ jobs:
       # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
       - name: Set BAZEL_BIN_FULL_PATH
         run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
+        
+      - name: Set BAZEL_TESTLOGS_FULL_PATH
+        run: echo "BAZEL_TESTLOGS_FULL_PATH=$(readlink -f bazel-testlogs)" >> $GITHUB_ENV
+        if: failure()
+        
       - name: Save build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: typesense-server
           path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
-   
+        
+      - name: Save test logs on failure
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: ${{ env.BAZEL_TESTLOGS_FULL_PATH }}/
+        if: failure()
+  
   integration-tests:
     needs: test
-
     runs-on: ubuntu-22.04
 
     steps:
@@ -105,3 +116,29 @@ jobs:
           TYPESENSE_BINARY: ${{ github.workspace }}/typesense-server-binary/typesense-server
           TYPESENSE_WORKING_DIRECTORY: ${{ github.workspace }}/tmp/test
         run: pnpm test
+  
+  api-tests:
+    needs: test
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Download Typesense Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: typesense-server
+          path: ./typesense-server-binary
+      - name: Make binary executable
+        run: chmod +x ./typesense-server-binary/typesense-server
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        working-directory: api_tests
+        run: bun install 
+      - name: Run API tests
+        working-directory: api_tests
+        env:
+          TYPESENSE_BINARY_PATH: ${{ github.workspace }}/typesense-server-binary/typesense-server
+          TYPESENSE_DATA_DIR: ${{ github.workspace }}/tmp/test
+        run: bun run src/index.ts

@@ -21,6 +21,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
         NaturalLanguageSearchModelManager::init(store);
+        NaturalLanguageSearchModel::clear_mock_responses();
     }
 
     void TearDown() override {
@@ -31,12 +32,28 @@ protected:
 };
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AddModelSuccess) {
-    nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "YOUR_OPENAI_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 0.0}
-    };
+    // Mock a successful validation response
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-3.5-turbo",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Hello! How can I help you today?"
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "");
@@ -44,11 +61,11 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AddModelSuccess) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AddModelFailure) {
-    nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "YOUR_OPENAI_API_KEY"},
-      {"temperature", 0.0}
-    };
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "temperature": 0.0
+    })"_json;
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "Property `max_bytes` is not provided or not a positive integer.");
@@ -58,12 +75,28 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AddModelFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, GetModelSuccess) {
-    nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "YOUR_OPENAI_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 0.0}
-    };
+    // Mock a successful validation response
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-3.5-turbo",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Hello! How can I help you today?"
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_TRUE(result.ok());
@@ -79,12 +112,28 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GetModelFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, DeleteModelSuccess) {
-    nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "YOUR_OPENAI_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 0.0}
-    };
+    // Mock a successful validation response
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-3.5-turbo",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Hello! How can I help you today?"
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_TRUE(result.ok());
@@ -103,13 +152,139 @@ TEST_F(NaturalLanguageSearchModelManagerTest, DeleteModelFailure) {
     ASSERT_EQ(model.error(), "Model not found");
 }
 
+TEST_F(NaturalLanguageSearchModelManagerTest, AddModelInvalidAPIKeyOpenAI) {
+    // Mock an invalid API key response from OpenAI
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "error": {
+        "message": "Incorrect API key provided: YOUR_OPENAI_API_KEY. You can find your API key at https://platform.openai.com/account/api-keys.",
+        "type": "invalid_request_error",
+        "param": null,
+        "code": "invalid_api_key"
+      }
+    })", 401, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
+    std::string model_id = "test_model_id";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_FALSE(result.ok());
+    ASSERT_NE(result.error().find("Incorrect API key provided"), std::string::npos);
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AddModelAPITimeoutOpenAI) {
+    // Mock a timeout response
+    NaturalLanguageSearchModel::add_mock_response("", 408, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
+    std::string model_id = "test_model_id";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.error(), "OpenAI API timeout.");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AddModelInvalidAPIKeyCloudflare) {
+    // Mock an invalid API key response from Cloudflare
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "errors": [
+        {
+          "message": "Authentication error: Invalid API key",
+          "code": 10000
+        }
+      ],
+      "success": false
+    })", 403, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "cloudflare/@cf/meta/llama-2-7b-chat-int8",
+      "api_key": "INVALID_API_KEY",
+      "account_id": "test_account",
+      "max_bytes": 1024
+    })"_json;
+    std::string model_id = "test_cf_model";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_FALSE(result.ok());
+    ASSERT_NE(result.error().find("Authentication error"), std::string::npos);
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AddModelInvalidCredentialsGCP) {
+    // Mock an invalid credentials response from GCP
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "error": {
+        "code": 401,
+        "message": "Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential.",
+        "status": "UNAUTHENTICATED"
+      }
+    })", 401, {});
+    
+    // Mock failed token refresh
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "error": "invalid_grant",
+      "error_description": "Token has been expired or revoked."
+    })", 400, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "gcp/gemini-pro",
+      "project_id": "test-project",
+      "access_token": "expired_token",
+      "refresh_token": "invalid_refresh_token",
+      "client_id": "test_client_id",
+      "client_secret": "test_client_secret",
+      "max_bytes": 1024
+    })"_json;
+    std::string model_id = "test_gcp_model";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_FALSE(result.ok());
+    // Check that the error message is properly formatted without embedded JSON
+    ASSERT_NE(result.error().find("Failed to refresh GCP access token: GCP OAuth API error: invalid_grant - Token has been expired or revoked."), std::string::npos);
+}
+
 TEST_F(NaturalLanguageSearchModelManagerTest, GetAllModelsSuccess) {
-    nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "YOUR_OPENAI_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 0.0}
-    };
+    // Mock successful validation responses for both models
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-3.5-turbo",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Hello!"
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    })", 200, {});
+    
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-3.5-turbo",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Hello!"
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
     std::string model_id_1 = "test_model_id_1";
     std::string model_id_2 = "test_model_id_2";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id_1, false);
@@ -126,15 +301,40 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GetAllModelsSuccess) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, UpdateModelSuccess) {
-    nlohmann::json model_config = {
-      {"model_name", "openai/gpt-3.5-turbo"},
-      {"api_key", "YOUR_OPENAI_API_KEY"},
-      {"max_bytes", size_t(1024)},
-      {"temperature", 0.0}
-    };
+    // Mock successful validation for initial OpenAI model
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-3.5-turbo",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Hello!"
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "openai/gpt-3.5-turbo",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_TRUE(result.ok());
+    
+    // Mock successful validation for updated Cloudflare model
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "result": {
+        "response": "Hello from Cloudflare!"
+      },
+      "success": true
+    })", 200, {});
+    
     model_config["model_name"] = "cloudflare/llama-3.2-70b-instruct";
     model_config["account_id"] = "YOUR_CLOUDFLARE_ACCOUNT_ID";
     auto update_result = NaturalLanguageSearchModelManager::update_model(model_id, model_config);
@@ -146,12 +346,28 @@ TEST_F(NaturalLanguageSearchModelManagerTest, UpdateModelSuccess) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, UpdateModelFailure) {
-  nlohmann::json model_config = {
-    {"model_name", "openai/gpt-3.5-turbo"},
-    {"api_key", "YOUR_OPENAI_API_KEY"},
-    {"max_bytes", size_t(1024)},
-    {"temperature", 0.0}
-  };
+  // Mock successful validation for initial model
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Hello!"
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  })", 200, {});
+  
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "YOUR_OPENAI_API_KEY",
+    "max_bytes": 1024,
+    "temperature": 0.0
+  })"_json;
   std::string model_id = "test_model_id";
   auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
   ASSERT_TRUE(result.ok());
@@ -456,7 +672,24 @@ The output should be in JSON format like this:
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQuerySucess) {
-  NaturalLanguageSearchModel::set_mock_response(R"({
+  // Mock successful validation for model creation
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Hello!"
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  })", 200, {});
+  
+  // Mock response for the actual NL query processing
+  NaturalLanguageSearchModel::add_mock_response(R"({
     "object": "chat.completion",
     "model": "gpt-3.5-turbo",
     "choices": [
@@ -508,12 +741,12 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQuerySucess) {
   req_params["collection"] = "titles";
   req_params["query_by"] = "title";
 
-  nlohmann::json model_config = {
-    {"model_name", "openai/gpt-3.5-turbo"},
-    {"api_key", "YOUR_OPENAI_API_KEY"},
-    {"max_bytes", size_t(1024)},
-    {"temperature", 0.0}
-  };
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "YOUR_OPENAI_API_KEY",
+    "max_bytes": 1024,
+    "temperature": 0.0
+  })"_json;
   std::string model_id = "default";
   auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
   ASSERT_TRUE(result.ok());
@@ -529,6 +762,31 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQuerySucess) {
   ASSERT_EQ(req_params["llm_generated_filter_by"], "make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
 
   req_params["filter_by"] = "engine_hp:>=300";
+  
+  // Add another mock response for the second call
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"q\": \"test\",\n  \"filter_by\": \"make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014\",\n  \"sort_by\": \"msrp:desc\"\n}",
+          "refusal": null,
+          "annotations": []
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 920,
+      "completion_tokens": 58,
+      "total_tokens": 978
+    }
+  })", 200, {});
+  
   nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
   ASSERT_TRUE(nl_search_op.ok());
   ASSERT_EQ(req_params["filter_by"], "engine_hp:>=300 && make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014");
@@ -567,18 +825,34 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidModel)
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidCollection) {
+  // Mock successful validation for model creation
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Hello!"
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  })", 200, {});
+  
   std::map<std::string, std::string> req_params;
   req_params["nl_query"] = "true";
   req_params["q"] = "Find expensive laptops";
   req_params["collection"] = "titles";
   req_params["query_by"] = "title";
 
-  nlohmann::json model_config = {
-    {"model_name", "openai/gpt-3.5-turbo"},
-    {"api_key", "YOUR_OPENAI_API_KEY"},
-    {"max_bytes", size_t(1024)},
-    {"temperature", 0.0}
-  };
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "YOUR_OPENAI_API_KEY",
+    "max_bytes": 1024,
+    "temperature": 0.0
+  })"_json;
   std::string model_id = "default";
   auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
   ASSERT_TRUE(result.ok());
@@ -590,7 +864,24 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidCollec
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidResponse) {
-  NaturalLanguageSearchModel::set_mock_response("", 200, {});
+  // Mock successful validation for model creation
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Hello!"
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  })", 200, {});
+  
+  // Mock invalid response for the actual query
+  NaturalLanguageSearchModel::add_mock_response("", 200, {});
 
   nlohmann::json titles_schema = R"({
     "name": "titles",
@@ -611,12 +902,12 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidRespon
   req_params["collection"] = "titles";
   req_params["query_by"] = "title";
 
-  nlohmann::json model_config = {
-    {"model_name", "openai/gpt-3.5-turbo"},
-    {"api_key", "YOUR_OPENAI_API_KEY"},
-    {"max_bytes", size_t(1024)},
-    {"temperature", 0.0}
-  };
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "YOUR_OPENAI_API_KEY",
+    "max_bytes": 1024,
+    "temperature": 0.0
+  })"_json;
   std::string model_id = "default";
   auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
   ASSERT_TRUE(result.ok());
@@ -627,7 +918,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AugmentNLQueryFailureInvalidRespon
   ASSERT_EQ(req_params["_nl_processing_failed"], "true");
   ASSERT_EQ(req_params["error"], "Error generating search parameters: Failed to parse OpenAI response: Invalid JSON");
 
-  NaturalLanguageSearchModel::set_mock_response("", 400, {});
+  NaturalLanguageSearchModel::add_mock_response("", 400, {});
   nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
   ASSERT_FALSE(nl_search_op.ok());
   ASSERT_EQ(nl_search_op.error(), "Error generating search parameters: Failed to get response from OpenAI: 400");
@@ -704,4 +995,257 @@ TEST_F(NaturalLanguageSearchModelManagerTest, ExcludeParsedNLQuery) {
   results_json.clear();
   NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &req_params, 1);
   ASSERT_EQ(results_json.contains("parsed_nl_query"), false);
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AddGoogleModelSuccess) {
+    // Mock successful Google Gemini validation
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "Hello from Gemini!"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "google/gemini-2.5-flash",
+      "api_key": "YOUR_GOOGLE_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
+    std::string model_id = "test_google_model_id";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "");
+    ASSERT_TRUE(result.ok());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AddGoogleModelWithOptionalParams) {
+    // Mock successful Google Gemini validation
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "Hello from Gemini Pro!"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "google/gemini-2.5-pro",
+      "api_key": "YOUR_GOOGLE_API_KEY",
+      "max_bytes": 2048,
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "top_k": 40,
+      "stop_sequences": ["END", "STOP"],
+      "api_version": "v1",
+      "system_prompt": "You are a helpful assistant"
+    })"_json;
+    std::string model_id = "test_google_model_advanced";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "");
+    ASSERT_TRUE(result.ok());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, GoogleModelValidationFailures) {
+    // Test missing API key
+    nlohmann::json model_config = R"({
+      "model_name": "google/gemini-2.5-flash",
+      "max_bytes": 1024
+    })"_json;
+    std::string model_id = "test_google_invalid";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `api_key` is missing or is not a non-empty string.");
+    ASSERT_FALSE(result.ok());
+
+    // Test invalid temperature
+    model_config = R"({
+      "model_name": "google/gemini-2.5-flash",
+      "api_key": "YOUR_GOOGLE_API_KEY",
+      "max_bytes": 1024,
+      "temperature": 3.0
+    })"_json;
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `temperature` must be a number between 0 and 2.");
+    ASSERT_FALSE(result.ok());
+
+    // Test invalid top_p
+    model_config = R"({
+      "model_name": "google/gemini-2.5-flash",
+      "api_key": "YOUR_GOOGLE_API_KEY",
+      "max_bytes": 1024,
+      "top_p": 1.5
+    })"_json;
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `top_p` must be a number between 0 and 1.");
+    ASSERT_FALSE(result.ok());
+
+    // Test invalid top_k
+    model_config = R"({
+      "model_name": "google/gemini-2.5-flash",
+      "api_key": "YOUR_GOOGLE_API_KEY",
+      "max_bytes": 1024,
+      "top_k": -5
+    })"_json;
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `top_k` must be a non-negative integer.");
+    ASSERT_FALSE(result.ok());
+
+    // Test invalid stop_sequences
+    model_config = R"({
+      "model_name": "google/gemini-2.5-flash",
+      "api_key": "YOUR_GOOGLE_API_KEY",
+      "max_bytes": 1024,
+      "stop_sequences": "not an array"
+    })"_json;
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `stop_sequences` must be an array of strings.");
+    ASSERT_FALSE(result.ok());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AddGCPModelSuccess) {
+    // Mock successful GCP Vertex AI validation
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "Hello from Vertex AI!"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "gcp/gemini-2.5-flash",
+      "project_id": "my-gcp-project",
+      "access_token": "initial-access-token",
+      "refresh_token": "refresh-token",
+      "client_id": "client-id",
+      "client_secret": "client-secret",
+      "max_bytes": 1024,
+      "temperature": 0.0
+    })"_json;
+    std::string model_id = "test_gcp_model_id";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "");
+    ASSERT_TRUE(result.ok());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, AddGCPModelWithOptionalParams) {
+    // Mock successful GCP Vertex AI validation
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "Hello from Vertex AI Pro!"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "gcp/gemini-2.5-pro",
+      "project_id": "my-gcp-project",
+      "access_token": "initial-access-token",
+      "refresh_token": "refresh-token",
+      "client_id": "client-id",
+      "client_secret": "client-secret",
+      "max_bytes": 2048,
+      "region": "europe-west1",
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "top_k": 40,
+      "max_output_tokens": 4096,
+      "system_prompt": "You are a helpful search assistant"
+    })"_json;
+    std::string model_id = "test_gcp_model_advanced";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "");
+    ASSERT_TRUE(result.ok());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, GCPModelValidationFailures) {
+    // Test missing project_id
+    nlohmann::json model_config = R"({
+      "model_name": "gcp/gemini-2.5-flash",
+      "access_token": "token",
+      "refresh_token": "refresh",
+      "client_id": "id",
+      "client_secret": "secret",
+      "max_bytes": 1024
+    })"_json;
+    std::string model_id = "test_gcp_invalid";
+    auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `project_id` is missing or is not a non-empty string.");
+    ASSERT_FALSE(result.ok());
+
+    // Test missing access_token
+    model_config = R"({
+      "model_name": "gcp/gemini-2.5-flash",
+      "project_id": "my-project",
+      "refresh_token": "refresh",
+      "client_id": "id",
+      "client_secret": "secret",
+      "max_bytes": 1024
+    })"_json;
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `access_token` is missing or is not a non-empty string.");
+    ASSERT_FALSE(result.ok());
+
+    // Test invalid temperature
+    model_config = R"({
+      "model_name": "gcp/gemini-2.5-flash",
+      "project_id": "my-project",
+      "access_token": "token",
+      "refresh_token": "refresh",
+      "client_id": "id",
+      "client_secret": "secret",
+      "max_bytes": 1024,
+      "temperature": 3.0
+    })"_json;
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `temperature` must be a number between 0 and 2.");
+    ASSERT_FALSE(result.ok());
+
+    // Test invalid max_output_tokens
+    model_config = R"({
+      "model_name": "gcp/gemini-2.5-flash",
+      "project_id": "my-project",
+      "access_token": "token",
+      "refresh_token": "refresh",
+      "client_id": "id",
+      "client_secret": "secret",
+      "max_bytes": 1024,
+      "max_output_tokens": -100
+    })"_json;
+    result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+    ASSERT_EQ(result.error(), "Property `max_output_tokens` must be a positive integer.");
+    ASSERT_FALSE(result.ok());
 }
