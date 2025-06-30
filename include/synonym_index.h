@@ -128,18 +128,31 @@ private:
     uint32_t synonym_index = 0;
     std::map<uint32_t, synonym_t> synonym_definitions;
     synonym_node_t synonym_trie_root;
+    std::string name;
 public:
 
     static constexpr const char* COLLECTION_SYNONYM_PREFIX = "$CY";
 
-    SynonymIndex(Store* store): store(store) {
+    SynonymIndex(Store* store, const std::string& name): store(store), name(name) {
 
     }
 
     ~SynonymIndex() {
     }
 
-    static std::string get_synonym_key(const std::string & collection_name, const std::string & synonym_id);
+    SynonymIndex(const SynonymIndex&) = delete;
+    SynonymIndex& operator=(const SynonymIndex&) = delete;
+
+    SynonymIndex(SynonymIndex&& other) {
+        swap(*this, other);
+    }
+
+    SynonymIndex& operator=(SynonymIndex&& other) noexcept {
+        swap(*this, other);
+        return *this;
+    }
+
+    static std::string get_synonym_key(const std::string & index_name, const std::string & synonym_id);
 
     void synonym_reduction(const std::vector<std::string>& tokens,
                            const std::string& locale,
@@ -150,8 +163,19 @@ public:
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 
-    Option<bool> add_synonym(const std::string & collection_name, const synonym_t& synonym,
+    Option<bool> add_synonym(const synonym_t& synonym,
                              bool write_to_store = true);
 
-    Option<bool> remove_synonym(const std::string & collection_name, const std::string & id);
+    Option<bool> remove_synonym(const std::string & id);
+
+    nlohmann::json to_view_json() const;
+
+    friend void swap(SynonymIndex& first, SynonymIndex& second) noexcept {
+        using std::swap;
+        swap(first.store, second.store);
+        swap(first.synonym_ids_index_map, second.synonym_ids_index_map);
+        swap(first.synonym_index, second.synonym_index);
+        swap(first.synonym_definitions, second.synonym_definitions);
+        swap(first.synonym_trie_root, second.synonym_trie_root);
+    }
 };

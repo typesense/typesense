@@ -20,6 +20,7 @@
 #include "validator.h"
 #include <collection_manager.h>
 #include "personalization_model_manager.h"
+#include "synonym_index_manager.h"
 
 #define RETURN_CIRCUIT_BREAKER if((std::chrono::duration_cast<std::chrono::microseconds>( \
                   std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) { \
@@ -51,10 +52,10 @@ spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::vector_query_sentinel_v
 spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::union_search_index_sentinel_value;
 
 Index::Index(const std::string& name, const uint32_t collection_id, const Store* store,
-             SynonymIndex* synonym_index, ThreadPool* thread_pool,
+            ThreadPool* thread_pool,
              const tsl::htrie_map<char, field> & search_schema,
              const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators):
-        name(name), collection_id(collection_id), store(store), synonym_index(synonym_index), thread_pool(thread_pool),
+        name(name), collection_id(collection_id), store(store), thread_pool(thread_pool),
         search_schema(search_schema),
         seq_ids(new id_list_t(256)), symbols_to_index(symbols_to_index), token_separators(token_separators) {
 
@@ -2589,7 +2590,8 @@ Option<bool> Index::run_search(search_args* search_params) {
                           search_params->rerank_hybrid_matches,
                           search_params->validate_field_names,
                           true,
-                          group_by_missing_value_ids
+                          group_by_missing_value_ids,
+                          search_params->synonym_sets
         );
 
         // The filter iterator can be updated in places like `Index::do_phrase_search`.
@@ -2759,7 +2761,8 @@ Option<bool> Index::run_search(search_args* search_params) {
                   search_params->rerank_hybrid_matches,
                   search_params->validate_field_names,
                   false,
-                  group_by_missing_value_ids
+                  group_by_missing_value_ids,
+                  search_params->synonym_sets
     );
 
     // The filter iterator can be updated in places like `Index::do_phrase_search`.
@@ -3450,7 +3453,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool enable_lazy_filter,
                    bool enable_typos_for_alpha_numerical_tokens, const size_t& max_filter_by_candidates,
                    bool rerank_hybrid_matches, const bool& validate_field_names, bool is_group_by_first_pass,
-                   std::set<uint32_t>& group_by_missing_value_ids) const {
+                   std::set<uint32_t>& group_by_missing_value_ids, const std::vector<std::string>& synonym_sets) const {
     std::shared_lock lock(mutex);
 
     group_found_params_t group_found_params{};
@@ -3757,9 +3760,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         const bool found_search_field = (search_field_it != search_schema.end());
 
         if(enable_synonyms && found_search_field) {
-            synonym_index->synonym_reduction(q_include_tokens, search_field_it->locale,
+            for(const auto& synonym_index_name : synonym_sets) {
+                auto synonym_index_op = SynonymIndexManager::get_instance().get_synonym_index(synonym_index_name);
+                if(!synonym_index_op.ok()) {
+                    return Option<bool>(400, "Could not find synonym index `" + synonym_index_name + "`");
+                }
+                synonym_index_op.get()->synonym_reduction(q_include_tokens, search_field_it->locale,
                                              field_query_tokens[0].q_synonyms,
                                              synonym_prefix, synonym_num_typos);
+            }
         }
 
         if(!field_query_tokens[0].q_synonyms.empty()) {

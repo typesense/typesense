@@ -161,6 +161,7 @@ struct collection_search_args_t {
 
     static constexpr auto SYNONYM_PREFIX = "synonym_prefix";
     static constexpr auto SYNONYM_NUM_TYPOS = "synonym_num_typos";
+    static constexpr auto SYNONYM_SETS = "synonym_sets";
 
 //query time flag to enable analyitcs for that query
     static constexpr auto ENABLE_ANALYTICS = "enable_analytics";
@@ -246,6 +247,7 @@ struct collection_search_args_t {
     bool enable_synonyms;
     bool synonym_prefix;
     size_t synonym_num_typos;
+    std::vector<std::string> synonym_sets;
     bool enable_lazy_filter;
     bool enable_typos_for_alpha_numerical_tokens;
     size_t max_filter_by_candidates;
@@ -293,7 +295,7 @@ struct collection_search_args_t {
                              std::string analytics_tag,
                              std::string personalization_user_id, std::string personalization_model_id,
                              std::string personalization_type, std::string personalization_user_field,
-                             std::string personalization_item_field, std::string personalization_event_name, size_t personalization_n_events) :
+                             std::string personalization_item_field, std::string personalization_event_name, size_t personalization_n_events, std::vector<std::string> synonym_sets) :
             raw_query(std::move(raw_query)), search_fields(std::move(search_fields)), filter_query(std::move(filter_query)),
             facet_fields(std::move(facet_fields)), sort_fields(std::move(sort_fields)),
             num_typos(std::move(num_typos)), per_page(per_page), page(page), token_order(token_order),
@@ -324,7 +326,8 @@ struct collection_search_args_t {
             analytics_tag(analytics_tag),
             personalization_user_id(personalization_user_id), personalization_model_id(personalization_model_id),
             personalization_type(personalization_type), personalization_user_field(personalization_user_field),
-            personalization_item_field(personalization_item_field), personalization_event_name(personalization_event_name), personalization_n_events(personalization_n_events) {}
+            personalization_item_field(personalization_item_field), personalization_event_name(personalization_event_name), personalization_n_events(personalization_n_events),
+            synonym_sets(synonym_sets) {}
 
     collection_search_args_t() = default;
 
@@ -418,7 +421,7 @@ private:
 
     std::vector<char> token_separators;
 
-    SynonymIndex* synonym_index;
+    std::vector<std::string> synonym_sets;
 
     /// "field name" -> reference_info(referenced_collection_name, referenced_field_name, is_async)
     spp::sparse_hash_map<std::string, reference_info_t> reference_fields;
@@ -709,6 +712,7 @@ public:
     static constexpr const char* COLLECTION_NUM_MEMORY_SHARDS = "num_memory_shards";
     static constexpr const char* COLLECTION_FALLBACK_FIELD_TYPE = "fallback_field_type";
     static constexpr const char* COLLECTION_ENABLE_NESTED_FIELDS = "enable_nested_fields";
+    static constexpr const char* COLLECTION_SYNONYM_SETS = "synonym_sets";
 
     static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
@@ -729,7 +733,8 @@ public:
                spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>(),
                const nlohmann::json& metadata = {},
                spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins =
-                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
+               const std::vector<std::string>& collection_synonym_sets = {});
 
     ~Collection();
 
@@ -773,7 +778,11 @@ public:
 
     std::string get_default_sorting_field();
 
+    std::vector<std::string> get_synonym_sets() const;
+
     void update_metadata(const nlohmann::json& meta);
+
+    void update_synonym_sets(const std::vector<std::string>& synonym_sets);
 
     Option<bool> update_apikey(const nlohmann::json& model_config, const std::string& field_name);
 
@@ -947,7 +956,8 @@ public:
                                   std::string personalization_user_field = "",
                                   std::string personalization_item_field = "",
                                   std::string personalization_event_name = "",
-                                  size_t personalization_n_events = 0) const;
+                                  size_t personalization_n_events = 0,
+                                  const std::vector<std::string>& search_synonym_sets = {}) const;
 
     Option<bool> parse_and_validate_personalization_query(const std::string& personalization_user_id,
                                                           const std::string& personalization_model_id,
@@ -1009,21 +1019,11 @@ public:
     Option<override_t> get_override(const std::string& override_id);
 
     // synonym operations
-
-    Option<std::map<uint32_t, synonym_t*>> get_synonyms(uint32_t limit=0, uint32_t offset=0);
-
-    bool get_synonym(const std::string& id, synonym_t& synonym);
-
-    Option<bool> add_synonym(const nlohmann::json& syn_json, bool write_to_store = true);
-
-    Option<bool> remove_synonym(const std::string & id);
-
     void synonym_reduction(const std::vector<std::string>& tokens,
                            const std::string& locale,
                            std::vector<std::vector<std::string>>& results,
-                           bool synonym_prefix = false, uint32_t synonym_num_typos = 0) const;
-
-    SynonymIndex* get_synonym_index();
+                           bool synonym_prefix = false, uint32_t synonym_num_typos = 0,
+                           const std::vector<std::string>& = {}) const;
 
     spp::sparse_hash_map<std::string, reference_info_t> get_reference_fields();
 
@@ -1172,4 +1172,3 @@ bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::js
         return false;
     }
 }
-

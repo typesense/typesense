@@ -75,6 +75,16 @@ bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared
 
 bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+// Synonym Sets
+
+bool get_synonym_sets(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool put_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Overrides
 
 bool get_overrides(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

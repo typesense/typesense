@@ -28,6 +28,7 @@
 #include "field.h"
 #include "join.h"
 #include "sole.hpp"
+#include "synonym_index_manager.h"
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
@@ -61,7 +62,8 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model,
                        spp::sparse_hash_map<std::string, std::string> referenced_in,
                        const nlohmann::json& metadata,
-                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins) :
+                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins,
+                       const std::vector<std::string>& synonym_sets) :
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
@@ -70,7 +72,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
         index(init_index()), vq_model(vq_model),
         referenced_in(std::move(referenced_in)),
-        metadata(metadata), async_referenced_ins(std::move(async_referenced_ins))  {
+        metadata(metadata), async_referenced_ins(std::move(async_referenced_ins)), synonym_sets(synonym_sets)  {
     
     if (vq_model) {
         vq_model->inc_collection_ref_count();
@@ -84,8 +86,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
 Collection::~Collection() {
     std::unique_lock lock(mutex);
     delete index;
-    delete synonym_index;   
-
+    
     if (vq_model) {
         vq_model->dec_collection_ref_count();
         if (vq_model->get_collection_ref_count() == 0) {
@@ -328,6 +329,7 @@ nlohmann::json Collection::get_summary_json() const {
     json_response["enable_nested_fields"] = enable_nested_fields;
     json_response["token_separators"] = nlohmann::json::array();
     json_response["symbols_to_index"] = nlohmann::json::array();
+    json_response["synonym_sets"] = synonym_sets;
 
     for(auto c: symbols_to_index) {
         json_response["symbols_to_index"].push_back(std::string(1, c));
@@ -1979,6 +1981,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     const bool& enable_synonyms = coll_args.enable_synonyms;
     const bool& synonym_prefix = coll_args.synonym_prefix;
     const uint32_t& synonyms_num_typos = coll_args.synonym_num_typos;
+    const std::vector<std::string>& param_synonym_sets = coll_args.synonym_sets;
     const bool& enable_lazy_filter = coll_args.enable_lazy_filter;
     const bool& enable_typos_for_alpha_numerical_tokens = coll_args.enable_typos_for_alpha_numerical_tokens;
     const size_t& max_filter_by_candidates = coll_args.max_filter_by_candidates;
@@ -1991,6 +1994,17 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     const std::string& personalization_item_field = coll_args.personalization_item_field;
     const std::string& personalization_event_name = coll_args.personalization_event_name;
     const size_t& personalization_n_events = coll_args.personalization_n_events;
+
+    // merge collection synonym sets and parameter synonym sets
+    std::unordered_set<std::string> merged_synonym_sets;
+    for(const auto& set : param_synonym_sets) {
+        merged_synonym_sets.insert(set);
+    }
+    for(const auto& set : synonym_sets) {
+        merged_synonym_sets.insert(set);
+    }
+
+    std::vector<std::string> all_synonym_sets = std::vector<std::string>(merged_synonym_sets.begin(), merged_synonym_sets.end());
 
     // setup thread local vars
     search_stop_us = search_stop_millis * 1000;
@@ -2577,6 +2591,13 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         }
     }
 
+    for(const auto& synonym_set : all_synonym_sets) {
+        auto get_synonym_index_op = SynonymIndexManager::get_instance().get_synonym_index(synonym_set);
+        if(!get_synonym_index_op.ok()) {
+            return Option<bool>(get_synonym_index_op.code(), get_synonym_index_op.error());
+        }
+    }
+
     // search all indices
 
     size_t index_id = 0;
@@ -2599,7 +2620,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                facet_index_types, enable_typos_for_numerical_tokens,
                                                enable_synonyms, synonym_prefix, synonyms_num_typos,
                                                enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches,
-                                               validate_field_names);
+                                               validate_field_names, all_synonym_sets);
 
     return Option<bool>(true);
 }
@@ -2680,7 +2701,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           std::string personalization_user_field,
                                           std::string personalization_item_field,
                                           std::string personalization_event_name,
-                                          size_t personalization_n_events) const {
+                                          size_t personalization_n_events,
+                                          const std::vector<std::string>& search_synonym_sets) const {
     std::shared_lock lock(mutex);
 
     auto args = collection_search_args_t(query, search_fields, filter_query,
@@ -2712,7 +2734,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                          personalization_user_id, personalization_model_id, personalization_type,
                                          personalization_user_field, personalization_item_field, personalization_event_name,
-                                         personalization_n_events);
+                                         personalization_n_events, search_synonym_sets);
     return search(args);
 }
 
@@ -2781,6 +2803,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
     const auto& personalization_user_field = coll_args.personalization_user_field;
     const auto& personalization_item_field = coll_args.personalization_item_field;
     const auto& personalization_n_events = coll_args.personalization_n_events;
+    
 
     auto& conversation_id = coll_args.conversation_id;
 
@@ -5650,6 +5673,11 @@ void Collection::update_metadata(const nlohmann::json& meta) {
     metadata = meta;
 }
 
+void Collection::update_synonym_sets(const std::vector<std::string>& synonym_sets) {
+    std::unique_lock lock(mutex);
+    this->synonym_sets = synonym_sets;
+}
+
 Option<bool> Collection::update_apikey(const nlohmann::json& model_config, const std::string& field_name) {
     std::unique_lock ulock(mutex);
 
@@ -5792,34 +5820,23 @@ Option<drop_tokens_param_t> Collection::parse_drop_tokens_mode(const std::string
     return Option<drop_tokens_param_t>(drop_tokens_param_t(drop_tokens_mode_val, drop_tokens_token_limit));
 }
 
-Option<bool> Collection::add_synonym(const nlohmann::json& syn_json, bool write_to_store) {
-    std::shared_lock lock(mutex);
-    synonym_t synonym;
-    Option<bool> syn_op = synonym_t::parse(syn_json, synonym);
-
-    if(!syn_op.ok()) {
-        return syn_op;
-    }
-
-    return synonym_index->add_synonym(name, synonym, write_to_store);
-}
-
-bool Collection::get_synonym(const std::string& id, synonym_t& synonym) {
-    std::shared_lock lock(mutex);
-    return synonym_index->get_synonym(id, synonym);
-}
-
-Option<bool> Collection::remove_synonym(const std::string &id) {
-    std::shared_lock lock(mutex);
-    return synonym_index->remove_synonym(name, id);
-}
-
 void Collection::synonym_reduction(const std::vector<std::string>& tokens,
                                      const std::string& locale,
                                      std::vector<std::vector<std::string>>& results,
-                                     bool synonym_prefix, uint32_t synonym_num_typos) const {
+                                     bool synonym_prefix, uint32_t synonym_num_typos,
+                                     const std::vector<std::string>& param_synonym_sets) const {
     std::shared_lock lock(mutex);
-    return synonym_index->synonym_reduction(tokens, locale, results, synonym_prefix, synonym_num_typos);
+    //return synonym_index->synonym_reduction(tokens, locale, results, synonym_prefix, synonym_num_typos);
+    for(const auto& synonym_set : param_synonym_sets) {
+        auto synonym_index_op = SynonymIndexManager::get_instance().get_synonym_index(synonym_set);
+        if(!synonym_index_op.ok()) {
+            LOG(ERROR) << "Error while fetching synonym index for set: " << synonym_set
+                       << ", error: " << synonym_index_op.error();
+            continue;
+        }
+        auto synonym_index = synonym_index_op.get();
+        synonym_index->synonym_reduction(tokens, locale, results, synonym_prefix, synonym_num_typos);
+    }
 }
 
 Option<override_t> Collection::get_override(const std::string& override_id) {
@@ -5858,20 +5875,6 @@ Option<std::map<std::string, override_t*>> Collection::get_overrides(uint32_t li
     }
 
     return Option<std::map<std::string, override_t*>>(overrides_map);
-}
-
-Option<std::map<uint32_t, synonym_t*>> Collection::get_synonyms(uint32_t limit, uint32_t offset) {
-    std::shared_lock lock(mutex);
-    auto synonyms_op = synonym_index->get_synonyms(limit, offset);
-    if(!synonyms_op.ok()) {
-        return Option<std::map<uint32_t, synonym_t*>>(synonyms_op.code(), synonyms_op.error());
-    }
-
-    return synonyms_op;
-}
-
-SynonymIndex* Collection::get_synonym_index() {
-    return synonym_index;
 }
 
 spp::sparse_hash_map<std::string, reference_info_t> Collection::get_reference_fields() {
@@ -6329,6 +6332,8 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     if(!schema_changes.is_object()) {
         return Option<bool>(400, "Bad JSON.");
     }
+
+    LOG(INFO) << "Schema changes: " << schema_changes.dump();
 
     if(schema_changes.size() != 1) {
         return Option<bool>(400, "Only `fields` and `metadata` can be updated at the moment.");
@@ -6921,12 +6926,9 @@ Index* Collection::init_index() {
         }
     }
 
-    synonym_index = new SynonymIndex(store);
-
     return new Index(name+std::to_string(0),
                      collection_id,
                      store,
-                     synonym_index,
                      CollectionManager::get_instance().get_thread_pool(),
                      search_schema,
                      symbols_to_index, token_separators);
@@ -7963,6 +7965,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     bool enable_synonyms = true;
     bool synonym_prefix = false;
     size_t synonym_num_typos = 0;
+    std::vector<std::string> synonym_sets;
 
     bool filter_curated_hits_option = false;
     std::string highlight_fields;
@@ -8091,6 +8094,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {INCLUDE_FIELDS, &include_fields_vec},
             {EXCLUDE_FIELDS, &exclude_fields_vec},
             {FACET_RETURN_PARENT, &facet_return_parent},
+            {SYNONYM_SETS, &synonym_sets}
     };
 
     std::unordered_map<std::string, std::vector<uint32_t>*> int_list_values = {
@@ -8266,7 +8270,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
                                     rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                     personalization_user_id, personalization_model_id, personalization_type,
-                                    personalization_user_field, personalization_item_field, personalization_event_name, personalization_n_events);
+                                    personalization_user_field, personalization_item_field, personalization_event_name, personalization_n_events, synonym_sets);
     return Option<bool>(true);
 }
 
@@ -8297,4 +8301,8 @@ union_global_params_t::union_global_params_t(const std::map<std::string, std::st
     }
 
     fetch_size = std::min<size_t>(offset + per_page, limit_hits);
+}
+
+std::vector<std::string> Collection::get_synonym_sets() const {
+    return synonym_sets;
 }

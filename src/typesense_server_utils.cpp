@@ -28,6 +28,7 @@
 #include "stemmer_manager.h"
 #include "natural_language_search_model_manager.h"
 #include "conversation_model.h"
+#include "synonym_index_manager.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -614,6 +615,9 @@ int run_server(const Config & config, const std::string & version, void (*master
     if(!rate_limit_manager_init.ok()) {
         LOG(INFO) << "Failed to initialize rate limit manager: " << rate_limit_manager_init.error();
     }
+
+    SynonymIndexManager& synonymIndexManager = SynonymIndexManager::get_instance();
+    synonymIndexManager.init_store(&store);
 
     EmbedderManager::set_model_dir(config.get_data_dir() + "/models");
 
