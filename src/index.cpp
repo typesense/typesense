@@ -7469,14 +7469,24 @@ void Index::handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
             for(const auto& item: operations["increment"].items()) {
                 auto field_it = search_schema.find(item.key());
                 if(field_it != search_schema.end()) {
-                    if(field_it->type == field_types::INT32 && item.value().is_number_integer()) {
-                        int32_t existing_value = 0;
-                        if(old_doc.contains(item.key())) {
-                            existing_value = old_doc[item.key()].get<int32_t>();
-                        }
+                    if(field_it->is_integer() && item.value().is_number_integer()) {
+                        if(field_it->is_int32()) {
+                            int32_t existing_value = 0;
+                            if(old_doc.contains(item.key())) {
+                                existing_value = old_doc[item.key()].get<int32_t>();
+                            }
 
-                        auto updated_value = existing_value + item.value().get<int32>();
-                        update_doc[item.key()] = updated_value;
+                            auto updated_value = existing_value + item.value().get<int32_t>();
+                            update_doc[item.key()] = updated_value;
+                        } else {
+                            int64_t existing_value = 0;
+                            if(old_doc.contains(item.key())) {
+                                existing_value = old_doc[item.key()].get<int64_t>();
+                            }
+
+                            auto updated_value = existing_value + item.value().get<int64_t>();
+                            update_doc[item.key()] = updated_value;
+                        }
                     }
                 }
             }
