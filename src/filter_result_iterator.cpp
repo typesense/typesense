@@ -2602,14 +2602,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
             continue;
         }
 
-        auto& result_reference = result->coll_to_references[i];
-        if (is_group_by_first_pass) {
-            // Copying since the references will be required in the second pass.
-            result_reference.insert(filter_result.coll_to_references[result_index].begin(),
-                                    filter_result.coll_to_references[result_index].end());
-        } else {
-            result_reference = filter_result.coll_to_references[result_index];
-        }
+        result->coll_to_references[i] = filter_result.coll_to_references[result_index];
     }
 
     validity = result_index < filter_result.count ? valid : invalid;
@@ -2663,14 +2656,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
             continue;
         }
 
-        auto& result_reference = result->coll_to_references[i];
-        if (is_group_by_first_pass) {
-            // Copying since the references will be required in the second pass.
-            result_reference.insert(filter_result.coll_to_references[match_index].begin(),
-                                    filter_result.coll_to_references[match_index].end());
-        } else {
-            result_reference = filter_result.coll_to_references[match_index];
-        }
+        result->coll_to_references[i] = filter_result.coll_to_references[match_index];
     }
 
     validity = result_index < filter_result.count ? valid : invalid;
