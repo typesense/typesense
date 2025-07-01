@@ -101,10 +101,21 @@ jobs:
       - name: Install dependencies
         working-directory: api_tests
         run: bun install 
-      - name: Run API tests
+      - name: Install typesense-api-tests
+        working-directory: api_tests
+        run: bun link
+      - name: Run API tests with secrets
+        if: github.repository == 'typesense/typesense'
         working-directory: api_tests
         env:
           TYPESENSE_BINARY_PATH: ${{ github.workspace }}/typesense-server-binary/typesense-server
           TYPESENSE_DATA_DIR: ${{ github.workspace }}/tmp/test
           OPEN_AI_API_KEY: ""
-        run: bun run src/index.ts
+        run: typesense-api-tests
+      - name: Run API tests without secrets
+        working-directory: api_tests
+        env:
+          TYPESENSE_BINARY_PATH: ${{ github.workspace }}/typesense-server-binary/typesense-server
+          TYPESENSE_DATA_DIR: ${{ github.workspace }}/tmp/test
+          OPEN_AI_API_KEY: ""
+        run: typesense-api-tests --no-secrets

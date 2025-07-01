@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { Phases } from "../src/constants";
+import { Phases, Filters } from "../src/constants";
 import { z } from "zod";
 import { fetchMultiNode } from "../src/request";
 
@@ -14,7 +14,7 @@ const CreateConversationModelResponse = z.object({
 })
 
 describe(Phases.MULTI_FRESH, () => {
-  it("conversation with rotation", async () => {
+  it(Filters.SECRETS + "conversation with rotation", async () => {
     await fetchMultiNode(1, "/collections", {
       method: "POST",
       body: JSON.stringify({
@@ -91,7 +91,7 @@ describe(Phases.MULTI_FRESH, () => {
 })
 
 describe(Phases.MULTI_RESTARTED, async () => {
-  it("validate conversation with rotation",async () => {
+  it(Filters.SECRETS + "validate conversation with rotation",async () => {
     const res = await fetchMultiNode(1, "/conversations/models/model-1", {
       method: "GET",
     });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { Phases } from "../src/constants";
+import { Phases, Filters } from "../src/constants";
 import { z } from "zod";
 import { fetchSingleNode } from "../src/request";
 
@@ -40,7 +40,7 @@ const CreateCollectionResponse = z.object({
 });
 
 describe(Phases.SINGLE_FRESH, () => {
-  it("create a collection with openai embedding", async () => {
+  it(Filters.SECRETS + "create a collection with openai embedding", async () => {
     const res = await fetchSingleNode("/collections", {
       method: "POST",
       body: JSON.stringify({
@@ -81,7 +81,7 @@ describe(Phases.SINGLE_FRESH, () => {
 });
 
 describe(Phases.SINGLE_RESTARTED, () => {
-  it("create a collection with openai embedding", async () => {
+  it(Filters.SECRETS + "create a collection with openai embedding", async () => {
     const res = await fetchSingleNode("/collections/openai_collection", {
       method: "GET",
     });
