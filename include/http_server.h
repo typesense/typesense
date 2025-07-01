@@ -295,4 +295,6 @@ public:
     int64_t get_num_queued_writes();
 
     void decr_pending_writes();
+
+    static bool curl_only_http1(std::string_view ua);
 };

@@ -687,6 +687,38 @@ bool HttpServer::is_write_request(const std::string& root_resource, const std::s
     return false;
 }
 
+bool HttpServer::curl_only_http1(std::string_view ua) {
+    constexpr int LIMIT = 7 * 1'000'000 + 71 * 1'000 + 0;   // 7 071 000 (v7.71.0)
+
+    std::size_t p = ua.find("curl/");
+    if (p == std::string_view::npos) {
+        return false;
+    }
+
+    p += 5;
+
+    int component = 0;          // digits of current field
+    long long encoded = 0;      // final value (64-bit is plenty)
+    long long factor = 1'000'000;   // major → 1 000 000, minor → 1 000, patch → 1
+
+    for (std::size_t i = p; i < ua.size() && factor; ++i) {
+        char c = ua[i];
+        if (std::isdigit(c)) {
+            component = component * 10 + (c - '0');
+        } else {
+            encoded += component * factor;
+            component = 0;
+            if (c != '.') {
+                break; // stop at any non-dot delimiter
+            }
+            factor /= 1000;                   // next field weight
+        }
+    }
+
+    encoded += component * factor;            // commit last field
+    return encoded <= LIMIT;
+}
+
 int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
     h2o_custom_generator_t* custom_generator = static_cast<h2o_custom_generator_t*>(ctx);
 
@@ -714,24 +746,14 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
         if(agent_header_cursor != -1) {
             h2o_iovec_t & slot = request->_req->headers.entries[agent_header_cursor].value;
             const std::string user_agent = std::string(slot.base, slot.len);
-            if(user_agent.find("curl/") != std::string::npos) {
-                std::string version_num;
-                for(size_t i = 5; i < user_agent.size(); i++) {
-                    if(std::isdigit(user_agent[i])) {
-                        version_num += user_agent[i];
-                    }
-                }
-
-                int major_version = version_num[0] - 48;  // convert ascii char to integer
-                if(major_version <= 7 && std::stoll(version_num) < 7710) { // allow >= v7.71.0
-                    std::string message = "{ \"message\": \"HTTP2 is not supported by your curl client. "
-                                          "You need to use atleast Curl v7.71.0.\"}";
-                    h2o_iovec_t body = h2o_strdup(&request->_req->pool, message.c_str(), SIZE_MAX);
-                    request->_req->res.status = 400;
-                    request->_req->res.reason = http_res::get_status_reason(400);
-                    h2o_send(request->_req, &body, 1, H2O_SEND_STATE_ERROR);
-                    return 0;
-                }
+            if(curl_only_http1(user_agent)) {
+                std::string message = "{ \"message\": \"HTTP2 is not supported by your curl client. "
+                                      "You need to use atleast Curl v7.71.0.\"}";
+                h2o_iovec_t body = h2o_strdup(&request->_req->pool, message.c_str(), SIZE_MAX);
+                request->_req->res.status = 400;
+                request->_req->res.reason = http_res::get_status_reason(400);
+                h2o_send(request->_req, &body, 1, H2O_SEND_STATE_ERROR);
+                return 0;
             }
         }
     }
