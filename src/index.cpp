@@ -7181,6 +7181,9 @@ void Index::remove_field(uint32_t seq_id, nlohmann::json& document, const std::s
                                                            document[field_name].get<std::vector<std::vector<double>>>();
 
         for(const std::vector<double>& latlong: latlongs) {
+            if(latlong.size() != 2) {
+                continue;
+            }
             S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
             auto cell = S2CellId(point);
             geopoint_range_index->delete_geopoint(cell.id(), seq_id);

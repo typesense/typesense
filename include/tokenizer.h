@@ -3,12 +3,11 @@
 #include <string>
 #include <vector>
 #include <iconv.h>
-#include <unicode/brkiter.h>
-#include <unicode/normalizer2.h>
-#include <unicode/translit.h>
 #include "japanese_localizer.h"
 #include "logger.h"
 #include "stemmer_manager.h"
+#include "mutex"
+#include "transliterator_pool.h"
 
 class Tokenizer {
 private:
@@ -48,8 +47,6 @@ private:
     const icu::Normalizer2* nfkd = nullptr;
     const icu::Normalizer2* nfkc = nullptr;
 
-    icu::Transliterator* transliterator = nullptr;
-
     std::shared_ptr<Stemmer> stemmer = nullptr;
 
     inline size_t get_stream_mode(char c) {
@@ -71,7 +68,6 @@ public:
         iconv_close(cd);
         free(normalized_text);
         delete bi;
-        delete transliterator;
     }
 
     void init(const std::string& input);

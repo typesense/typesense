@@ -103,7 +103,7 @@ perl_register_toolchains()
 git_repository(
     name = "com_github_brpc_braft",
     commit = "bc527db96420f610257573d80e5f60a8b0d835ef",
-    patches = ["//bazel/braft:0001.patch"],
+    patches = ["//bazel/braft:0001.patch", "//bazel/braft:0002_ipv6.patch"],
     remote = "https://github.com/baidu/braft.git",
     repo_mapping = {
         "@zlib": "@com_github_madler_zlib",

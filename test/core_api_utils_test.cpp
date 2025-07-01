@@ -1253,6 +1253,53 @@ TEST_F(CoreAPIUtilsTest, TestParseAPIKeyIPFromMetadata) {
     res = get_api_key_and_ip(only_ip);
     EXPECT_FALSE(res.ok());
 }
+
+TEST_F(CoreAPIUtilsTest, DualStackIPValidation) {
+    // Standard IPv4 address
+    std::string ipv4_metadata = "4:abcd127.0.0.1";
+    Option<std::pair<std::string, std::string>> res = get_api_key_and_ip(ipv4_metadata);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("127.0.0.1", res.get().second);
+
+    // Standard IPv6 address format
+    std::string ipv6_metadata = "4:abcd2001:db8::1";
+    res = get_api_key_and_ip(ipv6_metadata);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("2001:db8::1", res.get().second);
+
+    // Compressed IPv6 address format (localhost)
+    std::string compressed_ipv6 = "4:abcd::1";
+    res = get_api_key_and_ip(compressed_ipv6);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("::1", res.get().second);
+
+    // IPv4-mapped IPv6 address
+    std::string ipv4_mapped_ipv6 = "4:abcd::ffff:192.0.2.1";
+    res = get_api_key_and_ip(ipv4_mapped_ipv6);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("::ffff:192.0.2.1", res.get().second);
+
+    // Empty API key with IPv6
+    std::string empty_key_ipv6 = "0:2001:db8::1";
+    res = get_api_key_and_ip(empty_key_ipv6);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("", res.get().first);
+    EXPECT_EQ("2001:db8::1", res.get().second);
+
+    // Invalid IP addresses
+    std::string invalid_ipv4 = "4:abcd999.999.999.999";
+    res = get_api_key_and_ip(invalid_ipv4);
+    EXPECT_FALSE(res.ok());
+
+    std::string invalid_ipv6 = "4:abcdzzzz::1";
+    res = get_api_key_and_ip(invalid_ipv6);
+    EXPECT_FALSE(res.ok());
+}
+
 TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
     nlohmann::json schema = R"({
         "name": "coll1",
