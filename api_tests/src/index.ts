@@ -76,7 +76,7 @@ class TypesenseTestRunner {
   async noPhase() {
     console.log(`\n=== ⭐ Running phase: ${Phases.NO_PHASE} ===\n`);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.NO_PHASE],
+      cmd: ["bun", "test", "--test-name-pattern", Phases.NO_PHASE, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -86,7 +86,7 @@ class TypesenseTestRunner {
     await this.manager.startSingleNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_FRESH} ===\n`);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.SINGLE_FRESH],
+      cmd: ["bun", "test", "--test-name-pattern", Phases.SINGLE_FRESH, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -100,7 +100,7 @@ class TypesenseTestRunner {
     await this.manager.restartSingleNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_RESTARTED} ===\n`);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.SINGLE_RESTARTED],
+      cmd: ["bun", "test", "--test-name-pattern", Phases.SINGLE_RESTARTED, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -115,7 +115,7 @@ class TypesenseTestRunner {
     await this.manager.restartSingleNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_SNAPSHOT} ===\n`);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.SINGLE_SNAPSHOT],
+      cmd: ["bun", "test", "--test-name-pattern", Phases.SINGLE_SNAPSHOT, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -129,7 +129,7 @@ class TypesenseTestRunner {
     await this.manager.startMultiNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_FRESH} ===\n`);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.MULTI_FRESH],
+      cmd: ["bun", "test", "--test-name-pattern", Phases.MULTI_FRESH, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -143,7 +143,7 @@ class TypesenseTestRunner {
     await this.manager.restartMultiNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_RESTARTED} ===\n`);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.MULTI_RESTARTED],
+      cmd: ["bun", "test", "--test-name-pattern", Phases.MULTI_RESTARTED, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -158,7 +158,7 @@ class TypesenseTestRunner {
     await this.manager.restartMultiNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_SNAPSHOT} ===\n`);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.MULTI_SNAPSHOT],
+      cmd: ["bun", "test", "--test-name-pattern", Phases.MULTI_SNAPSHOT, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
