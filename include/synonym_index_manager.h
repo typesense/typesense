@@ -42,8 +42,6 @@ class SynonymIndexManager {
 
         static constexpr auto SYNONYM_INDEX_KEY = "$SI";
 
-
-
         // The synonym index
         std::list<SynonymIndex> synonym_index_list;
         std::unordered_map<std::string, std::list<SynonymIndex>::iterator> synonym_index_map;
