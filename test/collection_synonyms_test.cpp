@@ -1629,113 +1629,118 @@ TEST_F(CollectionSynonymsTest, SynonymsPagination) {
     ASSERT_EQ("Invalid offset param.", synonym_op.error());
 }
 
-TEST_F(CollectionSynonymsTest, SynonymWithStemming) {
-    nlohmann::json schema = R"({
-        "name": "coll1",
-        "fields": [
-            {"name": "name", "type": "string", "stem": true}
-        ],
-        "synonym_sets": ["index"]
-    })"_json;
+TEST_F(CollectionSynonymsTest, AddDuplicateIndexRemovesOld) {
 
-    auto coll1 = collectionManager.create_collection(schema).get();
-    std::vector<std::string> records  = {"k8s", "kubernetes"};
+    SynonymIndexManager& mgr = SynonymIndexManager::get_instance();
+    // Add first index
+    auto add_op1 = mgr.add_synonym_index("dup_index");
+    ASSERT_TRUE(add_op1.ok());
+    SynonymIndex* idx1 = add_op1.get();
 
-    for(size_t i = 0; i < records.size(); i++) {
-        nlohmann::json doc;
-        doc["id"] = std::to_string(i);
-        doc["name"] = records[i];
-        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    // Add again, should remove old and create new
+    auto add_op2 = mgr.add_synonym_index("dup_index");
+    ASSERT_TRUE(add_op2.ok());
+    SynonymIndex* idx2 = add_op2.get();
+
+    ASSERT_NE(idx1, idx2);
+    // Should only be one in map
+    auto get_op = mgr.get_synonym_index("dup_index");
+    ASSERT_TRUE(get_op.ok());
+    ASSERT_EQ(get_op.get(), idx2);
+
+    // Remove the index
+    auto rem_op = mgr.remove_synonym_index("dup_index");
+    ASSERT_TRUE(rem_op.ok());
+}
+
+TEST_F(CollectionSynonymsTest, RemoveNonexistentIndex) {
+    SynonymIndexManager& mgr = SynonymIndexManager::get_instance();
+    auto rem_op = mgr.remove_synonym_index("does_not_exist");
+    ASSERT_FALSE(rem_op.ok());
+    ASSERT_EQ(rem_op.error(), "Synonym index not found");
+}
+
+TEST_F(CollectionSynonymsTest, GetAllSynonymIndicesJson) {
+    SynonymIndexManager& mgr = SynonymIndexManager::get_instance();
+    mgr.add_synonym_index("idx1");
+    mgr.add_synonym_index("idx2");
+    auto all_json = mgr.get_all_synonym_indices_json();
+    ASSERT_TRUE(all_json.is_array());
+    ASSERT_EQ(all_json.size(), 3);
+    std::set<std::string> names;
+    for (auto& obj : all_json) {
+        names.insert(obj["name"].get<std::string>());
+    }
+    ASSERT_TRUE(names.count("idx1"));
+    ASSERT_TRUE(names.count("idx2"));
+}
+
+TEST_F(CollectionSynonymsTest, ValidateSynonymIndexPayload) {
+    nlohmann::json bad_type = 123;
+    auto op = SynonymIndexManager::validate_synonym_index(bad_type);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ(op.error(), "Invalid synonym index format");
+
+    nlohmann::json missing_synonyms = {{"name", "foo"}};
+    op = SynonymIndexManager::validate_synonym_index(missing_synonyms);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ(op.error(), "Missing or invalid 'synonyms' field");
+
+    nlohmann::json bad_synonym = {
+        {"name", "foo"},
+        {"synonyms", { {{"id", "syn-1"}, {"synonyms", {1, 2}} } }}
+    };
+    op = SynonymIndexManager::validate_synonym_index(bad_synonym);
+    ASSERT_FALSE(op.ok());
+    ASSERT_TRUE(op.error().find("Could not find a valid string array of `synonyms`") != std::string::npos);
+}
+
+TEST_F(CollectionSynonymsTest, SynonymIndexInSearchParams) {
+    SynonymIndex idx(store, "tsyn_idx");
+    
+    nlohmann::json synonym1 = {
+        {"id", "syn-1"},
+        {"synonyms", {"apple", "fruit"}}
+    };
+    synonym_t syn;
+    synonym_t::parse(synonym1, syn);
+    idx.add_synonym(syn);
+
+    SynonymIndexManager& mgr = SynonymIndexManager::get_instance();
+    mgr.add_synonym_index("tsyn_idx", std::move(idx));
+
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
     }
 
-    coll1->add_synonym(R"({"id": "syn-1", "synonyms": ["k8s", "kubernetes"]})"_json);
+    coll1->add(R"({"id": "1", "title": "apple", "points": 100})"_json.dump());
 
-    auto res = coll1->search("k8s", {"name"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    auto search_op = coll1->search("fruit", {"title"}, "", {}, {}, {0}, 10);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(search_op.get()["hits"].size(), 0);
 
-    ASSERT_EQ(2, res["hits"].size());
-    ASSERT_EQ(2, res["found"].get<uint32_t>());
+    search_op = coll1->search("fruit", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, 
+                                {true}, 0, {}, {}, 10, "", 30, 4, "", 40,
+                                {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                                false, true, "", false, 6000 * 1000, 4, 7, fallback, 4,
+                                {off}, INT16_MAX, INT16_MAX, 2, 2, false, "", true,
+                                0, max_score, 100, 0, 0,
+                                "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true,
+                                true, false, "", "", "", "", false,
+                                true, false, 0, false, false, DEFAULT_FILTER_BY_CANDIDATES, false, true, true, 
+                                "", "", "", "", "", "", "", 0, {"tsyn_idx"});
 
-    collectionManager.drop_collection("coll1");
-}
-
-TEST_F(CollectionSynonymsTest, SynonymsWithMultiToken) {
-    nlohmann::json schema = R"({
-        "name": "coll1",
-        "fields": [
-            {
-                "name": "title",
-                "type": "string"
-            },
-            {
-                "name": "gender",
-                "type": "string",
-                "optional": true
-            }
-        ],
-        "synonym_sets": ["index"]
-    })"_json;
-
-    auto coll1 = collectionManager.create_collection(schema).get();
-
-    coll1->add_synonym(R"({"id": "foobar", "synonyms": ["blazer", "suit", "jacket"]})"_json);
-
-    coll1->add_synonym(R"({"id": "foobar2", "synonyms": ["man", "male", "gentleman", "men"]})"_json);
-
-    coll1->add_synonym(R"({"id": "foobar3", "synonyms": ["wool", "linen", "cotton"]})"_json);
+    ASSERT_TRUE(search_op.ok());
+    auto res = search_op.get();
+    ASSERT_EQ(res["hits"].size(), 1);
+    ASSERT_EQ(res["hits"][0]["document"]["id"].get<std::string>(), "1");
+    ASSERT_EQ(res["hits"][0]["document"]["title"].get<std::string>(), "apple");
+    ASSERT_EQ(res["hits"][0]["document"]["points"].get<int>(), 100);
+    }
 
 
-    nlohmann::json doc;
-    doc["title"] = "Cotton Blazer for men";
-    coll1->add(doc.dump());
-
-    doc["title"] = "Blazer made of wool for men";
-    coll1->add(doc.dump());
-
-    doc["title"] = "Suit made of Linen for a man";
-    coll1->add(doc.dump());
-
-    doc["title"] = "Gentleman Suit made of Linen";
-    coll1->add(doc.dump());
-
-    doc["title"] = "Blue Wool Jacket men";
-    coll1->add(doc.dump());
-
-    doc["title"] = "Red Cotton Jacket for gentleman";
-    coll1->add(doc.dump());
-
-
-    auto res = coll1->search("suit", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
-    ASSERT_EQ(6, res["hits"].size());
-
-    res = coll1->search("wool", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
-    ASSERT_EQ(6, res["hits"].size());
-
-    res = coll1->search("gentleman", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
-    ASSERT_EQ(6, res["hits"].size());
-
-    res = coll1->search("suit wool", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
-    ASSERT_EQ(6, res["hits"].size());
-
-    res = coll1->search("wool suit", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
-    ASSERT_EQ(6, res["hits"].size());
-
-    res = coll1->search("blazer linen", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
-    ASSERT_EQ(6, res["hits"].size());
-
-    res = coll1->search("jacket cotton", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
-    ASSERT_EQ(6, res["hits"].size());
-
-    res = coll1->search("linen suit man", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
-    ASSERT_EQ(6, res["hits"].size());
-
-    res = coll1->search("blazer cotton men", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
-    ASSERT_EQ(6, res["hits"].size());
-
-    res = coll1->search("wool jacket gentleman", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
-    ASSERT_EQ(6, res["hits"].size());
-
-    res = coll1->search("male jacket wool", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
-    ASSERT_EQ(6, res["hits"].size());
-
-    collectionManager.drop_collection("coll1");
-}

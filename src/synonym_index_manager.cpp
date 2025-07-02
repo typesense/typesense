@@ -15,31 +15,25 @@ void SynonymIndexManager::init_store(Store* store) {
 }
 
 Option<SynonymIndex*> SynonymIndexManager::add_synonym_index(const std::string& index_name, SynonymIndex&& index) {
-    if(synonym_index_map.find(index_name) != synonym_index_map.end()) {
-        auto remove_op = remove_synonym_index(index_name);
-        if (!remove_op.ok()) {
-            return Option<SynonymIndex*>(remove_op.code(), "Failed to remove existing synonym index"
-            + index_name + ": " + remove_op.error());
-        }
-        LOG(INFO) << "Removed existing synonym index: " << index_name;
-    }
     auto res = synonym_index_list.insert(synonym_index_list.end(), std::move(index));
+    if(synonym_index_map.find(index_name) != synonym_index_map.end()) {
+        LOG(INFO) << "Removing existing synonym index: " << index_name;
+        synonym_index_list.erase(synonym_index_map[index_name]);
+        synonym_index_map.erase(index_name);
+    }
     synonym_index_map.emplace(index_name, res);
     store->insert(SynonymIndexManager::get_synonym_index_key(index_name), index_name);
     return Option<SynonymIndex*>(&(*res));
 }
 
 Option<SynonymIndex*> SynonymIndexManager::add_synonym_index(const std::string& index_name) {
-    if(synonym_index_map.find(index_name) != synonym_index_map.end()) {
-        auto remove_op = remove_synonym_index(index_name);
-        if (!remove_op.ok()) {
-            return Option<SynonymIndex*>(remove_op.code(), "Failed to remove existing synonym index"
-            + index_name + ": " + remove_op.error());
-        }
-        LOG(INFO) << "Removed existing synonym index: " << index_name;
-    }
     SynonymIndex index(store, index_name);
     auto res = synonym_index_list.insert(synonym_index_list.end(), std::move(index));
+    if(synonym_index_map.find(index_name) != synonym_index_map.end()) {
+        synonym_index_list.erase(synonym_index_map[index_name]);
+        synonym_index_map.erase(index_name);
+        LOG(INFO) << "Removed existing synonym index: " << index_name;
+    }
     synonym_index_map.emplace(index_name, res);
     store->insert(SynonymIndexManager::get_synonym_index_key(index_name), index_name);
     return Option<SynonymIndex*>(&(*res));
