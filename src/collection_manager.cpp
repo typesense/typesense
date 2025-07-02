@@ -226,6 +226,15 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         metadata = collection_meta[Collection::COLLECTION_METADATA];
     }
 
+    std::vector<std::string> synonym_sets;
+    if (collection_meta.count(Collection::COLLECTION_SYNONYM_SETS) != 0) {
+        if (!collection_meta[Collection::COLLECTION_SYNONYM_SETS].is_array()) {
+            LOG(ERROR) << "Parameter `synonym_sets` must be an array.";
+        } else {
+            synonym_sets = collection_meta[Collection::COLLECTION_SYNONYM_SETS].get<std::vector<std::string>>();
+        }
+    }
+
     Collection* collection = new Collection(this_collection_name,
                                             collection_meta[Collection::COLLECTION_ID_KEY].get<uint32_t>(),
                                             created_at,
@@ -240,7 +249,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             enable_nested_fields, model,
                                             referenced_in,
                                             metadata,
-                                            async_referenced_ins);
+                                            async_referenced_ins,
+                                            synonym_sets);
 
     for (const auto& ref_field: collection->get_reference_fields()) {
         const auto& ref_info = ref_field.second;

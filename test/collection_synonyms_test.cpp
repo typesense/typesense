@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "synonym_index.h"
+#include "synonym_index_manager.h"
 
 class CollectionSynonymsTest : public ::testing::Test {
 protected:
@@ -33,6 +35,7 @@ protected:
         coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
         if(coll_mul_fields == nullptr) {
             coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
+            coll_mul_fields->set_synonym_sets({"index"});
         }
 
         std::string json_line;
@@ -42,6 +45,11 @@ protected:
         }
 
         infile.close();
+
+        SynonymIndex synonym_index(store, "index");
+        SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
+        synonym_index_manager.init_store(store);
+        synonym_index_manager.add_synonym_index("index", std::move(synonym_index));
     }
 
     virtual void SetUp() {
@@ -199,7 +207,9 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
         "synonyms": ["new york"]
     })"_json;
 
-    coll_mul_fields->add_synonym(synonym1);
+    auto add_op = coll_mul_fields->add_synonym(synonym1);
+    LOG(INFO) << "Add synonym operation: " << add_op.error();
+    ASSERT_TRUE(add_op.ok());
 
     results.clear();
     coll_mul_fields->synonym_reduction({"red", "nyc", "tshirt"}, "", results);
@@ -437,6 +447,7 @@ TEST_F(CollectionSynonymsTest, SynonymQueryVariantWithDropTokens) {
                                  field("points", field_types::INT32, false),};
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    coll1->set_synonym_sets({"index"});
 
     nlohmann::json syn_json = {
         {"id", "syn-1"},
@@ -490,6 +501,7 @@ TEST_F(CollectionSynonymsTest, SynonymsTextMatchSameAsRootQuery) {
                                  field("points", field_types::INT32, false),};
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    coll1->set_synonym_sets({"index"});
 
     nlohmann::json syn_json = {
         {"id", "syn-1"},
@@ -586,6 +598,7 @@ TEST_F(CollectionSynonymsTest, ExactMatchRankedSameAsSynonymMatch) {
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
     }
 
     std::vector<std::vector<std::string>> records = {
@@ -640,6 +653,7 @@ TEST_F(CollectionSynonymsTest, ExactMatchVsSynonymMatchCrossFields) {
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
     }
 
     std::vector<std::vector<std::string>> records = {
@@ -692,6 +706,7 @@ TEST_F(CollectionSynonymsTest, SynonymFieldOrdering) {
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
     }
     std::vector<std::vector<std::string>> records = {
         {"LOL really", "Description 1", "50"},
@@ -777,7 +792,8 @@ TEST_F(CollectionSynonymsTest, UpsertAndSearch) {
         "fields": [
           {"name": "title", "type": "string", "locale": "da" },
           {"name": "points", "type": "int32" }
-        ]
+        ],
+        "synonym_sets": ["index"]
     })"_json;
 
     auto op = collectionManager.create_collection(schema);
@@ -837,6 +853,7 @@ TEST_F(CollectionSynonymsTest, SynonymSingleTokenExactMatch) {
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
     }
 
     std::vector<std::vector<std::string>> records = {
@@ -877,6 +894,7 @@ TEST_F(CollectionSynonymsTest, SynonymExpansionAndCompressionRanking) {
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
     }
 
     std::vector<std::vector<std::string>> records = {
@@ -934,6 +952,7 @@ TEST_F(CollectionSynonymsTest, SynonymQueriesMustHavePrefixEnabled) {
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
     }
 
     std::vector<std::vector<std::string>> records = {
@@ -971,6 +990,7 @@ TEST_F(CollectionSynonymsTest, SynonymUpsertTwice) {
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
     }
 
     coll1->add_synonym(R"({"id": "syn-1", "root": "prairie city", "synonyms": ["prairie", "prairiecty"]})"_json);
@@ -992,6 +1012,7 @@ TEST_F(CollectionSynonymsTest, SynonymUpsertTwiceLocale) {
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
     }
 
     coll1->add_synonym(R"({"id": "syn-1", "locale": "th", "root": "สวัสดีตอนเช้าครับ", "synonyms": ["สวัสดีตอนเช้าค่ะ"]})"_json);
@@ -1014,6 +1035,7 @@ TEST_F(CollectionSynonymsTest, HandleSpecialSymbols) {
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points",
                                                     0, "", {"+"}, {"."}).get();
+        coll1->set_synonym_sets({"index"});
     }
 
     std::vector<std::vector<std::string>> records = {
@@ -1055,6 +1077,7 @@ TEST_F(CollectionSynonymsTest, SynonymForNonAsciiLanguage) {
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points",
                                                     0, "", {"+"}, {"."}).get();
+        coll1->set_synonym_sets({"index"});
     }
 
     std::vector<std::vector<std::string>> records = {
@@ -1090,7 +1113,8 @@ TEST_F(CollectionSynonymsTest, SynonymForKorean) {
         "fields": [
           {"name": "title", "type": "string", "locale": "ko"},
           {"name": "points", "type": "int32" }
-        ]
+        ],
+        "synonym_sets": ["index"]
     })"_json;
 
     auto op = collectionManager.create_collection(schema);
@@ -1140,7 +1164,8 @@ TEST_F(CollectionSynonymsTest, SynonymWithLocaleMatch) {
           {"name": "title_en", "type": "string"},
           {"name": "title_es", "type": "string", "locale": "es"},
           {"name": "title_de", "type": "string", "locale": "de"}
-        ]
+        ],
+        "synonym_sets": ["index"]
     })"_json;
 
     auto op = collectionManager.create_collection(schema);
@@ -1199,7 +1224,8 @@ TEST_F(CollectionSynonymsTest, MultipleSynonymSubstitution) {
         "fields": [
           {"name": "title", "type": "string"},
           {"name": "gender", "type": "string"}
-        ]
+        ],
+        "synonym_sets": ["index"]
     })"_json;
 
     auto op = collectionManager.create_collection(schema);
@@ -1258,7 +1284,8 @@ TEST_F(CollectionSynonymsTest, EnableSynonymFlag) {
         "fields": [
           {"name": "title", "type": "string"},
           {"name": "gender", "type": "string"}
-        ]
+        ],
+        "synonym_sets": ["index"]
     })"_json;
 
     auto op = collectionManager.create_collection(schema);
@@ -1340,7 +1367,8 @@ TEST_F(CollectionSynonymsTest, SynonymTypos) {
         "name": "coll3",
         "fields": [
           {"name": "title", "type": "string"}
-        ]
+        ],
+        "synonym_sets": ["index"]
     })"_json;
 
     auto op = collectionManager.create_collection(schema);
@@ -1437,7 +1465,8 @@ TEST_F(CollectionSynonymsTest, SynonymPrefix) {
         "name": "coll3",
         "fields": [
           {"name": "title", "type": "string"}
-        ]
+        ],
+        "synonym_sets": ["index"]
     })"_json;
 
     auto op = collectionManager.create_collection(schema);
@@ -1459,8 +1488,9 @@ TEST_F(CollectionSynonymsTest, SynonymPrefix) {
         "id": "foobar",
         "synonyms": ["trousers", "pants"]
     })"_json;
-
-    ASSERT_TRUE(coll3->add_synonym(synonym1).ok());
+    auto syn_op = coll3->add_synonym(synonym1);
+    LOG(INFO) << "Add synonym foobar: " << syn_op.error();
+    ASSERT_TRUE(syn_op.ok());
 
     bool synonym_prefix = false;
 
@@ -1514,6 +1544,7 @@ TEST_F(CollectionSynonymsTest, SynonymsPagination) {
     coll3 = collectionManager.get_collection("coll3").get();
     if (coll3 == nullptr) {
         coll3 = collectionManager.create_collection("coll3", 1, fields, "points").get();
+        coll3->set_synonym_sets({"index"});
     }
 
     for (int i = 0; i < 5; ++i) {
@@ -1603,7 +1634,8 @@ TEST_F(CollectionSynonymsTest, SynonymWithStemming) {
         "name": "coll1",
         "fields": [
             {"name": "name", "type": "string", "stem": true}
-        ]
+        ],
+        "synonym_sets": ["index"]
     })"_json;
 
     auto coll1 = collectionManager.create_collection(schema).get();
@@ -1639,7 +1671,8 @@ TEST_F(CollectionSynonymsTest, SynonymsWithMultiToken) {
                 "type": "string",
                 "optional": true
             }
-        ]
+        ],
+        "synonym_sets": ["index"]
     })"_json;
 
     auto coll1 = collectionManager.create_collection(schema).get();

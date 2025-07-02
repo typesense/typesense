@@ -2620,37 +2620,19 @@ bool get_synonyms(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
 
     nlohmann::json res_json;
     res_json["synonyms"] = nlohmann::json::array();
+    std::string synonym_set = req->params.count("synonym_set") != 0 ? req->params["synonym_set"] : "";
 
-    std::string synonym_set;
-    auto synonym_sets = collection->get_synonym_sets();
-    if(synonym_sets.size() == 1) {
-        synonym_set = synonym_sets[0];
-    } else if(req->params.count("synonym_set") != 0) {
-        synonym_set = req->params["synonym_set"];
-    } else {
-        res->set_400("Synonym set not specified.");
-        return false;
-    }
-
-    SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
-    auto synonym_index_op = synonym_index_manager.get_synonym_index(synonym_set);
-    if(!synonym_index_op.ok()) {
-        res->set(synonym_index_op.code(), synonym_index_op.error());
-        return false;
-    }
-
-    auto synonyms_op = synonym_index_op.get()->get_synonyms(limit, offset);
+    auto synonyms_op = collection->get_synonyms(limit, offset, synonym_set);
     if(!synonyms_op.ok()) {
         res->set(synonyms_op.code(), synonyms_op.error());
         return false;
     }
 
-    const auto& synonyms = synonyms_op.get();
-    for(const auto& synonym : synonyms) {
-        nlohmann::json syn_json = synonym.second->to_view_json();
-        syn_json["id"] = synonym.second->id;
-        res_json["synonyms"].push_back(syn_json);
+    const auto synonyms = synonyms_op.get();
+    for(const auto & kv: synonyms) {
+        res_json["synonyms"].push_back(kv.second->to_view_json());
     }
+
     res->set_200(res_json.dump());
     return true;
 }
@@ -2665,35 +2647,19 @@ bool get_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     }
 
     std::string synonym_id = req->params["id"];
-    std::string synonym_set;
-    auto synonym_sets = collection->get_synonym_sets();
-    if(synonym_sets.size() == 1) {
-        synonym_set = synonym_sets[0];
-    } else if(req->params.count("synonym_set") != 0) {
-        synonym_set = req->params["synonym_set"];
-    } else {
-        res->set_400("Synonym set not specified.");
-        return false;
-    }
-    SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
-    auto synonym_index_op = synonym_index_manager.get_synonym_index(synonym_set);
-
-    if(!synonym_index_op.ok()) {
-        res->set(synonym_index_op.code(), synonym_index_op.error());
-        return false;
-    }
+    std::string synonym_set = req->params.count("synonym_set") != 0 ? req->params["synonym_set"] : "";
 
     synonym_t synonym;
-    bool synonym_op = synonym_index_op.get()->get_synonym(synonym_id, synonym);
-    if(!synonym_op) {
-        res->set(404, "Synonym not found");
-        return false;
+    bool found = collection->get_synonym(synonym_id, synonym, synonym_set);
+
+    if(found) {
+        nlohmann::json synonym_json = synonym.to_view_json();
+        res->set_200(synonym_json.dump());
+        return true;
     }
 
-    nlohmann::json res_json = synonym.to_view_json();
-    res_json["id"] = synonym_id;
-    res->set_200(res_json.dump());
-    return true;
+    res->set_404();
+    return false;
 }
 
 bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -2707,46 +2673,45 @@ bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
         return false;
     }
 
-    std::string synonym_set;
-    auto synonym_sets = collection->get_synonym_sets();
-    
-    if(synonym_sets.size() == 1) {
-        synonym_set = synonym_sets[0];
-    } else if(req->params.count("synonym_set") != 0) {
-        synonym_set = req->params["synonym_set"];
-    } else {
-        res->set_400("Synonym set not specified.");
-        return false;
-    }
-
     nlohmann::json syn_json;
 
     try {
         syn_json = nlohmann::json::parse(req->body);
-        syn_json["id"] = synonym_id; // ensure id is set
     } catch(const std::exception& e) {
         LOG(ERROR) << "JSON error: " << e.what();
         res->set_400("Bad JSON.");
         return false;
     }
 
-    synonym_t synonym;
-    Option<bool> parse_op = synonym_t::parse(syn_json, synonym);
-
-    if(!parse_op.ok()) {
-        res->set(parse_op.code(), parse_op.error());
+    if(!syn_json.is_object()) {
+        res->set_400("Bad JSON.");
         return false;
+    }
+
+    // These checks should be inside `add_synonym` but older versions of Typesense wrongly persisted
+    // `root` as an array, so we have to do it here so that on-disk synonyms are loaded properly
+    if(syn_json.count("root") != 0 && !syn_json["root"].is_string()) {
+        res->set_400("Key `root` should be a string.");
+        return false;
+    }
+
+    if(syn_json.count("synonyms") && syn_json["synonyms"].is_array()) {
+        if(syn_json["synonyms"].empty()) {
+            res->set_400("Could not find a valid string array of `synonyms`");
+            return false;
+        }
+
+        for(const auto& synonym: syn_json["synonyms"]) {
+            if (!synonym.is_string() || synonym.empty()) {
+                res->set_400("Could not find a valid string array of `synonyms`");
+                return false;
+            }
+        }
     }
 
     syn_json["id"] = synonym_id;
-    SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
-    auto synonym_index_op = synonym_index_manager.get_synonym_index(synonym_set);
-    if(!synonym_index_op.ok()) {
-        res->set(synonym_index_op.code(), synonym_index_op.error());
-        return false;
-    }
-
-    Option<bool> upsert_op = synonym_index_op.get()->add_synonym(synonym);
+    std::string synonym_set = req->params.count("synonym_set") != 0 ? req->params["synonym_set"] : "";
+    Option<bool> upsert_op = collection->add_synonym(syn_json, synonym_set);
 
     if(!upsert_op.ok()) {
         res->set(upsert_op.code(), upsert_op.error());
@@ -2766,34 +2731,15 @@ bool del_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
         return false;
     }
 
-    std::string synonym_id = req->params["id"];
-
-    std::string synonym_set;
-    auto synonym_sets = collection->get_synonym_sets();
-    if(synonym_sets.size() == 1) {
-        synonym_set = synonym_sets[0];
-    } else if(req->params.count("synonym_set") != 0) {
-        synonym_set = req->params["synonym_set"];
-    } else {
-        res->set_400("Synonym set not specified.");
-        return false;
-    }
-
-    SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
-    auto synonym_index_op = synonym_index_manager.get_synonym_index(synonym_set);
-    if(!synonym_index_op.ok()) {
-        res->set(synonym_index_op.code(), synonym_index_op.error());
-        return false;
-    }
-
-    Option<bool> remove_op = synonym_index_op.get()->remove_synonym(synonym_id);
-    if(!remove_op.ok()) {
-        res->set(remove_op.code(), remove_op.error());
+    std::string synonym_set = req->params.count("synonym_set") != 0 ? req->params["synonym_set"] : "";
+    Option<bool> rem_op = collection->remove_synonym(req->params["id"], synonym_set);
+    if(!rem_op.ok()) {
+        res->set(rem_op.code(), rem_op.error());
         return false;
     }
 
     nlohmann::json res_json;
-    res_json["id"] = synonym_id;
+    res_json["id"] = req->params["id"];
 
     res->set_200(res_json.dump());
     return true;

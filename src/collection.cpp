@@ -5827,7 +5827,14 @@ void Collection::synonym_reduction(const std::vector<std::string>& tokens,
                                      const std::vector<std::string>& param_synonym_sets) const {
     std::shared_lock lock(mutex);
     //return synonym_index->synonym_reduction(tokens, locale, results, synonym_prefix, synonym_num_typos);
-    for(const auto& synonym_set : param_synonym_sets) {
+    // Merge with the existing synonym sets
+    std::unordered_set<std::string> synonym_sets_merged(synonym_sets.begin(), synonym_sets.end());
+    for(const auto& param_synonym_set : param_synonym_sets) {
+        if(!param_synonym_set.empty()) {
+            synonym_sets_merged.insert(param_synonym_set);
+        }
+    }
+    for(const auto& synonym_set : synonym_sets_merged) {
         auto synonym_index_op = SynonymIndexManager::get_instance().get_synonym_index(synonym_set);
         if(!synonym_index_op.ok()) {
             LOG(ERROR) << "Error while fetching synonym index for set: " << synonym_set
@@ -8305,4 +8312,115 @@ union_global_params_t::union_global_params_t(const std::map<std::string, std::st
 
 std::vector<std::string> Collection::get_synonym_sets() const {
     return synonym_sets;
+}
+
+Option<SynonymIndex*> Collection::get_synonym_index(const std::string& synonym_set_name) const {
+    if(synonym_set_name.empty() && synonym_sets.size() != 1) {
+        return Option<SynonymIndex*>(400, "Synonym set name is required when getting synonyms if there are multiple synonym sets or no synonym sets are defined.");
+    }
+    // Find the appropriate synonym set
+    if(!synonym_set_name.empty()) {
+        auto it = std::find(synonym_sets.begin(), synonym_sets.end(), synonym_set_name);
+        if (it == synonym_sets.end()) {
+            return Option<SynonymIndex*>(400, "Synonym set not found for this collection: " + synonym_set_name);
+        }
+    }
+
+    std::string synonym_set_to_find = synonym_set_name;
+    if(synonym_set_to_find.empty()) {
+        // if synonym_set_name is empty, we will use the first synonym set
+        synonym_set_to_find = synonym_sets.front();
+    }
+
+    // find synonym set by name
+    SynonymIndexManager& synonym_manager = SynonymIndexManager::get_instance();
+    auto synonym_set_op = synonym_manager.get_synonym_index(synonym_set_to_find);
+    if(!synonym_set_op.ok()) {
+        return Option<SynonymIndex*>(400, synonym_set_op.error());
+    }
+    auto synonym_index = synonym_set_op.get();
+    return Option<SynonymIndex*>(synonym_index);
+}
+
+Option<bool> Collection::add_synonym(const nlohmann::json& synonym_json, const std::string& synonym_set_name) {
+    auto synonym_set_op = get_synonym_index(synonym_set_name);
+    if(!synonym_set_op.ok()) {
+        return Option<bool>(400, synonym_set_op.error());
+    }
+    auto synonym_index = synonym_set_op.get();
+
+    // Add the synonym to the synonym set
+    synonym_t synonym;
+    auto parse_op = synonym_t::parse(synonym_json, synonym);
+    if (!parse_op.ok()) {
+        return Option<bool>(400, parse_op.error());
+    }
+    auto add_synonym_op = synonym_index->add_synonym(synonym, true);
+    if (!add_synonym_op.ok()) {
+        return Option<bool>(add_synonym_op.code(), add_synonym_op.error());
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::remove_synonym(const std::string& synonym_id, const std::string& synonym_set_name) {
+    auto synonym_set_op = get_synonym_index(synonym_set_name);
+    if(!synonym_set_op.ok()) {
+        return Option<bool>(400, synonym_set_op.error());
+    }
+    auto synonym_index = synonym_set_op.get();
+
+    // Remove the synonym from the synonym set
+    auto remove_synonym_op = synonym_index->remove_synonym(synonym_id);
+    if (!remove_synonym_op.ok()) {
+        return Option<bool>(remove_synonym_op.code(), remove_synonym_op.error());
+    }
+
+    return Option<bool>(true);
+}
+
+Option<std::map<uint32_t, synonym_t*>> Collection::get_synonyms(uint32_t limit, uint32_t offset,
+                                                        const std::string& synonym_set_name) const {
+    auto synonym_set_op = get_synonym_index(synonym_set_name);
+    if(!synonym_set_op.ok()) {
+        return Option<std::map<uint32_t, synonym_t*>>(400, synonym_set_op.error());
+    }
+    auto synonym_index = synonym_set_op.get();
+
+    // Get the synonyms from the synonym index
+    auto get_synonyms_op = synonym_index->get_synonyms(limit, offset);
+    if (!get_synonyms_op.ok()) {
+        return Option<std::map<uint32_t, synonym_t*>>(get_synonyms_op.code(), get_synonyms_op.error());
+    }
+
+    return Option<std::map<uint32_t, synonym_t*>>(get_synonyms_op.get());
+}
+
+bool Collection::get_synonym(const std::string& synonym, synonym_t& synonym_obj,
+                     const std::string& synonym_set_name) const {
+    auto synonym_set_op = get_synonym_index(synonym_set_name);
+    if(!synonym_set_op.ok()) {
+        LOG(ERROR) << "Synonym set not found: " << synonym_set_name;
+        return false;
+    }
+    auto synonym_index = synonym_set_op.get();
+
+    // Get the synonym from the synonym index
+    return synonym_index->get_synonym(synonym, synonym_obj);
+}
+
+Option<bool> Collection::set_synonym_sets(const std::vector<std::string>& synonym_sets) {
+    SynonymIndexManager& synonym_manager = SynonymIndexManager::get_instance();
+    for (const auto& synonym_set_name : synonym_sets) {
+        if (synonym_set_name.empty()) {
+            return Option<bool>(400, "Synonym set name cannot be empty.");
+        }
+        auto synonym_set_op = synonym_manager.get_synonym_index(synonym_set_name);
+        if (!synonym_set_op.ok()) {
+            return Option<bool>(400, "Synonym set not found: " + synonym_set_name
+            );
+        }
+    }
+    this->synonym_sets = synonym_sets;
+    return Option<bool>(true);
 }

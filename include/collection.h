@@ -693,6 +693,8 @@ private:
 
     void reset_alter_status_counters();
 
+    Option<SynonymIndex*> get_synonym_index(const std::string& synonym_set_name) const;
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
@@ -1019,6 +1021,18 @@ public:
     Option<override_t> get_override(const std::string& override_id);
 
     // synonym operations
+    Option<bool> add_synonym(const nlohmann::json& synonym_json, const std::string& synonym_set_name = "");
+
+    Option<bool> remove_synonym(const std::string& synonym_id, const std::string& synonym_set_name = "");
+
+    Option<std::map<uint32_t, synonym_t*>> get_synonyms(uint32_t limit = 0, uint32_t offset = 0,
+                                                        const std::string& synonym_set_name = "") const;
+    
+    bool get_synonym(const std::string& synonym, synonym_t& synonym_obj,
+                     const std::string& synonym_set_name = "") const;
+
+    Option<bool> set_synonym_sets(const std::vector<std::string>& synonym_sets);
+    
     void synonym_reduction(const std::vector<std::string>& tokens,
                            const std::string& locale,
                            std::vector<std::vector<std::string>>& results,
