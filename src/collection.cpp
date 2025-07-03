@@ -3137,6 +3137,10 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
         facet_result["sampled"] = a_facet.sampled;
         facet_result["counts"] = nlohmann::json::array();
 
+        if(!a_facet.reference_collection_name.empty()) {
+            facet_result["field_name"] = a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
+        }
+
         std::vector<facet_value_t> facet_values;
         std::vector<facet_count_t> facet_counts;
 
@@ -3184,7 +3188,6 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 }
 
                 the_field = ref_collection->get_schema().at(a_facet.field_name);
-                facet_result["field_name"] = ref_collection->name + "(" + a_facet.field_name + ")";
             }
 
             bool should_return_parent = std::find(facet_return_parent.begin(), facet_return_parent.end(),

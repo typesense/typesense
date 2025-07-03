@@ -4419,7 +4419,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
                                          &num_processed, &m_process, &cv_process, facet_index_types,
                                          &is_group_by_first_pass, &group_by_missing_value_ids, &collection,
-                                         &batch_reference_facet_ids]() {
+                                         &reference_facet_ids]() {
 
                 search_begin_us = parent_search_begin;
                 search_stop_us = parent_search_stop_ms;
@@ -4431,7 +4431,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                           facet_infos, group_limit, group_by_fields, group_missing_values,
                           all_result_ids, all_result_ids_len, max_facet_values,
                           is_wildcard_no_filter_query, facet_index_types, is_group_by_first_pass,
-                          group_by_missing_value_ids, collection, &batch_reference_facet_ids[thread_id]);
+                          group_by_missing_value_ids, collection, &reference_facet_ids);
 
                 std::unique_lock<std::mutex> lock(m_process);
 

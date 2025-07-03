@@ -9651,3 +9651,220 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ(2, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("Joe", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
 }
+
+TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
+    auto schema_json =
+            R"({
+            "name": "Students",
+            "fields": [
+                {"name": "student_id", "type": "string"},
+                {"name": "student_name", "type": "string", "facet":true}
+            ]
+        })"_json;
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+            "student_id": "1",
+            "student_name": "Joe"
+        })"_json,
+            R"({
+            "student_id": "2",
+            "student_name": "Ben"
+        })"_json,
+            R"({
+            "student_id": "3",
+            "student_name": "Dan"
+        })"_json,
+            R"({
+            "student_id": "4",
+            "student_name": "Rob"
+        })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+            "name": "Grades",
+            "fields": [
+                {"name": "student_id", "type": "string", "reference": "Students.student_id"},
+                {"name": "grade", "type": "int32", "facet":true}
+            ]
+        })"_json;
+
+    documents = {
+            R"({
+            "student_id": "1",
+            "grade": 78
+        })"_json,
+            R"({
+            "student_id": "2",
+            "grade": 82
+        })"_json,
+            R"({
+            "student_id": "3",
+            "grade": 67
+        })"_json,
+            R"({
+            "student_id": "4",
+            "grade": 91
+        })"_json
+    };
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Students"},
+            {"q", "*"},
+            {"filter_by", "$Grades(student_id: 3)"},
+            {"facet_by", "$Grades(grade(A:[80, 100], B:[60, 80], C:[40, 60]))"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["student_id"]);
+
+    ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Grades(grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("B", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+
+    //sorting on referenced facet_field
+    schema_json =
+            R"({
+            "name": "Subjects",
+            "enable_nested_fields": true,
+            "fields": [
+                {"name": "student_id", "type": "string", "reference": "Students.student_id", "facet":true},
+                {"name": "electives", "type": "object", "facet":true},
+                {"name": "electives.*", "type": "auto", "facet":true}
+            ]
+        })"_json;
+
+    documents = {
+            R"({
+            "student_id": "1",
+            "electives" : {
+                "Design_of_Machines" : true,
+                "Motor_Mechanics" : true,
+                "Engine_Creations" : false,
+                "grade": 87,
+                "merit_rank": 3
+            }
+        })"_json,
+            R"({
+            "student_id": "2",
+            "electives" : {
+                "Design_of_Machines" : true,
+                "Motor_Mechanics" : false,
+                "Engine_Creations" : true,
+                "grade": 97,
+                "merit_rank": 1
+            }
+        })"_json,
+            R"({
+            "student_id": "3",
+            "electives" : {
+                "Design_of_Machines" : false,
+                "Motor_Mechanics" : true,
+                "Engine_Creations" : true,
+                "grade": 81,
+                "merit_rank": 3
+            }
+        })"_json,
+            R"({
+            "student_id": "4",
+            "electives" : {
+                "Design_of_Machines" : true,
+                "Motor_Mechanics" : false,
+                "Engine_Creations" : true,
+                "grade": 79,
+                "merit_rank":2
+            }
+        })"_json
+    };
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "Students"},
+            {"q", "*"},
+            {"filter_by", "$Subjects(electives.Design_of_Machines : true)"},
+            {"facet_by", "$Subjects(student_id(sort_by:_alpha:desc))"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"]);
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][2]["document"]["id"]);
+
+    ASSERT_EQ(3, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Subjects(student_id)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("4", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ("2", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][2]["count"]);
+    ASSERT_EQ("1", res_obj["facet_counts"][0]["counts"][2]["value"].get<std::string>());
+
+    req_params = {
+            {"collection", "Students"},
+            {"q", "*"},
+            {"filter_by", "$Subjects(electives.Design_of_Machines : true)"},
+            {"facet_by", "$Subjects(electives.grade(sort_by:electives.merit_rank:asc))"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"]);
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][2]["document"]["id"]);
+
+    ASSERT_EQ(3, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Subjects(electives.grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("97", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ("79", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][2]["count"]);
+    ASSERT_EQ("87", res_obj["facet_counts"][0]["counts"][2]["value"].get<std::string>());
+}
