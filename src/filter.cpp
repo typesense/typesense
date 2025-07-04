@@ -424,6 +424,22 @@ Option<bool> toFilter(const std::string& expression,
     std::string&& field_name = expression.substr(0, found_index);
     StringUtils::trim(field_name);
     field_name = object_field_prefix + field_name;
+    
+    // Handle array count filtering syntax: _count(fieldname)
+    std::string actual_field_name = field_name;
+    bool is_array_count_filter = false;
+    if (field_name.size() > 7 && field_name.substr(0, 7) == "_count(") {
+        size_t close_paren = field_name.find(')', 7);
+        if (close_paren == std::string::npos) {
+            return Option<bool>(400, "Invalid _count syntax. Expected format: _count(fieldname)");
+        }
+        actual_field_name = field_name.substr(7, close_paren - 7);
+        StringUtils::trim(actual_field_name);
+        if (actual_field_name.empty()) {
+            return Option<bool>(400, "Field name cannot be empty in _count(fieldname)");
+        }
+        is_array_count_filter = true;
+    }
 
     if (field_name == "id") {
         std::string&& raw_value = expression.substr(found_index + 1, std::string::npos);
@@ -494,7 +510,7 @@ Option<bool> toFilter(const std::string& expression,
         return Option<bool>(true);
     }
 
-    auto field_it = search_schema.find(field_name);
+    auto field_it = search_schema.find(is_array_count_filter ? actual_field_name : field_name);
 
     if (field_it == search_schema.end()) {
         if (!validate_field_names) {
@@ -502,21 +518,93 @@ Option<bool> toFilter(const std::string& expression,
             filter_exp.is_ignored_filter = true;
             return Option<bool>(true);
         }
-        return Option<bool>(404, "Could not find a filter field named `" + field_name + "` in the schema.");
+        return Option<bool>(404, "Could not find a filter field named `" + (is_array_count_filter ? actual_field_name : field_name) + "` in the schema.");
     }
 
     if (field_it->num_dim > 0) {
-        return Option<bool>(404, "Cannot filter on vector field `" + field_name + "`.");
+        return Option<bool>(404, "Cannot filter on vector field `" + (is_array_count_filter ? actual_field_name : field_name) + "`.");
     }
 
     const field& _field = field_it.value();
+
+            // Validate array count filtering
+     if (is_array_count_filter) {
+        if (!_field.is_array()) {
+            return Option<bool>(400, "Field `" + actual_field_name + "` is not an array field. _count can only be used on array fields.");
+        }
+    }
     std::string&& raw_value = expression.substr(found_index + 1, std::string::npos);
     StringUtils::trim(raw_value);
     // skip past optional `:=` operator, which has no meaning for non-string fields
-    if (!_field.is_string() && raw_value[0] == '=') {
+    if ((!_field.is_string() || is_array_count_filter) && raw_value[0] == '=') {
         size_t filter_value_index = 0;
         while (raw_value[++filter_value_index] == ' ');
         raw_value = raw_value.substr(filter_value_index);
+    }
+
+    if (is_array_count_filter) {
+        if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+            std::string inner_value = raw_value.substr(1, raw_value.size() - 2);
+            
+            // Check if this is a range format like [1..2]
+            if (inner_value.find("..") != std::string::npos) {
+                std::vector<std::string> range_values;
+                StringUtils::split(inner_value, range_values, filter::RANGE_OPERATOR());
+                
+                if (range_values.size() != 2) {
+                    return Option<bool>(400, "Invalid range format for array count filter: " + raw_value);
+                }
+                
+                filter_exp.field_name = field_name;
+                for (const std::string& range_value: range_values) {
+                    if (!StringUtils::is_integer(range_value)) {
+                        return Option<bool>(400, "Array count filter value must be an integer: " + range_value);
+                    }
+                    filter_exp.values.push_back(range_value);
+                    filter_exp.comparators.push_back(RANGE_INCLUSIVE);
+                }
+            } else {
+                // Handle comma-separated values like [1,2,3]
+                std::vector<std::string> filter_values;
+                StringUtils::split(inner_value, filter_values, ",");
+                filter_exp = {field_name, {}, {}};
+                for (const std::string& filter_value: filter_values) {
+                    std::string trim_value = filter_value;
+                    StringUtils::trim(trim_value);
+                    if (!StringUtils::is_integer(trim_value)) {
+                        return Option<bool>(400, "Array count filter value must be an integer: " + trim_value);
+                    }
+                    filter_exp.values.push_back(trim_value);
+                    filter_exp.comparators.push_back(EQUALS);
+                }
+            }
+        } else {
+            Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(raw_value);
+            if (!op_comparator.ok()) {
+                return Option<bool>(400, "Error with array count filter: " + op_comparator.error());
+            }
+            if (op_comparator.get() == RANGE_INCLUSIVE) {
+                std::vector<std::string> range_values;
+                StringUtils::split(raw_value, range_values, filter::RANGE_OPERATOR());
+                filter_exp.field_name = field_name;
+                for (const std::string& range_value: range_values) {
+                    if (!StringUtils::is_integer(range_value)) {
+                        return Option<bool>(400, "Array count filter value must be an integer: " + range_value);
+                    }
+                    filter_exp.values.push_back(range_value);
+                    filter_exp.comparators.push_back(op_comparator.get());
+                }
+            } else {
+                if (!StringUtils::is_integer(raw_value)) {
+                    return Option<bool>(400, "Array count filter value must be an integer: " + raw_value);
+                }
+                filter_exp = {field_name, {raw_value}, {op_comparator.get()}};
+            }
+        }
+
+        filter_exp.is_array_count_filter = true;
+        filter_exp.array_field_name = actual_field_name;
+        return Option<bool>(true);
     }
     if (_field.is_integer() || _field.is_float()) {
         // could be a single value or a list

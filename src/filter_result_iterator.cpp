@@ -1071,18 +1071,140 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         return;
     }
 
-    if (!index->field_is_indexed(a_filter.field_name)) {
+    // For array count filters, check if the actual array field is indexed
+    std::string field_to_check = a_filter.is_array_count_filter ? a_filter.array_field_name : a_filter.field_name;
+    
+    if (!index->field_is_indexed(field_to_check)) {
         if (!validate_field_names) {
             validity = invalid;
             return;
         }
 
-        status = Option<bool>(400, "Cannot filter on non-indexed field `" + a_filter.field_name + "`.");
+        status = Option<bool>(400, "Cannot filter on non-indexed field `" + field_to_check + "`.");
+        validity = invalid;
+        return;
+    }
+    
+
+    // For array count filters, use the actual field name for schema lookup
+    std::string schema_field_name = a_filter.is_array_count_filter ? a_filter.array_field_name : a_filter.field_name;
+    
+    field f;
+    try {
+        f = index->search_schema.at(schema_field_name);
+    } catch (const std::exception& e) {
         validity = invalid;
         return;
     }
 
-    field f = index->search_schema.at(a_filter.field_name);
+    if (a_filter.is_array_count_filter) {
+        
+        std::vector<uint32_t> matching_seq_ids;
+        auto all_ids = index->seq_ids->uncompress();
+        auto num_ids = index->seq_ids->num_ids();
+
+
+        for (uint32_t i = 0; i < num_ids; i++) {
+            uint32_t seq_id = all_ids[i];
+            
+            // Get document for counting array elements
+            std::string doc_id_str;
+            auto collection = CollectionManager::get_instance().get_collection(collection_name);
+            if (collection == nullptr) {
+                continue;
+            }
+
+            nlohmann::json document;
+            auto get_doc_op = collection->get_document_from_store(seq_id, document);
+            if (!get_doc_op.ok()) {
+                continue;
+            }
+
+
+            size_t array_count = 0;
+            if (document.contains(a_filter.array_field_name)) {
+                auto& field_value = document[a_filter.array_field_name];
+                if (field_value.is_array()) {
+                    array_count = field_value.size();
+                }
+            }
+
+
+            bool matches = false;
+            for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
+                auto const target_count = std::stoul(a_filter.values[fi]);
+                auto const& comparator = a_filter.comparators[fi];
+
+
+                bool single_match = false;
+                switch (comparator) {
+                    case EQUALS:
+                        single_match = (array_count == target_count);
+                        break;
+                    case NOT_EQUALS:
+                        single_match = (array_count != target_count);
+                        break;
+                    case LESS_THAN:
+                        single_match = (array_count < target_count);
+                        break;
+                    case LESS_THAN_EQUALS:
+                        single_match = (array_count <= target_count);
+                        break;
+                    case GREATER_THAN:
+                        single_match = (array_count > target_count);
+                        break;
+                    case GREATER_THAN_EQUALS:
+                        single_match = (array_count >= target_count);
+                        break;
+                    case RANGE_INCLUSIVE:
+                        if (fi + 1 < a_filter.values.size()) {
+                            auto const range_end = std::stoul(a_filter.values[fi + 1]);
+                            single_match = (array_count >= target_count && array_count <= range_end);
+                            fi++; // Skip next value since we used it as range end
+                        }
+                        break;
+                    default:
+                        single_match = false;
+                        break;
+                }
+
+                if (single_match) {
+                    matches = true;
+                    break; // OR logic: if any condition matches, include the document
+                }
+            }
+
+            if (matches) {
+                matching_seq_ids.push_back(seq_id);
+            }
+        }
+
+        delete[] all_ids;
+
+        if (a_filter.apply_not_equals) {
+            // Apply NOT logic to the entire result set
+            uint32_t* not_equals_ids = nullptr;
+            filter_result.count = ArrayUtils::exclude_scalar(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
+                                                             matching_seq_ids.data(), matching_seq_ids.size(),
+                                                             &not_equals_ids);
+            filter_result.docs = not_equals_ids;
+        } else {
+            filter_result.count = matching_seq_ids.size();
+            filter_result.docs = new uint32_t[matching_seq_ids.size()];
+            std::copy(matching_seq_ids.begin(), matching_seq_ids.end(), filter_result.docs);
+        }
+
+        is_filter_result_initialized = true;
+
+        if (filter_result.count == 0) {
+            validity = invalid;
+            return;
+        }
+
+        seq_id = filter_result.docs[result_index];
+        approx_filter_ids_length = filter_result.count;
+        return;
+    }
 
     if (f.is_integer()) {
         if (f.range_index) {

@@ -453,6 +453,52 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
                 continue;
             }
 
+            // handling for _count( patterns
+            if (i + 6 < size && filter_query.substr(i, 7) == "_count(") {
+                std::stringstream ss;
+                size_t start_pos = i;
+                size_t paren_count = 0;
+                bool found_colon = false;
+                
+                // parse the entire _count expression including the field name and comparison
+                while (i < size) {
+                    char cur_char = filter_query[i];
+                    ss << cur_char;
+                    
+                    if (cur_char == '(') {
+                        paren_count++;
+                    } else if (cur_char == ')') {
+                        paren_count--;
+                        if (paren_count == 0) {
+                            // closing parenthesis, now look for the colon and value
+                            i++;
+                            if (i < size && filter_query[i] == ':') {
+                                ss << ':';
+                                i++;
+                                
+                                // extract the value part (could be a range like [1..2])
+                                while (i < size && filter_query[i] != ' ' && 
+                                       filter_query[i] != '&' && filter_query[i] != '|' &&
+                                       filter_query[i] != '(' && filter_query[i] != ')') {
+                                    ss << filter_query[i];
+                                    i++;
+                                }
+                                found_colon = true;
+                                break;
+                            }
+                        }
+                    }
+                    i++;
+                }
+                
+                auto token = ss.str();
+                StringUtils::trim(token);
+                if (!token.empty()) {
+                    tokens.push(token);
+                }
+                continue;
+            }
+
             std::stringstream ss;
             bool inBacktick = false;
             bool preceding_colon = false;

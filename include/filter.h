@@ -50,6 +50,9 @@ struct filter {
 
     bool is_ignored_filter = false;
 
+    std::string array_field_name{};
+    bool is_array_count_filter = false;
+
     /// For searching places within a given radius of a given latlong (mi for miles and km for kilometers)
     static constexpr const char* GEO_FILTER_RADIUS_KEY = "radius";
 

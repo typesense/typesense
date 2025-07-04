@@ -4002,3 +4002,118 @@ TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
     ASSERT_EQ("Pizza", result["hits"][0]["document"]["root"]["main"]["name"]);
     ASSERT_EQ("Pasta", result["hits"][1]["document"]["root"]["main"]["name"]);
 }
+
+TEST_F(CollectionFilteringTest, FilterByArrayCount) {
+    Collection *coll_array_count;
+
+    std::vector<field> fields = {
+            field("name", field_types::STRING, false),
+            field("age", field_types::INT32, false),
+            field("tags", field_types::STRING_ARRAY, true),
+            field("scores", field_types::INT32_ARRAY, false),
+            field("categories", field_types::STRING_ARRAY, false)
+    };
+
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
+
+    coll_array_count = collectionManager.get_collection("coll_array_count").get();
+    if(coll_array_count == nullptr) {
+        coll_array_count = collectionManager.create_collection("coll_array_count", 4, fields, "age").get();
+    }
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "name": "John",
+                "age": 25,
+                "tags": ["red", "blue"],
+                "scores": [100, 85, 90],
+                "categories": []
+            })"_json,
+            R"({
+                "name": "Jane",
+                "age": 30,
+                "tags": ["green", "yellow", "red"],
+                "scores": [95],
+                "categories": ["A"]
+            })"_json,
+            R"({
+                "name": "Bob",
+                "age": 35,
+                "tags": ["blue"],
+                "scores": [88, 92],
+                "categories": ["A", "B", "C"]
+            })"_json,
+            R"({
+                "name": "Alice",
+                "age": 28,
+                "tags": [],
+                "scores": [99, 87, 91, 94],
+                "categories": ["B", "C"]
+            })"_json
+    };
+
+    for (auto const &json: documents) {
+        auto add_op = coll_array_count->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::vector<std::string> facets;
+    query_fields = {"name"};
+
+    auto results = coll_array_count->search("*", query_fields, "_count(tags):2", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    // Test filtering by greater than
+    results = coll_array_count->search("*", query_fields, "_count(tags):>1", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    // Test filtering by less than or equal
+    results = coll_array_count->search("*", query_fields, "_count(scores):<=2", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    // Test filtering by range
+    results = coll_array_count->search("*", query_fields, "_count(tags):[1..2]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    results = coll_array_count->search("*", query_fields, "_count(tags):<=2", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    // Test filtering by zero count (empty arrays)
+    results = coll_array_count->search("*", query_fields, "_count(categories):0", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("John", results["hits"][0]["document"]["name"]);
+
+    // Test filtering with multiple values (OR logic)
+    results = coll_array_count->search("*", query_fields, "_count(tags):[0,3]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    // Test filtering with multiple values (OR logic)
+    results = coll_array_count->search("*", query_fields, "name:Jane && _count(tags):[0,3]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("Jane", results["hits"][0]["document"]["name"]);
+
+    // Test error cases - invalid field
+    auto res_op = coll_array_count->search("*", query_fields, "_count(nonexistent):1", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_TRUE(res_op.error().find("Could not find a filter field named `nonexistent`") != std::string::npos);
+
+    // Test error cases - non-array field
+    res_op = coll_array_count->search("*", query_fields, "_count(name):1", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_TRUE(res_op.error().find("is not an array field") != std::string::npos);
+
+    // Test error cases - invalid count syntax
+    res_op = coll_array_count->search("*", query_fields, "_count(tags", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+
+    // Test error cases - empty field name
+    res_op = coll_array_count->search("*", query_fields, "_count():1", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_TRUE(res_op.error().find("Field name cannot be empty") != std::string::npos);
+
+    // Test error cases - non-integer count value
+    res_op = coll_array_count->search("*", query_fields, "_count(tags):abc", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+
+    collectionManager.drop_collection("coll_array_count");
+}
