@@ -344,6 +344,31 @@ protected:
         infile.close();
     }
 
+    void setupFiveHundredCollection() {
+        auto schema_json =
+                R"({
+                "name": "FiveHundred",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+
+        auto collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+
+        auto products = collection_create_op.get();
+        for (auto i = 0; i < 500; i++) {
+            nlohmann::json json = {
+                    {"title", "title_" + std::to_string(i)}
+            };
+            auto add_op = products->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
+    }
+
     virtual void SetUp() {
         setupCollection();
     }
@@ -872,6 +897,28 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_EQ("2", json_res["hits"][1]["document"]["id"]);
     ASSERT_EQ("Jeremy Howard", json_res["hits"][1]["document"]["name"]);
     ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
+    json_res.clear();
+    req_params.clear();
+
+    setupFiveHundredCollection();
+
+    req_params = {
+            {"page", "4"},
+            {"per_page", "100"}
+    };
+    searches = R"([
+                    {
+                        "collection": "FiveHundred",
+                        "q": "*"
+                    }
+                ])"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(500, json_res["found"]);
+    ASSERT_EQ(500, json_res["out_of"]);
+    ASSERT_EQ(4, json_res["page"]);
+    ASSERT_EQ(100, json_res["hits"].size());
     json_res.clear();
     req_params.clear();
 }
