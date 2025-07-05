@@ -1495,7 +1495,6 @@ TEST_F(CoreAPIUtilsTest, TestProxy) {
     ASSERT_EQ(res, resp->body);
 }
 
-
 TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
     nlohmann::json body;
     
@@ -2998,4 +2997,12 @@ TEST_F(CoreAPIUtilsTest, RemoveDocumentsWithReturnValues) {
     ASSERT_FALSE(res_json.contains("ids"));
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CoreAPIUtilsTest, CurlVersionSupportsOnlyHTTP1) {
+    ASSERT_FALSE(HttpServer::curl_only_http1(R"(FME/2023.7.48.23764  libcurl/8.4.0 (OpenSSL/3.0.11)
+                    Schannel zlib/1.2.13 WinIDN libssh2/1.11.0 nghttp2/1.44.0)"));
+    ASSERT_TRUE(HttpServer::curl_only_http1(R"(curl/7.15.1 (i386-pc-win32) libcurl/7.15.1 OpenSSL/0.9.8a zlib/1.2.3)"));
+    ASSERT_FALSE(HttpServer::curl_only_http1(R"(curl/7.81.0 (x86_64-pc-linux-gnu)"));
+    ASSERT_FALSE(HttpServer::curl_only_http1(R"(curl/100.81.28 (x86_64-pc-linux-gnu)"));
 }

@@ -3563,7 +3563,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         auto& conversation_standalone_query = conversation_standalone_queries[search_index];
         auto& vector_query = vector_queries[search_index];
         auto& facets = facets_list[search_index];
-        auto& per_page = per_pages[search_index];
+        auto& per_page = per_pages[search_index] = union_params.per_page;;
         auto& transcribed_query = transcribed_queries[search_index];
         auto& override_metadata = override_metadata_list[search_index];
         const auto default_sorting_field_used = coll_args.sort_fields.empty() &&
@@ -3702,9 +3702,16 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         return Option<bool>(408, "Request Timeout");
     }
 
+    std::vector<std::vector<Union_KV*>> raw_result_kvs;
+    std::vector<std::vector<Union_KV*>> override_result_kvs;
+
     auto union_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
                                                         Union_KV::is_greater, Union_KV::is_smaller>>(
                                                             std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
+
+    auto overrides_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
+            Union_KV::is_greater, Union_KV::is_smaller>>(
+            std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto& search_param = search_params_guards[search_index];
@@ -3713,13 +3720,61 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
             Union_KV kv(*kvs[0], search_index);
             union_topster->add(&kv);
         }
+
+        //populate overrides
+        for(auto& kvs : search_param->override_result_kvs) {
+            Union_KV kv(*kvs[0], search_index);
+            overrides_topster->add(&kv);
+        }
     }
+
     union_topster->sort();
+    overrides_topster->sort();
+
+    for(uint32_t t = 0; t < union_topster->size; t++) {
+        Union_KV* kv = union_topster->getKV(t);
+        raw_result_kvs.push_back({kv});
+    }
+
+    for(uint32_t t = 0; t < overrides_topster->size; t++) {
+        Union_KV* kv = overrides_topster->getKV(t);
+        override_result_kvs.push_back({kv});
+    }
+
+    std::vector<std::vector<Union_KV*>> merged_result_kvs;
+    size_t override_kv_index = 0;
+    size_t raw_results_index = 0;
+
+    // merge raw results and override results
+    while(raw_results_index < raw_result_kvs.size()) {
+        if (override_kv_index < override_result_kvs.size()) {
+            size_t result_position = merged_result_kvs.size() + 1;
+            auto override_kv = override_result_kvs[override_kv_index][0];
+            uint64_t override_position = -override_kv->scores[0];
+            if (result_position == override_position) {
+                override_kv->match_score_index = CURATED_RECORD_IDENTIFIER;
+                merged_result_kvs.push_back(override_result_kvs[override_kv_index]);
+                override_kv_index++;
+                continue;
+            }
+        }
+
+        merged_result_kvs.push_back(raw_result_kvs[raw_results_index]);
+
+        raw_results_index++;
+    }
+
+    while(override_kv_index < override_result_kvs.size()) {
+        override_result_kvs[override_kv_index][0]->match_score_index = CURATED_RECORD_IDENTIFIER;
+        merged_result_kvs.push_back({override_result_kvs[override_kv_index]});
+        override_kv_index++;
+    }
+
 
     const long start_result_index = union_params.offset;
 
     // `end_result_index` could be -1, so use signed type
-    const long end_result_index = std::min<size_t>(union_params.fetch_size, union_topster->size) - 1;
+    const long end_result_index = std::min<size_t>(union_params.fetch_size, merged_result_kvs.size()) - 1;
 
     result = nlohmann::json::object();
     result["found"] = total;
@@ -3733,140 +3788,146 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     nlohmann::json docs_array = nlohmann::json::array();
 
     for (long kv_index = start_result_index; kv_index <= end_result_index; kv_index++) {
-        const auto& kv = union_topster->getKV(kv_index);
-        const auto& search_index = kv->search_index;
-        const auto& coll_id = collection_ids.at(search_index);
-        auto& cm = CollectionManager::get_instance();
-        auto coll = cm.get_collection_with_id(coll_id);
-        if (coll == nullptr) {
-            return Option<bool>(400, "Collection having `coll_id: " + std::to_string(coll_id) + "` not found.");
-        }
-        const std::string& seq_id_key = coll->get_seq_id_key((uint32_t) kv->key);
+        const auto& kv_group = merged_result_kvs[kv_index];
 
-        nlohmann::json document;
-        const Option<bool> & document_op = coll->get_document_from_store(seq_id_key, document);
+        for (const Union_KV* kv: kv_group) {
 
-        if (!document_op.ok()) {
-            LOG(ERROR) << "Document fetch error. " << document_op.error();
-            continue;
-        }
-
-        const auto& coll_args = searches[search_index];
-        const auto& search_params = search_params_guards[search_index].get();
-        const auto& search_schema = coll->get_schema();
-        const auto& enable_nested_fields = coll->get_enable_nested_fields();
-        const auto& symbols_to_index = coll->get_symbols_to_index();
-        const auto& token_separators = coll->get_token_separators();
-        const auto& query = queries[search_index];
-        const auto& raw_search_fields = coll_args.search_fields;
-        const auto& raw_query = coll_args.raw_query;
-        const auto& enable_highlight_v1 = coll_args.enable_highlight_v1;
-        const auto& snippet_threshold = coll_args.snippet_threshold;
-        const auto& highlight_affix_num_tokens = coll_args.highlight_affix_num_tokens;
-        const auto& highlight_start_tag = coll_args.highlight_start_tag;
-        const auto& highlight_end_tag = coll_args.highlight_end_tag;
-        const auto& highlight_field_names = highlight_field_names_list[search_index];
-        const auto& highlight_full_field_names = highlight_full_field_names_list[search_index];
-        const auto& highlight_items = highlight_items_list[search_index];
-        const auto& index_symbols = index_symbols_list[search_index].data();
-
-        nlohmann::json highlight_res;
-        nlohmann::json wrapper_doc;
-        do_highlighting(search_schema, enable_nested_fields, symbols_to_index, token_separators, query,
-                        raw_search_fields, raw_query, enable_highlight_v1, snippet_threshold,
-                        highlight_affix_num_tokens, highlight_start_tag, highlight_end_tag, highlight_field_names,
-                        highlight_full_field_names, highlight_items, index_symbols, kv, document,
-                        highlight_res, wrapper_doc);
-
-        remove_flat_fields(document);
-        remove_reference_helper_fields(document);
-
-        const auto& include_fields_full = include_fields_full_list[search_index];
-        const auto& exclude_fields_full = exclude_fields_full_list[search_index];
-        const auto& ref_include_exclude_fields_vec = coll_args.ref_include_exclude_fields_vec;
-
-        auto prune_op = prune_doc(document,
-                                  include_fields_full,
-                                  exclude_fields_full,
-                                  "",
-                                  0,
-                                  kv->reference_filter_results,
-                                  const_cast<Collection *>(coll.get()), get_seq_id_from_key(seq_id_key),
-                                  ref_include_exclude_fields_vec);
-        if (!prune_op.ok()) {
-            return prune_op;
-        }
-
-
-        wrapper_doc["document"] = document;
-        wrapper_doc["highlight"] = highlight_res;
-        wrapper_doc["search_index"] = search_index;
-        wrapper_doc["collection"] = coll->get_name();
-
-        const auto& match_type = coll_args.match_type;
-        const auto& field_query_tokens = search_params->field_query_tokens;
-        const auto& vector_query = vector_queries[search_index];
-
-        if (kv->match_score_index == CURATED_RECORD_IDENTIFIER) {
-            wrapper_doc["curated"] = true;
-        } else if (kv->match_score_index >= 0) {
-            wrapper_doc["text_match"] = kv->text_match_score;
-            wrapper_doc["text_match_info"] = nlohmann::json::object();
-            populate_text_match_info(wrapper_doc["text_match_info"],
-                                     kv->text_match_score, match_type,
-                                     field_query_tokens[0].q_include_tokens.size());
-            if (!vector_query.field_name.empty()) {
-                wrapper_doc["hybrid_search_info"] = nlohmann::json::object();
-                wrapper_doc["hybrid_search_info"]["rank_fusion_score"] = Index::int64_t_to_float(kv->scores[kv->match_score_index]);
+            const auto& search_index = kv->search_index;
+            const auto& coll_id = collection_ids.at(search_index);
+            auto& cm = CollectionManager::get_instance();
+            auto coll = cm.get_collection_with_id(coll_id);
+            if (coll == nullptr) {
+                return Option<bool>(400, "Collection having `coll_id: " + std::to_string(coll_id) + "` not found.");
             }
-        }
+            const std::string& seq_id_key = coll->get_seq_id_key((uint32_t) kv->key);
 
-        const auto& sort_fields_std = search_params->sort_fields_std;
-        nlohmann::json geo_distances;
+            nlohmann::json document;
+            const Option<bool>& document_op = coll->get_document_from_store(seq_id_key, document);
 
-        for (size_t sort_field_index = 0; sort_field_index < sort_fields_std.size(); sort_field_index++) {
-            const auto& sort_field = sort_fields_std[sort_field_index];
-            if (sort_field.geopoint != 0 && sort_field.geo_precision != 0) {
-                S2LatLng reference_lat_lng;
-                GeoPoint::unpack_lat_lng(sort_field.geopoint, reference_lat_lng);
-                const bool is_asc = sort_field.order == sort_field_const::asc;
+            if (!document_op.ok()) {
+                LOG(ERROR) << "Document fetch error. " << document_op.error();
+                continue;
+            }
 
-                auto get_geo_distance_op = !sort_field.reference_collection_name.empty() ?
-                                           coll->get_referenced_geo_distance_with_lock(sort_field, is_asc, kv->key,
-                                                                                       kv->reference_filter_results,
-                                                                                       reference_lat_lng, true) :
-                                           coll->get_geo_distance_with_lock(sort_field.name, is_asc, {(uint32_t) kv->key},
-                                                                            reference_lat_lng, true);
-                if (!get_geo_distance_op.ok()) {
-                    return Option<bool>(get_geo_distance_op.code(), get_geo_distance_op.error());
+            const auto& coll_args = searches[search_index];
+            const auto& search_params = search_params_guards[search_index].get();
+            const auto& search_schema = coll->get_schema();
+            const auto& enable_nested_fields = coll->get_enable_nested_fields();
+            const auto& symbols_to_index = coll->get_symbols_to_index();
+            const auto& token_separators = coll->get_token_separators();
+            const auto& query = queries[search_index];
+            const auto& raw_search_fields = coll_args.search_fields;
+            const auto& raw_query = coll_args.raw_query;
+            const auto& enable_highlight_v1 = coll_args.enable_highlight_v1;
+            const auto& snippet_threshold = coll_args.snippet_threshold;
+            const auto& highlight_affix_num_tokens = coll_args.highlight_affix_num_tokens;
+            const auto& highlight_start_tag = coll_args.highlight_start_tag;
+            const auto& highlight_end_tag = coll_args.highlight_end_tag;
+            const auto& highlight_field_names = highlight_field_names_list[search_index];
+            const auto& highlight_full_field_names = highlight_full_field_names_list[search_index];
+            const auto& highlight_items = highlight_items_list[search_index];
+            const auto& index_symbols = index_symbols_list[search_index].data();
+
+            nlohmann::json highlight_res;
+            nlohmann::json wrapper_doc;
+            do_highlighting(search_schema, enable_nested_fields, symbols_to_index, token_separators, query,
+                            raw_search_fields, raw_query, enable_highlight_v1, snippet_threshold,
+                            highlight_affix_num_tokens, highlight_start_tag, highlight_end_tag, highlight_field_names,
+                            highlight_full_field_names, highlight_items, index_symbols, kv, document,
+                            highlight_res, wrapper_doc);
+
+            remove_flat_fields(document);
+            remove_reference_helper_fields(document);
+
+            const auto& include_fields_full = include_fields_full_list[search_index];
+            const auto& exclude_fields_full = exclude_fields_full_list[search_index];
+            const auto& ref_include_exclude_fields_vec = coll_args.ref_include_exclude_fields_vec;
+
+            auto prune_op = prune_doc(document,
+                                      include_fields_full,
+                                      exclude_fields_full,
+                                      "",
+                                      0,
+                                      kv->reference_filter_results,
+                                      const_cast<Collection*>(coll.get()), get_seq_id_from_key(seq_id_key),
+                                      ref_include_exclude_fields_vec);
+            if (!prune_op.ok()) {
+                return prune_op;
+            }
+
+
+            wrapper_doc["document"] = document;
+            wrapper_doc["highlight"] = highlight_res;
+            wrapper_doc["search_index"] = search_index;
+            wrapper_doc["collection"] = coll->get_name();
+
+            const auto& match_type = coll_args.match_type;
+            const auto& field_query_tokens = search_params->field_query_tokens;
+            const auto& vector_query = vector_queries[search_index];
+
+            if (kv->match_score_index == CURATED_RECORD_IDENTIFIER) {
+                wrapper_doc["curated"] = true;
+            } else if (kv->match_score_index >= 0) {
+                wrapper_doc["text_match"] = kv->text_match_score;
+                wrapper_doc["text_match_info"] = nlohmann::json::object();
+                populate_text_match_info(wrapper_doc["text_match_info"],
+                                         kv->text_match_score, match_type,
+                                         field_query_tokens[0].q_include_tokens.size());
+                if (!vector_query.field_name.empty()) {
+                    wrapper_doc["hybrid_search_info"] = nlohmann::json::object();
+                    wrapper_doc["hybrid_search_info"]["rank_fusion_score"] = Index::int64_t_to_float(
+                            kv->scores[kv->match_score_index]);
                 }
-                geo_distances[sort_field.name] = get_geo_distance_op.get();
-            } else if (sort_field.geopoint != 0) {
-                geo_distances[sort_field.name] = std::abs(kv->scores[sort_field_index]);
-            } else if (sort_field.name == sort_field_const::vector_query &&
-                      !sort_field.vector_query.query.field_name.empty()) {
-                wrapper_doc["vector_distance"] = -Index::int64_t_to_float(kv->scores[sort_field_index]);
             }
+
+            const auto& sort_fields_std = search_params->sort_fields_std;
+            nlohmann::json geo_distances;
+
+            for (size_t sort_field_index = 0; sort_field_index < sort_fields_std.size(); sort_field_index++) {
+                const auto& sort_field = sort_fields_std[sort_field_index];
+                if (sort_field.geopoint != 0 && sort_field.geo_precision != 0) {
+                    S2LatLng reference_lat_lng;
+                    GeoPoint::unpack_lat_lng(sort_field.geopoint, reference_lat_lng);
+                    const bool is_asc = sort_field.order == sort_field_const::asc;
+
+                    auto get_geo_distance_op = !sort_field.reference_collection_name.empty() ?
+                                               coll->get_referenced_geo_distance_with_lock(sort_field, is_asc, kv->key,
+                                                                                           kv->reference_filter_results,
+                                                                                           reference_lat_lng, true) :
+                                               coll->get_geo_distance_with_lock(sort_field.name, is_asc,
+                                                                                {(uint32_t) kv->key},
+                                                                                reference_lat_lng, true);
+                    if (!get_geo_distance_op.ok()) {
+                        return Option<bool>(get_geo_distance_op.code(), get_geo_distance_op.error());
+                    }
+                    geo_distances[sort_field.name] = get_geo_distance_op.get();
+                } else if (sort_field.geopoint != 0) {
+                    geo_distances[sort_field.name] = std::abs(kv->scores[sort_field_index]);
+                } else if (sort_field.name == sort_field_const::vector_query &&
+                           !sort_field.vector_query.query.field_name.empty()) {
+                    wrapper_doc["vector_distance"] = -Index::int64_t_to_float(kv->scores[sort_field_index]);
+                }
+            }
+
+            if (!geo_distances.empty()) {
+                wrapper_doc["geo_distance_meters"] = geo_distances;
+            }
+
+            if (!vector_query.field_name.empty() && kv->vector_distance >= 0) {
+                wrapper_doc["vector_distance"] = kv->vector_distance;
+            }
+
+            result[hits_key] += wrapper_doc;
+
+            const auto& offset = search_params->offset;
+            // handle analytics query expansion
+            std::string first_q = raw_query;
+            std::vector<std::vector<KV*>> result_group_kvs = {{(KV*)kv}};
+            expand_search_query(search_schema, symbols_to_index, token_separators,
+                                raw_query, offset, total, search_params, result_group_kvs, raw_search_fields, first_q);
+            auto& object = request_json_list[search_index];
+            object["first_q"] = first_q;
         }
-
-        if (!geo_distances.empty()) {
-            wrapper_doc["geo_distance_meters"] = geo_distances;
-        }
-
-        if (!vector_query.field_name.empty() && kv->vector_distance >= 0) {
-            wrapper_doc["vector_distance"] = kv->vector_distance;
-        }
-
-        result[hits_key] += wrapper_doc;
-
-        const auto& offset = search_params->offset;
-        // handle analytics query expansion
-        std::string first_q = raw_query;
-        std::vector<std::vector<KV*>> result_group_kvs = {{kv}};
-        expand_search_query(search_schema, symbols_to_index, token_separators,
-                            raw_query, offset, total, search_params, result_group_kvs, raw_search_fields, first_q);
-        auto& object = request_json_list[search_index];
-        object["first_q"] = first_q;
     }
 
     for (auto& request: request_json_list) {
@@ -8423,4 +8484,11 @@ Option<bool> Collection::set_synonym_sets(const std::vector<std::string>& synony
     }
     this->synonym_sets = synonym_sets;
     return Option<bool>(true);
+}
+
+void collection_search_args_t::override_union_global_params(union_global_params_t& global_params) {
+    page = global_params.page;
+    per_page = global_params.per_page;
+    offset = global_params.offset;
+    limit_hits = global_params.limit_hits;
 }

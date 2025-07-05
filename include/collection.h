@@ -336,6 +336,8 @@ struct collection_search_args_t {
                              const std::string& stopwords_set,
                              const uint64_t& start_ts,
                              collection_search_args_t& args);
+
+    void override_union_global_params(union_global_params_t& global_params);
 };
 
 class Collection: std::enable_shared_from_this<Collection> {
