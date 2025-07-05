@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "synonym_index.h"
+#include "synonym_index_manager.h"
 
 class CollectionSpecificMoreTest : public ::testing::Test {
 protected:
@@ -3113,11 +3115,16 @@ TEST_F(CollectionSpecificMoreTest, TestStemming2) {
 }
 
 TEST_F(CollectionSpecificMoreTest, TestStemmingWithSynonym) {
+    SynonymIndexManager& manager = SynonymIndexManager::get_instance();
+    manager.init_store(store);
+    manager.add_synonym_index("index");
+
     nlohmann::json schema = R"({
          "name": "words",
          "fields": [
            {"name": "word", "type": "string", "stem": true }
-         ]
+         ],
+         "synonym_sets": ["index"]
        })"_json;
     
     auto coll_stem_res = collectionManager.create_collection(schema);
@@ -3134,7 +3141,6 @@ TEST_F(CollectionSpecificMoreTest, TestStemmingWithSynonym) {
     LOG(INFO) << "Adding synonym...";
     auto synonym_op = coll_stem->add_synonym(synonym_json);
     LOG(INFO) << "Synonym added...";
-
     ASSERT_TRUE(synonym_op.ok());
 
     ASSERT_TRUE(coll_stem->add(R"({"word": "foobar"})"_json.dump()).ok());

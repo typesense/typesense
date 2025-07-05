@@ -118,7 +118,6 @@ Option<bool> SynonymIndex::add_synonym(const synonym_t& synonym,
     write_lock.unlock();
 
     if(write_to_store) {
-        LOG(INFO) << "Storing synonym: " << synonym.id;
         bool inserted = store->insert(get_synonym_key(name, synonym.id), synonym.to_view_json().dump());
         if(!inserted) {
             return Option<bool>(500, "Error while storing the synonym on disk.");

@@ -8,7 +8,6 @@
 
 class SynonymIndexManager {
     public:
-    
         static SynonymIndexManager& get_instance();
 
         SynonymIndexManager(const SynonymIndexManager&) = delete;

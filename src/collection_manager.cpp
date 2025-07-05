@@ -2033,7 +2033,7 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
                               existing_coll->get_default_sorting_field(), static_cast<uint64_t>(std::time(nullptr)),
                               existing_coll->get_fallback_field_type(), symbols_to_index, token_separators,
                               existing_coll->get_enable_nested_fields(), existing_coll->get_vq_model(),
-                              existing_coll->get_synonym_sets());
+                              {}, existing_coll->get_synonym_sets());
 
     lock.lock();
 

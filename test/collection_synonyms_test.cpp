@@ -1741,6 +1741,6 @@ TEST_F(CollectionSynonymsTest, SynonymIndexInSearchParams) {
     ASSERT_EQ(res["hits"][0]["document"]["id"].get<std::string>(), "1");
     ASSERT_EQ(res["hits"][0]["document"]["title"].get<std::string>(), "apple");
     ASSERT_EQ(res["hits"][0]["document"]["points"].get<int>(), 100);
-    }
+}
 
 
