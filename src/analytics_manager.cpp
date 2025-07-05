@@ -9,7 +9,6 @@
 #define EVENTS_RATE_LIMIT_SEC 60
 
 void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
-    // Lock held by caller AnalyticsManager::run
     LOG(INFO) << "AnalyticsManager::persist_db_events";
     const uint64_t now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
               std::chrono::system_clock::now().time_since_epoch()).count();
@@ -57,27 +56,48 @@ void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t
       }
     };
 
+    std::unique_lock lk(mutex);
+    std::vector<std::vector<std::string>> doc_analytics_queue;
     for(auto& counter_event_it : doc_analytics.get_doc_counter_events()) {
       const auto& collection = counter_event_it.second.destination_collection;
       std::string docs;
       counter_event_it.second.serialize_as_docs(docs);
-      update_counter_events(docs, collection, "update");
+      doc_analytics_queue.push_back({docs, collection});
       doc_analytics.reset_local_counter(counter_event_it.first);
     }
     
+    std::vector<std::vector<std::string>> query_analytics_queue;
     query_analytics.compact_all_user_queries(now_ts_us);
     for(auto& counter_event_it : query_analytics.get_query_counter_events()) {
       const auto& collection = counter_event_it.second.destination_collection;
       std::string docs;
       counter_event_it.second.serialize_as_docs(docs);
-      update_counter_events(docs, collection, "emplace");
+      query_analytics_queue.push_back({docs, collection, std::to_string(counter_event_it.second.limit)});
       query_analytics.reset_local_counter(counter_event_it.first);
-      limit_to_top_k(collection, counter_event_it.second.limit);
+    }
+
+    const size_t rules_size = rules_map.size();
+    lk.unlock();
+
+    const size_t delay_interval = Config::get_instance().get_analytics_flush_interval() / (doc_analytics_queue.size() + query_analytics_queue.size() + 1);
+    for(const auto& params : doc_analytics_queue) {
+      update_counter_events(params[0], params[1], "update");
+      if (rules_size > DELAY_WRITE_RULE_SIZE) {
+        std::this_thread::sleep_for(std::chrono::seconds(delay_interval));
+      }
+    }
+
+    for(const auto& params : query_analytics_queue) {
+      update_counter_events(params[0], params[1], "emplace");
+      limit_to_top_k(params[1], std::stoi(params[2]));
+      if (rules_size > DELAY_WRITE_RULE_SIZE) {
+        std::this_thread::sleep_for(std::chrono::seconds(delay_interval));
+      }
     }
 }
 
 void AnalyticsManager::persist_analytics_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
-    // Lock held by caller AnalyticsManager::run
+    std::unique_lock lk(mutex);
     LOG(INFO) << "AnalyticsManager::persist_analytics_db_events";
     auto send_http_response = [&](const std::string& import_payload) {
         if(raft_server == nullptr) {
@@ -536,7 +556,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
                                     std::chrono::system_clock::now().time_since_epoch()).count();
 
     while(!quit) {
-        std::unique_lock lk(mutex);
+        std::unique_lock lk(quit_mutex);
         cv.wait_for(lk, std::chrono::seconds(QUERY_COMPACTION_INTERVAL_S), [&] { return quit.load(); });
         
         if(quit) {
@@ -555,13 +575,11 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
             continue;
         }
 
-        persist_db_events(raft_server, prev_persistence_s);
-        persist_analytics_db_events(raft_server, prev_persistence_s);
-
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
-
-        lk.unlock();
+        
+        persist_analytics_db_events(raft_server, prev_persistence_s);
+        persist_db_events(raft_server, prev_persistence_s);
     }
 
     dispose();
@@ -626,7 +644,9 @@ void AnalyticsManager::init(Store* store, Store* analytics_store, uint32_t analy
 }
 
 void AnalyticsManager::stop() {
+    std::unique_lock lk(quit_mutex);
     quit = true;
+    lk.unlock();
     dispose();
     cv.notify_all();
 }

@@ -24,6 +24,7 @@ struct external_event_cache_t {
 class AnalyticsManager {
 private:
     mutable std::shared_mutex mutex;
+    mutable std::shared_mutex quit_mutex;
     std::condition_variable_any cv;
     const size_t QUERY_COMPACTION_INTERVAL_S = 30;
     bool isRateLimitEnabled = true;
@@ -44,6 +45,7 @@ private:
 
 public:
     static constexpr const char* ANALYTICS_RULE_PREFIX = "$NAR";
+    static constexpr size_t DELAY_WRITE_RULE_SIZE = 4;
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
         return instance;
