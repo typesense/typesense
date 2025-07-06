@@ -51,6 +51,7 @@ protected:
         delete store;
         delete analytic_store;
         analyticsManager.stop();
+        Config::get_instance().set_enable_search_analytics(false);
     }
 };
 

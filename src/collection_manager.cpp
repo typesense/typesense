@@ -603,7 +603,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         restored_old_analytics_configs++;
     }
     LOG(INFO) << "Restored " << restored_old_analytics_configs << " old analytics config(s)." << " from " << old_analytics_config_jsons.size() << " old analytics config(s) on disk.";
-    LOG(INFO) << "Failed to restore " << old_analytics_config_jsons.size() - restored_old_analytics_configs << " old analytics config(s).";
     LOG(INFO) << "Removing restored old analytics config(s) from disk.";
 
     loading_pool.shutdown();

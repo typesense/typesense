@@ -104,21 +104,18 @@ protected:
         ASSERT_EQ(import_op["success"], true);
 
         nlohmann::json analytics_rule = R"({
-            "name": "personalization_events",
+            "name": "test_event",
             "type": "log",
-            "params": {
-                "source": {
-                    "collections": ["movies"],
-                    "events": [{"type": "click", "name": "test_event"}]
-                }
-            }
+            "collection": "movies",
+            "event_type": "click"
         })"_json;
 
-        auto create_op = analyticsManager.create_rule(analytics_rule, true, true, false);
+        auto create_op = analyticsManager.create_rule(analytics_rule, false, true, true);
+        ASSERT_EQ(create_op.error(), "");
         ASSERT_TRUE(create_op.ok());
         // Add events to the event name
         nlohmann::json event1 = R"({
-            "type": "click",
+            "event_type": "click",
             "name": "test_event",
             "data": {
                 "doc_id": "0",
@@ -127,7 +124,7 @@ protected:
         })"_json;
 
         nlohmann::json event2 = R"({
-            "type": "click",
+            "event_type": "click",
             "name": "test_event",
             "data": {
                 "doc_id": "1",
@@ -135,10 +132,10 @@ protected:
             }
         })"_json;
 
-        auto add_event_op1 = analyticsManager.add_external_event("127.0.0.1", event1["data"]);
+        auto add_event_op1 = analyticsManager.add_external_event("127.0.0.1", event1);
         ASSERT_TRUE(add_event_op1.ok());
 
-        auto add_event_op2 = analyticsManager.add_external_event("127.0.0.1", event2["data"]);
+        auto add_event_op2 = analyticsManager.add_external_event("127.0.0.1", event2);
         ASSERT_TRUE(add_event_op2.ok());
     }
 
@@ -208,7 +205,7 @@ TEST_F(PersonalizationSearchTest, ParseAndValidatePersonalizationQuery) {
         filter_query,
         is_wildcard_query
     );
-    ASSERT_EQ(result.error(), "Analytics event not found");
+    ASSERT_EQ(result.error(), "Rule not found");
     ASSERT_FALSE(result.ok());
 
     result = collection->parse_and_validate_personalization_query(
