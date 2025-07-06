@@ -105,7 +105,7 @@ jobs:
         working-directory: api_tests
         run: bun link
       - name: Run API tests with secrets
-        if: github.event.pull_request.head.repo.fork == true
+        if: github.event.pull_request.head.repo.fork == false
         working-directory: api_tests
         env:
           TYPESENSE_BINARY_PATH: ${{ github.workspace }}/typesense-server-binary/typesense-server
@@ -113,7 +113,7 @@ jobs:
           OPEN_AI_API_KEY: ""
         run: typesense-api-tests
       - name: Run API tests without secrets
-        if: github.event.pull_request.head.repo.fork == false
+        if: github.event.pull_request.head.repo.fork == true
         working-directory: api_tests
         env:
           TYPESENSE_BINARY_PATH: ${{ github.workspace }}/typesense-server-binary/typesense-server
