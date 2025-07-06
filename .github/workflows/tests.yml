@@ -110,7 +110,7 @@ jobs:
         env:
           TYPESENSE_BINARY_PATH: ${{ github.workspace }}/typesense-server-binary/typesense-server
           TYPESENSE_DATA_DIR: ${{ github.workspace }}/tmp/test
-          OPEN_AI_API_KEY: ""
+          OPEN_AI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: typesense-api-tests
       - name: Run API tests without secrets
         if: github.event.pull_request.head.repo.fork == true
