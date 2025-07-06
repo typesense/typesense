@@ -102,7 +102,7 @@ struct query_rule_config_t {
     }
 };
 
-class QueryAnalytic {
+class QueryAnalytics {
 private:
   mutable std::shared_mutex user_compaction_mutex;
   mutable std::shared_mutex mutex;
@@ -116,20 +116,20 @@ private:
 
 public:
   static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
-  static constexpr const char* NO_HIT_QUERIES_TYPE = "no_hit_queries";
+  static constexpr const char* NO_HIT_QUERIES_TYPE = "nohits_queries";
   static constexpr const char* LOG_TYPE = "log";
   static constexpr const char* QUERY_EVENT = "query";
   static const size_t QUERY_FINALIZATION_INTERVAL_MICROS = 4 * 1000 * 1000;
   static const size_t MAX_QUERY_LENGTH = 1024;
 
-  QueryAnalytic() = default;
-  ~QueryAnalytic() = default;
+  QueryAnalytics() = default;
+  ~QueryAnalytics() = default;
 
-  QueryAnalytic(QueryAnalytic const&) = delete;
-  void operator=(QueryAnalytic const&) = delete;
+  QueryAnalytics(QueryAnalytics const&) = delete;
+  void operator=(QueryAnalytics const&) = delete;
 
-  static QueryAnalytic& get_instance() {
-    static QueryAnalytic instance;
+  static QueryAnalytics& get_instance() {
+    static QueryAnalytics instance;
     return instance;
   }
 

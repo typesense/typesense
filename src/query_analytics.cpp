@@ -42,7 +42,7 @@ void query_counter_event_t::serialize_as_docs(std::string& docs) {
   }
 }
 
-bool QueryAnalytic::check_rule_type(const std::string& event_type, const std::string& type) {
+bool QueryAnalytics::check_rule_type(const std::string& event_type, const std::string& type) {
   if(event_type == QUERY_EVENT) {
     return type == LOG_TYPE || type == NO_HIT_QUERIES_TYPE || type == POPULAR_QUERIES_TYPE;
   }
@@ -50,7 +50,7 @@ bool QueryAnalytic::check_rule_type(const std::string& event_type, const std::st
   return false;
 }
 
-bool QueryAnalytic::check_rule_type_collection(const std::string& collection, const std::string& type) {
+bool QueryAnalytics::check_rule_type_collection(const std::string& collection, const std::string& type) {
   auto collection_map_it = collection_rules_map.find(collection);
   if(collection_map_it == collection_rules_map.end()) {
     return false;
@@ -64,7 +64,7 @@ bool QueryAnalytic::check_rule_type_collection(const std::string& collection, co
   return false;
 }
 
-Option<bool> QueryAnalytic::add_event(const std::string& client_ip, const nlohmann::json& event_data) {
+Option<bool> QueryAnalytics::add_event(const std::string& client_ip, const nlohmann::json& event_data) {
   std::unique_lock lock(mutex);
   const auto& event_type = event_data["event_type"].get<std::string>();
   auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -125,7 +125,7 @@ Option<bool> QueryAnalytic::add_event(const std::string& client_ip, const nlohma
   return Option<bool>(true);
 }
 
-Option<bool> QueryAnalytic::add_internal_event(const query_internal_event_t& event_data) {
+Option<bool> QueryAnalytics::add_internal_event(const query_internal_event_t& event_data) {
   std::unique_lock lock(mutex);
   std::unique_lock user_lock(user_compaction_mutex);
   const uint64_t now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -168,7 +168,7 @@ Option<bool> QueryAnalytic::add_internal_event(const query_internal_event_t& eve
   return Option<bool>(true);
 }
 
-Option<nlohmann::json> QueryAnalytic::create_rule(nlohmann::json& payload, bool update, bool is_live_req) {
+Option<nlohmann::json> QueryAnalytics::create_rule(nlohmann::json& payload, bool update, bool is_live_req) {
   std::unique_lock lock(mutex);
   if(update) {
     if(query_rules.find(payload["name"].get<std::string>()) == query_rules.end()) {
@@ -327,7 +327,7 @@ Option<nlohmann::json> QueryAnalytic::create_rule(nlohmann::json& payload, bool 
 }
   
 
-Option<bool> QueryAnalytic::remove_rule(const std::string& name) {
+Option<bool> QueryAnalytics::remove_rule(const std::string& name) {
   std::unique_lock lock(mutex);
   auto it = query_rules.find(name);
   auto query_counter_event_it = query_counter_events.find(name);
@@ -352,7 +352,7 @@ Option<bool> QueryAnalytic::remove_rule(const std::string& name) {
   return Option<bool>(true);
 }
 
-void QueryAnalytic::get_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values) {
+void QueryAnalytics::get_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values) {
   std::shared_lock lock(mutex);
   auto it = query_log_events.find(event_name);
   if(it == query_log_events.end()) {
@@ -372,7 +372,7 @@ void QueryAnalytic::get_events(const std::string& userid, const std::string& eve
   }
 }
 
-Option<nlohmann::json> QueryAnalytic::list_rules(const std::string& rule_tag) {
+Option<nlohmann::json> QueryAnalytics::list_rules(const std::string& rule_tag) {
   std::shared_lock lock(mutex);
   nlohmann::json rules = nlohmann::json::array();
   for(const auto& [key, value] : query_rules) {
@@ -385,7 +385,7 @@ Option<nlohmann::json> QueryAnalytic::list_rules(const std::string& rule_tag) {
   return Option<nlohmann::json>(rules);
 }
 
-Option<nlohmann::json> QueryAnalytic::get_rule(const std::string& name) {
+Option<nlohmann::json> QueryAnalytics::get_rule(const std::string& name) {
   std::shared_lock lock(mutex);
   auto it = query_rules.find(name);
   if(it == query_rules.end()) {
@@ -396,7 +396,7 @@ Option<nlohmann::json> QueryAnalytic::get_rule(const std::string& name) {
   return Option<nlohmann::json>(rule);
 }
 
-void QueryAnalytic::compact_single_user_queries(uint64_t now_ts_us, const std::string& user_id, const std::string& type, std::unordered_map<std::string, std::vector<query_event_t>>& user_prefix_queries) {
+void QueryAnalytics::compact_single_user_queries(uint64_t now_ts_us, const std::string& user_id, const std::string& type, std::unordered_map<std::string, std::vector<query_event_t>>& user_prefix_queries) {
   std::unique_lock lock(user_compaction_mutex);
 
   for(auto& query_events : user_prefix_queries) {
@@ -432,7 +432,7 @@ void QueryAnalytic::compact_single_user_queries(uint64_t now_ts_us, const std::s
   }
 }
 
-void QueryAnalytic::compact_all_user_queries(uint64_t now_ts_us) {
+void QueryAnalytics::compact_all_user_queries(uint64_t now_ts_us) {
   for(auto& user_prefix_queries : popular_user_collection_prefix_queries) {
     compact_single_user_queries(now_ts_us, user_prefix_queries.first, POPULAR_QUERIES_TYPE, user_prefix_queries.second);
   }
@@ -444,7 +444,7 @@ void QueryAnalytic::compact_all_user_queries(uint64_t now_ts_us) {
   }
 }
 
-void QueryAnalytic::reset_local_counter(const std::string& event_name) {
+void QueryAnalytics::reset_local_counter(const std::string& event_name) {
   std::unique_lock lock(mutex);
   auto it = query_counter_events.find(event_name);
   if(it == query_counter_events.end()) {
@@ -453,7 +453,7 @@ void QueryAnalytic::reset_local_counter(const std::string& event_name) {
   it->second.query_counts.clear();
 }
 
-void QueryAnalytic::reset_local_log_events(const std::string& event_name) {
+void QueryAnalytics::reset_local_log_events(const std::string& event_name) {
   std::unique_lock lock(mutex);
   auto it = query_log_events.find(event_name);
   if(it == query_log_events.end()) {
@@ -462,22 +462,22 @@ void QueryAnalytic::reset_local_log_events(const std::string& event_name) {
   it->second.clear();
 }
 
-std::unordered_map<std::string, query_counter_event_t> QueryAnalytic::get_query_counter_events() {
+std::unordered_map<std::string, query_counter_event_t> QueryAnalytics::get_query_counter_events() {
   std::unique_lock lock(mutex);
   return query_counter_events;
 }
 
-std::unordered_map<std::string, std::vector<query_event_t>> QueryAnalytic::get_query_log_events() {
+std::unordered_map<std::string, std::vector<query_event_t>> QueryAnalytics::get_query_log_events() {
   std::unique_lock lock(mutex);
   return query_log_events;
 }
 
-query_rule_config_t QueryAnalytic::get_query_rule(const std::string& name) {
+query_rule_config_t QueryAnalytics::get_query_rule(const std::string& name) {
   std::shared_lock lock(mutex);
   return query_rules.find(name)->second;
 }
 
-void QueryAnalytic::remove_all_rules() {
+void QueryAnalytics::remove_all_rules() {
   std::unique_lock lock(mutex);
   query_rules.clear();
   query_counter_events.clear();
@@ -485,6 +485,6 @@ void QueryAnalytic::remove_all_rules() {
   collection_rules_map.clear();
 }
 
-void QueryAnalytic::dispose() {
+void QueryAnalytics::dispose() {
   remove_all_rules();
 }

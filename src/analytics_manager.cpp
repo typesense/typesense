@@ -378,8 +378,8 @@ Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool update,
     std::unique_lock lock(mutex);
     std::string name;
     if (!update) {
-      if (!payload.contains("name") || !payload["name"].is_string()) {
-        return Option<bool>(400, "Name is required when creating a new analytics rule");
+      if (!payload.contains("name") || !payload["name"].is_string() || payload["name"].get<std::string>().empty()) {
+        return Option<bool>(400, "Name is required when creating a analytics rule");
       }
       name = payload["name"].get<std::string>();
 
@@ -484,6 +484,187 @@ Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool update,
       }
     }
 
+    return Option<bool>(true);
+}
+
+Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
+    if (!payload.contains("name") || !payload["name"].is_string()) {
+      return Option<bool>(400, "Rule Migration failed. name is required");
+    }
+    const std::string& name = payload["name"].get<std::string>();
+    if(rules_map.find(name) != rules_map.end()) {
+      return Option<bool>(400, "Rule Migration failed. Rule already exists");
+    }
+    if(!payload.contains("type") || !payload["type"].is_string()) {
+      return Option<bool>(400, "Rule Migration failed. type is required");
+    }
+    const std::string& type = payload["type"].get<std::string>();
+    if(type != DocAnalytics::COUNTER_TYPE && type != QueryAnalytics::POPULAR_QUERIES_TYPE && type != QueryAnalytics::NO_HIT_QUERIES_TYPE) {
+      return Option<bool>(400, "Rule Migration failed. " + type + " is invalid");
+    }
+
+    if(!payload.contains("params") || !payload["params"].is_object()) {
+      return Option<bool>(400, "Rule Migration failed. params is required");
+    }
+    const auto& params = payload["params"];
+
+    const auto& destination = params["destination"];
+    if(destination.empty()) {
+      return Option<bool>(400, "Rule Migration failed. params.destination is empty");
+    }
+
+    if(!destination.contains("collection") || !destination["collection"].is_string()) {
+      return Option<bool>(400, "Rule Migration failed. params.destination.collection is required");
+    }
+    const std::string& destination_collection = destination["collection"].get<std::string>();
+    if(destination_collection.empty()) {
+      return Option<bool>(400, "Rule Migration failed. params.destination.collection is empty");
+    }
+
+    const auto source = params["source"];
+    if(source.empty()) {
+      return Option<bool>(400, "Rule Migration failed. params.source is empty");
+    }
+
+    const auto& collections_json = source["collections"];
+    if(collections_json.empty() || !collections_json.is_array()) {
+      return Option<bool>(400, "Rule Migration failed. params.collections is required");
+    }
+
+    std::vector<std::string> collections;
+    for(const auto& collection: collections_json) {
+      collections.push_back(collection.get<std::string>());
+    }
+
+    bool duplicate_name = collections.size() != 1;
+
+    if (type == QueryAnalytics::POPULAR_QUERIES_TYPE || type == QueryAnalytics::NO_HIT_QUERIES_TYPE) {
+      const std::string& event_type = "query";
+      size_t limit = 0;
+      if(params.contains("limit") && params["limit"].is_number_integer()) {
+        limit = params["limit"].get<size_t>();
+      }
+      
+      bool enable_auto_aggregation = false;
+      if(params.contains("enable_auto_aggregation") && params["enable_auto_aggregation"].is_boolean()) {
+        enable_auto_aggregation = params["enable_auto_aggregation"].get<bool>();
+      }
+
+      std::vector<std::string> meta_fields;
+      if(params.contains("meta_fields") && params["meta_fields"].is_array()) {
+        for(const auto& meta_field: params["meta_fields"]) {
+          meta_fields.push_back(meta_field.get<std::string>());
+        }
+      }
+      
+      std::string event_name = name;
+      nlohmann::json events;
+      if(params.contains("events") && params["events"].is_array()) {
+        for(const auto& event: params["events"]) {
+          events.push_back(event);
+        }
+      }
+
+      if(events.size() > 1) {
+        return Option<bool>(400, "Rule Migration failed. params.events should have only one event");
+      }
+
+      if(events.size() == 1) {
+        event_name = events[0]["name"].get<std::string>();
+        if(event_name.empty()) {
+          return Option<bool>(400, "Rule Migration failed. params.events.name is empty");
+        }
+      }
+
+      bool expand_query = false;
+      if(params.contains("expand_query") && params["expand_query"].is_boolean()) {
+        expand_query = params["expand_query"].get<bool>();
+      }
+
+      for(const auto& collection: collections) {
+        nlohmann::json payload = {
+          {"name", duplicate_name ? event_name + "_" + collection : event_name},
+          {"type", type},
+          {"collection", collection},
+          {"event_type", event_type},
+          {"rule_tag", name},
+          {"params", {
+            {"destination_collection", destination_collection},
+            {"source", source},
+            {"limit", limit},
+            {"capture_search_requests", enable_auto_aggregation},
+            {"expand_query", expand_query},
+            {"meta_fields", meta_fields},
+          }
+        }};
+        auto create_op = create_rule(payload, false, true, false);
+        if(!create_op.ok()) {
+          return Option<bool>(400, create_op.error());
+        }
+      }
+    } else if (type == DocAnalytics::COUNTER_TYPE) {
+      if (!destination.contains("counter_field") || !destination["counter_field"].is_string()) {
+        return Option<bool>(400, "Rule Migration failed. params.destination.counter_field is required");
+      }
+      const std::string& counter_field = destination["counter_field"].get<std::string>();
+      if(counter_field.empty()) {
+        return Option<bool>(400, "Rule Migration failed. params.destination.counter_field is empty");
+      }
+
+      if(!source.contains("events") || !source["events"].is_array()) {
+        return Option<bool>(400, "Rule Migration failed. params.events is required");
+      }
+
+      const auto& events = source["events"];
+      if(events.empty()) {
+        return Option<bool>(400, "Rule Migration failed. params.events is empty");
+      }
+
+      for(const auto& event: events) {
+        if(!event.contains("name") || !event["name"].is_string()) {
+          return Option<bool>(400, "Rule Migration failed. params.events.name is required");
+        }
+        const std::string& event_name = event["name"].get<std::string>();
+        if(event_name.empty()) {
+          return Option<bool>(400, "Rule Migration failed. params.events.name is empty");
+        }
+
+        size_t weight = 1;
+        if(event.contains("weight") && event["weight"].is_number_integer()) {
+          weight = event["weight"].get<size_t>();
+        }
+
+        if(!event.contains("type") || !event["type"].is_string()) {
+          return Option<bool>(400, "Rule Migration failed. params.events.type is required");
+        }
+        const std::string& event_type = event["type"].get<std::string>();
+        if(event_type.empty()) {
+          return Option<bool>(400, "Rule Migration failed. params.events.type is empty");
+        }
+
+        for(const auto& collection: collections) {
+          nlohmann::json payload = {
+            {"name", duplicate_name ? event_name + "_" + collection : event_name},
+            {"type", type},
+            {"collection", collection},
+            {"event_type", event_type},
+            {"rule_tag", name},
+            {"params", {
+              {"destination_collection", destination_collection},
+              {"counter_field", counter_field},
+              {"weight", weight},
+            }}
+          };
+          auto create_op = create_rule(payload, false, true, false);
+          if(!create_op.ok()) {
+            return Option<bool>(400, create_op.error());
+          }
+        }
+      }
+    } else {
+      return Option<bool>(400, "Rule Migration failed. " + type + " is invalid");
+    }
+    store->remove(std::string(OLD_ANALYTICS_RULE_PREFIX) + "_" + name);
     return Option<bool>(true);
 }
 
@@ -631,8 +812,6 @@ Option<nlohmann::json> AnalyticsManager::process_create_rule_request(const nlohm
   }
 }
 
-void AnalyticsManager::restore_old_analytics_rule(nlohmann::json& analytics_config) {}
-
 void AnalyticsManager::init(Store* store, Store* analytics_store, uint32_t analytics_minute_rate_limit) {
     this->store = store;
     this->analytics_store = analytics_store;
@@ -656,6 +835,7 @@ void AnalyticsManager::dispose() {
     external_events_cache.clear();
     rules_map.clear();
     doc_analytics.dispose();
+    query_analytics.dispose();
 }
 
 AnalyticsManager::~AnalyticsManager() {}

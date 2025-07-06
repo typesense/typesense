@@ -33,7 +33,7 @@ private:
     std::atomic<bool> quit = false;
 
     DocAnalytics& doc_analytics = DocAnalytics::get_instance();
-    QueryAnalytic& query_analytics = QueryAnalytic::get_instance();
+    QueryAnalytics& query_analytics = QueryAnalytics::get_instance();
     LRU::Cache<std::string, external_event_cache_t> external_events_cache;
     std::unordered_map<std::string, std::string> rules_map;
 
@@ -45,6 +45,7 @@ private:
 
 public:
     static constexpr const char* ANALYTICS_RULE_PREFIX = "$NAR";
+    static constexpr const char* OLD_ANALYTICS_RULE_PREFIX = "$AR";
     static constexpr size_t DELAY_WRITE_RULE_SIZE = 4;
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
@@ -64,6 +65,7 @@ public:
     Option<nlohmann::json> list_rules(const std::string& rule_tag = "");
     Option<nlohmann::json> get_rule(const std::string& name);
     Option<bool> create_rule(nlohmann::json& payload, bool update, bool write_to_disk, bool is_live_req);
+    Option<bool> create_old_rule(nlohmann::json& payload);
     Option<bool> remove_rule(const std::string& name);
     void remove_all_rules();
 
@@ -73,7 +75,6 @@ public:
     void run(ReplicationState* raft_server);
     void init(Store* store, Store* analytics_store, uint32_t analytics_minute_rate_limit);
     Option<nlohmann::json> process_create_rule_request(const nlohmann::json& payload, bool is_live_req);
-    void restore_old_analytics_rule(nlohmann::json& analytics_config);
     void stop();
     void dispose();
 };
