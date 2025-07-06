@@ -126,12 +126,87 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
 }
 
 int HttpServer::create_listener() {
-    struct sockaddr_in addr;
-    int fd, reuseaddr_flag = 1;
+    struct addrinfo hints;
+    struct addrinfo *result, *rp;
+    int fd = -1, reuseaddr_flag = 1;
+    std::string port_str = std::to_string(listen_port);
+
+    std::string actual_address = listen_address;
+    if (actual_address.size() >= 2 && actual_address[0] == '[' &&
+        actual_address[actual_address.size()-1] == ']') {
+        actual_address = actual_address.substr(1, actual_address.size()-2);
+    }
+
+    memset(&hints, 0, sizeof(hints));
+    // If :: was explicitly requested, prefer IPv6
+    hints.ai_family = (actual_address == "::") ? AF_INET6 : AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM; // TCP socket
+    hints.ai_protocol = 0;           // Any protocol
+
+    // Handle special case for any-address binding
+    const char* host = NULL;  // NULL with AI_PASSIVE means bind to all interfaces
+    if (actual_address != "0.0.0.0" && actual_address != "::") {
+        host = actual_address.c_str();
+        hints.ai_flags = AI_NUMERICHOST;  // Prevent DNS lookup for IP addresses
+    } else {
+        hints.ai_flags = AI_PASSIVE;  // Used only when host is NULL
+    }
+
+    int s = getaddrinfo(host, port_str.c_str(), &hints, &result);
+    if (s != 0) {
+        LOG(ERROR) << "getaddrinfo failed: " << gai_strerror(s);
+        LOG(ERROR) << "actual_address: " << actual_address;
+        return -1;
+    }
+
+    // Try each address until we successfully bind.
+    // getaddrinfo() returns list with most relevant address first.
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
+        fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (fd == -1) {
+            continue;
+        }
+
+        // For IPv6, ensure we accept both IPv4 and IPv6 connections
+        if (rp->ai_family == AF_INET6) {
+            int off = 0;
+            if (setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off)) != 0) {
+                LOG(WARNING) << "Failed to set IPV6_V6ONLY=0";
+            }
+        }
+
+        if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr_flag, sizeof(reuseaddr_flag)) != 0) {
+            LOG(WARNING) << "Failed to set SO_REUSEADDR";
+        }
+
+        if (bind(fd, rp->ai_addr, rp->ai_addrlen) == 0) {
+            // Successfully bound
+            break;
+        }
+
+        // Log the specific bind error to help with debugging
+        LOG(WARNING) << "Failed to bind to address (family=" << rp->ai_family
+                    << "): " << strerror(errno);
+        close(fd);
+    }
+
+    freeaddrinfo(result);
+
+    if (rp == NULL) {
+        LOG(ERROR) << "Could not bind to " << listen_address << ":" << listen_port;
+        return -1;
+    }
+
+    if (listen(fd, SOMAXCONN) != 0) {
+        LOG(ERROR) << "Failed to listen on socket";
+        close(fd);
+        return -1;
+    }
 
     if(!ssl_cert_path.empty() && !ssl_cert_key_path.empty()) {
         int ssl_setup_code = setup_ssl(ssl_cert_path.c_str(), ssl_cert_key_path.c_str());
         if(ssl_setup_code != 0) {
+            close(fd);
             return -1;
         }
     }
@@ -146,18 +221,6 @@ int HttpServer::create_listener() {
 
     accept_ctx->ctx = &ctx;
     accept_ctx->hosts = config.hosts;
-
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(listen_port);
-    inet_pton(AF_INET, listen_address.c_str(), &(addr.sin_addr));
-
-    if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1 ||
-        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr_flag, sizeof(reuseaddr_flag)) != 0 ||
-        bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0 ||
-        listen(fd, SOMAXCONN) != 0) {
-        return -1;
-    }
 
     listener_socket = h2o_evloop_socket_create(ctx.loop, fd, H2O_SOCKET_FLAG_DONT_READ);
     listener_socket->data = this;
@@ -485,7 +548,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
             // ignore params map of multi_search since it is mutated for every search object in the POST body
             for(const auto& kv: query_map) {
                 if(kv.first != http_req::AUTH_HEADER) {
-                    query_string += kv.first + "=" + kv.second + "&";
+                    query_string += kv.first + "=" + StringUtils::url_encode(kv.second) + "&";
                 }
             }
 
@@ -567,6 +630,19 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         }
     }
 
+    if(rpath->action == "nl_search_models:create") {
+        try {
+            nlohmann::json body_json = nlohmann::json::parse(request->body);
+            if(body_json.count("id") != 0 && body_json["id"].is_string()) {
+               request->metadata = body_json["id"].get<std::string>();
+            } else {
+                request->metadata = sole::uuid4().str();
+            }
+        } catch (const nlohmann::json::parse_error& e) {
+            request->metadata = sole::uuid4().str();
+        }
+    }
+
     if(req->proceed_req == nullptr) {
         // Full request body is already available, so we don't care if handler is async or not
         //LOG(INFO) << "Full request body is already available: " << req->entity.len;
@@ -611,6 +687,38 @@ bool HttpServer::is_write_request(const std::string& root_resource, const std::s
     return false;
 }
 
+bool HttpServer::curl_only_http1(std::string_view ua) {
+    constexpr int LIMIT = 7 * 1'000'000 + 71 * 1'000 + 0;   // 7 071 000 (v7.71.0)
+
+    std::size_t p = ua.find("curl/");
+    if (p == std::string_view::npos) {
+        return false;
+    }
+
+    p += 5;
+
+    int component = 0;          // digits of current field
+    long long encoded = 0;      // final value (64-bit is plenty)
+    long long factor = 1'000'000;   // major → 1 000 000, minor → 1 000, patch → 1
+
+    for (std::size_t i = p; i < ua.size() && factor; ++i) {
+        char c = ua[i];
+        if (std::isdigit(c)) {
+            component = component * 10 + (c - '0');
+        } else {
+            encoded += component * factor;
+            component = 0;
+            if (c != '.') {
+                break; // stop at any non-dot delimiter
+            }
+            factor /= 1000;                   // next field weight
+        }
+    }
+
+    encoded += component * factor;            // commit last field
+    return encoded <= LIMIT;
+}
+
 int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
     h2o_custom_generator_t* custom_generator = static_cast<h2o_custom_generator_t*>(ctx);
 
@@ -638,24 +746,14 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
         if(agent_header_cursor != -1) {
             h2o_iovec_t & slot = request->_req->headers.entries[agent_header_cursor].value;
             const std::string user_agent = std::string(slot.base, slot.len);
-            if(user_agent.find("curl/") != std::string::npos) {
-                std::string version_num;
-                for(size_t i = 5; i < user_agent.size(); i++) {
-                    if(std::isdigit(user_agent[i])) {
-                        version_num += user_agent[i];
-                    }
-                }
-
-                int major_version = version_num[0] - 48;  // convert ascii char to integer
-                if(major_version <= 7 && std::stoll(version_num) < 7710) { // allow >= v7.71.0
-                    std::string message = "{ \"message\": \"HTTP2 is not supported by your curl client. "
-                                          "You need to use atleast Curl v7.71.0.\"}";
-                    h2o_iovec_t body = h2o_strdup(&request->_req->pool, message.c_str(), SIZE_MAX);
-                    request->_req->res.status = 400;
-                    request->_req->res.reason = http_res::get_status_reason(400);
-                    h2o_send(request->_req, &body, 1, H2O_SEND_STATE_ERROR);
-                    return 0;
-                }
+            if(curl_only_http1(user_agent)) {
+                std::string message = "{ \"message\": \"HTTP2 is not supported by your curl client. "
+                                      "You need to use atleast Curl v7.71.0.\"}";
+                h2o_iovec_t body = h2o_strdup(&request->_req->pool, message.c_str(), SIZE_MAX);
+                request->_req->res.status = 400;
+                request->_req->res.reason = http_res::get_status_reason(400);
+                h2o_send(request->_req, &body, 1, H2O_SEND_STATE_ERROR);
+                return 0;
             }
         }
     }

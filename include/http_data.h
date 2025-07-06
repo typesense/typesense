@@ -128,10 +128,11 @@ struct http_res {
         body = "{\"message\": \"Forbidden\"}";
     }
 
-    void set_404() {
+    void set_404(const std::string & message = "Not Found") {
         status_code = 404;
-        body = "{\"message\": \"Not Found\"}";
+        body = "{\"message\": \"" + message + "\"}";
     }
+
 
     void set_405(const std::string & message) {
         status_code = 405;
@@ -305,8 +306,8 @@ struct http_req {
     std::atomic<bool> is_write = false;
 
     bool (*async_res_set_headers_callback)(const std::string&, const std::shared_ptr<http_req>, long, std::string&) = nullptr;
-    void (*async_res_write_callback)(std::string&, const std::shared_ptr<http_req>, const std::shared_ptr<http_res>) = nullptr;
-    bool (*async_res_done_callback)(const std::shared_ptr<http_req>, const std::shared_ptr<http_res>) = nullptr;
+    void (*async_res_write_callback)(std::string&, const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&) = nullptr;
+    bool (*async_res_done_callback)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&) = nullptr;
 
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),

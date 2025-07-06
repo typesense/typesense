@@ -10,43 +10,6 @@
 #include "threadpool.h"
 #include "batched_indexer.h"
 
-template<typename ResourceType>
-struct locked_resource_view_t {
-    locked_resource_view_t(std::shared_mutex &mutex, ResourceType &resource) : _lock(mutex), _resource(&resource) {}
-
-    locked_resource_view_t(std::shared_mutex &mutex, ResourceType *resource) : _lock(mutex), _resource(resource) {}
-
-    locked_resource_view_t(ResourceType &&) = delete;
-
-    locked_resource_view_t(const ResourceType &) = delete;
-
-    locked_resource_view_t &operator=(const ResourceType &) = delete;
-
-    ResourceType* operator->() {
-        return _resource;
-    }
-
-    bool operator==(const ResourceType* other) {
-        return other == _resource;
-    }
-
-    bool operator!=(const ResourceType* other) {
-        return other != _resource;
-    }
-
-    void unlock() {
-        _lock.unlock();
-    }
-
-    ResourceType* get() {
-        return _resource;
-    }
-
-private:
-    std::shared_lock<std::shared_mutex> _lock;
-    ResourceType* _resource;
-};
-
 // Singleton, for managing meta information of all collections and house keeping
 class CollectionManager {
 private:
@@ -59,7 +22,7 @@ private:
 
     AuthManager auth_manager;
 
-    spp::sparse_hash_map<std::string, Collection*> collections;
+    spp::sparse_hash_map<std::string, std::shared_ptr<Collection>> collections;
 
     spp::sparse_hash_map<uint32_t, std::string> collection_id_names;
 
@@ -129,12 +92,12 @@ public:
 
     void add_to_collections(Collection* collection);
 
-    Option<std::vector<Collection*>> get_collections(uint32_t limit = 0, uint32_t offset = 0,
+    Option<std::vector<std::shared_ptr<Collection>>> get_collections(uint32_t limit = 0, uint32_t offset = 0,
                                                      const std::vector<std::string>& api_key_collections = {}) const;
 
     std::vector<std::string> get_collection_names() const;
 
-    Collection* get_collection_unsafe(const std::string & collection_name) const;
+    std::shared_ptr<Collection> get_collection_unsafe(const std::string & collection_name) const;
 
     // PUBLICLY EXPOSED API
 
@@ -168,9 +131,9 @@ public:
                                           const bool enable_nested_fields = false, std::shared_ptr<VQModel> model = nullptr,
                                           const nlohmann::json& metadata = {});
 
-    locked_resource_view_t<Collection> get_collection(const std::string & collection_name) const;
+    std::shared_ptr<Collection> get_collection(const std::string & collection_name) const;
 
-    locked_resource_view_t<Collection> get_collection_with_id(uint32_t collection_id) const;
+    std::shared_ptr<Collection> get_collection_with_id(uint32_t collection_id) const;
 
     Option<nlohmann::json> get_collection_summaries(uint32_t limit = 0 , uint32_t offset = 0,
                                                     const std::vector<std::string>& exclude_fields = {},
@@ -234,9 +197,12 @@ public:
 
     std::unordered_set<std::string> get_collection_references(const std::string& coll_name);
 
-    bool is_valid_api_key_collection(const std::vector<std::string>& api_key_collections, Collection* coll) const;
+    bool is_valid_api_key_collection(const std::vector<std::string>& api_key_collections, std::shared_ptr<Collection> coll) const;
 
     Option<bool> update_collection_metadata(const std::string& collection, const nlohmann::json& metadata);
 
     Option<nlohmann::json> get_collection_alter_status() const;
+
+    static void remove_internal_fields(std::map<std::string, std::string>& params);
+
 };

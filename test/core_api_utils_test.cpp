@@ -1064,7 +1064,7 @@ TEST_F(CoreAPIUtilsTest, ExportWithJoin) {
     export_state_t export_state;
     auto coll1 = collectionManager.get_collection_unsafe("Products");
     coll1->get_filter_ids("$Customers(customer_id:customer_a)", export_state.filter_result);
-    export_state.collection = coll1;
+    export_state.collection = coll1.get();
     export_state.res_body = &res_body;
     export_state.include_fields.insert("product_name");
     export_state.ref_include_exclude_fields_vec.emplace_back(ref_include_exclude_fields{"Customers", {"product_price"}, "",
@@ -1253,6 +1253,53 @@ TEST_F(CoreAPIUtilsTest, TestParseAPIKeyIPFromMetadata) {
     res = get_api_key_and_ip(only_ip);
     EXPECT_FALSE(res.ok());
 }
+
+TEST_F(CoreAPIUtilsTest, DualStackIPValidation) {
+    // Standard IPv4 address
+    std::string ipv4_metadata = "4:abcd127.0.0.1";
+    Option<std::pair<std::string, std::string>> res = get_api_key_and_ip(ipv4_metadata);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("127.0.0.1", res.get().second);
+
+    // Standard IPv6 address format
+    std::string ipv6_metadata = "4:abcd2001:db8::1";
+    res = get_api_key_and_ip(ipv6_metadata);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("2001:db8::1", res.get().second);
+
+    // Compressed IPv6 address format (localhost)
+    std::string compressed_ipv6 = "4:abcd::1";
+    res = get_api_key_and_ip(compressed_ipv6);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("::1", res.get().second);
+
+    // IPv4-mapped IPv6 address
+    std::string ipv4_mapped_ipv6 = "4:abcd::ffff:192.0.2.1";
+    res = get_api_key_and_ip(ipv4_mapped_ipv6);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("::ffff:192.0.2.1", res.get().second);
+
+    // Empty API key with IPv6
+    std::string empty_key_ipv6 = "0:2001:db8::1";
+    res = get_api_key_and_ip(empty_key_ipv6);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("", res.get().first);
+    EXPECT_EQ("2001:db8::1", res.get().second);
+
+    // Invalid IP addresses
+    std::string invalid_ipv4 = "4:abcd999.999.999.999";
+    res = get_api_key_and_ip(invalid_ipv4);
+    EXPECT_FALSE(res.ok());
+
+    std::string invalid_ipv6 = "4:abcdzzzz::1";
+    res = get_api_key_and_ip(invalid_ipv6);
+    EXPECT_FALSE(res.ok());
+}
+
 TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -1446,7 +1493,6 @@ TEST_F(CoreAPIUtilsTest, TestProxy) {
     ASSERT_EQ(expected_status_code, resp->status_code);
     ASSERT_EQ(res, resp->body);
 }
-
 
 TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
     nlohmann::json body;
@@ -2482,6 +2528,101 @@ TEST_F(CoreAPIUtilsTest, DocumentGetIncludeExcludeFields) {
     ASSERT_FALSE(resp.contains("id"));
 }
 
+TEST_F(CoreAPIUtilsTest, DocumentGetIncludeExcludeReferenceFields) {
+    auto schema_json =
+            R"({
+                "name":  "books",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": true}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "id": "0",
+                "title": "Famous Five",
+                "author_id": "0"
+            })"_json,
+            R"({
+                "id": "1",
+                "title": "Space War Blues",
+                "author_id": "1"
+            })"_json,
+            R"({
+                "id": "2",
+                "title": "12:01 PM",
+                "author_id": "1"
+            })"_json,
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "authors",
+                "fields": [
+                    {"name": "first_name", "type": "string"},
+                    {"name": "last_name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "0",
+                "first_name": "Enid",
+                "last_name": "Blyton"
+            })"_json,
+            R"({
+                "id": "1",
+                "first_name": "Richard",
+                "last_name": "Lupoff"
+            })"_json,
+            R"({
+                "id": "2",
+                "first_name": "William",
+                "last_name": "Shakespeare"
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["collection"] = "books";
+    req->params["id"] = "1";
+    req->params["include_fields"] = "id, $authors(id)";
+
+    ASSERT_TRUE(get_fetch_document(req, res));
+    auto resp = nlohmann::json::parse(res->body);
+    ASSERT_EQ(2, resp.size());
+    ASSERT_TRUE(resp.contains("id"));
+    ASSERT_TRUE(resp.contains("authors"));
+    ASSERT_TRUE(resp["authors"].contains("id"));
+
+    req->params["include_fields"] = "id, $authors(*)";
+    req->params["exclude_fields"] = "$authors(first_name, last_name)";
+    ASSERT_TRUE(get_fetch_document(req, res));
+    resp = nlohmann::json::parse(res->body);
+    ASSERT_EQ(2, resp.size());
+    ASSERT_TRUE(resp.contains("id"));
+    ASSERT_TRUE(resp.contains("authors"));
+    ASSERT_TRUE(resp["authors"].contains("id"));
+}
+
 TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
     auto schema = R"({
             "name": "collection3",
@@ -2846,4 +2987,12 @@ TEST_F(CoreAPIUtilsTest, RemoveDocumentsWithReturnValues) {
     ASSERT_FALSE(res_json.contains("ids"));
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CoreAPIUtilsTest, CurlVersionSupportsOnlyHTTP1) {
+    ASSERT_FALSE(HttpServer::curl_only_http1(R"(FME/2023.7.48.23764  libcurl/8.4.0 (OpenSSL/3.0.11)
+                    Schannel zlib/1.2.13 WinIDN libssh2/1.11.0 nghttp2/1.44.0)"));
+    ASSERT_TRUE(HttpServer::curl_only_http1(R"(curl/7.15.1 (i386-pc-win32) libcurl/7.15.1 OpenSSL/0.9.8a zlib/1.2.3)"));
+    ASSERT_FALSE(HttpServer::curl_only_http1(R"(curl/7.81.0 (x86_64-pc-linux-gnu)"));
+    ASSERT_FALSE(HttpServer::curl_only_http1(R"(curl/100.81.28 (x86_64-pc-linux-gnu)"));
 }

@@ -1001,6 +1001,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             filter_result = op.get();
         }
 
+        is_filter_result_initialized = true;
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
@@ -1012,7 +1014,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             reference.insert(ref.begin(), ref.end());
         }
 
-        is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
         return;
     }
@@ -1059,6 +1060,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         }
 
         is_filter_result_initialized = true;
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
@@ -1122,13 +1124,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                  filter_result.docs, filter_result.count);
             }
 
+            is_filter_result_initialized = true;
+
             if (filter_result.count == 0) {
                 validity = invalid;
                 return;
             }
 
             seq_id = filter_result.docs[result_index];
-            is_filter_result_initialized = true;
             approx_filter_ids_length = filter_result.count;
         } else {
             auto const& filter_values_count = a_filter.values.size();
@@ -1225,13 +1228,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                      filter_result.docs, filter_result.count);
                 }
 
+                is_filter_result_initialized = true;
+
                 if (filter_result.count == 0) {
                     validity = invalid;
                     return;
                 }
 
                 seq_id = filter_result.docs[result_index];
-                is_filter_result_initialized = true;
                 approx_filter_ids_length = filter_result.count;
             }
         }
@@ -1277,13 +1281,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                  filter_result.docs, filter_result.count);
             }
 
+            is_filter_result_initialized = true;
+
             if (filter_result.count == 0) {
                 validity = invalid;
                 return;
             }
 
             seq_id = filter_result.docs[result_index];
-            is_filter_result_initialized = true;
             approx_filter_ids_length = filter_result.count;
         } else {
             auto const& filter_values_count = a_filter.values.size();
@@ -1381,13 +1386,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                      filter_result.docs, filter_result.count);
                 }
 
+                is_filter_result_initialized = true;
+
                 if (filter_result.count == 0) {
                     validity = invalid;
                     return;
                 }
 
                 seq_id = filter_result.docs[result_index];
-                is_filter_result_initialized = true;
                 approx_filter_ids_length = filter_result.count;
             }
         }
@@ -1457,13 +1463,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                              filter_result.docs, filter_result.count);
         }
 
+        is_filter_result_initialized = true;
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
         }
 
         seq_id = filter_result.docs[result_index];
-        is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_geopoint()) {
@@ -1608,13 +1615,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             filter_result.docs = out;
         }
 
+
         if (filter_result.count == 0) {
             validity = invalid;
             return;
         }
 
-        seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
+        seq_id = filter_result.docs[result_index];
         approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_geopolygon()) {
@@ -1667,7 +1675,9 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             // there could be multiple tokens in a filter value, which we have to treat as ANDs
             // e.g. country: South Africa
-            Tokenizer tokenizer(filter_value, true, false, f.locale, index->symbols_to_index, index->token_separators,
+            const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
+            const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
+            Tokenizer tokenizer(filter_value, true, false, f.locale, symbols, separators,
                                 f.get_stemmer());
 
             std::string str_token;
@@ -2564,7 +2574,8 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
     return *this;
 }
 
-void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout) {
+void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout,
+                                         const bool& is_group_by_first_pass) {
     if (!is_filter_result_initialized) {
         return;
     }
@@ -2592,9 +2603,15 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
         }
 
         auto& result_reference = result->coll_to_references[i];
-        // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
-        // not used afterwards.
-        result_reference = std::move(filter_result.coll_to_references[result_index]);
+        if (is_group_by_first_pass) {
+            // Copying since the references will be required in the second pass.
+            result_reference.insert(filter_result.coll_to_references[result_index].begin(),
+                                    filter_result.coll_to_references[result_index].end());
+        } else {
+            // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
+            // not used afterwards.
+            result_reference = std::move(filter_result.coll_to_references[result_index]);
+        }
     }
 
     validity = result_index < filter_result.count ? valid : invalid;
@@ -2603,10 +2620,11 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
 void filter_result_iterator_t::get_n_ids(const uint32_t& n,
                                          uint32_t& excluded_result_index,
                                          uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                                         filter_result_t*& result, const bool& override_timeout) {
+                                         filter_result_t*& result, const bool& override_timeout,
+                                         const bool& is_group_by_first_pass) {
     if (excluded_result_ids == nullptr || excluded_result_ids_size == 0 ||
         excluded_result_index >= excluded_result_ids_size) {
-        return get_n_ids(n, result, override_timeout);
+        return get_n_ids(n, result, override_timeout, is_group_by_first_pass);
     }
 
     // This method is only called in Index::search_wildcard after filter_result_iterator_t::compute_iterators.
@@ -2648,9 +2666,15 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
         }
 
         auto& result_reference = result->coll_to_references[i];
-        // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
-        // not used afterwards.
-        result_reference = std::move(filter_result.coll_to_references[match_index]);
+        if (is_group_by_first_pass) {
+            // Copying since the references will be required in the second pass.
+            result_reference.insert(filter_result.coll_to_references[match_index].begin(),
+                                    filter_result.coll_to_references[match_index].end());
+        } else {
+            // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
+            // not used afterwards.
+            result_reference = std::move(filter_result.coll_to_references[match_index]);
+        }
     }
 
     validity = result_index < filter_result.count ? valid : invalid;
@@ -3038,7 +3062,7 @@ bool filter_result_iterator_t::validate_object_filter_helper(Index const* const 
         }
     } else {
         const auto& filter_exp = filter_node->filter_exp;
-        auto pos = filter_exp.field_name.find(".");
+        auto pos = filter_exp.field_name.rfind(".");
 
         const auto& nested_field = filter_exp.field_name.substr(pos+1, filter_exp.field_name.size() - (pos+1));
         field f = index->search_schema.at(filter_exp.field_name);
@@ -3069,7 +3093,7 @@ bool filter_result_iterator_t::validate_object_filter_helper(Index const* const 
                 filter_val = std::stof(val);
                 doc_val = doc[nested_field].get<float>();
             } else if (f.is_bool()) {
-                filter_val = val == "true" ? true : false;
+                filter_val = val == "1" ? true : false;
                 doc_val = doc[nested_field].get<bool>();
             } else if (f.is_integer()) {
                 filter_val = std::stoll(val);
@@ -3125,6 +3149,18 @@ bool filter_result_iterator_t::validate_object_filter_helper(Index const* const 
 }
 
 bool filter_result_iterator_t::validate_object_filter() {
+    auto get_nested_field_doc = [&] (const std::string& object_field_name, const nlohmann::json& document) -> nlohmann::json {
+        std::vector<std::string> results;
+        StringUtils::split(object_field_name, results, ".");
+
+        nlohmann::json return_doc = document;
+        for(auto i = 0; i < results.size(); ++i) {
+            return_doc = return_doc[results[i]];
+        }
+
+        return return_doc;
+    };
+
     auto collection = CollectionManager::get_instance().get_collection(collection_name);
     if (collection.get() == nullptr) {
         return false;
@@ -3145,7 +3181,8 @@ bool filter_result_iterator_t::validate_object_filter() {
                 continue;
             }
 
-            for (const auto& nested_object: document[filter_node->object_field_name]) {
+            const auto& doc = get_nested_field_doc(filter_node->object_field_name, document);
+            for (const auto& nested_object: doc) {
                 if (validate_object_filter_helper(index, nested_object, filter_node)) {
                     filter_result.docs[result_count++] = id;
                     break;
@@ -3173,4 +3210,32 @@ bool filter_result_iterator_t::validate_object_filter() {
         }
     }
     return false;
+}
+
+filter_result_iterator_t::filter_result_iterator_t(FILTER_OPERATOR filter_operator,
+                                                   filter_result_iterator_t* filter_result_iterator,
+                                                   filter_result_iterator_t* new_iterator,
+                                                   std::unique_ptr<filter_node_t>& filter_root,
+                                                   filter_node_t* new_filter_tree_root) {
+    filter_result_iterator->reset();
+
+    timeout_info = std::move(filter_result_iterator->timeout_info);
+    new_iterator->timeout_info.reset(nullptr);
+
+    if (filter_result_iterator->approx_filter_ids_length < new_iterator->approx_filter_ids_length) {
+        left_it = filter_result_iterator;
+        right_it = new_iterator;
+
+        auto root = new filter_node_t(filter_operator, filter_root.release(), new_filter_tree_root);
+        filter_root.reset(root);
+    } else {
+        left_it = new_iterator;
+        right_it = filter_result_iterator;
+
+        auto root = new filter_node_t(filter_operator, new_filter_tree_root, filter_root.release());
+        filter_root.reset(root);
+    }
+    filter_node = filter_root.get();
+
+    init(false, false);
 }

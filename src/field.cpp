@@ -663,8 +663,21 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
             return flatten_field(doc, it.value(), the_field, path_parts, path_index + 1, has_array, has_obj_array,
                                  is_update, dyn_fields, flattened_fields);
         }
-    } else if(!the_field.optional) {
-        return Option<bool>(404, "Field `" + the_field.name + "` not found.");
+    } else {
+        if(!the_field.optional) {
+            return Option<bool>(404, "Field `" + the_field.name + "` not found.");
+        }
+
+        if(obj.is_null()) {
+            if(is_update) {
+                // update requires null values (they are later removed before indexing)
+                doc[the_field.name] = nullptr;
+                field flattened_field;
+                flattened_field.name = the_field.name;
+                flattened_field.type = field_types::NIL;
+                flattened_fields[the_field.name] = flattened_field;
+            }
+        }
     }
 
     return Option<bool>(true);

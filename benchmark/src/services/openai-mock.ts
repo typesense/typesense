@@ -72,7 +72,7 @@ const DEFAULT_MOCK_RESPONSES: Record<string, MockResponse> = {
   },
 };
 
-export class OpenAIProxyService {
+export class OpenAIProxy {
   private proxyServer;
   private mockServer;
   private readonly proxyPort: number;
@@ -140,7 +140,7 @@ export class OpenAIProxyService {
   }
 
   private handleMockRequest(req: IncomingMessage, res: ServerResponse) {
-    logger.debug(`[OpenAI Interceptor]: Handling mock request: ${req.method} ${req.url}`);
+    logger.info(`[OpenAI Interceptor]: Handling mock request: ${req.method} ${req.url}`);
 
     if (!req.url) {
       res.writeHead(404);
@@ -171,7 +171,7 @@ export class OpenAIProxyService {
     req.on("end", () => {
       try {
         const requestData = JSON.parse(body) as OpenAI.Chat.Completions.ChatCompletion;
-        logger.debug("[OpenAI Interceptor]: Received chat request:", requestData);
+        logger.info("[OpenAI Interceptor]: Received chat request:", requestData);
 
         if (!("model" in mockResponse && "model" in requestData)) {
           res.writeHead(400, { "Content-Type": "application/json" });

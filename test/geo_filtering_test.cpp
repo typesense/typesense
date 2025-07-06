@@ -608,6 +608,39 @@ TEST_F(GeoFilteringTest, GeoPointFilteringWithNonSortableLocationField) {
     ASSERT_EQ(1, results["hits"].size());
 }
 
+TEST_F(GeoFilteringTest, DeleteOptionalGeoPointArrayDoc) {
+       nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "title", "type": "string", "sort": false},
+            {"name": "locations.coordinates", "type": "geopoint[]", "sort": true, "optional": true}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll1 = coll_op.get();
+
+    nlohmann::json doc = R"({
+        "id": "0",
+        "title": "Foo",
+        "locations.coordinate": [ [ 57.58662607, 9.97988325 ] ]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc = R"({
+        "id": "1",
+        "title": "Foo",
+        "locations.coordinate": [[]]
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto del_op = coll1->remove("1");
+    ASSERT_TRUE(del_op.ok());
+}
+
 TEST_F(GeoFilteringTest, GeoPolygonTest) {
     nlohmann::json schema = R"({
         "name": "coll_geopolygon",

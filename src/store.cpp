@@ -1,21 +1,20 @@
 #include "include/store.h"
 
-Store::Store(const std::string & state_dir_path,
-      const size_t wal_ttl_secs,
-      const size_t wal_size_mb, bool disable_wal, int32_t ttl):
-      state_dir_path(state_dir_path){
+Store::Store(const std::string & state_dir_path, const size_t wal_ttl_secs, const size_t wal_size_mb, bool disable_wal,
+             int32_t ttl, size_t write_buffer_size,size_t max_write_buffer_number, size_t max_log_file_size,
+             size_t keep_log_file_num): state_dir_path(state_dir_path) {
     // Optimize RocksDB
     options.IncreaseParallelism();
     options.OptimizeLevelStyleCompaction();
     // create the DB if it's not already present
     options.create_if_missing = true;
-    options.write_buffer_size = 4*1048576;
-    options.max_write_buffer_number = 2;
+    options.write_buffer_size = write_buffer_size;
+    options.max_write_buffer_number = max_write_buffer_number;
     options.merge_operator.reset(new UInt64AddOperator);
     options.compression = rocksdb::CompressionType::kSnappyCompression;
 
-    options.max_log_file_size = 4*1048576;
-    options.keep_log_file_num = 5;
+    options.max_log_file_size = max_log_file_size;
+    options.keep_log_file_num = keep_log_file_num;
 
     /*options.table_properties_collector_factories.emplace_back(
             rocksdb::NewCompactOnDeletionCollectorFactory(10000, 7500, 0.5));*/
@@ -302,7 +301,7 @@ rocksdb::Status Store::create_check_point(rocksdb::Checkpoint** checkpoint_ptr, 
 }
 
 rocksdb::Status Store::delete_range(const std::string& begin_key, const std::string& end_key) {
-    std::shared_lock lock(mutex);
+    std::unique_lock lock(mutex);
     return db->DeleteRange(rocksdb::WriteOptions(), db->DefaultColumnFamily(), begin_key, end_key);
 }
 

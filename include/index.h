@@ -384,6 +384,7 @@ struct group_by_field_it_t {
     std::string field_name;
     posting_list_t::iterator_t it;
     bool is_array;
+    bool is_string;
 };
 
 struct Hasher32 {
@@ -406,6 +407,10 @@ struct pair_hash {
         return std::hash<T1>()(pair.first) ^ std::hash<T2>()(pair.second);
     }
 };
+
+#ifdef TEST_BUILD
+    extern bool testing_not_equals_bug;
+#endif
 
 class Index {
 private:
@@ -464,6 +469,7 @@ private:
 
     // this is used for wildcard queries
     id_list_t* seq_ids;
+    mutable std::shared_mutex seq_ids_mutex;
 
     std::vector<char> symbols_to_index;
 
@@ -518,6 +524,7 @@ private:
                           const std::vector<std::string>& query_tokens,
                           token_ordering token_order, std::set<std::string>& absorbed_tokens,
                           std::string& filter_by_clause,
+                          std::string& sort_by_clause,
                           bool enable_typos_for_numerical_tokens,
                           bool enable_typos_for_alpha_numerical_tokens) const;
 
@@ -603,7 +610,9 @@ private:
     static void handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
                                nlohmann::json& update_doc, const nlohmann::json& old_doc);
 
-    static void get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& embedding_fields,
+    static void get_doc_changes(const index_operation_t op,
+                                const tsl::htrie_map<char, field>& search_schema,
+                                const tsl::htrie_map<char, field>& embedding_fields,
                                 nlohmann::json &update_doc, const nlohmann::json &old_doc, nlohmann::json &new_doc,
                                 nlohmann::json &del_doc);
 
@@ -756,7 +765,7 @@ public:
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
-                std::unique_ptr<filter_node_t>& filter_tree_root, std::vector<facet>& facets, facet_query_t facet_query,
+                filter_result_iterator_t*& filter_result_iterator, std::vector<facet>& facets, facet_query_t facet_query,
                 const int max_facet_values,
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
@@ -863,8 +872,7 @@ public:
 
     // the following methods are not synchronized because their parent calls are synchronized or they are const/static
 
-    Option<bool> search_wildcard(filter_node_t const* const& filter_tree_root,
-                                 const std::vector<sort_by>& sort_fields, Topster<KV>*& topster,
+    Option<bool> search_wildcard(const std::vector<sort_by>& sort_fields, Topster<KV>*& topster,
                                  spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                  std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                                  const std::vector<std::string>& group_by_fields,
@@ -939,7 +947,6 @@ public:
 
     [[nodiscard]] Option<bool> do_synonym_search(const std::vector<search_field_t>& the_fields,
                                                  const text_match_type_t match_type,
-                                                 filter_node_t const* const& filter_tree_root,
                                                  const std::vector<sort_by>& sort_fields_std,
                                                  const token_ordering& token_order,
                                                  const size_t typo_tokens_threshold, const size_t group_limit,
@@ -1082,12 +1089,13 @@ public:
                                      const int* sort_order,
                                      int64_t& out_best_field_match_score);
 
-    void process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
+    void process_filter_sort_overrides(const std::vector<const override_t*>& filter_overrides,
                                   std::vector<std::string>& query_tokens,
                                   token_ordering token_order,
                                   std::unique_ptr<filter_node_t>& filter_tree_root,
                                   std::vector<const override_t*>& matched_dynamic_overrides,
                                   nlohmann::json& override_metadata,
+                                  std::string& sort_by_clause,
                                   bool enable_typos_for_numerical_tokens,
                                   bool enable_typos_for_alpha_numerical_tokens,
                                   const bool& validate_field_names = true) const;

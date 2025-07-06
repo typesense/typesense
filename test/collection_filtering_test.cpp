@@ -852,7 +852,50 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     results = coll_array_fields->search("Jeremy", query_fields, "timestamps:>1591091288061", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
 
+    testing_not_equals_bug = true;
+    results = coll_array_fields->search("Jeremy", query_fields, "age:!= [21, 24, 63, 44, 32]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
     collectionManager.drop_collection("coll_array_fields");
+
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "quantity", "type": "int32", "range_index": true}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "quantity": 20
+            })"_json,
+            R"({
+                "quantity": 45
+            })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "quantity: !=[20, 45]"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"]);
 }
 
 TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
@@ -1038,7 +1081,50 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    testing_not_equals_bug = true;
+    results = coll_array_fields->search("Jeremy", query_fields, "rating:!= [1.09, 7.812, 9.999, 0.0, 5.5]", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
     collectionManager.drop_collection("coll_array_fields");
+
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "price", "type": "float", "range_index": true}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "price": 9.99
+            })"_json,
+            R"({
+                "price": 15.80
+            })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "price: !=[15.8, 9.99]"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"]);
 }
 
 TEST_F(CollectionFilteringTest, FilterOnNegativeNumericalFields) {
@@ -1912,6 +1998,12 @@ TEST_F(CollectionFilteringTest, QueryBoolFields) {
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Error with filter field `bool_array`: Filter value cannot be empty.", res_op.error());
 
+    testing_not_equals_bug = true;
+    results = coll_bool->search("the", query_fields, "popular: !=[true, false]", facets,
+                                sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+
     collectionManager.drop_collection("coll_bool");
 }
 
@@ -2205,7 +2297,7 @@ TEST_F(CollectionFilteringTest, FilteringAfterUpsertOnArrayWithSymbolsToIndex) {
                                  field("tags", field_types::STRING_ARRAY, false),
                                  field("tag", field_types::STRING, false)};
 
-    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, "", {"-"}, {}).get();
+    auto coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, "", {"-"}, {}).get();
 
     nlohmann::json doc1;
     doc1["id"] = "0";
@@ -2352,14 +2444,14 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
     }
     ASSERT_TRUE(load_op.ok());
 
-    coll = collectionManager.get_collection_unsafe("ComplexFilterQueryCollection");
-    search_op = coll->search("Jeremy", {"name"}, extreme_filter,
+    auto coll2 = collectionManager.get_collection_unsafe("ComplexFilterQueryCollection");
+    search_op = coll2->search("Jeremy", {"name"}, extreme_filter,
                                   {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(1, search_op.get()["hits"].size());
 
     extreme_filter += "|| (years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5)))";
-    search_op = coll->search("Jeremy", {"name"}, extreme_filter,
+    search_op = coll2->search("Jeremy", {"name"}, extreme_filter,
                              {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("`filter_by` has too many operations. Maximum allowed: 109. Use `--filter-by-max-ops` command line "
@@ -3736,4 +3828,177 @@ TEST_F(CollectionFilteringTest, NestedObjectFieldsFilteringMultiple) {
     ASSERT_EQ(1, result["found"].get<size_t>());
     ASSERT_EQ(1, result["hits"].size());
     ASSERT_EQ("Lasagna", result["hits"][0]["document"]["name"]);
+}
+
+TEST_F(CollectionFilteringTest, FilterOnFieldWithSymbolsToIndex) {
+    // Test filtering with field-level symbols_to_index configuration
+
+    nlohmann::json schema = R"({
+        "name": "symbols_test",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "root", "type": "string", "symbols_to_index": ["~"]}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    Collection* coll = collection_create_op.get();
+
+    nlohmann::json doc1 = R"({
+        "title": "Document one",
+        "root": "~~"
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "title": "Document two",
+        "root": "somethingElse"
+    })"_json;
+
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    auto results = coll->search("*", {"title"}, "root:=~~", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("Document one", results["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ("~~", results["hits"][0]["document"]["root"].get<std::string>());
+
+    results = coll->search("*", {"title"}, "root:=somethingElse", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("Document two", results["hits"][0]["document"]["title"].get<std::string>());
+
+    collectionManager.drop_collection("symbols_test");
+}
+
+TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
+    auto schema_json =
+            R"({
+                "name": "menu_nested",
+                "fields": [
+                    {"name": "main", "type": "object"},
+                    {"name": "main.name", "type": "string", "infix": true},
+                    {"name": "main.ingredients", "type": "object[]"},
+                    {"name": "main.ingredients.*", "type": "auto", "optional": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+
+    std::vector<nlohmann::json> documents = {
+            R"({"main": {
+                            "name": "Pasta",
+                            "ingredients": [{"name": "cheese", "concentration": 40, "vegan_available": true}, {"name" : "spinach", "concentration": 10},
+                                            {"name": "jalepeno", "concentration": 20}]
+                }
+            })"_json,
+            R"({"main": {
+                            "name": "Pizza",
+                            "ingredients": [{"name": "cheese", "concentration": 30, "vegan_available": false}, {"name": "pizza sauce", "concentration": 30},
+                                            {"name": "olives", "concentration": 30}]
+                }
+            })"_json,
+            R"({"main": {
+                            "name": "Lasagna",
+                            "ingredients": [{"name": "cheese", "concentration": 60, "vegan_available": true}, {"name": "jalepeno", "concentration": 20},
+                                            {"name": "olives", "concentration": 20}]
+                }
+            })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection",     "menu_nested"},
+            {"q",              "*"},
+            {"filter_by",      "main.name: p* && main.ingredients.{name : cheese && concentration :<50 && vegan_available:true}"},
+            {"include_fields", "main.name, main.ingredients"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("Pasta", result["hits"][0]["document"]["main"]["name"]);
+
+    //deep nested field
+    schema_json =
+            R"({
+                "name": "menu_nested_deep",
+                "fields": [
+                    {"name": "root", "type": "object"},
+                    {"name": "root.main", "type": "object"},
+                    {"name": "root.main.name", "type": "string", "infix": true},
+                    {"name": "root.main.ingredients", "type": "object[]"},
+                    {"name": "root.main.ingredients.*", "type": "auto", "optional": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+
+    documents = {
+            R"({"root" : {
+                            "main": {
+                                        "name": "Pasta",
+                                        "ingredients": [{"name": "cheese", "concentration": 40}, {"name" : "spinach", "concentration": 10},
+                                                        {"name": "jalepeno", "concentration": 20}]
+                            }
+                }
+            })"_json,
+            R"({"root": {
+                            "main": {
+                                        "name": "Pizza",
+                                        "ingredients": [{"name": "cheese", "concentration": 30}, {"name": "pizza sauce", "concentration": 30},
+                                                        {"name": "olives", "concentration": 30}]
+                            }
+                }
+            })"_json,
+            R"({"root": {
+                            "main": {
+                                        "name": "Lasagna",
+                                        "ingredients": [{"name": "cheese", "concentration": 60}, {"name": "jalepeno", "concentration": 20},
+                                                        {"name": "olives", "concentration": 20}]
+                            }
+                }
+            })"_json
+    };
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection",     "menu_nested_deep"},
+            {"q",              "*"},
+            {"filter_by",      "root.main.name: p* && root.main.ingredients.{name : cheese && concentration :<50}"},
+            {"include_fields", "root.main.name, root.main.ingredients"}
+    };
+    json_res.clear();
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("Pizza", result["hits"][0]["document"]["root"]["main"]["name"]);
+    ASSERT_EQ("Pasta", result["hits"][1]["document"]["root"]["main"]["name"]);
 }

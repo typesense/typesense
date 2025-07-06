@@ -6,9 +6,10 @@
 #include "conversation_manager.h"
 #include "typesense_server_utils.h"
 #include "http_proxy.h"
+#include "string_utils.h"
 
 
-const std::string get_model_namespace(const std::string& model_name) {
+static const std::string get_model_namespace(const std::string& model_name) {
     if(model_name.find("/") != std::string::npos) {
         return model_name.substr(0, model_name.find("/"));
     } else {
@@ -53,6 +54,8 @@ Option<bool> ConversationModel::validate_model(const nlohmann::json& model_confi
         return vLLMConversationModel::validate_model(model_config);
     } else if(model_namespace == "gcp") {
         return GeminiConversationModel::validate_model(model_config);
+    } else if(model_namespace == "azure") {
+        return AzureConversationModel::validate_model(model_config);
     }
 
     return Option<bool>(400, "Model namespace `" + model_namespace + "` is not supported.");
@@ -73,15 +76,18 @@ Option<std::string> ConversationModel::get_answer(const std::string& context, co
         return CFConversationModel::get_answer(context, prompt, system_prompt, model_config);
     } else if(model_namespace == "vllm") {
         return vLLMConversationModel::get_answer(context, prompt, system_prompt, model_config);
-    } else if(model_namespace == "gcp") {
+    } else if(model_namespace == "google") {
         return GeminiConversationModel::get_answer(context, prompt, system_prompt, model_config);
+    } else if(model_namespace == "azure") {
+        return AzureConversationModel::get_answer(context, prompt, system_prompt, model_config);
     }
 
     return Option<std::string>(400, "Model namespace " + model_namespace + " is not supported.");
 }
 
 Option<std::string> ConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, const nlohmann::json& model_config,
-                                                        const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res,
+                                                        const std::shared_ptr<http_req>& req, 
+                                                        const std::shared_ptr<http_res>& res,
                                                         const std::string conversation_id) {
 
     const std::string& model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
@@ -103,6 +109,8 @@ Option<std::string> ConversationModel::get_answer_stream(const std::string& cont
         response_op =  vLLMConversationModel::get_answer_stream(context, prompt, system_prompt, model_config, req, res);
     } else if(model_namespace == "gcp") {
         response_op =  GeminiConversationModel::get_answer_stream(context, prompt, system_prompt, model_config, req, res);
+    } else if(model_namespace == "azure") {
+        response_op = AzureConversationModel::get_answer_stream(model_config, prompt, context, system_prompt, req, res, conversation_id);
     } else {
         async_conversations.erase(req);
         return Option<std::string>(400, "Model namespace " + model_namespace + " is not supported.");
@@ -125,6 +133,8 @@ Option<std::string> ConversationModel::get_standalone_question(const nlohmann::j
         return vLLMConversationModel::get_standalone_question(conversation_history, question, model_config);
     } else if(model_namespace == "gcp") {
         return GeminiConversationModel::get_standalone_question(conversation_history, question, model_config);
+    } else if(model_namespace == "azure") {
+        return AzureConversationModel::get_standalone_question(conversation_history, question, model_config);
     }
 
     return Option<std::string>(400, "Model namespace " + model_namespace + " is not supported.");
@@ -141,6 +151,8 @@ Option<nlohmann::json> ConversationModel::format_question(const std::string& mes
         return vLLMConversationModel::format_question(message);
     } else if(model_namespace == "gcp") {
         return GeminiConversationModel::format_question(message);
+    } else if(model_namespace == "azure") {
+        return AzureConversationModel::format_question(message);
     }
 
     return Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
@@ -157,6 +169,8 @@ Option<nlohmann::json> ConversationModel::format_answer(const std::string& messa
         return vLLMConversationModel::format_answer(message);
     } else if(model_namespace == "gcp") {
         return GeminiConversationModel::format_answer(message);
+    } else if(model_namespace == "azure") {
+        return AzureConversationModel::format_answer(message);
     }
 
     return Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
@@ -173,6 +187,8 @@ Option<size_t> ConversationModel::get_minimum_required_bytes(const nlohmann::jso
         return Option<size_t>(vLLMConversationModel::get_minimum_required_bytes());
     } else if(model_namespace == "gcp") {
         return Option<size_t>(GeminiConversationModel::get_minimum_required_bytes());
+    } else if(model_namespace == "azure") {
+        return Option<size_t>(AzureConversationModel::get_minimum_required_bytes());
     }
 
     return Option<size_t>(400, "Model namespace " + model_namespace + " is not supported.");
@@ -471,7 +487,7 @@ bool OpenAIConversationModel::async_res_set_headers_callback(const std::string& 
     return true;
 }
 
-void OpenAIConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+void OpenAIConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return;
@@ -511,7 +527,7 @@ void OpenAIConversationModel::async_res_write_callback(std::string& response, co
     }
 }
 
-bool OpenAIConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+bool OpenAIConversationModel::async_res_done_callback(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return false;
@@ -524,7 +540,7 @@ bool OpenAIConversationModel::async_res_done_callback(const std::shared_ptr<http
 
 Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, 
                                                                 const std::string& system_prompt, const nlohmann::json& model_config,
-                                                                const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+                                                                const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
     const std::string api_key = model_config["api_key"].get<std::string>();
 
@@ -576,9 +592,13 @@ Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string
         std::unordered_map<std::string, std::string> header_;
         header_["x-typesense-api-key"] = HttpClient::get_api_key();
 
-        auto status = HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
+        res->proxied_stream = true;
+        auto status = HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_,
+                                                                   HttpProxy::default_timeout_ms, req, res, server);
     } else {
-        HttpClient::get_instance().post_response_sse(openai_url + openai_path, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
+        res->proxied_stream = true;
+        HttpClient::get_instance().post_response_sse(openai_url + openai_path, req_body.dump(), headers,
+                                                     HttpProxy::default_timeout_ms, req, res, server);
     }
 
     auto& async_conversation = async_conversations[req];
@@ -598,7 +618,6 @@ Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string
         }
         return Option<std::string>(400, "OpenAI API error: " + nlohmann::json::parse(async_conversation.response)["error"]["message"].get<std::string>());
     }
-
 
     return Option<std::string>(async_conversation.response);
 }
@@ -727,7 +746,7 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
 
 Option<std::string> CFConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, 
                                                                 const std::string& system_prompt, const nlohmann::json& model_config,
-                                                                const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+                                                                const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
     const std::string api_key = model_config["api_key"].get<std::string>();
     const std::string account_id = model_config["account_id"].get<std::string>();
@@ -937,7 +956,7 @@ bool CFConversationModel::async_res_set_headers_callback(const std::string& resp
     return true;
 }
 
-void CFConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+void CFConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return;
@@ -977,7 +996,7 @@ void CFConversationModel::async_res_write_callback(std::string& response, const 
     }
 }
 
-bool CFConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+bool CFConversationModel::async_res_done_callback(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return false;
@@ -1151,7 +1170,7 @@ Option<std::string> vLLMConversationModel::get_answer(const std::string& context
 
 Option<std::string> vLLMConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, 
                                                             const std::string& system_prompt, const nlohmann::json& model_config,
-                                                            const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+                                                            const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
     const std::string vllm_url = model_config["vllm_url"].get<std::string>();
 
@@ -1345,7 +1364,7 @@ bool vLLMConversationModel::async_res_set_headers_callback(const std::string& re
     return true;
 }
 
-void vLLMConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+void vLLMConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return;
@@ -1385,7 +1404,7 @@ void vLLMConversationModel::async_res_write_callback(std::string& response, cons
     }
 }
 
-bool vLLMConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+bool vLLMConversationModel::async_res_done_callback(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return false;
@@ -1544,7 +1563,7 @@ Option<nlohmann::json> GeminiConversationModel::format_answer(const std::string&
 }
 
 Option<std::string> GeminiConversationModel::get_answer_stream(const std::string& context, const std::string& prompt, const std::string& system_prompt, const nlohmann::json& model_config,
-                                                                const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+                                                                const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto get_gemini_url_op = GeminiConversationModel::get_gemini_url(model_config, true);
     if(!get_gemini_url_op.ok()) {
         return Option<std::string>(get_gemini_url_op.code(), get_gemini_url_op.error());
@@ -1630,7 +1649,7 @@ bool GeminiConversationModel::async_res_set_headers_callback(const std::string& 
     return true;
 }
 
-void GeminiConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+void GeminiConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return;
@@ -1677,7 +1696,7 @@ void GeminiConversationModel::async_res_write_callback(std::string& response, co
     }
 }
 
-bool GeminiConversationModel::async_res_done_callback(const std::shared_ptr<http_req> req, const std::shared_ptr<http_res> res) {
+bool GeminiConversationModel::async_res_done_callback(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return false;
@@ -1756,4 +1775,385 @@ Option<std::string> GeminiConversationModel::get_standalone_question(const nlohm
     } catch (const std::exception& e) {
         return Option<std::string>(400, "Got malformed response from Gemini API.");
     }
+}
+
+Option<std::string> AzureConversationModel::get_azure_url(const nlohmann::json& model_config) {
+    if (!model_config.contains("url")) {
+        return Option<std::string>(400, "url is required for Azure models");
+    }
+    return Option<std::string>(model_config["url"].get<std::string>());
+}
+
+Option<bool> AzureConversationModel::validate_model(const nlohmann::json& model_config) {
+    if (!model_config.contains("api_key")) {
+        return Option<bool>(400, "api_key is required for Azure models");
+    }
+    if (!model_config.contains("url")) {
+        return Option<bool>(400, "url is required for Azure models");
+    }
+    return Option<bool>(true);
+}
+
+Option<std::string> AzureConversationModel::get_answer(const std::string& context, const std::string& prompt, const std::string& system_prompt, const nlohmann::json& model_config) {
+    auto url_op = get_azure_url(model_config);
+    if (!url_op.ok()) {
+        return Option<std::string>(url_op.code(), url_op.error());
+    }
+
+    std::string url = url_op.get();
+    std::string api_key = model_config["api_key"].get<std::string>();
+
+    // Extract model name by removing "azure/" prefix
+    auto model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
+
+    nlohmann::json request_body;
+    request_body["model"] = model_name;
+    request_body["messages"] = nlohmann::json::array();
+    
+    if (!system_prompt.empty()) {
+        request_body["messages"].push_back({
+            {"role", "system"},
+            {"content", system_prompt}
+        });
+    }
+
+    request_body["messages"].push_back({
+        {"role", "user"},
+        {"content", context + prompt}
+    });
+
+    std::string response;
+    std::map<std::string, std::string> res_headers;
+    std::unordered_map<std::string, std::string> headers;
+    headers["api-key"] = api_key;
+    headers["Content-Type"] = "application/json";
+
+    long status_code = HttpClient::post_response(url, request_body.dump(), response, res_headers, headers);
+
+    if (status_code != 200) {
+        return Option<std::string>(status_code, "Failed to get response from Azure API: " + response);
+    }
+
+    try {
+        nlohmann::json response_json = nlohmann::json::parse(response);
+        if (response_json.contains("choices") && !response_json["choices"].empty() && 
+            response_json["choices"][0].contains("message") && 
+            response_json["choices"][0]["message"].contains("content")) {
+            return Option<std::string>(response_json["choices"][0]["message"]["content"].get<std::string>());
+        }
+        return Option<std::string>(500, "Invalid response format from Azure API");
+    } catch (const std::exception& e) {
+        return Option<std::string>(500, "Failed to parse Azure API response: " + std::string(e.what()));
+    }
+}
+
+Option<std::string> AzureConversationModel::get_standalone_question(const nlohmann::json& conversation_history, const std::string& question, const nlohmann::json& model_config) {
+    const size_t min_required_bytes = CONVERSATION_HISTORY.size() + QUESTION.size() + STANDALONE_QUESTION_PROMPT.size() + question.size();
+    if(model_config["max_bytes"].get<size_t>() < min_required_bytes) {
+        return Option<std::string>(400, "Max bytes is not enough to generate standalone question.");
+    }
+
+    auto url_op = get_azure_url(model_config);
+    if (!url_op.ok()) {
+        return Option<std::string>(url_op.code(), url_op.error());
+    }
+
+    std::string url = url_op.get();
+    std::string api_key = model_config["api_key"].get<std::string>();
+
+    // Extract model name by removing "azure/" prefix
+    auto model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
+
+    nlohmann::json request_body;
+    request_body["model"] = model_name;
+    request_body["messages"] = nlohmann::json::array();
+    
+    std::string standalone_question = STANDALONE_QUESTION_PROMPT;
+
+    standalone_question += "\n\n<Conversation history>\n";
+    auto conversation = conversation_history["conversation"];
+    auto max_conversation_length = model_config["max_bytes"].get<size_t>() - min_required_bytes;
+    auto truncate_conversation_op = ConversationManager::get_instance().truncate_conversation(conversation, max_conversation_length);
+    if(!truncate_conversation_op.ok()) {
+        return Option<std::string>(400, truncate_conversation_op.error());
+    }
+
+    auto truncated_conversation = truncate_conversation_op.get();
+
+
+    
+    for(auto& message : truncated_conversation) {
+        standalone_question += message.dump(0) + "\n";
+    }
+
+    standalone_question += "\n\n<Question>\n" + question;
+    standalone_question += "\n\n<Standalone question>\n";
+
+    nlohmann::json message = nlohmann::json::object();
+    message["role"] = "user";
+    message["content"] = standalone_question;
+
+    request_body["messages"].push_back(message);
+
+    std::string response;
+    std::map<std::string, std::string> res_headers;
+    std::unordered_map<std::string, std::string> headers;
+    headers["api-key"] = api_key;
+    headers["Content-Type"] = "application/json";
+
+    long status_code = RemoteEmbedder::call_remote_api("POST", url, request_body.dump(), response, res_headers, headers);
+
+    if (status_code == 408) {
+        return Option<std::string>(400, "Azure API timeout.");
+    }
+
+    if (status_code != 200) {
+        nlohmann::json json_res;
+        try {
+            json_res = nlohmann::json::parse(response);
+        } catch (const std::exception& e) {
+            return Option<std::string>(400, "Azure API error: " + response);
+        }
+        if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
+            return Option<std::string>(400, "Azure API error: " + response);
+        }
+        return Option<std::string>(400, "Azure API error: " + json_res["error"]["message"].get<std::string>());
+    }
+
+    try {
+        nlohmann::json response_json = nlohmann::json::parse(response);
+        if(response_json.count("choices") == 0 || response_json["choices"].size() == 0) {
+            return Option<std::string>(400, "Got malformed response from Azure API.");
+        }
+
+        if(response_json["choices"][0].count("message") == 0 || response_json["choices"][0]["message"].count("content") == 0) {
+            return Option<std::string>(400, "Got malformed response from Azure API.");
+        }
+
+        return Option<std::string>(response_json["choices"][0]["message"]["content"].get<std::string>());
+    } catch (const std::exception& e) {
+        return Option<std::string>(400, "Got malformed response from Azure API.");
+    }
+}
+
+Option<nlohmann::json> AzureConversationModel::format_question(const std::string& message) {
+    nlohmann::json formatted;
+    formatted["role"] = "user";
+    formatted["content"] = message;
+    return Option<nlohmann::json>(formatted);
+}
+
+Option<nlohmann::json> AzureConversationModel::format_answer(const std::string& message) {
+    nlohmann::json formatted;
+    formatted["role"] = "assistant";
+    formatted["content"] = message;
+    return Option<nlohmann::json>(formatted);
+}
+
+bool AzureConversationModel::async_res_set_headers_callback(const std::string& response, 
+                                                           const std::shared_ptr<http_req> req, 
+                                                           long status_code, 
+                                                           std::string& content_type) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return false;
+    }
+    
+    async_conversations[req].status_code = status_code;
+    if(status_code != 200) {
+        async_conversations[req].response = response;
+        async_conversations[req].ready = true;
+        async_conversations[req].cv.notify_one();
+        return false;
+    }
+    
+    content_type = "text/event-stream";
+    return true;
+}
+
+void AzureConversationModel::async_res_write_callback(std::string& response, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return;
+    }
+
+    try {
+        bool found_done = false;
+        std::string parsed_response;
+        std::regex data_regex("data: (.*?)\\n\\n");
+        auto begin = std::sregex_iterator(response.begin(), response.end(), data_regex);
+        auto end = std::sregex_iterator();
+        
+        
+        // Track if we've seen any non-empty content
+        bool has_content = false;
+        
+        for (std::sregex_iterator i = begin; i != end; ++i) {
+            std::string substr_line = i->str().substr(6, i->str().size() - 8);
+            
+            // Handle [DONE] signal
+            if(substr_line.find("[DONE]") != std::string::npos) {
+                found_done = true;
+                continue;  
+            }
+            
+            // Skip empty messages
+            if(substr_line.empty() || substr_line == "{}") {
+                continue;
+            }
+            
+            nlohmann::json json_line;
+            try {
+                json_line = nlohmann::json::parse(substr_line);
+            } catch (const std::exception& e) {
+                LOG(ERROR) << "Azure callback: Failed to parse JSON: " << substr_line << " Error: " << e.what();
+                continue;
+            }
+            
+            // Skip content filter results and empty messages
+            if (json_line.contains("prompt_filter_results") || 
+                (json_line.contains("choices") && json_line["choices"].empty())) {
+                continue;
+            }
+
+            // Skip role assignment messages
+            if (json_line.contains("choices") && !json_line["choices"].empty() && 
+                json_line["choices"][0].contains("delta") && 
+                json_line["choices"][0]["delta"].contains("role")) {
+                continue;
+            }
+
+            // Handle content chunks
+            if (json_line.contains("choices") && !json_line["choices"].empty() && 
+                json_line["choices"][0].contains("delta") && 
+                json_line["choices"][0]["delta"].contains("content")) {
+                std::string content = json_line["choices"][0]["delta"]["content"].get<std::string>();
+                if (!content.empty()) {
+                    parsed_response += content;
+                    has_content = true;
+                }
+            }
+
+            // Handle finish reason
+            if (json_line.contains("choices") && !json_line["choices"].empty() && 
+                json_line["choices"][0].contains("finish_reason") && 
+                !json_line["choices"][0]["finish_reason"].is_null()) {
+                std::string finish_reason = json_line["choices"][0]["finish_reason"].get<std::string>();
+                if (finish_reason == "stop") {
+                    found_done = true;
+                }
+            }
+        }
+
+        // Only send response if we have content
+        if (has_content) {
+            async_conversations[req].response += parsed_response;
+            nlohmann::json json_res;
+            json_res["message"] = parsed_response;
+            json_res["conversation_id"] = async_conversations[req].conversation_id;
+            response = "data: " + json_res.dump(-1) + "\n\n";
+        } else {
+            response = "";  // Don't send empty responses
+        }
+
+        // Send [DONE] if we've found it and we have content
+        if(found_done && has_content) {
+            response += "data: [DONE]\n\n";
+            async_conversations[req].ready = true;
+            async_conversations[req].cv.notify_one();
+        } 
+
+    } catch (const std::exception& e) {
+        LOG(ERROR) << "Azure callback: Exception caught: " << e.what();
+        LOG(ERROR) << "Azure callback: Response that caused error: " << response;
+        // Set error response
+        async_conversations[req].response = "{\"error\":{\"message\":\"" + std::string(e.what()) + "\"}}";
+        async_conversations[req].ready = true;
+        async_conversations[req].cv.notify_one();
+    }
+}
+
+
+bool AzureConversationModel::async_res_done_callback(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto& async_conversations = ConversationModel::async_conversations;
+    if(async_conversations.find(req) == async_conversations.end()) {
+        return false;
+    }
+
+    // Only mark as done if not already marked by write callback
+    if (!async_conversations[req].ready) {
+        async_conversations[req].ready = true;
+        async_conversations[req].cv.notify_one();
+    }
+    return false;
+}
+
+Option<std::string> AzureConversationModel::get_answer_stream(const nlohmann::json& model_config,
+                                                             const std::string& prompt,
+                                                             const std::string& context,
+                                                             const std::string& system_prompt,
+                                                             const std::shared_ptr<http_req> req,
+                                                             const std::shared_ptr<http_res> res,
+                                                             const std::string& conversation_id) {
+    const std::string model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
+    const std::string api_key = model_config["api_key"].get<std::string>();
+    const std::string azure_url = model_config["url"].get<std::string>();
+
+    std::unordered_map<std::string, std::string> headers;
+    headers["api-key"] = api_key;
+    headers["Content-Type"] = "application/json";
+
+    nlohmann::json req_body;
+    req_body["messages"] = nlohmann::json::array();
+
+    if(!system_prompt.empty()) {
+        nlohmann::json system_message = nlohmann::json::object();
+        system_message["role"] = "system";
+        system_message["content"] = system_prompt;
+        req_body["messages"].push_back(system_message);
+    }
+
+    nlohmann::json message = nlohmann::json::object();
+    message["role"] = "user";
+    message["content"] = DATA_STR + context + QUESTION_STR + prompt + ANSWER_STR;
+    req_body["messages"].push_back(message);
+    req_body["stream"] = true;
+
+    req->async_res_set_headers_callback = async_res_set_headers_callback;
+    req->async_res_write_callback = async_res_write_callback;
+    req->async_res_done_callback = async_res_done_callback;
+
+    auto raft_server = RemoteEmbedder::get_raft_server();
+    if(raft_server && !raft_server->get_leader_url().empty()) {
+        auto proxy_url = raft_server->get_leader_url() + "proxy_sse";
+        nlohmann::json proxy_req_body;
+        proxy_req_body["method"] = "POST";
+        proxy_req_body["url"] = azure_url;
+        proxy_req_body["body"] = req_body.dump();
+        proxy_req_body["headers"] = headers;
+        std::unordered_map<std::string, std::string> header_;
+        header_["x-typesense-api-key"] = HttpClient::get_api_key();
+
+        HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
+    } else {
+        HttpClient::get_instance().post_response_sse(azure_url, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
+    }
+
+    auto& async_conversation = async_conversations[req];
+    std::unique_lock<std::mutex> lock(async_conversation.mutex);
+    async_conversation.cv.wait(lock, [&async_conversation] { return async_conversation.ready; });
+
+    if(async_conversation.status_code != 200) {
+        try {
+            nlohmann::json error_json = nlohmann::json::parse(async_conversation.response);
+            if (error_json.contains("error") && error_json["error"].contains("message")) {
+                return Option<std::string>(400, "Azure API error: " + error_json["error"]["message"].get<std::string>());
+            }
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "AzureConversationModel::get_answer_stream: Error parsing JSON: " << e.what();
+        }
+        return Option<std::string>(400, "Azure API error: " + async_conversation.response);
+    }
+
+    return Option<std::string>(async_conversation.response);
 }

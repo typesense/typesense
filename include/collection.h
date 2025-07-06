@@ -335,13 +335,10 @@ struct collection_search_args_t {
                              collection_search_args_t& args);
 };
 
-class Collection {
+class Collection: std::enable_shared_from_this<Collection> {
 private:
 
     mutable std::shared_mutex mutex;
-
-    // ensures that a Collection* is not destructed while in use by multiple threads
-    mutable std::shared_mutex lifecycle_mutex;
 
     static const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
@@ -600,13 +597,14 @@ private:
                                         std::vector<field>& update_fields,
                                         std::string& fallback_field_type);
 
-    void process_filter_overrides(std::vector<const override_t*>& filter_overrides,
+    void process_filter_sort_overrides(std::vector<const override_t*>& filter_overrides,
                                   std::vector<std::string>& q_include_tokens,
                                   token_ordering token_order,
                                   std::unique_ptr<filter_node_t>& filter_tree_root,
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                   std::vector<uint32_t>& excluded_ids,
                                   nlohmann::json& override_metadata,
+                                  std::string& sort_by_clause,
                                   bool enable_typos_for_numerical_tokens=true,
                                   bool enable_typos_for_alpha_numerical_tokens=true,
                                   const bool& validate_field_names = true) const;
@@ -750,8 +748,6 @@ public:
     uint32_t get_collection_id() const;
 
     uint32_t get_next_seq_id();
-
-    Option<uint32_t> doc_id_to_seq_id_with_lock(const std::string & doc_id) const;
 
     Option<uint32_t> doc_id_to_seq_id(const std::string & doc_id) const;
 
@@ -1119,8 +1115,6 @@ public:
     static void hide_credential(nlohmann::json& json, const std::string& credential_name);
 
     friend class filter_result_iterator_t;
-
-    std::shared_mutex& get_lifecycle_mutex();
 
     static void expand_search_query(const tsl::htrie_map<char, field>& search_schema, const std::vector<char>& symbols_to_index,const std::vector<char>& token_separators,
                                     const std::string& raw_query, size_t offset, size_t total, const search_args* search_params,

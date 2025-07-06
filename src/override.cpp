@@ -132,6 +132,9 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
         symbols.push_back('{');
         symbols.push_back('}');
         symbols.push_back('*');
+        symbols.push_back('.');
+
+
         Tokenizer tokenizer(override.rule.query, true, false, locale, symbols, token_separators);
         std::vector<std::string> tokens;
         tokenizer.tokenize(tokens);
@@ -144,6 +147,25 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
         }
 
         override.rule.filter_by = override_json["rule"]["filter_by"].get<std::string>();
+
+        //check if it is dynamic filter rule
+        size_t i = 0;
+        while(i < override.rule.filter_by.size()) {
+            if(override.rule.filter_by[i] == '{') {
+                // look for closing curly
+                i++;
+                while(i < override.rule.filter_by.size()) {
+                    if(override.rule.filter_by[i] == '}') {
+                        override.rule.dynamic_filter = true;
+                        // remove spaces around curlies
+                        override.rule.filter_by = StringUtils::trim_curly_spaces(override.rule.filter_by);
+                        break;
+                    }
+                    i++;
+                }
+            }
+            i++;
+        }
     }
 
     if (override_json.count("includes") != 0) {

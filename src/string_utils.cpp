@@ -403,6 +403,17 @@ Option<bool> parse_object_filter(const std::string& filter_query, std::string& t
     return Option<bool>(true);
 }
 
+bool is_multi_valued_geopoint_filter(const std::string& filter_query, size_t index) {
+    while(++index < filter_query.size() && filter_query[index] == ' ');
+
+    if (index >= filter_query.size()) {
+        return false;
+    }
+    // Multi-valued geopoint filter.
+    // field_name:[ ([points], options), ([points]) ]
+    return filter_query[index] == '(';
+}
+
 Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
     std::set<std::string> ref_collection_names;
     auto size = filter_query.size();
@@ -454,14 +465,16 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
                 if (c == ')' && is_geo_value) {
                     is_geo_value = false;
                 }
-                if (!preceding_colon && c == '{' && i > 0 && filter_query[i - 1] == '.') { // Object filter
+                if (!inBacktick && !preceding_colon && c == '{' && i > 0 && filter_query[i - 1] == '.') { // Object filter
                     std::string value;
                     auto op = parse_object_filter(filter_query, value, i);
                     if (!op.ok()) {
                         return op;
                     }
 
-                    ss << value;
+                    const std::string object_field_name = ss.str();
+                    ss.str(std::string());
+                    ss << OBJECT_FILTER_MARKER << object_field_name << value;
                     break;
                 }
 
@@ -474,7 +487,7 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
                 if (preceding_colon && c == '(') {
                     is_geo_value = true;
                     preceding_colon = false;
-                } else if (preceding_colon && c == '[') {
+                } else if (preceding_colon && c == '[' && is_multi_valued_geopoint_filter(filter_query, i)) {
                     std::string value;
                     auto op = parse_multi_valued_geopoint_filter(filter_query, value, i);
                     if (!op.ok()) {

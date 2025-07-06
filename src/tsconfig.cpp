@@ -293,6 +293,26 @@ void Config::load_config_env() {
     if(!get_env("TYPESENSE_ANALYTICS_MINUTE_RATE_LIMIT").empty()) {
         this->analytics_minute_rate_limit = std::stoi(get_env("TYPESENSE_ANALYTICS_MINUTE_RATE_LIMIT"));
     }
+
+    if(!get_env("TYPESENSE_DB_WRITE_BUFFER_SIZE").empty()) {
+        this->db_write_buffer_size = std::stoi(get_env("TYPESENSE_DB_WRITE_BUFFER_SIZE"));
+    }
+
+    if(!get_env("TYPESENSE_DB_MAX_WRITE_BUFFER_NUMBER").empty()) {
+        this->db_max_write_buffer_number = std::stoi(get_env("TYPESENSE_DB_MAX_WRITE_BUFFER_NUMBER"));
+    }
+
+    if(!get_env("TYPESENSE_DB_MAX_LOG_FILE_SIZE").empty()) {
+        this->db_max_log_file_size = std::stoi(get_env("TYPESENSE_DB_MAX_LOG_FILE_SIZE"));
+    }
+
+    if(!get_env("TYPESENSE_DB_KEEP_LOG_FILE_NUM").empty()) {
+        this->db_keep_log_file_num = std::stoi(get_env("TYPESENSE_DB_KEEP_LOG_FILE_NUM"));
+    }
+
+    if(!get_env("TYPESENSE_MAX_INDEXING_CONCURRENCY").empty()) {
+        this->max_indexing_concurrency = std::stoi(get_env("TYPESENSE_MAX_INDEXING_CONCURRENCY"));
+    }
 }
 
 void Config::load_config_file(cmdline::parser& options) {
@@ -516,6 +536,26 @@ void Config::load_config_file(cmdline::parser& options) {
     if(reader.Exists("server", "filter-by-max-ops")) {
         this->filter_by_max_ops = (uint16_t) reader.GetInteger("server", "filter-by-max-ops", FILTER_BY_DEFAULT_OPERATIONS);
     }
+
+    if(reader.Exists("server", "db-write-buffer-size")) {
+        this->db_write_buffer_size = (size_t) reader.GetInteger("server", "db-write-buffer-size", 4*1048576);
+    }
+
+    if(reader.Exists("server", "db-max-write-buffer-number")) {
+        this->db_write_buffer_size = (size_t) reader.GetInteger("server", "db-max-write-buffer-number", 2);
+    }
+
+    if(reader.Exists("server", "db-max-log-file-size")) {
+        this->db_write_buffer_size = (size_t) reader.GetInteger("server", "db-max-log-file-size", 4*1048576);
+    }
+
+    if(reader.Exists("server", "db-keep-log-file-num")) {
+        this->db_write_buffer_size = (size_t) reader.GetInteger("server", "db-keep-log-file-num", 5);
+    }
+
+    if(reader.Exists("server", "max-indexing-concurrency")) {
+        this->max_indexing_concurrency = reader.GetInteger("server", "max-indexing-concurrency", 4);
+    }
 }
 
 void Config::load_config_cmd_args(cmdline::parser& options)  {
@@ -711,6 +751,26 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("filter-by-max-ops")) {
         this->filter_by_max_ops = options.get<uint16_t>("filter-by-max-ops");
+    }
+
+    if(options.exist("db-write-buffer-size")) {
+        this->db_write_buffer_size = options.get<uint32_t>("db-write-buffer-size");
+    }
+
+    if(options.exist("db-max-write-buffer-number")) {
+        this->db_write_buffer_size = options.get<uint32_t>("db-max-write-buffer-number");
+    }
+
+    if(options.exist("db-max-log-file-size")) {
+        this->db_write_buffer_size = options.get<uint32_t>("db-max-log-file-size");
+    }
+
+    if(options.exist("db-keep-log-file-num")) {
+        this->db_write_buffer_size = options.get<uint32_t>("db-keep-log-file-num");
+    }
+
+    if(options.exist("max-indexing-concurrency")) {
+        this->max_indexing_concurrency = options.get<uint32_t>("max-indexing-concurrency");
     }
 }
 

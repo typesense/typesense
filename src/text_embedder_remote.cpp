@@ -2,7 +2,6 @@
 #include "text_embedder_remote.h"
 #include "embedder_manager.h"
 
-
 Option<bool> RemoteEmbedder::validate_string_properties(const nlohmann::json& model_config, const std::vector<std::string>& properties) {
     for(auto& property : properties) {
         if(model_config.count(property) == 0 || !model_config[property].is_string()) {
@@ -158,10 +157,14 @@ embedding_res_t OpenAIEmbedder::embed_query(const std::string url, const std::st
                                       const std::string& api_key, const size_t num_dims, const bool has_custom_dims, 
                                       const std::string& model_name, const OpenAIEmbedderType embedder_type) {
     std::string cache_key = text + model_name;
-    if(RemoteEmbedder::cache.find(cache_key) != cache.end()) {
-        return cache[cache_key];
+    {
+        std::shared_lock<std::shared_mutex> cache_read_lock(RemoteEmbedder::cache_mutex);
+        auto key_it = RemoteEmbedder::cache.find(cache_key);
+        if(key_it != RemoteEmbedder::cache.end()) {
+            return key_it->second;
+        }
     }
-    
+
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Content-Type"] = "application/json";
@@ -187,11 +190,14 @@ embedding_res_t OpenAIEmbedder::embed_query(const std::string url, const std::st
     }
     try {
         embedding_res_t embedding_res = embedding_res_t(nlohmann::json::parse(res)["data"][0]["embedding"].get<std::vector<float>>());
-        RemoteEmbedder::cache.insert(cache_key, embedding_res);
+        {
+            std::unique_lock<std::shared_mutex> cache_write_lock(RemoteEmbedder::cache_mutex);
+            RemoteEmbedder::cache.insert(cache_key, embedding_res);
+        }
         return embedding_res;
     } catch (const std::exception& e) {
         return embedding_res_t(500, get_error_json(req_body, res_code, res, url));
-    }                  
+    }
 }
 
 std::vector<embedding_res_t> OpenAIEmbedder::embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size,
@@ -378,8 +384,12 @@ Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, 
 embedding_res_t GoogleEmbedder::embed_query(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
     std::shared_lock<std::shared_mutex> lock(mutex);
     std::string cache_key = text + SUPPORTED_MODEL;
-    if(RemoteEmbedder::cache.find(cache_key) != RemoteEmbedder::cache.end()) {
-        return RemoteEmbedder::cache[cache_key];
+    {
+        std::shared_lock<std::shared_mutex> cache_read_lock(RemoteEmbedder::cache_mutex);
+        auto key_it = RemoteEmbedder::cache.find(cache_key);
+        if(key_it != RemoteEmbedder::cache.end()) {
+            return key_it->second;
+        }
     }
 
     std::unordered_map<std::string, std::string> headers;
@@ -399,7 +409,10 @@ embedding_res_t GoogleEmbedder::embed_query(const std::string& text, const size_
 
     try {
         auto res_obj = embedding_res_t(nlohmann::json::parse(res)["embedding"]["value"].get<std::vector<float>>());
-        RemoteEmbedder::cache.insert(cache_key, res_obj);
+        {
+            std::unique_lock<std::shared_mutex> cache_write_lock(RemoteEmbedder::cache_mutex);
+            RemoteEmbedder::cache.insert(cache_key, res_obj);
+        }
         return res_obj;
     } catch (const std::exception& e) {
         return embedding_res_t(500, get_error_json(req_body, res_code, res));
@@ -460,9 +473,9 @@ std::string GoogleEmbedder::get_model_key(const nlohmann::json& model_config) {
 
 GCPEmbedder::GCPEmbedder(const std::string& project_id, const std::string& model_name, const std::string& access_token, 
                          const std::string& refresh_token, const std::string& client_id, const std::string& client_secret, const bool has_custom_dims, const size_t num_dims,
-                         const std::string& document_task, const std::string& query_task) :
+                         const std::string& document_task, const std::string& query_task, const std::string& region) :
         project_id(project_id), access_token(access_token), refresh_token(refresh_token), client_id(client_id), client_secret(client_secret), has_custom_dims(has_custom_dims), num_dims(num_dims),
-        document_task(document_task), query_task(query_task) {
+        document_task(document_task), query_task(query_task), region(region) {
     
     this->model_name = EmbedderManager::get_model_name_without_namespace(model_name);
 }
@@ -481,6 +494,10 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, siz
     if(model_config.count("query_task") > 0 && !model_config["query_task"].is_string()) {
         return Option<bool>(400, "Property `embed.model_config.query_task` is not a string.");
     }
+
+    if(model_config.count("region") > 0 && !model_config["region"].is_string()) {
+        return Option<bool>(400, "Property `embed.model_config.region` is not a string.");
+    }
     
     auto model_name = model_config["model_name"].get<std::string>();
     auto project_id = model_config["project_id"].get<std::string>();    
@@ -488,6 +505,11 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, siz
     auto refresh_token = model_config["refresh_token"].get<std::string>();
     auto client_id = model_config["client_id"].get<std::string>();
     auto client_secret = model_config["client_secret"].get<std::string>();
+    
+    std::string region = GCP_DEFAULT_REGION;
+    if(model_config.count("region") > 0 && model_config["region"].is_string()) {
+        region = model_config["region"].get<std::string>();
+    }
 
     if(EmbedderManager::get_model_namespace(model_name) != "gcp") {
         return Option<bool>(400, "Invalid GCP model name");
@@ -511,7 +533,7 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, siz
         req_body["parameters"] = dimensions;
     }
 
-    auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name_without_namespace), req_body.dump(), res, res_headers, headers);
+    auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name_without_namespace, region), req_body.dump(), res, res_headers, headers);
 
     if(res_code == 401) {
         auto refresh_op = generate_access_token(refresh_token, client_id, client_secret);
@@ -524,7 +546,7 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, siz
         // retry
         headers["Authorization"] = "Bearer " + access_token;
         res.clear();
-        res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name_without_namespace), req_body.dump(), res, res_headers, headers);
+        res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name_without_namespace, region), req_body.dump(), res, res_headers, headers);
     }
 
     if(res_code != 200) {
@@ -567,8 +589,12 @@ embedding_res_t GCPEmbedder::embed_query(const std::string& text, const size_t r
     std::shared_lock<std::shared_mutex> lock(mutex);
 
     std::string cache_key = text + model_name;
-    if(RemoteEmbedder::cache.find(cache_key) != RemoteEmbedder::cache.end()) {
-        return RemoteEmbedder::cache[cache_key];
+    {
+        std::shared_lock<std::shared_mutex> cache_read_lock(RemoteEmbedder::cache_mutex);
+        auto key_it = RemoteEmbedder::cache.find(cache_key);
+        if(key_it != RemoteEmbedder::cache.end()) {
+            return key_it->second;
+        }
     }
 
     nlohmann::json req_body;
@@ -592,7 +618,7 @@ embedding_res_t GCPEmbedder::embed_query(const std::string& text, const size_t r
     std::map<std::string, std::string> res_headers;
     std::string res;
 
-    auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
+    auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name, region), req_body.dump(), res, res_headers, headers);
 
     if(res_code != 200) {
         if(res_code == 401) {
@@ -606,7 +632,7 @@ embedding_res_t GCPEmbedder::embed_query(const std::string& text, const size_t r
             // retry
             headers["Authorization"] = "Bearer " + access_token;
             res.clear();
-            res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
+            res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name, region), req_body.dump(), res, res_headers, headers);
         }
     }
 
@@ -620,7 +646,12 @@ embedding_res_t GCPEmbedder::embed_query(const std::string& text, const size_t r
         return embedding_res_t(500, get_error_json(req_body, res_code, res));
     }
     auto res_obj = embedding_res_t(res_json["predictions"][0]["embeddings"]["values"].get<std::vector<float>>());
-    RemoteEmbedder::cache.insert(cache_key, res_obj);
+
+    {
+        std::unique_lock<std::shared_mutex> cache_write_lock(RemoteEmbedder::cache_mutex);
+        RemoteEmbedder::cache.insert(cache_key, res_obj);
+    }
+
     return res_obj;
 }
 
@@ -658,7 +689,7 @@ std::vector<embedding_res_t> GCPEmbedder::embed_documents(const std::vector<std:
     headers["num_try"] = std::to_string(remote_embedding_num_tries);
     std::map<std::string, std::string> res_headers;
     std::string res;
-    auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
+    auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name, region), req_body.dump(), res, res_headers, headers);
     if(res_code != 200) {
         if(res_code == 401) {
             auto refresh_op = generate_access_token(refresh_token, client_id, client_secret);
@@ -675,7 +706,7 @@ std::vector<embedding_res_t> GCPEmbedder::embed_documents(const std::vector<std:
             // retry
             headers["Authorization"] = "Bearer " + access_token;
             res.clear();
-            res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
+            res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name, region), req_body.dump(), res, res_headers, headers);
         }
     }
 
@@ -731,7 +762,7 @@ nlohmann::json GCPEmbedder::get_error_json(const nlohmann::json& req_body, long 
     nlohmann::json embedding_res = nlohmann::json::object();
     embedding_res["response"] = json_res;
     embedding_res["request"] = nlohmann::json::object();
-    embedding_res["request"]["url"] = get_gcp_embedding_url(project_id, model_name);
+    embedding_res["request"]["url"] = get_gcp_embedding_url(project_id, model_name, region);
     embedding_res["request"]["method"] = "POST";
     embedding_res["request"]["body"] = req_body;
     if(json_res.count("error") != 0 && json_res["error"].count("message") != 0) {

@@ -12,22 +12,6 @@ import { extract } from "tar-stream";
 
 import { toErrorWithMessage } from "@/utils/error";
 
-type PlatformFlag = "linux/amd64" | "linux/arm64" | "darwin/amd64" | "windows/amd64";
-
-export function getPlatform(): PlatformFlag {
-  const plat = process.arch;
-
-  switch (plat) {
-    case "x64":
-      return "linux/amd64";
-    case "arm":
-    case "arm64":
-      return "linux/arm64";
-    default:
-      return "linux/amd64";
-  }
-}
-
 export class FilesystemService {
   constructor(
     private spinner: Ora,

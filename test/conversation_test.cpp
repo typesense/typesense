@@ -391,3 +391,106 @@ TEST_F(ConversationTest, TestGeminiStreamManipulation) {
     GeminiConversationModel::_async_write_callback(test, req, res);
     ASSERT_EQ(test, expected);
 }
+
+TEST_F(ConversationTest, TestAzureStreamManipulation) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    ConversationModel::_add_async_conversation(req, "test");
+
+    // Test initial prompt filter results
+    std::string test = "{\"choices\":[],\"created\":0,\"id\":\"\",\"model\":\"\",\"object\":\"\",\"prompt_filter_results\":[{\"prompt_index\":0,\"content_filter_results\":{\"hate\":{\"filtered\":false,\"severity\":\"safe\"},\"jailbreak\":{\"filtered\":false,\"detected\":false},\"self_harm\":{\"filtered\":false,\"severity\":\"safe\"},\"sexual\":{\"filtered\":false,\"severity\":\"safe\"},\"violence\":{\"filtered\":false,\"severity\":\"safe\"}}}]}";
+
+    // This should be ignored as it has no content
+    std::string expected = "";
+    AzureConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+}
+
+TEST_F(ConversationTest, TestAzureStreamBasicContent) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    ConversationModel::_add_async_conversation(req, "test");
+
+    // Test basic content streaming
+    std::string test = std::string(R"(data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]})") + "\n\n";
+    std::string expected = std::string(R"(data: {"conversation_id":"test","message":"Hello"})") + "\n\n";
+    AzureConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+}
+
+TEST_F(ConversationTest, TestAzureStreamEmptyMessages) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    ConversationModel::_add_async_conversation(req, "test");
+
+    // Test empty messages
+    std::string test = std::string(R"(data: {"choices":[]})") + "\n\n";
+    std::string expected = "";
+    AzureConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+
+    // Test empty JSON object
+    test = std::string(R"(data: {})") + "\n\n";
+    expected = "";
+    AzureConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+}
+
+TEST_F(ConversationTest, TestAzureStreamRoleAssignment) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    ConversationModel::_add_async_conversation(req, "test");
+
+    // Test role assignment message
+    std::string test = std::string(R"(data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]})") + "\n\n";
+    std::string expected = "";
+    AzureConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+}
+
+TEST_F(ConversationTest, TestAzureStreamFinishReason) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    ConversationModel::_add_async_conversation(req, "test");
+
+    // Test finish reason with content
+    std::string test = std::string(R"(data: {"choices":[{"delta":{"content":"Goodbye"},"finish_reason":"stop"}]})") + "\n\n";
+    std::string expected = std::string(R"(data: {"conversation_id":"test","message":"Goodbye"})") + "\n\n" + "data: [DONE]\n\n";
+    AzureConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+}
+
+TEST_F(ConversationTest, TestAzureStreamMultipleChunks) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    ConversationModel::_add_async_conversation(req, "test");
+
+    // Test multiple content chunks
+    std::string test = std::string(R"(data: {"choices":[{"delta":{"content":"Hello "},"finish_reason":null}]})") + "\n\n";
+    std::string expected = std::string(R"(data: {"conversation_id":"test","message":"Hello "})") + "\n\n";
+    AzureConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+
+    test = std::string(R"(data: {"choices":[{"delta":{"content":"World"},"finish_reason":"stop"}]})") + "\n\n";
+    expected = std::string(R"(data: {"conversation_id":"test","message":"World"})") + "\n\n" + "data: [DONE]\n\n";
+    AzureConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+}
+
+TEST_F(ConversationTest, TestAzureStreamErrorHandling) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    ConversationModel::_add_async_conversation(req, "test");
+
+    // Test invalid JSON
+    std::string test = std::string(R"(data: {invalid json})") + "\n\n";
+    std::string expected = "";
+    AzureConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+
+    // Test malformed content
+    test = std::string(R"(data: {"choices":[{"delta":{},"finish_reason":null}]})") + "\n\n";
+    expected = "";
+    AzureConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+}

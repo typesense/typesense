@@ -437,7 +437,7 @@ CURL *HttpClient::init_curl_stream(const std::string& url, async_stream_response
 
     if(!ca_cert_path.empty()) {
         curl_easy_setopt(curl, CURLOPT_CAINFO, ca_cert_path.c_str());
-    } else {
+    } else if (url.compare(0, 5, "https") == 0) {
         LOG(WARNING) << "Unable to locate system SSL certificates.";
     }
 
@@ -528,7 +528,7 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
 
     if(!ca_cert_path.empty()) {
         curl_easy_setopt(curl, CURLOPT_CAINFO, ca_cert_path.c_str());
-    } else {
+    } else if (url.compare(0, 5, "https") == 0) {
         LOG(WARNING) << "Unable to locate system SSL certificates.";
     }
 
@@ -560,7 +560,7 @@ CURL *HttpClient::init_curl(const std::string& url, std::string& response, const
 
     if(!ca_cert_path.empty()) {
         curl_easy_setopt(curl, CURLOPT_CAINFO, ca_cert_path.c_str());
-    } else {
+    } else if (url.compare(0, 5, "https") == 0) {
         LOG(WARNING) << "Unable to locate system SSL certificates.";
     }
 

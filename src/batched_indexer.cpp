@@ -85,6 +85,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
             {
                 std::unique_lock lk2(mutex);
                 req_res_map[req->start_ts].is_complete = true;
+                req_colls.emplace(req->start_ts, coll_name);
             }
 
             bool queue_write = true;
@@ -116,11 +117,8 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
                         refq_wait.cv.notify_one();
                         queue_write = false;
                     }
-
                 }
             }
-
-            req->body = "";
 
             if(queue_write) {
                 std::unique_lock qlk(qmutuxes[queue_id].mcv);
@@ -203,10 +201,10 @@ void BatchedIndexer::run() {
     LOG(INFO) << "BatchedIndexer skip_index: " << skip_index;
 
     for(size_t i = 0; i < num_threads; i++) {
-        std::deque<uint64_t>& queue = queues[i];
-        await_t& queue_mutex = qmutuxes[i];
+        thread_pool->enqueue([this, i]() {
+            std::deque<uint64_t>& queue = queues[i];
+            await_t& queue_mutex = qmutuxes[i];
 
-        thread_pool->enqueue([&queue, &queue_mutex, this, i]() {
             while(!quit) {
                 std::unique_lock<std::mutex> qlk(queue_mutex.mcv);
                 queue_mutex.cv.wait(qlk, [&] { return quit || !queue.empty(); });
@@ -238,9 +236,11 @@ void BatchedIndexer::run() {
                 const std::string& req_key_start_prefix = req_key_prefix + StringUtils::serialize_uint32_t(
                                                                   orig_req_res.next_chunk_index);
 
-                const std::string& req_key_upper_bound = get_req_suffix_key(req_id);  // cannot inline this
-                rocksdb::Slice upper_bound(req_key_upper_bound);
-                rocksdb::Iterator* iter = store->scan(req_key_start_prefix, &upper_bound);
+                std::string ub_str = get_req_suffix_key(req_id);
+                rocksdb::Slice ub_slice(ub_str);
+                std::unique_ptr<rocksdb::Iterator> iter {
+                    store->scan(req_key_start_prefix, &ub_slice)
+                };
 
                 // used to handle partial JSON documents caused by chunking
                 std::string& prev_body = orig_req_res.prev_req_body;
@@ -333,8 +333,6 @@ void BatchedIndexer::run() {
                     }
                 }
 
-                delete iter;
-
                 //LOG(INFO) << "Erasing request data from disk and memory for request " << req_id;
 
                 // we can delete the buffered request content
@@ -343,6 +341,7 @@ void BatchedIndexer::run() {
                 std::unique_lock lk(mutex);
 
                 req_res_map.erase(req_id);
+                req_colls.erase(req_id);
                 lk.unlock();
                 refq_wait.cv.notify_one();
             }
@@ -351,6 +350,8 @@ void BatchedIndexer::run() {
 
     std::thread ref_sequence_thread([&]() {
         // Waits for dependent requests that are ahead to finish before pushing a request onto main indexing queue.
+        LOG(INFO) << "Starting reference sequence thread.";
+
         while(!quit) {
             std::unique_lock ref_qlk(refq_wait.mcv);
             refq_wait.cv.wait(ref_qlk, [&] {
@@ -369,13 +370,14 @@ void BatchedIndexer::run() {
             while(reference_q_it != reference_q.end()) {
                 bool found_ref_coll = false;
 
-                auto req_res_it = req_res_map.find(reference_q_it->start_ts);
-                if(req_res_it == req_res_map.end()) {
+                auto req_colls_it = req_colls.find(reference_q_it->start_ts);
+                if(req_colls_it == req_colls.end()) {
                     reference_q_it = reference_q.erase(reference_q_it);
                     continue;
                 }
 
-                auto const& coll_name = req_res_it->second.req->params["collection"];
+                const std::string& coll_name = req_colls_it->second;
+
                 auto ref_colls_it = coll_to_references.find(coll_name);
                 const auto& ref_collections = (ref_colls_it != coll_to_references.end()) ? ref_colls_it->second :
                                               CollectionManager::get_instance().get_collection_references(coll_name);
@@ -391,8 +393,8 @@ void BatchedIndexer::run() {
                     continue;
                 }
 
-                for (auto it = req_res_map.begin(); it != req_res_it; it++) {
-                    auto const& req_coll_name = it->second.req->params["collection"];
+                for (auto it = req_colls.begin(); it != req_colls_it; it++) {
+                    auto const& req_coll_name = it->second;
                     if(ref_collections.count(req_coll_name) != 0) {
                         found_ref_coll = true;
                         break;
@@ -427,7 +429,8 @@ void BatchedIndexer::run() {
         if(seconds_elapsed > GC_INTERVAL_SECONDS) {
 
             std::unique_lock lk(mutex);
-            LOG(INFO) << "Running GC for aborted requests, req map size: " << req_res_map.size();
+            LOG(INFO) << "Running GC for aborted requests, req map size: " << req_res_map.size()
+                      << ", reference_q.size: " << reference_q.size();
 
             if(req_res_map.size() > 0 && prev_count == req_res_map.size()) {
                 stuck_counter++;
@@ -649,5 +652,6 @@ void BatchedIndexer::clear_skip_indices() {
 }
 
 size_t BatchedIndexer::get_reference_q_size() {
+    std::lock_guard lk(refq_wait.mcv);
     return reference_q.size();
 }

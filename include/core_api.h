@@ -232,3 +232,13 @@ bool del_personalization_model(const std::shared_ptr<http_req>& req, const std::
 bool get_personalization_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool put_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_nl_search_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool post_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool put_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool delete_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

@@ -615,11 +615,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 void CollectionManager::dispose() {
     std::unique_lock lock(mutex);
 
-    for(auto & name_collection: collections) {
-        delete name_collection.second;
-        name_collection.second = nullptr;
-    }
-
     auto referenced_ins_json = nlohmann::json::array();
     for (const auto& pair: referenced_ins) {
         nlohmann::json temp_json;
@@ -735,25 +730,33 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                 metadata);
 
     add_to_collections(new_collection);
-
     lock.lock();
+
+    std::vector<std::map<std::string, reference_info_t>> ref_info_maps;
     auto it = referenced_ins.find(name);
     if (it != referenced_ins.end()) {
-        auto update_ref_infos = new_collection->add_referenced_ins(it->second);
+        ref_info_maps.push_back(it->second);
+    }
+
+    // Don't hold cm lock to prevent lock cycle inversion
+    lock.unlock();
+
+    for(auto& ref_info_map: ref_info_maps) {
+        const auto& update_ref_infos = new_collection->add_referenced_ins(ref_info_map);
         for (auto& update_ref_info: update_ref_infos) {
             auto coll = get_collection_unsafe(update_ref_info.collection);
-            coll->update_reference_field_with_lock(update_ref_info.field, update_ref_info.referenced_field);
+            if(coll) {
+                coll->update_reference_field_with_lock(update_ref_info.field, update_ref_info.referenced_field);
+                // We do not erase from `referenced_ins` here, because if a referenced collection is dropped and
+                // created again, the referenced field won't be updated in referencing collection.
+            }
         }
-
-        // If a referenced collection is dropped and created again, the referenced field won't be updated in referencing
-        // collection if we erase here.
-        // referenced_ins.erase(it);
     }
 
     return Option<Collection*>(new_collection);
 }
 
-Collection* CollectionManager::get_collection_unsafe(const std::string & collection_name) const {
+std::shared_ptr<Collection> CollectionManager::get_collection_unsafe(const std::string & collection_name) const {
     if(collections.count(collection_name) != 0) {
         return collections.at(collection_name);
     }
@@ -769,34 +772,32 @@ Collection* CollectionManager::get_collection_unsafe(const std::string & collect
     return nullptr;
 }
 
-locked_resource_view_t<Collection> CollectionManager::get_collection(const std::string & collection_name) const {
+std::shared_ptr<Collection> CollectionManager::get_collection(const std::string & collection_name) const {
     std::shared_lock lock(mutex);
-    Collection* coll = get_collection_unsafe(collection_name);
-    return coll != nullptr ? locked_resource_view_t<Collection>(coll->get_lifecycle_mutex(), coll) :
-           locked_resource_view_t<Collection>(noop_coll_mutex, coll);
+    return get_collection_unsafe(collection_name);
 }
 
-locked_resource_view_t<Collection> CollectionManager::get_collection_with_id(uint32_t collection_id) const {
+std::shared_ptr<Collection> CollectionManager::get_collection_with_id(uint32_t collection_id) const {
     std::shared_lock lock(mutex);
 
     if(collection_id_names.count(collection_id) != 0) {
-        return get_collection(collection_id_names.at(collection_id));
+        return get_collection_unsafe(collection_id_names.at(collection_id));
     }
 
-    return locked_resource_view_t<Collection>(mutex, nullptr);
+    return nullptr;
 }
 
-Option<std::vector<Collection*>> CollectionManager::get_collections(uint32_t limit, uint32_t offset,
+Option<std::vector<std::shared_ptr<Collection>>> CollectionManager::get_collections(uint32_t limit, uint32_t offset,
                                                                     const std::vector<std::string>& api_key_collections) const {
 
     std::shared_lock lock(mutex);
 
-    std::vector<Collection*> collection_vec;
+    std::vector<std::shared_ptr<Collection>> collection_vec;
     auto collections_it = collections.begin();
 
     if(offset > 0) {
         if(offset >= collections.size()) {
-            return Option<std::vector<Collection*>>(400, "Invalid offset param.");
+            return Option<std::vector<std::shared_ptr<Collection>>>(400, "Invalid offset param.");
         }
 
         std::advance(collections_it, offset);
@@ -818,12 +819,12 @@ Option<std::vector<Collection*>> CollectionManager::get_collections(uint32_t lim
 
     if(offset == 0 && limit == 0) { //dont sort for paginated requests
         std::sort(std::begin(collection_vec), std::end(collection_vec),
-                  [](Collection *lhs, Collection *rhs) {
+                  [](std::shared_ptr<Collection> lhs, std::shared_ptr<Collection> rhs) {
                       return lhs->get_collection_id() > rhs->get_collection_id();
                   });
     }
 
-    return Option<std::vector<Collection*>>(collection_vec);
+    return Option<std::vector<std::shared_ptr<Collection>>>(collection_vec);
 }
 
 std::vector<std::string> CollectionManager::get_collection_names() const {
@@ -929,10 +930,6 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
             process_embedding_field_delete(model_name);
         }
     }
-
-
-    // don't hold any collection manager locks here, since this can take some time
-    delete collection;
 
     return Option<nlohmann::json>(collection_json);
 }
@@ -1412,7 +1409,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     auto collection = collectionManager.get_collection(orig_coll_name);
 
     if(collection == nullptr) {
-        return Option<bool>(404, "Not found.");
+        return Option<bool>(404, "Collection not found");
     }
 
     collection_search_args_t args;
@@ -1621,11 +1618,11 @@ Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limi
         return Option<nlohmann::json>(collections_op.code(), collections_op.error());
     }
 
-    std::vector<Collection*> colls = collections_op.get();
+    std::vector<std::shared_ptr<Collection>> colls = collections_op.get();
 
     nlohmann::json json_summaries = nlohmann::json::array();
 
-    for(Collection* collection: colls) {
+    for(std::shared_ptr<Collection> collection: colls) {
         nlohmann::json collection_json = collection->get_summary_json();
         for(const auto& exclude_field: exclude_fields) {
             collection_json.erase(exclude_field);
@@ -1825,7 +1822,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     {
         std::shared_lock lock(cm.mutex);
-        Collection *existing_collection = cm.get_collection_unsafe(this_collection_name);
+        std::shared_ptr<Collection> existing_collection = cm.get_collection_unsafe(this_collection_name);
 
         if(existing_collection != nullptr) {
             // To maintain idempotency, if the collection already exists in-memory, drop it from memory
@@ -2024,7 +2021,7 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
         return Option<Collection*>(400, "Collection with name `" + new_name + "` already exists.");
     }
 
-    Collection* existing_coll = collections[existing_name];
+    std::shared_ptr<Collection> existing_coll = collections[existing_name];
 
     std::vector<std::string> symbols_to_index;
     std::vector<std::string> token_separators;
@@ -2130,22 +2127,22 @@ void CollectionManager::process_embedding_field_delete(const std::string& model_
 }
 
 std::unordered_set<std::string> CollectionManager::get_collection_references(const std::string& coll_name) {
-    std::shared_lock lock(mutex);
-
     std::unordered_set<std::string> references;
-    auto it = collections.find(coll_name);
-    if (it == collections.end()) {
+    auto coll = get_collection(coll_name);
+    if(coll == nullptr) {
         return references;
     }
 
-    for (const auto& item: it->second->get_reference_fields()) {
+    for (const auto& item: coll->get_reference_fields()) {
         const auto& ref_pair = item.second;
         references.insert(ref_pair.collection);
     }
+
     return references;
 }
 
-bool CollectionManager::is_valid_api_key_collection(const std::vector<std::string>& api_collections, Collection* coll) const {
+bool CollectionManager::is_valid_api_key_collection(const std::vector<std::string>& api_collections,
+                                                    std::shared_ptr<Collection> coll) const {
     for(const auto& api_collection : api_collections) {
         if(api_collection == "*") {
             return true;
@@ -2200,4 +2197,15 @@ Option<nlohmann::json> CollectionManager::get_collection_alter_status() const {
     }
 
     return Option<nlohmann::json>(collection_alter_status);
+}
+
+void CollectionManager::remove_internal_fields(std::map<std::string, std::string>& params) {
+    auto it = params.begin();
+    while (it != params.end()) {
+        if (!it->first.empty() && it->first[0] == '_') {
+            it = params.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }

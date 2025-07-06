@@ -13,8 +13,17 @@ cd /build/typesense
 /bin/bash ci_build_v2.sh $BUILD_FLAGS
 
 if [ "$TYPESENSE_TARGET" = "typesense-test" ]; then
-    # Run the tests
-    bazel test --cache_test_results=no --test_output=all //:typesense-test
+    # Run the tests and pass any additional arguments to the test command
+    # Properly set up test arguments for Bazel
+    TEST_ARGS=""
+    for arg in "$@"; do
+        # Format each argument correctly for passing to the test binary
+        TEST_ARGS="$TEST_ARGS --test_arg=$arg"
+    done
+    
+    echo "Running test command: bazel test --cache_test_results=no --test_output=all $TEST_ARGS //:typesense-test"
+    
+    bazel test --cache_test_results=no --test_output=all $TEST_ARGS //:typesense-test
 else
     # Forward signals to the child process
     trap 'kill -TERM $child' TERM INT

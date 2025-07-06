@@ -3388,6 +3388,213 @@ TEST_F(CollectionOverrideTest, StaticSorting) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionOverrideTest, DynamicSorting) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("store", field_types::STRING_ARRAY, false),
+                                 field("size", field_types::STRING_ARRAY, false),
+                                 field("unitssold", field_types::OBJECT, false),
+                                 field("unitssold.store01", field_types::INT32, true),
+                                 field("unitssold.store02", field_types::INT32, true),
+                                 field("unitssold.small", field_types::INT32, true),
+                                 field("unitssold.medium", field_types::INT32, true),
+                                 field("stockonhand", field_types::OBJECT, false),
+                                 field("stockonhand.store01", field_types::INT32, true),
+                                 field("stockonhand.store02", field_types::INT32, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Nike Shoes";
+    doc1["store"] = {"store01", "store02"};
+    doc1["size"] = {"small", "medium"};
+    doc1["unitssold.store01"] = 399;
+    doc1["unitssold.store02"] = 498;
+    doc1["unitssold.small"] = 304;
+    doc1["unitssold.medium"] = 593;
+    doc1["stockonhand.store01"] = 129;
+    doc1["stockonhand.store02"] = 227;
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Asics Shoes";
+    doc2["store"] = {"store01", "store02"};
+    doc2["size"] = {"small", "medium"};
+    doc2["unitssold.store01"] = 899;
+    doc2["unitssold.store02"] = 408;
+    doc2["unitssold.small"] = 507;
+    doc2["unitssold.medium"] = 800;
+    doc2["stockonhand.store01"] = 101;
+    doc2["stockonhand.store02"] = 64;
+    doc2["points"] = 100;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Adidas Shoes Black";
+    doc3["store"] = {"store01", "store02"};
+    doc3["size"] = {"small", "medium"};
+    doc3["unitssold.store01"] = 599;
+    doc3["unitssold.store02"] = 501;
+    doc3["unitssold.small"] = 607;
+    doc3["unitssold.medium"] = 493;
+    doc3["stockonhand.store01"] = 301;
+    doc3["stockonhand.store02"] = 424;
+    doc3["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    //query based dynamic sorting
+    nlohmann::json override_json_contains = {
+            {"id",   "dynamic-sort"},
+            {
+             "rule", {
+                             {"query", "{store}"},
+                             {"match", override_t::MATCH_CONTAINS}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"sort_by", "unitssold.{store}:desc, stockonhand.{store}:desc"}
+    };
+
+    override_t override_contains;
+    auto op = override_t::parse(override_json_contains, "dynamic-sort", override_contains);
+    ASSERT_TRUE(op.ok());
+
+    // now add override
+    coll1->add_override(override_contains);
+
+    auto results = coll1->search("store01", {"store"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+
+    results = coll1->search("store02", {"store"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+
+    // filter based dynamic sorting
+    override_json_contains = {
+            {"id",   "dynamic-sort2"},
+            {
+             "rule", {
+                             {"filter_by", "store:={store}"},
+                             {"match", override_t::MATCH_CONTAINS}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"sort_by", "unitssold.{store}:desc, stockonhand.{store}:desc"}
+    };
+
+    override_t override_contains2;
+    op = override_t::parse(override_json_contains, "dynamic-sort", override_contains2);
+    ASSERT_TRUE(op.ok());
+
+    // now add override
+    coll1->add_override(override_contains2);
+
+    results = coll1->search("*", {}, "store:=store01",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {}, "store:=store02",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+
+    //multiple place holder with dynamic filter
+    override_json_contains = {
+            {"id",                  "dynamic-sort3"},
+            {
+             "rule",                {
+                                            {"filter_by", "store:={store} && size:={size}"},
+                                            {"match", override_t::MATCH_CONTAINS},
+                                            {"tags", {"size"}}
+                                    }
+            },
+            {"remove_matched_tokens", true},
+            {"sort_by", "unitssold.{store}:desc, unitssold.{size}:desc"}
+    };
+
+    override_t override_contains3;
+    op = override_t::parse(override_json_contains, "dynamic-sort3", override_contains3);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_contains3);
+
+    results = coll1->search("*", {}, "store:=store02 && size:=small",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
+                            true, true, false, "", "", "size").get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {}, "store:=store01 && size:=small",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
+                            true, true, false, "", "", "size").get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+
+    //no overrides matched, hence no sorting
+    results = coll1->search("store", {"store"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOverrideTest, DynamicFilteringWithPartialTokenMatch) {
     // when query tokens do not match placeholder field value exactly, don't do filtering
     Collection* coll1;
@@ -4741,4 +4948,185 @@ TEST_F(CollectionOverrideTest, OverridesWithSemanticSearch) {
     ASSERT_EQ(results["hits"][3]["document"]["id"], "5");
     ASSERT_EQ(results["hits"][4]["document"]["id"], "2");
     ASSERT_EQ(results["hits"][5]["document"]["id"], "3");
+}
+
+TEST_F(CollectionOverrideTest, NestedObjectOverride) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "nested", "type": "object", "facet": true},
+            {"name": "nested.brand", "type": "string", "facet": true},
+            {"name": "nested.category", "type": "string", "facet": true}
+        ],
+        "enable_nested_fields": true
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    // Add documents with nested objects
+    nlohmann::json doc1 = R"({
+        "id": "0",
+        "name": "Amazing Shoes",
+        "nested": {
+            "brand": "Nike",
+            "category": "shoes"
+        }
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "id": "1",
+        "name": "Track Shoes",
+        "nested": {
+            "brand": "Adidas",
+            "category": "shoes"
+        }
+    })"_json;
+
+    nlohmann::json doc3 = R"({
+        "id": "2",
+        "name": "Running Shoes",
+        "nested": {
+            "brand": "Nike",
+            "category": "sports"
+        }
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC") };
+
+    // Test dynamic filtering with nested object fields
+    nlohmann::json override_json = {
+        {"id", "nested-dynamic-filter"},
+        {
+            "rule", {
+                {"query", "{nested.brand} shoes"},
+                {"match", override_t::MATCH_CONTAINS}
+            }
+        },
+        {"remove_matched_tokens", true},
+        {"filter_by", "nested.brand:{nested.brand} && nested.category: shoes"},
+        {"metadata", {{"filtered", true}}}
+    };
+
+    override_t override;
+    auto op_override = override_t::parse(override_json, "nested-dynamic-filter", override);
+    ASSERT_TRUE(op_override.ok());
+    coll1->add_override(override);
+
+    // Search with brand name
+    auto results = coll1->search("nike shoes", {"name", "nested.brand", "nested.category"}, "",
+                                {}, sort_fields, {2, 2, 2}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_TRUE(results.contains("metadata"));
+    ASSERT_TRUE(results["metadata"]["filtered"].get<bool>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOverrideTest, CurationWithGroupBy) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "title", "index": true, "type": "string" },
+          {"name": "category", "index": true, "type": "string", "facet": true },
+          {"name": "brand", "index": true, "type": "string", "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    // Add test documents
+    nlohmann::json doc1 = R"({"id": "1", "title": "winter dress", "category": "clothing", "brand": "brandA"})"_json;
+    nlohmann::json doc2 = R"({"id": "2", "title": "winter shoes", "category": "footwear", "brand": "brandB"})"_json;
+    nlohmann::json doc3 = R"({"id": "3", "title": "winter hat", "category": "accessories", "brand": "brandA"})"_json;
+    nlohmann::json doc4 = R"({"id": "4", "title": "winter coat", "category": "clothing", "brand": "brandB"})"_json;
+    nlohmann::json doc5 = R"({"id": "5", "title": "winter bag", "category": "something-else", "brand": "brandA"})"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+
+    // Create override rule that pins documents for exact query "summer"
+    nlohmann::json override_json = R"({
+       "id": "summer-curation",
+       "rule": {
+            "query": "summer",
+            "match": "exact"
+        },
+        "includes": [
+            {"id": "3", "position": 1},
+            {"id": "5", "position": 2}
+        ]
+    })"_json;
+
+    override_t override_rule;
+    auto parse_op = override_t::parse(override_json, "summer-curation", override_rule);
+    ASSERT_TRUE(parse_op.ok());
+    coll1->add_override(override_rule);
+
+    // Test 1: Search without group_by - should show curated results first
+    auto results_no_group = coll1->search("summer", {"title"}, "", {}, {},
+                                          {0}, 50, 1, FREQUENCY,
+                                          {false}, Index::DROP_TOKENS_THRESHOLD,
+                                          spp::sparse_hash_set<std::string>(),
+                                          spp::sparse_hash_set<std::string>(), 10,
+                                          "", 30, 5, "",
+                                         10, {}, {}, {}, 0).get();
+
+    ASSERT_EQ(2, results_no_group["hits"].size());
+    // First two should be curated (pinned) documents
+    ASSERT_EQ("3", results_no_group["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results_no_group["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(true, results_no_group["hits"][0]["curated"].get<bool>());
+    ASSERT_EQ(true, results_no_group["hits"][1]["curated"].get<bool>());
+
+    // Test 2: Search with group_by category - should still show curated results
+    auto results_with_group = coll1->search("summer", {"title"}, "", {}, {},
+                                            {0}, 50, 1, FREQUENCY,
+                                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                                            spp::sparse_hash_set<std::string>(),
+                                            spp::sparse_hash_set<std::string>(), 10,
+                                            "", 30, 5, "",
+                                            10, {}, {}, {"category"}, 2).get();
+
+    // Should have grouped results
+    ASSERT_TRUE(results_with_group.contains("grouped_hits"));
+    ASSERT_GE(results_with_group["grouped_hits"].size(), 1);
+
+    // Look for curated results in grouped hits
+    bool found_curated_doc3 = false;
+    bool found_curated_doc5 = false;
+    // Debug: Print the grouped results structure
+    
+    for (const auto& group : results_with_group["grouped_hits"]) {
+        for (const auto& hit : group["hits"]) {
+            std::string doc_id = hit["document"]["id"].get<std::string>();
+            bool is_curated = hit.contains("curated") && hit["curated"].get<bool>();
+            
+            if (doc_id == "3" && is_curated) {
+                found_curated_doc3 = true;
+            }
+            if (doc_id == "5" && is_curated) {
+                found_curated_doc5 = true;
+            }
+        }
+    }
+    
+    // Verify that curated documents are present and marked as curated
+    ASSERT_TRUE(found_curated_doc3) << "Document 3 should be marked as curated in grouped results";
+    ASSERT_TRUE(found_curated_doc5) << "Document 5 should be marked as curated in grouped results";
+
+    collectionManager.drop_collection("coll1");
 }

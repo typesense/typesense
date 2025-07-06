@@ -330,7 +330,8 @@ private:
 
     /// Collects n doc ids while advancing the iterator. The iterator may become invalid during this operation.
     /// **The references are moved from filter_result_iterator_t.
-    void get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout = false);
+    void get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout = false,
+                   const bool& is_group_by_first_pass = false);
 
     /// Updates `validity` of the iterator to `timed_out` if condition is met. Assumes `timeout_info` is not null.
     inline bool is_timed_out(const bool& override_function_call_counter = false);
@@ -373,6 +374,10 @@ public:
                                       uint64_t search_begin_us = 0, uint64_t search_stop_us = UINT64_MAX,
                                       const bool& validate_field_names = true);
 
+    explicit filter_result_iterator_t(FILTER_OPERATOR filter_operator, filter_result_iterator_t* filter_result_iterator,
+                                      filter_result_iterator_t* new_iterator,
+                                      std::unique_ptr<filter_node_t>& filter_root, filter_node_t* new_filter_tree_root);
+
     ~filter_result_iterator_t();
 
     filter_result_iterator_t& operator=(filter_result_iterator_t&& obj) noexcept;
@@ -402,7 +407,8 @@ public:
     void get_n_ids(const uint32_t& n,
                    uint32_t& excluded_result_index,
                    uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                   filter_result_t*& result, const bool& override_timeout = false);
+                   filter_result_t*& result, const bool& override_timeout = false,
+                   const bool& is_group_by_first_pass = false);
 
     /// Returns true if at least one id from the posting list object matches the filter.
     bool contains_atleast_one(const void* obj);

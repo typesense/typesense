@@ -576,9 +576,14 @@ Option<bool> toFilter(const std::string& expression,
                                      "`: Filter value cannot be empty.");
         }
         if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+            filter_exp = {field_name, {}, {}};
+            if (bool_comparator == NOT_EQUALS) {
+                filter_exp.apply_not_equals = true;
+                bool_comparator = EQUALS;
+            }
+
             std::vector<std::string> filter_values;
             StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
-            filter_exp = {field_name, {}, {}};
             for (std::string& filter_value: filter_values) {
                 if (filter_value != "true" && filter_value != "false") {
                     return Option<bool>(400, "Values of filter field `" + _field.name +
@@ -724,9 +729,9 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             const std::regex join_pattern(R"(^(\$|(\!\$)).+\(.+\)$)");
             bool is_referenced_filter = std::regex_match(expression, join_pattern);
 
-            // Expected value: object_name.{ <filter expression> }
-            const std::regex object_filter_pattern(R"(^.+\.\{.+\}$)");
-            bool is_object_filter = std::regex_match(expression, object_filter_pattern);
+            // We prepend ".{" to an object filter in `StringUtils::tokenize_filter_query`.
+            bool is_object_filter = expression.size() > OBJECT_FILTER_MARKER.size()
+                                            && expression.substr(0, OBJECT_FILTER_MARKER.size()) == OBJECT_FILTER_MARKER;
 
             if (is_referenced_filter) {
                 const bool is_negate_join = expression[0] == '!';
@@ -747,11 +752,13 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                 filter_exp.is_negate_join = is_negate_join;
 
                 filter_node = new filter_node_t(filter_exp);
+                filter_node->filter_query = expression;
             } else if (is_object_filter) {
-                const auto curly_pos = expression.find('{');
-                const auto object_filter_query = expression.substr(curly_pos + 1,
-                                                                                    expression.size() - curly_pos - 2);
-                const auto object_prefix = expression.substr(0, curly_pos);
+                const auto& object_expression = expression.substr(OBJECT_FILTER_MARKER.size());
+                const auto curly_pos = object_expression.find('{');
+                const auto object_filter_query = object_expression.substr(curly_pos + 1,
+                                                                          object_expression.size() - curly_pos - 2);
+                const auto object_prefix = object_expression.substr(0, curly_pos);
 
                 Option<bool> parse_filter_op = filter::parse_filter_query(object_filter_query, search_schema,
                                                                           store, doc_id_prefix, filter_node,
@@ -765,6 +772,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                 // `filter_result_iterator_t::validate_object_filter()` on every sub-node of the object filter tree.
                 filter_node->is_object_filter_root = true;
                 filter_node->object_field_name = object_prefix.substr(0, object_prefix.size() - 1);
+                filter_node->filter_query = object_expression;
             } else {
                 Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix,
                                                     validate_field_names, object_field_prefix);
@@ -775,9 +783,8 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                 }
 
                 filter_node = new filter_node_t(filter_exp);
+                filter_node->filter_query = expression;
             }
-
-            filter_node->filter_query = expression;
         }
 
         nodeStack.push(filter_node);
