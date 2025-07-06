@@ -598,3 +598,416 @@ TEST_F(AnalyticsManagerTest, PopularQueries) {
   }
 }
 
+TEST_F(AnalyticsManagerTest, NoHitsQueries) {
+  nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" },
+        {"name": "country", "type": "string", "facet": true },
+        {"name": "popularity", "type": "int32", "optional": true}
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  nlohmann::json queries_schema = R"({
+      "name": "queries",
+      "fields": [
+          {"name": "q", "type": "string"},
+          {"name": "count", "type": "int32"}
+      ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  auto queries_coll_create_op = collectionManager.create_collection(queries_schema);
+  ASSERT_TRUE(queries_coll_create_op.ok());
+
+  nlohmann::json doc;
+  doc["company_name"] = "Typesense";
+  doc["num_employees"] = 10;
+  doc["country"] = "US";
+  doc["popularity"] = 10;
+
+  auto add_op = coll->add(doc.dump());
+  ASSERT_TRUE(add_op.ok());
+
+  nlohmann::json with_no_capture = R"({
+    "name": "with_no_capture_nohits",
+    "type": "nohits_queries",
+    "collection": "products",
+    "event_type": "query",
+    "params": {
+      "destination_collection": "queries",
+      "capture_search_requests": false,
+      "meta_fields": ["filter_by", "analytics_tag"],
+      "limit": 1000
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_rule(with_no_capture, false, true, true);
+  ASSERT_TRUE(create_op.ok());
+
+  auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "with_no_capture_nohits",
+    "event_type": "query",
+    "data": {
+      "q": "nomatch",
+      "user_id": "user2",
+      "analytics_tag": "tag1",
+      "filter_by": "country:US"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "with_no_capture_nohits",
+    "event_type": "query",
+    "data": {
+      "q": "nomatch",
+      "user_id": "user3",
+      "analytics_tag": "tag1",
+      "filter_by": "country:US"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  auto future_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count() + uint64_t(QueryAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS) * 2;
+
+  query_analytics.compact_all_user_queries(future_ts_us);
+
+  auto get_counter_op = query_analytics.get_query_counter_events();
+  ASSERT_EQ(get_counter_op.size(), 1);
+  ASSERT_EQ(get_counter_op["with_no_capture_nohits"].query_counts.size(), 1);
+  for(auto& [key, value] : get_counter_op["with_no_capture_nohits"].query_counts) {
+    ASSERT_EQ(key.query, "nomatch");
+    ASSERT_EQ(key.user_id, "user2");
+    ASSERT_EQ(key.tag_str, "tag1");
+    ASSERT_EQ(key.filter_str, "country:US");
+    ASSERT_EQ(value, 2);
+  }
+
+  nlohmann::json with_capture = R"({
+    "name": "with_capture_nohits",
+    "type": "nohits_queries",
+    "collection": "products",
+    "event_type": "query",
+    "params": {
+      "destination_collection": "queries",
+      "capture_search_requests": true,
+      "meta_fields": ["filter_by", "analytics_tag"],
+      "limit": 1000
+    }
+  })"_json;
+
+  create_op = analyticsManager.create_rule(with_capture, false, true, true);
+  ASSERT_TRUE(create_op.ok());
+
+  std::string results_json_str;
+  std::map<std::string, std::string> req_params = {
+    {"q", "non"},
+    {"query_by", "company_name"},
+    {"collection", "products"},
+    {"x-typesense-user-id", "user2"},
+    {"analytics_tag", "tag1"},
+    {"filter_by", "country:US"}
+  };
+  nlohmann::json embedded_params;
+  auto results = CollectionManager::do_search(req_params, embedded_params, results_json_str, 0);
+  ASSERT_TRUE(results.ok());
+  ASSERT_EQ(0, nlohmann::json::parse(results_json_str)["hits"].size());
+  req_params["q"] = "nonex";
+  results = CollectionManager::do_search(req_params, embedded_params, results_json_str, 0);
+  ASSERT_TRUE(results.ok());
+  ASSERT_EQ(0, nlohmann::json::parse(results_json_str)["hits"].size());
+  req_params["q"] = "nonexistent";
+  results = CollectionManager::do_search(req_params, embedded_params, results_json_str, 0);
+  ASSERT_TRUE(results.ok());
+  ASSERT_EQ(0, nlohmann::json::parse(results_json_str)["hits"].size());
+
+  req_params["x-typesense-user-id"] = "user3";
+  results = CollectionManager::do_search(req_params, embedded_params, results_json_str, 0);
+  ASSERT_TRUE(results.ok());
+  ASSERT_EQ(0, nlohmann::json::parse(results_json_str)["hits"].size());
+
+  query_analytics.compact_all_user_queries(future_ts_us);
+
+  get_counter_op = query_analytics.get_query_counter_events();
+  ASSERT_EQ(get_counter_op.size(), 2);
+  ASSERT_EQ(get_counter_op["with_capture_nohits"].query_counts.size(), 1);
+  for(auto& [key, value] : get_counter_op["with_capture_nohits"].query_counts) {
+    ASSERT_EQ(key.query, "nonexistent");
+    ASSERT_EQ(key.tag_str, "tag1");
+    ASSERT_EQ(key.filter_str, "country:US");
+    ASSERT_EQ(value, 2);
+  }
+}
+
+TEST_F(AnalyticsManagerTest, MigrateOldPopularQueriesRule) {
+  nlohmann::json products_schema = R"({
+        "name": "products",
+        "fields": [
+          {"name": "company_name", "type": "string" },
+          {"name": "num_employees", "type": "int32" },
+          {"name": "country", "type": "string", "facet": true },
+          {"name": "popularity", "type": "int32", "optional": true}
+        ],
+        "default_sorting_field": "num_employees"
+    })"_json;
+  ASSERT_TRUE(collectionManager.create_collection(products_schema).ok());
+
+  nlohmann::json pq_schema = R"({
+        "name": "product_queries",
+        "fields": [
+          {"name": "q", "type": "string"},
+          {"name": "count", "type": "int32"}
+        ]
+    })"_json;
+  ASSERT_TRUE(collectionManager.create_collection(pq_schema).ok());
+
+  nlohmann::json old_rule = R"({
+    "name": "product_queries_aggregation",
+    "type": "popular_queries",
+    "params": {
+      "source": { "collections": ["products"] },
+      "destination": { "collection": "product_queries" },
+      "expand_query": false,
+      "limit": 1000
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_old_rule(old_rule);
+  ASSERT_TRUE(create_op.ok());
+
+  auto get_op = analyticsManager.get_rule("product_queries_aggregation");
+  ASSERT_TRUE(get_op.ok());
+  ASSERT_EQ(get_op.get()["name"], "product_queries_aggregation");
+  ASSERT_EQ(get_op.get()["type"], "popular_queries");
+  ASSERT_EQ(get_op.get()["collection"], "products");
+  ASSERT_EQ(get_op.get()["event_type"], "query");
+  ASSERT_EQ(get_op.get()["rule_tag"], "product_queries_aggregation");
+  ASSERT_EQ(get_op.get()["params"]["destination_collection"], "product_queries");
+  ASSERT_EQ(get_op.get()["params"]["limit"], 1000);
+  ASSERT_EQ(get_op.get()["params"]["expand_query"], false);
+  ASSERT_EQ(get_op.get()["params"]["capture_search_requests"], true);
+}
+
+TEST_F(AnalyticsManagerTest, MigrateOldPopularQueriesEventRule) {
+  nlohmann::json products_schema = R"({
+        "name": "products",
+        "fields": [
+          {"name": "company_name", "type": "string" },
+          {"name": "num_employees", "type": "int32" },
+          {"name": "country", "type": "string", "facet": true },
+          {"name": "popularity", "type": "int32", "optional": true}
+        ],
+        "default_sorting_field": "num_employees"
+    })"_json;
+  ASSERT_TRUE(collectionManager.create_collection(products_schema).ok());
+
+  nlohmann::json pq_schema = R"({
+        "name": "product_queries",
+        "fields": [
+          {"name": "q", "type": "string"},
+          {"name": "count", "type": "int32"}
+        ]
+    })"_json;
+  ASSERT_TRUE(collectionManager.create_collection(pq_schema).ok());
+
+  nlohmann::json old_rule = R"({
+    "name": "product_queries_aggregation",
+    "type": "popular_queries",
+    "params": {
+      "source": {
+        "collections": ["products"],
+        "enable_auto_aggregation": false,
+        "events": [{"type": "search", "name": "products_search_event"}]
+      },
+      "destination": { "collection": "product_queries" },
+      "limit": 1000
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_old_rule(old_rule);
+  ASSERT_TRUE(create_op.ok());
+
+  auto get_op = analyticsManager.get_rule("products_search_event");
+  ASSERT_TRUE(get_op.ok());
+  ASSERT_EQ(get_op.get()["name"], "products_search_event");
+  ASSERT_EQ(get_op.get()["type"], "popular_queries");
+  ASSERT_EQ(get_op.get()["collection"], "products");
+  ASSERT_EQ(get_op.get()["event_type"], "query");
+  ASSERT_EQ(get_op.get()["rule_tag"], "product_queries_aggregation");
+  ASSERT_EQ(get_op.get()["params"]["destination_collection"], "product_queries");
+  ASSERT_EQ(get_op.get()["params"]["limit"], 1000);
+  ASSERT_EQ(get_op.get()["params"]["capture_search_requests"], false);
+}
+
+TEST_F(AnalyticsManagerTest, MigrateOldNoHitsQueriesRule) {
+  nlohmann::json products_schema = R"({
+        "name": "products",
+        "fields": [
+          {"name": "company_name", "type": "string" },
+          {"name": "num_employees", "type": "int32" },
+          {"name": "country", "type": "string", "facet": true },
+          {"name": "popularity", "type": "int32", "optional": true}
+        ],
+        "default_sorting_field": "num_employees"
+    })"_json;
+  ASSERT_TRUE(collectionManager.create_collection(products_schema).ok());
+
+  nlohmann::json nh_schema = R"({
+        "name": "no_hits_queries",
+        "fields": [
+          {"name": "q", "type": "string"},
+          {"name": "count", "type": "int32"}
+        ]
+    })"_json;
+  ASSERT_TRUE(collectionManager.create_collection(nh_schema).ok());
+
+  nlohmann::json old_rule = R"({
+    "name": "product_no_hits",
+    "type": "nohits_queries",
+    "params": {
+      "source": { "collections": ["products"] },
+      "destination": { "collection": "no_hits_queries" },
+      "limit": 1000
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_old_rule(old_rule);
+  ASSERT_TRUE(create_op.ok());
+
+  auto get_op = analyticsManager.get_rule("product_no_hits");
+  ASSERT_TRUE(get_op.ok());
+  ASSERT_EQ(get_op.get()["name"], "product_no_hits");
+  ASSERT_EQ(get_op.get()["type"], "nohits_queries");
+  ASSERT_EQ(get_op.get()["collection"], "products");
+  ASSERT_EQ(get_op.get()["event_type"], "query");
+  ASSERT_EQ(get_op.get()["rule_tag"], "product_no_hits");
+  ASSERT_EQ(get_op.get()["params"]["destination_collection"], "no_hits_queries");
+  ASSERT_EQ(get_op.get()["params"]["limit"], 1000);
+}
+
+TEST_F(AnalyticsManagerTest, MigrateOldCounterRule) {
+  nlohmann::json products_schema = R"({
+        "name": "products",
+        "fields": [
+          {"name": "company_name", "type": "string" },
+          {"name": "num_employees", "type": "int32" },
+          {"name": "country", "type": "string", "facet": true },
+          {"name": "popularity", "type": "int32", "optional": true}
+        ],
+        "default_sorting_field": "num_employees"
+    })"_json;
+  ASSERT_TRUE(collectionManager.create_collection(products_schema).ok());
+
+  nlohmann::json old_rule = R"({
+    "name": "product_clicks",
+    "type": "counter",
+    "params": {
+      "source": {
+        "collections": ["products"],
+        "events": [{"type": "click", "weight": 1, "name": "products_click_event"}]
+      },
+      "destination": {
+        "collection": "products",
+        "counter_field": "popularity"
+      }
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_old_rule(old_rule);
+  ASSERT_TRUE(create_op.ok());
+
+  auto get_op = analyticsManager.get_rule("products_click_event");
+  ASSERT_TRUE(get_op.ok());
+  ASSERT_EQ(get_op.get()["name"], "products_click_event");
+  ASSERT_EQ(get_op.get()["type"], "counter");
+  ASSERT_EQ(get_op.get()["collection"], "products");
+  ASSERT_EQ(get_op.get()["event_type"], "click");
+  ASSERT_EQ(get_op.get()["rule_tag"], "product_clicks");
+  ASSERT_EQ(get_op.get()["params"]["destination_collection"], "products");
+  ASSERT_EQ(get_op.get()["params"]["counter_field"], "popularity");
+  ASSERT_EQ(get_op.get()["params"]["weight"], 1);
+
+  auto missing_op = analyticsManager.get_rule("product_clicks");
+  ASSERT_FALSE(missing_op.ok());
+}
+
+TEST_F(AnalyticsManagerTest, DocCounterEvents) {
+  nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" },
+        {"name": "country", "type": "string" },
+        {"name": "popularity", "type": "int32" }
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  nlohmann::json doc;
+  doc["id"] = "1";
+  doc["company_name"] = "Typesense";
+  doc["num_employees"] = 10;
+  doc["country"] = "US";
+  doc["popularity"] = 5;
+  ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+  doc["id"] = "2";
+  doc["num_employees"] = 20;
+  doc["popularity"] = 8;
+  ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+  nlohmann::json counter_rule = R"({
+    "name": "product_popularity",
+    "type": "counter",
+    "collection": "products",
+    "event_type": "click",
+    "params": {
+      "counter_field": "popularity",
+      "weight": 2
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_rule(counter_rule, false, true, true);
+  ASSERT_TRUE(create_op.ok());
+
+  auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "product_popularity",
+    "event_type": "click",
+    "data": {
+      "doc_id": "1",
+      "user_id": "user1"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "product_popularity",
+    "event_type": "click",
+    "data": {
+      "doc_ids": ["1", "2"],
+      "user_id": "user2"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  auto events = doc_analytics.get_doc_counter_events();
+  ASSERT_EQ(events.size(), 1);
+  ASSERT_TRUE(events.find("product_popularity") != events.end());
+  const auto& counter = events["product_popularity"];
+  ASSERT_EQ(counter.counter_field, "popularity");
+  ASSERT_EQ(counter.destination_collection, "products");
+  ASSERT_EQ(counter.docid_counts.size(), 2);
+  ASSERT_EQ(counter.docid_counts.at("1"), 4);
+  ASSERT_EQ(counter.docid_counts.at("2"), 2);
+}

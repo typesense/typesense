@@ -545,9 +545,9 @@ Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
         limit = params["limit"].get<size_t>();
       }
       
-      bool enable_auto_aggregation = false;
-      if(params.contains("enable_auto_aggregation") && params["enable_auto_aggregation"].is_boolean()) {
-        enable_auto_aggregation = params["enable_auto_aggregation"].get<bool>();
+      bool enable_auto_aggregation = true;
+      if(source.contains("enable_auto_aggregation") && source["enable_auto_aggregation"].is_boolean()) {
+        enable_auto_aggregation = source["enable_auto_aggregation"].get<bool>();
       }
 
       std::vector<std::string> meta_fields;
@@ -558,9 +558,9 @@ Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
       }
       
       std::string event_name = name;
-      nlohmann::json events;
-      if(params.contains("events") && params["events"].is_array()) {
-        for(const auto& event: params["events"]) {
+      std::vector<nlohmann::json> events;
+      if(source.contains("events") && source["events"].is_array()) {
+        for(const auto& event: source["events"]) {
           events.push_back(event);
         }
       }

@@ -1455,7 +1455,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
             } else {
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
-                internal_event.type = QueryAnalytics::POPULAR_QUERIES_TYPE;
+                internal_event.type = QueryAnalytics::NO_HIT_QUERIES_TYPE;
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
             }
         }
