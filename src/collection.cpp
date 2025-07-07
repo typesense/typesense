@@ -3169,6 +3169,11 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 if(facet_range_iter != a_facet.facet_range_map.end()){
                     auto & facet_count = kv.second;
                     facet_value_t facet_value = {facet_range_iter->second.range_label, std::string(), facet_count.count};
+
+                    if(!a_facet.reference_collection_name.empty()) {
+                        facet_value.facet_filter = std::string("$") + facet_result["field_name"].get<std::string>();
+                    }
+
                     facet_values.emplace_back(facet_value);
                 }
                 else{
@@ -3290,6 +3295,17 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 const auto& highlighted_text = highlight.snippets.empty() ? value : highlight.snippets[0];
                 facet_value_t facet_value = {value, highlighted_text, facet_count.count,
                                              facet_count.sort_field_val, parent};
+
+                if(!a_facet.reference_collection_name.empty()) {
+                    std::string facet_filter = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name;
+                    if(the_field.is_string()) {
+                        facet_filter += std::string(": ") + value;
+                    }
+
+                    facet_filter += std::string(")");
+                    facet_value.facet_filter = facet_filter;
+                }
+
                 facet_values.emplace_back(facet_value);
             }
         }
@@ -3329,6 +3345,11 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             if(!facet_count.parent.empty()) {
                 facet_value_count["parent"] = facet_count.parent;
             }
+
+            if(!facet_count.facet_filter.empty()) {
+                facet_value_count["facet_filter"] = facet_count.facet_filter;
+            }
+
             facet_result["counts"].push_back(facet_value_count);
         }
 

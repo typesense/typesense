@@ -941,6 +941,7 @@ struct facet_value_t {
     uint32_t count;
     int64_t sort_field_val;
     nlohmann::json parent;
+    std::string facet_filter;
 };
 
 struct facet_hash_values_t {
