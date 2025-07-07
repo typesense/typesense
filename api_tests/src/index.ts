@@ -74,7 +74,7 @@ class TypesenseTestRunner {
   async noPhase() {
     console.log(`\n=== ⭐ Running phase: ${Phases.NO_PHASE} ===\n`);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.NO_PHASE],
+      cmd: ["bun", "test", "--test-name-pattern", Phases.NO_PHASE, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });

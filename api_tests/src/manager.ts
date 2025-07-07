@@ -70,9 +70,12 @@ export class TypesenseProcessManager {
     this.processes.set(name, { process: proc, name, port });
   }
 
-  async startSingleNode(dataDir: string = "typesense-data", port: number = 8108) {
-    dataDir = join(this.baseDir, "typesense-data");
+  async startSingleNode(dataDir: string = "typesense-data", port: number = 8108, peeringPort: number = 8107, name: string = "single-node") {
+    dataDir = join(this.baseDir, dataDir);
     const analyticsDir = join(dataDir, "analytics_db");
+    const logDir = join(this.baseDir, "logs", "typesense");
+    mkdirSync(logDir, { recursive: true });
+    mkdirSync(analyticsDir, { recursive: true });
     const args = [
       `--data-dir=${dataDir}`,
       `--api-key=xyz`,
@@ -80,9 +83,11 @@ export class TypesenseProcessManager {
       `--api-address=0.0.0.0`,
       `--log-dir=${join(this.baseDir, "logs", "typesense")}`,
       `--analytics-dir=${analyticsDir}`,
+      `--peering-address=${this.ipAddress}`,
+      `--peering-port=${peeringPort}`,
       ...TypesenseProcessManager.additionalConfigs,
     ];
-    this.spawnServer("single-node", args, port);
+    this.spawnServer(name, args, port);
     return this.waitForHealth(port);
   }
 

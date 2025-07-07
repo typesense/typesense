@@ -1,7 +1,7 @@
 const DELAY_INTERVALS = [10, 100, 1000, 2000, 3000, 4000];
 
-export async function fetchSingleNode(url: string, options?: RequestInit) {
-  const res = await fetch(`http://localhost:8108${url}`, {
+export async function fetchSingleNode(url: string, options?: RequestInit, port: number = 8108) {
+  const res = await fetch(`http://localhost:${port}${url}`, {
     ...options,
     headers: {
       ...options?.headers,
