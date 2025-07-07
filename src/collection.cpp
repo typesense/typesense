@@ -3299,7 +3299,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 if(!a_facet.reference_collection_name.empty()) {
                     std::string facet_filter = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name;
                     if(the_field.is_string()) {
-                        facet_filter += std::string(": ") + value;
+                        facet_filter += std::string(": `") + value + std::string("`");
                     }
 
                     facet_filter += std::string(")");
