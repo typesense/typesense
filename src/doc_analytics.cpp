@@ -50,7 +50,6 @@ bool DocAnalytics::check_rule_type(const std::string& event_type, const std::str
 
 Option<bool> DocAnalytics::add_event(const std::string& client_ip, const nlohmann::json& event_data) {
     std::unique_lock lock(mutex);
-    const auto& event_type = event_data["event_type"].get<std::string>();
     auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
     const auto& event_name = event_data["name"].get<std::string>();
@@ -72,6 +71,7 @@ Option<bool> DocAnalytics::add_event(const std::string& client_ip, const nlohman
     }
 
     const auto& type = doc_rules.find(event_data["name"].get<std::string>())->second.type;
+    const auto& event_type = doc_rules.find(event_data["name"].get<std::string>())->second.event_type;
     if(type == COUNTER_TYPE) {
       const auto& counter_event_it = doc_counter_events.find(event_name);
       if (counter_event_it == doc_counter_events.end()) {

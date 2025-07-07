@@ -66,7 +66,6 @@ bool QueryAnalytics::check_rule_type_collection(const std::string& collection, c
 
 Option<bool> QueryAnalytics::add_event(const std::string& client_ip, const nlohmann::json& event_data) {
   std::unique_lock lock(mutex);
-  const auto& event_type = event_data["event_type"].get<std::string>();
   auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
               std::chrono::system_clock::now().time_since_epoch()).count();
   const auto& event_name = event_data["name"].get<std::string>();
@@ -84,6 +83,7 @@ Option<bool> QueryAnalytics::add_event(const std::string& client_ip, const nlohm
     return Option<bool>(400, "'analytics_tag' should be a string");
   }
   const auto& type = query_rules.find(event_name)->second.type;
+  const auto& event_type = query_rules.find(event_name)->second.event_type;
 
   if(type == POPULAR_QUERIES_TYPE || type == NO_HIT_QUERIES_TYPE) {
     const auto& counter_event_it = query_counter_events.find(event_name);

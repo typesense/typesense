@@ -197,10 +197,6 @@ Option<bool> AnalyticsManager::add_external_event(const std::string& client_ip, 
 #ifdef TEST_BUILD
     }
 #endif
-    
-    if (!event_data.contains("event_type") || !event_data["event_type"].is_string()) {
-      return Option<bool>(400, "Event type is required");
-    }
 
     if (!event_data.contains("name") || !event_data["name"].is_string()) {
       return Option<bool>(400, "name is required");

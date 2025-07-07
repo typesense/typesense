@@ -421,7 +421,7 @@ TEST_F(AnalyticsManagerTest, RuleValidation) {
   create_op = analyticsManager.create_rule(wrong_name_log_rule, false, true, true);
   ASSERT_FALSE(create_op.ok());
   ASSERT_EQ(create_op.code(), 400);
-  ASSERT_EQ(create_op.error(), "Name is required when creating a analytics rule");
+  ASSERT_EQ(create_op.error(), "Name is required when creating an analytics rule");
 
   nlohmann::json no_name_log_rule = R"({
     "name": "",
@@ -433,7 +433,7 @@ TEST_F(AnalyticsManagerTest, RuleValidation) {
   create_op = analyticsManager.create_rule(no_name_log_rule, false, true, true);
   ASSERT_FALSE(create_op.ok());
   ASSERT_EQ(create_op.code(), 400);
-  ASSERT_EQ(create_op.error(), "Name is required when creating a analytics rule");
+  ASSERT_EQ(create_op.error(), "Name is required when creating an analytics rule");
 
   nlohmann::json wrong_event_type_log_rule = R"({
     "name": "product_clicks",
@@ -503,7 +503,6 @@ TEST_F(AnalyticsManagerTest, PopularQueries) {
 
   auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
     "name": "with_no_capture",
-    "event_type": "query",
     "data": {
       "q": "hola",
       "user_id": "user2",
@@ -515,7 +514,6 @@ TEST_F(AnalyticsManagerTest, PopularQueries) {
 
    add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
     "name": "with_no_capture",
-    "event_type": "query",
     "data": {
       "q": "hola",
       "user_id": "user3",
@@ -653,7 +651,6 @@ TEST_F(AnalyticsManagerTest, NoHitsQueries) {
 
   auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
     "name": "with_no_capture_nohits",
-    "event_type": "query",
     "data": {
       "q": "nomatch",
       "user_id": "user2",
@@ -665,7 +662,6 @@ TEST_F(AnalyticsManagerTest, NoHitsQueries) {
 
   add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
     "name": "with_no_capture_nohits",
-    "event_type": "query",
     "data": {
       "q": "nomatch",
       "user_id": "user3",
@@ -984,7 +980,6 @@ TEST_F(AnalyticsManagerTest, DocCounterEvents) {
 
   auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
     "name": "product_popularity",
-    "event_type": "click",
     "data": {
       "doc_id": "1",
       "user_id": "user1"
@@ -994,7 +989,6 @@ TEST_F(AnalyticsManagerTest, DocCounterEvents) {
 
   add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
     "name": "product_popularity",
-    "event_type": "click",
     "data": {
       "doc_ids": ["1", "2"],
       "user_id": "user2"
