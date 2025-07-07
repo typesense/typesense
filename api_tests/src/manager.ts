@@ -24,7 +24,7 @@ export class TypesenseProcessManager {
   static additionalConfigs = [
     "--enable-cors",
     "--enable-search-analytics",
-    "--analytics-flush-interval=3",
+    "--analytics-flush-interval=3600",
     "--analytics-minute-rate-limit=1000"
   ]
 
@@ -179,7 +179,7 @@ export class TypesenseProcessManager {
     console.log("🔻 Cleaning up Typesense processes...");
     for (const [name, instance] of this.processes.entries()) {
       console.log(`➡️ Gracefully stopping ${name} (port ${instance.port})`);
-      instance.process.kill("SIGINT");
+      instance.process.kill("SIGTERM");
       await instance.process.exited;
     }
     this.processes.clear();

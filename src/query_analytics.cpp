@@ -404,12 +404,9 @@ void QueryAnalytics::compact_single_user_queries(uint64_t now_ts_us, const std::
     auto& prefix_queries = query_events.second;
     int64_t last_consolidated_index = -1;
     for(uint32_t i = 0; i < prefix_queries.size(); i++) {
-      if(now_ts_us - prefix_queries[i].timestamp < QUERY_FINALIZATION_INTERVAL_MICROS) {
-        break;
-      }
       uint64_t diff_micros = (i == prefix_queries.size() - 1) ? (now_ts_us - prefix_queries[i].timestamp) : 
                               (prefix_queries[i + 1].timestamp - prefix_queries[i].timestamp);
-      if(diff_micros > QUERY_FINALIZATION_INTERVAL_MICROS) {
+      if(diff_micros > QUERY_FINALIZATION_INTERVAL_MICROS || i == prefix_queries.size() - 1) {
         const auto& rules = collection_rules_map.find(collection)->second;
         for(const auto& rule : rules) {
           const auto& rule_config = query_rules.find(rule)->second;

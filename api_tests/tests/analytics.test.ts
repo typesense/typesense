@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 import { Phases } from "../src/constants";
-import { fetchMultiNode, fetchSingleNode } from "../src/request";
+import { fetchMultiNode, fetchSingleNode, waitForMultiAnalyticsFlush, waitForSingleAnalyticsFlush } from "../src/request";
 import { z } from "zod";
 
 const MULTI_NODE_ANALYTICS_FLUSH_WAIT = 9000;
@@ -391,7 +391,7 @@ describe(Phases.SINGLE_FRESH, () => {
     await fetchSingleNode("/collections/analytics_products/documents/search?q=typesen&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
     await fetchSingleNode("/collections/analytics_products/documents/search?q=typesense&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
 
-    await new Promise(resolve => setTimeout(resolve, 6000)); // wait for the flush interval
+    await waitForSingleAnalyticsFlush();
     let res = await fetchSingleNode("/analytics/events?user_id=user1&name=product_queries_with_capture&n=10");
     expect(res.ok).toBe(true);
     let data1 = AnalyticsEventList.safeParse(await res.json());
@@ -432,7 +432,7 @@ describe(Phases.SINGLE_FRESH, () => {
     data = OkResponse.parse(await res.json());
     expect(data.ok).toBe(true);
 
-    await new Promise(resolve => setTimeout(resolve, 6000)); // wait for the flush interval
+    await waitForSingleAnalyticsFlush();
     res = await fetchSingleNode("/collections/analytics_products/documents/1");
     expect(res.ok).toBe(true);
     const data1 = (await res.json()) as any;
@@ -444,7 +444,7 @@ describe(Phases.SINGLE_FRESH, () => {
     await fetchSingleNode("/collections/analytics_products/documents/search?q=typesen&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
     await fetchSingleNode("/collections/analytics_products/documents/search?q=typesense&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
 
-    await new Promise(resolve => setTimeout(resolve, 6000)); // wait for the flush interval
+    await waitForSingleAnalyticsFlush();
     let res = await fetchSingleNode("/collections/analytics_queries/documents/export");
     expect(res.ok).toBe(true);
     const res_json = (await res.text()) as any;
@@ -480,7 +480,7 @@ describe(Phases.SINGLE_RESTARTED, () => {
       }),
     });
     expect(res.ok).toBe(true);
-    await new Promise(resolve => setTimeout(resolve, 6000)); // wait for the flush interval
+    await waitForSingleAnalyticsFlush(); 
     res = await fetchSingleNode("/collections/analytics_products/documents/1");
     expect(res.ok).toBe(true);
     const data1 = (await res.json()) as any;
@@ -492,7 +492,7 @@ describe(Phases.SINGLE_RESTARTED, () => {
     await fetchSingleNode("/collections/analytics_products/documents/search?q=typesen&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
     await fetchSingleNode("/collections/analytics_products/documents/search?q=typesense&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
 
-    await new Promise(resolve => setTimeout(resolve, 6000)); // wait for the flush interval
+    await waitForSingleAnalyticsFlush() 
     let res = await fetchSingleNode("/collections/analytics_queries/documents/export");
     expect(res.ok).toBe(true);
     const res_json = (await res.text()) as any;
@@ -547,8 +547,7 @@ describe(Phases.SINGLE_SNAPSHOT, () => {
     expect(res.ok).toBe(true);
     let data1 = AnalyticsEventList.safeParse(await res.json());
     expect(data1.success).toBe(true);
-    // Even though we added 3 queries, only one query is added to the analytics events because of restart we will lose the other two events. After restart will be preseved
-    expect(data1.data?.events?.length).toBe(1);
+    expect(data1.data?.events?.length).toBe(3);
     expect(data1.data?.events?.[0]?.name).toBe("product_queries_with_capture");
     expect(data1.data?.events?.[0]?.event_type).toBe("query");
     expect(data1.data?.events?.[0]?.query).toBe("typesense");
@@ -818,7 +817,7 @@ describe(Phases.MULTI_FRESH, () => {
     let data = OkResponse.parse(await res.json());
     expect(data.ok).toBe(true);
 
-    await new Promise(resolve => setTimeout(resolve, MULTI_NODE_ANALYTICS_FLUSH_WAIT)); // wait for the flush interval
+    await waitForMultiAnalyticsFlush(); 
     res = await fetchMultiNode(3, "/analytics/events?user_id=user1&name=product_clicks&n=10");
     expect(res.ok).toBe(true);
     let data1 = AnalyticsEventList.safeParse(await res.json());
@@ -846,7 +845,7 @@ describe(Phases.MULTI_FRESH, () => {
     let data = OkResponse.parse(await res.json());
     expect(data.ok).toBe(true);
 
-    await new Promise(resolve => setTimeout(resolve, MULTI_NODE_ANALYTICS_FLUSH_WAIT)); // wait for the flush interval
+    await waitForMultiAnalyticsFlush(); 
     res = await fetchMultiNode(3, "/analytics/events?user_id=user1&name=product_queries_without_capture&n=10");
     expect(res.ok).toBe(true);
     let data1 = AnalyticsEventList.safeParse(await res.json());
@@ -863,7 +862,7 @@ describe(Phases.MULTI_FRESH, () => {
     await fetchMultiNode(2, "/collections/analytics_products/documents/search?q=typesen&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
     await fetchMultiNode(2, "/collections/analytics_products/documents/search?q=typesense&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
 
-    await new Promise(resolve => setTimeout(resolve, MULTI_NODE_ANALYTICS_FLUSH_WAIT)); // wait for the flush interval
+    await waitForMultiAnalyticsFlush(); 
     let res = await fetchMultiNode(3, "/analytics/events?user_id=user1&name=product_queries_with_capture&n=10");
     expect(res.ok).toBe(true);
     let data1 = AnalyticsEventList.safeParse(await res.json());
@@ -880,7 +879,7 @@ describe(Phases.MULTI_FRESH, () => {
     await fetchMultiNode(2, "/collections/analytics_products/documents/search?q=typesen&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
     await fetchMultiNode(2, "/collections/analytics_products/documents/search?q=typesense&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
 
-    await new Promise(resolve => setTimeout(resolve, MULTI_NODE_ANALYTICS_FLUSH_WAIT)); // wait for the flush interval
+    await waitForMultiAnalyticsFlush(); 
     let res = await fetchMultiNode(3, "/collections/analytics_queries/documents/export");
     expect(res.ok).toBe(true);
     const res_json = (await res.text()) as any;
@@ -919,7 +918,7 @@ describe(Phases.MULTI_FRESH, () => {
     data = OkResponse.parse(await res.json());
     expect(data.ok).toBe(true);
 
-    await new Promise(resolve => setTimeout(resolve, MULTI_NODE_ANALYTICS_FLUSH_WAIT)); // wait for the flush interval
+    await waitForMultiAnalyticsFlush(); 
     res = await fetchMultiNode(1, "/collections/analytics_products/documents/1");
     expect(res.ok).toBe(true);
     const data1 = (await res.json()) as any;

@@ -77,7 +77,9 @@ void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t
     }
 
     const size_t rules_size = rules_map.size();
-    lk.unlock();
+    if (rules_size > DELAY_WRITE_RULE_SIZE && !triggered) {
+      lk.unlock();
+    }
 
     const size_t delay_interval = Config::get_instance().get_analytics_flush_interval() / (doc_analytics_queue.size() + query_analytics_queue.size() + 1);
     for(const auto& params : doc_analytics_queue) {
@@ -94,10 +96,15 @@ void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t
         std::this_thread::sleep_for(std::chrono::seconds(delay_interval));
       }
     }
+    
+    if (rules_size <= DELAY_WRITE_RULE_SIZE || triggered) {
+      lk.unlock();
+    }
 }
 
 void AnalyticsManager::persist_analytics_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s, bool triggred) {
     LOG(INFO) << "Persisting analytics db events" << (triggred ? " (triggered)" : "");
+    std::unique_lock lock(mutex);
     std::vector<std::string> payloads;
     nlohmann::json payload = nlohmann::json::array();
     const uint64_t now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -230,6 +237,7 @@ Option<bool> AnalyticsManager::add_external_event(const std::string& client_ip, 
 }
 
 Option<bool> AnalyticsManager::add_internal_event(const query_internal_event_t& event_data) {
+    std::unique_lock lock(mutex);
     return query_analytics.add_internal_event(event_data);
 }
 
