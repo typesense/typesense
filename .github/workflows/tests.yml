@@ -56,7 +56,7 @@ jobs:
         run: bazel build //:typesense-server
 
       - name: Setup artifacts for tests
-        run: curl https://dl.typesense.org/tyrec/tyrec-1-models.tar.gz > ./test/resources/models.tar.gz
+        run: curl https://dl.typesense.org/ci/tyrec/tyrec-1-models.tar.gz > ./test/resources/models.tar.gz
 
       - name: Run tests
         run: bazel test --cache_test_results=no --test_output=all //:typesense-test --test_timeout=900
@@ -104,6 +104,13 @@ jobs:
       - name: Install typesense-api-tests
         working-directory: api_tests
         run: bun link
+      - name: Download test artifacts
+        working-directory: api_tests
+        run: |
+          sudo apt-get install -y tar
+          mkdir -p ./artifacts
+          curl https://dl.typesense.org/ci/typesense/v29-snapshot-1.tar.gz > ./artifacts/v29-snapshot.tar.gz
+          tar -xzf ./artifacts/v29-snapshot.tar.gz -C ./artifacts/
       - name: Run API tests with secrets
         if: github.event.pull_request.head.repo.fork == false
         working-directory: api_tests

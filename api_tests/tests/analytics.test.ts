@@ -925,4 +925,117 @@ describe(Phases.MULTI_FRESH, () => {
     expect(data1.popularity).toBe(3);
 
   });
-})
+});
+
+describe(Phases.MULTI_RESTARTED, () => {
+  it("check all the rules are persisted after restart", async () => {
+    const res = await fetchMultiNode(1, "/analytics/rules");
+    expect(res.ok).toBe(true);
+    const data = AnalyticsRuleList.parse(await res.json());
+    expect(data.find((rule) => rule.name === "product_clicks")).toBeDefined();
+    expect(data.find((rule) => rule.name === "product_queries_without_capture")).toBeDefined();
+    expect(data.find((rule) => rule.name === "product_queries_with_capture")).toBeDefined();
+    expect(data.find((rule) => rule.name === "product_popular_queries")).toBeDefined();
+    expect(data.find((rule) => rule.name === "product_nohits_queries")).toBeDefined();
+  });
+
+  it("add one more document counter analytics event", async () => {
+    let res = await fetchMultiNode(2, "/analytics/events", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "product_clicks_counter",
+        event_type: "click",
+        data: {
+          doc_id: "1",
+          user_id: "user1",
+        },
+      }),
+    });
+    expect(res.ok).toBe(true);
+    await waitForMultiAnalyticsFlush(); 
+    res = await fetchMultiNode(3, "/collections/analytics_products/documents/1");
+    expect(res.ok).toBe(true);
+    const data1 = (await res.json()) as any;
+    expect(data1.popularity).toBe(4);
+  });
+
+  it("add one more query counter analytics event", async () => {
+    await fetchMultiNode(2, "/collections/analytics_products/documents/search?q=type&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
+    await fetchMultiNode(2, "/collections/analytics_products/documents/search?q=typesen&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
+    await fetchMultiNode(2, "/collections/analytics_products/documents/search?q=typesense&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
+
+    await waitForMultiAnalyticsFlush() 
+    let res = await fetchMultiNode(1, "/collections/analytics_queries/documents/export");
+    expect(res.ok).toBe(true);
+    const res_json = (await res.text()) as any;
+    let data = res_json.split("\n").map((item: any) => JSON.parse(item));
+    expect(data.length).toBe(1);
+    expect(data[0].count).toBe(3);
+    expect(data[0].q).toBe("typesense");
+  });
+
+  it("add an document log analytics event", async () => {
+    let res = await fetchMultiNode(2, "/analytics/events", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "product_clicks",
+        event_type: "click",
+        data: {
+          doc_ids: ["2", "1"],
+          user_id: "user1",
+        },
+      }),
+    });
+    expect(res.ok).toBe(true);
+    let data = OkResponse.parse(await res.json());
+    expect(data.ok).toBe(true);
+
+    await waitForMultiAnalyticsFlush(); 
+    res = await fetchMultiNode(3, "/analytics/events?user_id=user1&name=product_clicks&n=10");
+    expect(res.ok).toBe(true);
+    let data1 = AnalyticsEventList.safeParse(await res.json());
+    expect(data1.success).toBe(true);
+    expect(data1.data?.events?.length).toBe(2);
+    expect(data1.data?.events?.[0]?.name).toBe("product_clicks");
+    expect(data1.data?.events?.[0]?.event_type).toBe("click");
+    expect(data1.data?.events?.[0]?.user_id).toBe("user1");
+    expect(data1.data?.events?.[0]?.doc_ids).toEqual(["2", "1"]);
+  });
+});
+
+describe(Phases.MULTI_SNAPSHOT, () => {
+  it("check all the rules are persisted after snapshot restore", async () => {
+    const res = await fetchMultiNode(1, "/analytics/rules");
+    expect(res.ok).toBe(true);
+    const data = AnalyticsRuleList.parse(await res.json());
+    expect(data.find((rule) => rule.name === "product_clicks")).toBeDefined();
+    expect(data.find((rule) => rule.name === "product_queries_without_capture")).toBeDefined();
+    expect(data.find((rule) => rule.name === "product_queries_with_capture")).toBeDefined();
+    expect(data.find((rule) => rule.name === "product_popular_queries")).toBeDefined();
+    expect(data.find((rule) => rule.name === "product_nohits_queries")).toBeDefined();
+  });
+
+  it("get the added query log event", async () => {
+    let res = await fetchMultiNode(2, "/analytics/events?user_id=user1&name=product_queries_with_capture&n=10");
+    expect(res.ok).toBe(true);
+    let data1 = AnalyticsEventList.safeParse(await res.json());
+    expect(data1.success).toBe(true);
+    expect(data1.data?.events?.length).toBe(3);
+    expect(data1.data?.events?.[0]?.name).toBe("product_queries_with_capture");
+    expect(data1.data?.events?.[0]?.event_type).toBe("query");
+    expect(data1.data?.events?.[0]?.query).toBe("typesense");
+    expect(data1.data?.events?.[0]?.user_id).toBe("user1");
+  });
+
+  it("get the added document log event", async () => {
+    let res = await fetchMultiNode(3, "/analytics/events?user_id=user1&name=product_clicks&n=10");
+    expect(res.ok).toBe(true);
+    let data1 = AnalyticsEventList.safeParse(await res.json());
+    expect(data1.success).toBe(true);
+    expect(data1.data?.events?.length).toBe(1);
+    expect(data1.data?.events?.[0]?.name).toBe("product_clicks");
+    expect(data1.data?.events?.[0]?.event_type).toBe("click");
+    expect(data1.data?.events?.[0]?.doc_id).toEqual("1");
+    expect(data1.data?.events?.[0]?.user_id).toBe("user1");
+  });
+});
