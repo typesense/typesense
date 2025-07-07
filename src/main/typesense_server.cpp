@@ -84,6 +84,8 @@ void master_server_routes() {
     server->post("/analytics/events", post_create_event);
     server->post("/analytics/aggregate_events", post_write_analytics_to_db);
     server->get("/analytics/events", get_analytics_events);
+    server->post("/analytics/flush", post_analytics_flush);
+    server->get("/analytics/status", get_analytics_status);
 
     // for plurals, nouns
     server->post("/stemming/dictionaries/import", post_import_stemming_dictionary, true, true);

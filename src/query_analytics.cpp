@@ -413,7 +413,7 @@ void QueryAnalytics::compact_single_user_queries(uint64_t now_ts_us, const std::
         const auto& rules = collection_rules_map.find(collection)->second;
         for(const auto& rule : rules) {
           const auto& rule_config = query_rules.find(rule)->second;
-          if(rule_config.type == type) {
+          if(rule_config.type == type && rule_config.capture_search_requests) {
             nlohmann::json event_data;
             event_data["event_type"] = prefix_queries[i].event_type;
             event_data["timestamp"] = prefix_queries[i].timestamp;
@@ -475,6 +475,42 @@ std::unordered_map<std::string, std::vector<query_event_t>> QueryAnalytics::get_
 query_rule_config_t QueryAnalytics::get_query_rule(const std::string& name) {
   std::shared_lock lock(mutex);
   return query_rules.find(name)->second;
+}
+
+size_t QueryAnalytics::get_popular_prefix_queries_size() {
+  std::shared_lock lock(mutex);
+  std::shared_lock user_lock(user_compaction_mutex);
+  size_t count = 0;
+  for (const auto& user_map : popular_user_collection_prefix_queries) {
+    for (const auto& coll_vec : user_map.second) {
+      count += coll_vec.second.size();
+    }
+  }
+  return count;
+}
+
+size_t QueryAnalytics::get_nohits_prefix_queries_size() {
+  std::shared_lock lock(mutex);
+  std::shared_lock user_lock(user_compaction_mutex);
+  size_t count = 0;
+  for (const auto& user_map : nohits_user_collection_prefix_queries) {
+    for (const auto& coll_vec : user_map.second) {
+      count += coll_vec.second.size();
+    }
+  }
+  return count;
+}
+
+size_t QueryAnalytics::get_log_prefix_queries_size() {
+  std::shared_lock lock(mutex);
+  std::shared_lock user_lock(user_compaction_mutex);
+  size_t count = 0;
+  for (const auto& user_map : log_user_collection_prefix_queries) {
+    for (const auto& coll_vec : user_map.second) {
+      count += coll_vec.second.size();
+    }
+  }
+  return count;
 }
 
 void QueryAnalytics::remove_all_rules() {

@@ -26,11 +26,12 @@ private:
     mutable std::shared_mutex mutex;
     mutable std::shared_mutex quit_mutex;
     std::condition_variable_any cv;
-    const size_t QUERY_COMPACTION_INTERVAL_S = 3;
+    const size_t QUERY_COMPACTION_INTERVAL_S = 30;
     bool isRateLimitEnabled = true;
     uint32_t analytics_minute_rate_limit = 5;
 
     std::atomic<bool> quit = false;
+    std::atomic<bool> flush_requested = false;
 
     DocAnalytics& doc_analytics = DocAnalytics::get_instance();
     QueryAnalytics& query_analytics = QueryAnalytics::get_instance();
@@ -55,8 +56,8 @@ public:
     AnalyticsManager(AnalyticsManager const&) = delete;
     void operator=(AnalyticsManager const&) = delete;
 
-    void persist_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
-    void persist_analytics_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    void persist_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s, bool triggered);
+    void persist_analytics_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s, bool triggered);
     
     Option<bool> add_external_event(const std::string& client_ip, const nlohmann::json& event_data);
     Option<bool> add_internal_event(const query_internal_event_t& event_data);
@@ -78,6 +79,8 @@ public:
     void run(ReplicationState* raft_server);
     void init(Store* store, Store* analytics_store, uint32_t analytics_minute_rate_limit);
     Option<nlohmann::json> process_create_rule_request(nlohmann::json& payload, bool is_live_req);
+    Option<nlohmann::json> get_status();
     void stop();
     void dispose();
+    void trigger_flush();
 };

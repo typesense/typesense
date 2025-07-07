@@ -8,8 +8,8 @@
 
 #define EVENTS_RATE_LIMIT_SEC 60
 
-void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
-    LOG(INFO) << "AnalyticsManager::persist_db_events";
+void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s, bool triggered) {
+    LOG(INFO) << "Persisting db events" << (triggered ? " (triggered)" : "");
     const uint64_t now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
               std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -82,7 +82,7 @@ void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t
     const size_t delay_interval = Config::get_instance().get_analytics_flush_interval() / (doc_analytics_queue.size() + query_analytics_queue.size() + 1);
     for(const auto& params : doc_analytics_queue) {
       update_counter_events(params[0], params[1], "update");
-      if (rules_size > DELAY_WRITE_RULE_SIZE) {
+      if (rules_size > DELAY_WRITE_RULE_SIZE && !triggered) {
         std::this_thread::sleep_for(std::chrono::seconds(delay_interval));
       }
     }
@@ -90,20 +90,54 @@ void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t
     for(const auto& params : query_analytics_queue) {
       update_counter_events(params[0], params[1], "emplace");
       limit_to_top_k(params[1], std::stoi(params[2]));
-      if (rules_size > DELAY_WRITE_RULE_SIZE) {
+      if (rules_size > DELAY_WRITE_RULE_SIZE && !triggered) {
         std::this_thread::sleep_for(std::chrono::seconds(delay_interval));
       }
     }
 }
 
-void AnalyticsManager::persist_analytics_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
-    std::unique_lock lk(mutex);
-    LOG(INFO) << "AnalyticsManager::persist_analytics_db_events";
+void AnalyticsManager::persist_analytics_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s, bool triggred) {
+    LOG(INFO) << "Persisting analytics db events" << (triggred ? " (triggered)" : "");
+    std::vector<std::string> payloads;
+    nlohmann::json payload = nlohmann::json::array();
+    const uint64_t now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count();
+    query_analytics.compact_all_user_queries(now_ts_us);
+
+    for(const auto& log_rule : doc_analytics.get_doc_log_events()) {
+        const auto& collection = doc_analytics.get_doc_rule(log_rule.first).collection;
+        for(const auto& event_data : log_rule.second) {
+            nlohmann::json event_json;
+            event_data.to_json(event_json, collection);
+            payload.push_back(event_json);
+        }
+        if(!payload.empty()) {
+            payloads.push_back(payload.dump());
+            payload.clear();
+            doc_analytics.reset_local_log_events(log_rule.first);
+        }
+    }
+
+    for(const auto& log_rule : query_analytics.get_query_log_events()) {
+        const auto& collection = query_analytics.get_query_rule(log_rule.first).collection;
+        for(const auto& event_data : log_rule.second) {
+            nlohmann::json event_json;
+            event_data.to_json(event_json, collection, log_rule.first);
+            payload.push_back(event_json);
+        }
+        if(!payload.empty()) {
+            payloads.push_back(payload.dump());
+            payload.clear();
+            query_analytics.reset_local_log_events(log_rule.first);
+        }
+    }
+
     auto send_http_response = [&](const std::string& import_payload) {
         if(raft_server == nullptr) {
             return;
         }
         
+
         std::string leader_url = raft_server->get_leader_url();
         if(!leader_url.empty()) {
             const std::string& base_url = leader_url + "analytics/";
@@ -112,44 +146,18 @@ void AnalyticsManager::persist_analytics_db_events(ReplicationState *raft_server
             const std::string& update_url = base_url + "aggregate_events";
             std::map<std::string, std::string> res_headers;
             long status_code = HttpClient::post_response(update_url, import_payload,
-                                                         res, res_headers, {}, 10*1000, true);
+                                                          res, res_headers, {}, 10*1000, true);
 
             if(status_code != 200) {
                 LOG(ERROR) << "Error while sending "<<" log events to leader. "
-                           << "Status code: " << status_code << ", response: " << res;
+                            << "Status code: " << status_code << ", response: " << res;
             }
         }
     };
 
-    /* Get the log events from doc_analytics and query_analytics and send them to the leader */
 
-    nlohmann::json payload = nlohmann::json::array();
-    for(const auto& log_rule : doc_analytics.get_doc_log_events()) {
-      const auto& collection = doc_analytics.get_doc_rule(log_rule.first).collection;
-      for(const auto& event_data : log_rule.second) {
-        nlohmann::json event_json;
-        event_data.to_json(event_json, collection);
-        payload.push_back(event_json);
-      }
-      if(!payload.empty()) {
-        send_http_response(payload.dump());
-        payload.clear();
-        doc_analytics.reset_local_log_events(log_rule.first);
-      }
-    }
-
-    for(const auto& log_rule : query_analytics.get_query_log_events()) {
-      const auto& collection = query_analytics.get_query_rule(log_rule.first).collection;
-      for(const auto& event_data : log_rule.second) {
-        nlohmann::json event_json;
-        event_data.to_json(event_json, collection, log_rule.first);
-        payload.push_back(event_json);
-      }
-      if(!payload.empty()) {
-        send_http_response(payload.dump());
-        payload.clear();
-        query_analytics.reset_local_log_events(log_rule.first);
-      }
+    for(const auto& payload : payloads) {
+      send_http_response(payload);
     }
 }
 
@@ -731,25 +739,67 @@ bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
     return true;
 }
 
+Option<nlohmann::json> AnalyticsManager::get_status() {
+    std::shared_lock lk(mutex);
+    nlohmann::json status;
+
+    status["popular_prefix_queries"] = query_analytics.get_popular_prefix_queries_size();
+    status["nohits_prefix_queries"] = query_analytics.get_nohits_prefix_queries_size();
+    status["log_prefix_queries"] = query_analytics.get_log_prefix_queries_size();
+
+    size_t q_log = 0;
+    for (const auto& kv : query_analytics.get_query_log_events()) {
+        q_log += kv.second.size();
+    }
+    status["query_log_events"] = q_log;
+
+    size_t q_counter = 0;
+    for (const auto& kv : query_analytics.get_query_counter_events()) {
+        q_counter += kv.second.query_counts.size();
+    }
+    status["query_counter_events"] = q_counter;
+
+    size_t d_log = 0;
+    for (const auto& kv : doc_analytics.get_doc_log_events()) {
+        d_log += kv.second.size();
+    }
+    status["doc_log_events"] = d_log;
+
+    size_t d_counter = 0;
+    for (const auto& kv : doc_analytics.get_doc_counter_events()) {
+        d_counter += kv.second.docid_counts.size();
+    }
+    status["doc_counter_events"] = d_counter;
+
+    return Option<nlohmann::json>(status);
+}
+
 void AnalyticsManager::run(ReplicationState* raft_server) {
     uint64_t prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
-                                    std::chrono::system_clock::now().time_since_epoch()).count();
+              std::chrono::system_clock::now().time_since_epoch()).count();
 
     while(!quit) {
         std::unique_lock lk(quit_mutex);
-        cv.wait_for(lk, std::chrono::seconds(QUERY_COMPACTION_INTERVAL_S), [&] { return quit.load(); });
+        cv.wait_for(lk, std::chrono::seconds(QUERY_COMPACTION_INTERVAL_S), [&] {
+            return quit.load() || flush_requested.load();
+        });
+
+        bool trigered_flush = false;
+        if(flush_requested.load()) {
+            flush_requested = false;
+            trigered_flush = true;
+        };
         
         if(quit) {
             lk.unlock();
             break;
         }
 
-        LOG(INFO) << "AnalyticsManager::run";
 
         auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
-        if(now_ts_seconds - prev_persistence_s < Config::get_instance().get_analytics_flush_interval()) {
+        if(!trigered_flush && now_ts_seconds - prev_persistence_s < Config::get_instance().get_analytics_flush_interval()) {
             // we will persist aggregation every hour
             // LOG(INFO) << "QuerySuggestions::run interval is less, continuing";
             continue;
@@ -758,8 +808,8 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
         
-        persist_analytics_db_events(raft_server, prev_persistence_s);
-        persist_db_events(raft_server, prev_persistence_s);
+        persist_analytics_db_events(raft_server, prev_persistence_s, trigered_flush);
+        persist_db_events(raft_server, prev_persistence_s, trigered_flush);
     }
 
     dispose();
@@ -794,6 +844,13 @@ void AnalyticsManager::init(Store* store, Store* analytics_store, uint32_t analy
     if(analytics_store) {
         external_events_cache.capacity(1024);
     }
+}
+
+void AnalyticsManager::trigger_flush() {
+  std::unique_lock lk(quit_mutex);
+  flush_requested = true;
+  lk.unlock();
+  cv.notify_all();
 }
 
 void AnalyticsManager::stop() {

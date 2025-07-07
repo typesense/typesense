@@ -3908,3 +3908,19 @@ bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::share
     res->set_200(get_events_op.get().dump());
     return true;
 }
+
+bool post_analytics_flush(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    AnalyticsManager::get_instance().trigger_flush();
+    res->set_200(R"({"ok": true})");
+    return true;
+}
+
+bool get_analytics_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto status_op = AnalyticsManager::get_instance().get_status();
+    if(!status_op.ok()) {
+        res->set(status_op.code(), status_op.error());
+        return false;
+    }
+    res->set_200(status_op.get().dump());
+    return true;
+}

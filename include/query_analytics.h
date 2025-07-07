@@ -150,6 +150,8 @@ public:
   std::unordered_map<std::string, query_counter_event_t> get_query_counter_events();
   std::unordered_map<std::string, std::vector<query_event_t>> get_query_log_events();
   query_rule_config_t get_query_rule(const std::string& name);
-  std::vector<query_event_t> get_user_prefix_queries(const std::string& user_id, const std::string& collection, const std::string& event_name);
+  size_t get_popular_prefix_queries_size();
+  size_t get_nohits_prefix_queries_size();
+  size_t get_log_prefix_queries_size();
   void dispose();
 };
