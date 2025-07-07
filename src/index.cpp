@@ -3699,6 +3699,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         } else {
             // if filters were not provided, use the seq_ids index to generate the list of all document ids
             if (!filter_by_provided) {
+                delete filter_result_iterator;
                 filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids(),
                                                                       max_filter_by_candidates,
                                                                       search_begin_us, search_stop_us);

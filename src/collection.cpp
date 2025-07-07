@@ -3541,7 +3541,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         auto& conversation_standalone_query = conversation_standalone_queries[search_index];
         auto& vector_query = vector_queries[search_index];
         auto& facets = facets_list[search_index];
-        auto& per_page = per_pages[search_index];
+        auto& per_page = per_pages[search_index] = union_params.per_page;;
         auto& transcribed_query = transcribed_queries[search_index];
         auto& override_metadata = override_metadata_list[search_index];
         const auto default_sorting_field_used = coll_args.sort_fields.empty() &&
@@ -8344,4 +8344,11 @@ union_global_params_t::union_global_params_t(const std::map<std::string, std::st
     }
 
     fetch_size = std::min<size_t>(offset + per_page, limit_hits);
+}
+
+void collection_search_args_t::override_union_global_params(union_global_params_t& global_params) {
+    page = global_params.page;
+    per_page = global_params.per_page;
+    offset = global_params.offset;
+    limit_hits = global_params.limit_hits;
 }
