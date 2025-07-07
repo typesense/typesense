@@ -26,7 +26,7 @@ private:
     mutable std::shared_mutex mutex;
     mutable std::shared_mutex quit_mutex;
     std::condition_variable_any cv;
-    const size_t QUERY_COMPACTION_INTERVAL_S = 30;
+    const size_t QUERY_COMPACTION_INTERVAL_S = 3;
     bool isRateLimitEnabled = true;
     uint32_t analytics_minute_rate_limit = 5;
 
@@ -64,7 +64,10 @@ public:
     Option<nlohmann::json> get_events(const std::string& userid, const std::string& event_name, uint32_t N);
     Option<nlohmann::json> list_rules(const std::string& rule_tag = "");
     Option<nlohmann::json> get_rule(const std::string& name);
-    Option<bool> create_rule(nlohmann::json& payload, bool update, bool write_to_disk, bool is_live_req);
+    Option<nlohmann::json> create_rule(nlohmann::json& payload,
+                                       bool update,
+                                       bool write_to_disk,
+                                       bool is_live_req);
     Option<bool> create_old_rule(nlohmann::json& payload);
     Option<bool> remove_rule(const std::string& name);
     void remove_all_rules();
@@ -74,7 +77,7 @@ public:
 
     void run(ReplicationState* raft_server);
     void init(Store* store, Store* analytics_store, uint32_t analytics_minute_rate_limit);
-    Option<nlohmann::json> process_create_rule_request(const nlohmann::json& payload, bool is_live_req);
+    Option<nlohmann::json> process_create_rule_request(nlohmann::json& payload, bool is_live_req);
     void stop();
     void dispose();
 };

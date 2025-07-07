@@ -5,7 +5,7 @@
 
 void query_event_t::to_json(nlohmann::json& obj, const std::string& coll, const std::string& name) const {
   obj["query"] = query;
-  obj["type"] = event_type;
+  obj["event_type"] = event_type;
   obj["timestamp"] = timestamp;
   obj["user_id"] = user_id;
 
@@ -137,8 +137,8 @@ Option<bool> QueryAnalytics::add_internal_event(const query_internal_event_t& ev
     if(rule.type == event_data.type && rule.capture_search_requests && event_data.q.size() <= MAX_QUERY_LENGTH) {
       if(rule.type == POPULAR_QUERIES_TYPE && popular_user_collection_prefix_queries[event_data.user_id][event_data.collection].size() < 100) {
         popular_user_collection_prefix_queries[event_data.user_id][event_data.collection].emplace_back(query_event_t{
-          rule.expand_query ? event_data.q : event_data.q,
-          event_data.type,
+          rule.expand_query ? event_data.expanded_q : event_data.q,
+          "query",
           now_ts_us,
           event_data.user_id,
           event_data.filter_by,
@@ -146,8 +146,8 @@ Option<bool> QueryAnalytics::add_internal_event(const query_internal_event_t& ev
         });
       } else if (rule.type == NO_HIT_QUERIES_TYPE && nohits_user_collection_prefix_queries[event_data.user_id][event_data.collection].size() < 100) {
         nohits_user_collection_prefix_queries[event_data.user_id][event_data.collection].emplace_back(query_event_t{
-          rule.expand_query ? event_data.q : event_data.q,
-          event_data.type,
+          rule.expand_query ? event_data.expanded_q : event_data.q,
+          "query",
           now_ts_us,
           event_data.user_id,
           event_data.filter_by,
@@ -155,8 +155,8 @@ Option<bool> QueryAnalytics::add_internal_event(const query_internal_event_t& ev
         });
       } else if (rule.type == LOG_TYPE && log_user_collection_prefix_queries[event_data.user_id][event_data.collection].size() < 100) {
         log_user_collection_prefix_queries[event_data.user_id][event_data.collection].emplace_back(query_event_t{
-          rule.expand_query ? event_data.q : event_data.q,
-          event_data.type,
+          rule.expand_query ? event_data.expanded_q : event_data.q,
+          "query",
           now_ts_us,
           event_data.user_id,
           event_data.filter_by,

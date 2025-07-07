@@ -374,117 +374,116 @@ Option<nlohmann::json> AnalyticsManager::get_rule(const std::string& name) {
     return Option<nlohmann::json>(400, get_rule_op.error());
 }
 
-Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool update, bool write_to_disk, bool is_live_req) {
+Option<nlohmann::json> AnalyticsManager::create_rule(nlohmann::json& payload, bool update, bool write_to_disk, bool is_live_req) {
     std::unique_lock lock(mutex);
     std::string name;
+    Option<nlohmann::json> op_response(500, "Internal server error");
+
     if (!update) {
-      if (!payload.contains("name") || !payload["name"].is_string() || payload["name"].get<std::string>().empty()) {
-        return Option<bool>(400, "Name is required when creating a analytics rule");
-      }
-      name = payload["name"].get<std::string>();
-
-      if(rules_map.find(name) != rules_map.end()) {
-        return Option<bool>(400, "Rule already exists");
-      }
-
-      if(!payload.contains("event_type") || !payload["event_type"].is_string()) {
-        return Option<bool>(400, "Event type is required when creating a new analytics rule");
-      }
-      const std::string& event_type = payload["event_type"].get<std::string>();
-
-      if(!payload.contains("type") || !payload["type"].is_string()) {
-        return Option<bool>(400, "Type is required when creating a new analytics rule");
-      }
-      const std::string& type = payload["type"].get<std::string>();
-
-      if (!payload.contains("collection") || !payload["collection"].is_string()) {
-        return Option<bool>(400, "Collection is required when creating a new analytics rule");
-      }
-      const std::string& collection = payload["collection"].get<std::string>();
-
-      if (is_live_req) {
-        auto collection_ptr = CollectionManager::get_instance().get_collection(collection);
-        if (collection_ptr == nullptr) {
-          return Option<bool>(400, "Collection " + collection + " does not exist");
+        // Validations for creating a new rule
+        if (!payload.contains("name") || !payload["name"].is_string() || payload["name"].get<std::string>().empty()) {
+            return Option<nlohmann::json>(400, "Name is required when creating an analytics rule");
         }
-      }
+        name = payload["name"].get<std::string>();
 
-      if(payload.contains("rule_tag") && !payload["rule_tag"].is_string()) {
-        return Option<bool>(400, "Rule tag should be a string");
-      }
-
-      bool is_doc_rule = doc_analytics.check_rule_type(event_type, type);
-      bool is_query_rule = query_analytics.check_rule_type(event_type, type);
-      if(!is_doc_rule && !is_query_rule) {
-        return Option<bool>(400, "Event type or type is invalid (or) combination of both is invalid");
-      }
-
-      Option<nlohmann::json> create_rule_op(500, "Internal server error");
-      if(is_doc_rule) {
-        create_rule_op = doc_analytics.create_rule(payload, update, is_live_req);
-      } else if(is_query_rule) {
-        create_rule_op = query_analytics.create_rule(payload, update, is_live_req);
-      }
-
-      if(create_rule_op.ok()) {
-        std::string rule_json = create_rule_op.get().dump();
-        if(write_to_disk) {
-          auto rule_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + name;
-          bool store_op = store->insert(rule_key, rule_json);
-          if(!store_op) {
-              return Option<bool>(500, "Error while storing the config to disk.");
-          }
+        if (rules_map.find(name) != rules_map.end()) {
+            return Option<nlohmann::json>(400, "Rule already exists");
         }
-        rules_map.emplace(name, (is_doc_rule) ? "doc" : "query");
-      }
 
-      if(!create_rule_op.ok()) {
-        return Option<bool>(400, create_rule_op.error());
-      }
+        if (!payload.contains("event_type") || !payload["event_type"].is_string()) {
+            return Option<nlohmann::json>(400, "Event type is required when creating a new analytics rule");
+        }
+        const std::string& event_type = payload["event_type"].get<std::string>();
 
+        if (!payload.contains("type") || !payload["type"].is_string()) {
+            return Option<nlohmann::json>(400, "Type is required when creating a new analytics rule");
+        }
+        const std::string& type = payload["type"].get<std::string>();
+
+        if (!payload.contains("collection") || !payload["collection"].is_string()) {
+            return Option<nlohmann::json>(400, "Collection is required when creating a new analytics rule");
+        }
+        const std::string& collection = payload["collection"].get<std::string>();
+
+        if (is_live_req) {
+            auto collection_ptr = CollectionManager::get_instance().get_collection(collection);
+            if (collection_ptr == nullptr) {
+                return Option<nlohmann::json>(400, "Collection " + collection + " does not exist");
+            }
+        }
+
+        if (payload.contains("rule_tag") && !payload["rule_tag"].is_string()) {
+            return Option<nlohmann::json>(400, "Rule tag should be a string");
+        }
+
+        bool is_doc_rule = doc_analytics.check_rule_type(event_type, type);
+        bool is_query_rule = query_analytics.check_rule_type(event_type, type);
+        if (!is_doc_rule && !is_query_rule) {
+            return Option<nlohmann::json>(400, "Event type or type is invalid (or) combination of both is invalid");
+        }
+
+        if (is_doc_rule) {
+            op_response = doc_analytics.create_rule(payload, update, is_live_req);
+        } else {
+            op_response = query_analytics.create_rule(payload, update, is_live_req);
+        }
+
+        if (!op_response.ok()) {
+            return Option<nlohmann::json>(400, op_response.error());
+        }
+
+        // Persist the created rule to disk
+        if (write_to_disk) {
+            auto rule_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + name;
+            bool store_op = store->insert(rule_key, op_response.get().dump());
+            if (!store_op) {
+                return Option<nlohmann::json>(500, "Error while storing the config to disk.");
+            }
+        }
+
+        rules_map.emplace(name, is_doc_rule ? "doc" : "query");
     } else {
-      if(payload.contains("type")) {
-        return Option<bool>(400, "Rule type cannot be changed");
-      } else if (payload.contains("collection")) {
-        return Option<bool>(400, "Rule collection cannot be changed");
-      } else if (payload.contains("event_type")) {
-        return Option<bool
-          >(400, "Rule event type cannot be changed");
-      }
-      if(payload.contains("rule_tag") && !payload["rule_tag"].is_string()) {
-        return Option<bool>(400, "Rule tag should be a string");
-      }
-      name = payload["name"].get<std::string>();
-      bool is_doc_rule = rules_map.find(name) != rules_map.end() && rules_map.find(name)->second == "doc";
-      bool is_query_rule = rules_map.find(name) != rules_map.end() && rules_map.find(name)->second == "query";
-      if (!is_doc_rule && !is_query_rule) {
-        return Option<bool>(400, "Rule not found");
-      }
-
-      Option<nlohmann::json> update_rule_op(500, "Internal server error");
-      if(is_doc_rule) {
-        update_rule_op = doc_analytics.create_rule(payload, update, is_live_req);
-      } else if(is_query_rule) {
-        update_rule_op = query_analytics.create_rule(payload, update, is_live_req);
-      }
-
-      if(update_rule_op.ok()) {
-        std::string rule_json = update_rule_op.get().dump();
-        if(write_to_disk) {
-          auto rule_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + name;
-          bool store_op = store->insert(rule_key, rule_json);
-          if(!store_op) {
-              return Option<bool>(500, "Error while storing the config to disk.");
-          }
+        // Validations for updating an existing rule
+        if (payload.contains("type")) {
+            return Option<nlohmann::json>(400, "Rule type cannot be changed");
         }
-      }
+        if (payload.contains("collection")) {
+            return Option<nlohmann::json>(400, "Rule collection cannot be changed");
+        }
+        if (payload.contains("event_type")) {
+            return Option<nlohmann::json>(400, "Rule event type cannot be changed");
+        }
+        if (payload.contains("rule_tag") && !payload["rule_tag"].is_string()) {
+            return Option<nlohmann::json>(400, "Rule tag should be a string");
+        }
+        name = payload["name"].get<std::string>();
+        bool is_doc_rule = (rules_map.find(name) != rules_map.end() && rules_map[name] == "doc");
+        bool is_query_rule = (rules_map.find(name) != rules_map.end() && rules_map[name] == "query");
+        if (!is_doc_rule && !is_query_rule) {
+            return Option<nlohmann::json>(400, "Rule not found");
+        }
 
-      if(!update_rule_op.ok()) {
-        return Option<bool>(400, update_rule_op.error());
-      }
+        if (is_doc_rule) {
+            op_response = doc_analytics.create_rule(payload, update, is_live_req);
+        } else {
+            op_response = query_analytics.create_rule(payload, update, is_live_req);
+        }
+
+        if (!op_response.ok()) {
+            return Option<nlohmann::json>(400, op_response.error());
+        }
+
+        // Persist the updated rule to disk
+        if (write_to_disk) {
+            auto rule_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + name;
+            bool store_op = store->insert(rule_key, op_response.get().dump());
+            if (!store_op) {
+                return Option<nlohmann::json>(500, "Error while storing the config to disk.");
+            }
+        }
     }
 
-    return Option<bool>(true);
+    return Option<nlohmann::json>(op_response.get());
 }
 
 Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
@@ -766,49 +765,24 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
     dispose();
 }
 
-Option<nlohmann::json> AnalyticsManager::process_create_rule_request(const nlohmann::json& payload, bool is_live_req) {
-  if (payload.count("rules") == 0 && payload.count("rule") == 0) {
-      return Option<nlohmann::json>(400, "Missing required parameter 'rules' or 'rule'.");
-  }
-
-  if (payload.count("rules") && payload.count("rule")) {
-      return Option<nlohmann::json>(400, "Cannot provide both 'rules' and 'rule' parameters.");
-  }
-
-  if (payload.count("rules") && !payload["rules"].is_array()) {
-      return Option<nlohmann::json>(400, "'rules' must be an array.");
-  }
-
-  if(payload.count("rules")) {
-      std::vector<nlohmann::json> responses;
-      std::vector<nlohmann::json> rules = payload["rules"].get<std::vector<nlohmann::json>>();
-      for (auto& rule : rules) {
-          auto create_op = create_rule(rule, false, true, is_live_req);
-          if (!create_op.ok()) {
-              responses.push_back(nlohmann::json(
-                {
-                  {"error", create_op.error()},
-                  {"success", false}
-                }
-              ));
-          } else {
-            responses.push_back(nlohmann::json(
-              {
-                {"success", true}
-              }
-            ));
-          }
+Option<nlohmann::json> AnalyticsManager::process_create_rule_request(nlohmann::json& payload, bool is_live_req) {
+  if (payload.is_array()) {
+    std::vector<nlohmann::json> responses;
+    for (auto& rule : payload) {
+      auto create_op = create_rule(rule, false, true, is_live_req);
+      if (!create_op.ok()) {
+        responses.push_back(nlohmann::json({{"error", create_op.error()}}));
+      } else {
+        responses.push_back(create_op.get());
       }
-      return Option<nlohmann::json>(responses);
-  } else {
-    nlohmann::json rule = payload["rule"];
-    auto create_op = create_rule(rule, false, true, is_live_req);
-    if (!create_op.ok()) {
-        return Option<nlohmann::json>(400, create_op.error());
     }
-    return Option<nlohmann::json>(nlohmann::json{
-        {"success", true}
-    });
+    return Option<nlohmann::json>(responses);
+  } else {
+    auto create_op = create_rule(payload, false, true, is_live_req);
+    if (!create_op.ok()) {
+      return Option<nlohmann::json>(400, create_op.error());
+    }
+    return Option<nlohmann::json>(create_op.get());
   }
 }
 

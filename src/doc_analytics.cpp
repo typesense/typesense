@@ -5,7 +5,7 @@
 
 void doc_event_t::to_json(nlohmann::json& obj, const std::string& coll) const {
     obj["query"] = query;
-    obj["type"] = event_type;
+    obj["event_type"] = event_type;
     obj["timestamp"] = timestamp;
     obj["user_id"] = user_id;
     

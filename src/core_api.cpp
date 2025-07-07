@@ -3835,14 +3835,12 @@ bool patch_update_analytics_rules(const std::shared_ptr<http_req>& req, const st
         return false;
     }
     req_json["name"] = name;
-    auto create_op = AnalyticsManager::get_instance().create_rule(req_json, true, true, res->is_alive);
-    if (!create_op.ok()) {
-        res->set_400(create_op.error());
+    auto update_op = AnalyticsManager::get_instance().create_rule(req_json, true, true, res->is_alive);
+    if (!update_op.ok()) {
+        res->set_400(update_op.error());
         return false;
     }
-    res->set_201(nlohmann::json{
-          {"success", true}
-    }.dump());
+    res->set_200(update_op.get().dump());
     return true;
 }
 

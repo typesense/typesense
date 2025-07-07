@@ -2,6 +2,7 @@ import { rmSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { env } from "bun";
 import { networkInterfaces } from "node:os";
+import { fetchMultiNode } from "./request";
 
 type ServerInstance = {
   process: Bun.Subprocess;
@@ -23,7 +24,7 @@ export class TypesenseProcessManager {
   static additionalConfigs = [
     "--enable-cors",
     "--enable-search-analytics",
-    "--analytics-flush-interval=2",
+    "--analytics-flush-interval=3",
     "--analytics-minute-rate-limit=1000"
   ]
 
@@ -109,7 +110,8 @@ export class TypesenseProcessManager {
       ];
       this.spawnServer(node.name, args, node.port);
     }
-
+    await this.waitForHealth(5108);
+    await this.electLeader();
     for (const node of TypesenseProcessManager.multiNodeConfigs) {
       await this.waitForHealth(node.port);
     }
@@ -129,10 +131,22 @@ export class TypesenseProcessManager {
   }
 
   async restartMultiNode() {
-    for (const name of ["multi-node1", "multi-node2", "multi-node3"]) {
+    await fetchMultiNode(1, "/status");
+    for (const name of ["multi-node2", "multi-node3", "multi-node1"]) {
       await this.stopServer(name);
     }
     await this.startMultiNode();
+  }
+
+  async electLeader() {
+    const res = await fetch(`http://localhost:5108/operations/vote`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-TYPESENSE-API-KEY": "xyz",
+      },
+    });
+    if (!res.ok) throw new Error(`Elect leader failed: ${res.statusText}`);
   }
 
   async createSnapshot(port: number) {
