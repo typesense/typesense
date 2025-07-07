@@ -992,10 +992,13 @@ bool parse_multi_eval(const std::string& sort_by_str, uint32_t& index, std::vect
         index = open_paren_pos;
         std::string eval_expr = "(";
         int paren_count = 1;
+        bool in_backtick = false;
         while (++index < sort_by_str.size() && paren_count > 0) {
-            if (sort_by_str[index] == '(') {
+            if (sort_by_str[index] == '`') {
+                in_backtick = !in_backtick;
+            } else if (!in_backtick && sort_by_str[index] == '(') {
                 paren_count++;
-            } else if (sort_by_str[index] == ')') {
+            } else if (!in_backtick && sort_by_str[index] == ')') {
                 paren_count--;
             }
             eval_expr += sort_by_str[index];
@@ -1046,10 +1049,13 @@ bool parse_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sor
     // _eval(<expr>):<order>
     std::string eval_expr = "(";
     int paren_count = 1;
+    bool in_backtick = false;
     while (++index < sort_by_str.size() && paren_count > 0) {
-        if (sort_by_str[index] == '(') {
+        if (sort_by_str[index] == '`') {
+            in_backtick = !in_backtick;
+        } else if (!in_backtick && sort_by_str[index] == '(') {
             paren_count++;
-        } else if (sort_by_str[index] == ')') {
+        } else if (!in_backtick && sort_by_str[index] == ')') {
             paren_count--;
         }
         eval_expr += sort_by_str[index];
