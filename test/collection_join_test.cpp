@@ -2219,15 +2219,6 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     ASSERT_EQ(search_op.error(), "Failed to join on `Customers` collection: Could not find a filter "
                                  "field named `foo` in the schema.");
 
-    search_op = coll->search("s", {"product_name"}, "$Customers (customer_id:=customer_a) && $Customers(product_price:<100)", {}, {}, {0},
-                             10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ(search_op.error(), "More than one joins found for collection `Customers` in the `filter_by`. Instead of "
-                                 "providing separate join conditions like `$customer_product_prices(customer_id:=customer_a)"
-                                 " && $customer_product_prices(custom_price:<100)`, the join condition should be"
-                                 " provided as a single filter expression like `$customer_product_prices(customer_id:=customer_a"
-                                 " && custom_price:<100)`");
-
     auto result = coll->search("s", {"product_name"}, "$Customers(customer_id:=customer_a && product_price:<100)", {},
                                {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD).get();
 
@@ -2282,6 +2273,48 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"].get<std::string>());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "s"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a) && $Customers(product_price:<100)"}
+    };
+
+    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op_bool.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"]);
+    ASSERT_EQ("customer_a", res_obj["hits"][0]["document"]["Customers"]["customer_id"]);
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["Customers"]["product_price"]);
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "s"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a) || $Customers(product_price:<100)"}
+    };
+
+    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op_bool.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"]);
+    ASSERT_EQ("customer_a", res_obj["hits"][0]["document"]["Customers"]["customer_id"]);
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["Customers"]["product_price"]);
+
+    ASSERT_EQ(6, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["Customers"].size());
+    ASSERT_EQ("customer_a", res_obj["hits"][1]["document"]["Customers"][0]["customer_id"]);
+    ASSERT_EQ(75, res_obj["hits"][1]["document"]["Customers"][1]["product_price"]);
 
     auto customers_coll = collectionManager.get_collection_unsafe("Customers");
     customers_coll->remove("0");
@@ -8653,6 +8686,17 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
         ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
     }
 
+    embedded_filter = "field:value && $Customers(customer_id:customer_a) || $Customers(foo:bar)";
+    query_filter = "$Customers(product_price:<100)";
+    ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+    ASSERT_EQ("field:value && $Customers(customer_id:customer_a) || $Customers(foo:bar)", embedded_filter);
+    ASSERT_EQ("$Customers(product_price:<100)", query_filter);
+
+    embedded_filter = "field:value && $Customers(customer_id:customer_a) || foo:bar";
+    query_filter = "$Customers(product_price:<100) || $Customers(foo:bar)";
+    ASSERT_EQ("field:value && $Customers(customer_id:customer_a) || foo:bar", embedded_filter);
+    ASSERT_EQ("$Customers(product_price:<100) || $Customers(foo:bar)", query_filter);
+
     // Malformed inputs
     {
         embedded_filter = " (( $Customers(customer_id:customer_a) )) ";
@@ -8673,14 +8717,6 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
 
         embedded_filter = "field:value && $Customers(customer_id:customer_a) || foo:bar";
         query_filter = "$Customers(product_price:<100)";
-        ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
-
-        embedded_filter = "field:value && $Customers(customer_id:customer_a) || $Customers(foo:bar)";
-        query_filter = "$Customers(product_price:<100)";
-        ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
-
-        embedded_filter = "field:value && $Customers(customer_id:customer_a) || foo:bar";
-        query_filter = "$Customers(product_price:<100) || $Customers(foo:bar)";
         ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
     }
 
@@ -8803,26 +8839,24 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
             {"filter_by", "$Customers(product_price:<100)"},
     };
     embedded_params = R"({
-                        "filter_by": "$Customers(customer_id:customer_a) || $Customers(customer_id:customer_a) "
+                        "filter_by": "$Customers(customer_id:customer_a) || $Customers(customer_id:customer_b) "
                      })"_json;
 
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Error applying search parameters inside Scoped Search API key", search_op.error());
+    ASSERT_TRUE(search_op.ok());
 
-    req_params = {
-            {"collection", "Products"},
-            {"q", "*"},
-            {"filter_by", "$Customers(customer_id:customer_a) && $Customers(product_price:<100)"},
-    };
-    embedded_params.clear();
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"]);
+    ASSERT_EQ("customer_a", res_obj["hits"][0]["document"]["Customers"]["customer_id"]);
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["Customers"]["product_price"]);
 
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("More than one joins found for collection `Customers` in the `filter_by`. Instead of providing separate "
-              "join conditions like `$customer_product_prices(customer_id:=customer_a) && "
-              "$customer_product_prices(custom_price:<100)`, the join condition should be provided as a single filter "
-              "expression like `$customer_product_prices(customer_id:=customer_a && custom_price:<100)`", search_op.error());
+    ASSERT_EQ(6, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
+    ASSERT_EQ("customer_b", res_obj["hits"][1]["document"]["Customers"]["customer_id"]);
+    ASSERT_EQ(75, res_obj["hits"][1]["document"]["Customers"]["product_price"]);
 }
 
 TEST_F(CollectionJoinTest, QueryByReference) {

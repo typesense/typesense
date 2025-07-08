@@ -77,6 +77,15 @@ struct reference_filter_result_t {
     }
 
     static void copy_references(const reference_filter_result_t& from, reference_filter_result_t& to);
+
+    /// Returns whether at least one common reference doc_id was found or not.
+    static bool and_references(const std::map<std::string, reference_filter_result_t>& a_references,
+                               const std::map<std::string, reference_filter_result_t>& b_references,
+                               std::map<std::string, reference_filter_result_t>& result_references);
+
+    static void or_references(const std::map<std::string, reference_filter_result_t>& a_references,
+                              const std::map<std::string, reference_filter_result_t>& b_references,
+                              std::map<std::string, reference_filter_result_t>& result_references);
 };
 
 struct single_filter_result_t {

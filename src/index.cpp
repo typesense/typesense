@@ -3014,7 +3014,7 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
             // dynamic query will take precedence over dynamic filter
             auto tokenize_filter_str = [&] (const std::string& filter_query, std::vector<std::string>& processed_tokens) -> void {
                 std::queue<std::string> tokens;
-                StringUtils::tokenize_filter_query(filter_query, tokens);
+                filter::tokenize_filter_query(filter_query, tokens);
 
                 std::vector<std::string> filter_tokens;
                 while(!tokens.empty()) {
