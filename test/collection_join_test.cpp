@@ -9622,10 +9622,10 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ("Customers(product_price)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("143", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
-    ASSERT_EQ("$Customers(product_price)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
+    ASSERT_EQ("$Customers(product_price: 143)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][1]["count"]);
     ASSERT_EQ("73.5", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
-    ASSERT_EQ("$Customers(product_price)", res_obj["facet_counts"][0]["counts"][1]["facet_filter"].get<std::string>());
+    ASSERT_EQ("$Customers(product_price: 73.5)", res_obj["facet_counts"][0]["counts"][1]["facet_filter"].get<std::string>());
 
     //check with other reference fields
     req_params = {
@@ -9755,7 +9755,50 @@ TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     ASSERT_EQ("Grades(grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("B", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
-    ASSERT_EQ("$Grades(grade)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
+    ASSERT_EQ("$Grades(grade: [60..80])", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
+
+    //open ranges
+    req_params = {
+            {"collection", "Students"},
+            {"q", "*"},
+            {"filter_by", "$Grades(student_id: 4)"},
+            {"facet_by", "$Grades(grade(A+:[80, ]))"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][0]["document"]["student_id"]);
+
+    ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Grades(grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("A+", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("$Grades(grade: >=80)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
+
+    req_params = {
+            {"collection", "Students"},
+            {"q", "*"},
+            {"filter_by", "$Grades(student_id: 3)"},
+            {"facet_by", "$Grades(grade(C:[ ,70]))"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["student_id"]);
+
+    ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Grades(grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("C", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("$Grades(grade: <=70)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
 
     //sorting on referenced facet_field
     schema_json =
@@ -9870,11 +9913,11 @@ TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     ASSERT_EQ("Subjects(electives.grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("97", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
-    ASSERT_EQ("$Subjects(electives.grade)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
+    ASSERT_EQ("$Subjects(electives.grade: 97)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][1]["count"]);
     ASSERT_EQ("79", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
-    ASSERT_EQ("$Subjects(electives.grade)", res_obj["facet_counts"][0]["counts"][1]["facet_filter"].get<std::string>());
+    ASSERT_EQ("$Subjects(electives.grade: 79)", res_obj["facet_counts"][0]["counts"][1]["facet_filter"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][2]["count"]);
     ASSERT_EQ("87", res_obj["facet_counts"][0]["counts"][2]["value"].get<std::string>());
-    ASSERT_EQ("$Subjects(electives.grade)", res_obj["facet_counts"][0]["counts"][2]["facet_filter"].get<std::string>());
+    ASSERT_EQ("$Subjects(electives.grade: 87)", res_obj["facet_counts"][0]["counts"][2]["facet_filter"].get<std::string>());
 }
