@@ -52,7 +52,7 @@ Option<bool> ConversationModel::validate_model(const nlohmann::json& model_confi
         return CFConversationModel::validate_model(model_config);
     } else if(model_namespace == "vllm") {
         return vLLMConversationModel::validate_model(model_config);
-    } else if(model_namespace == "gcp") {
+    } else if(model_namespace == "google") {
         return GeminiConversationModel::validate_model(model_config);
     } else if(model_namespace == "azure") {
         return AzureConversationModel::validate_model(model_config);
@@ -107,7 +107,7 @@ Option<std::string> ConversationModel::get_answer_stream(const std::string& cont
         response_op =  CFConversationModel::get_answer_stream(context, prompt, system_prompt, model_config, req, res);
     } else if(model_namespace == "vllm") {
         response_op =  vLLMConversationModel::get_answer_stream(context, prompt, system_prompt, model_config, req, res);
-    } else if(model_namespace == "gcp") {
+    } else if(model_namespace == "google") {
         response_op =  GeminiConversationModel::get_answer_stream(context, prompt, system_prompt, model_config, req, res);
     } else if(model_namespace == "azure") {
         response_op = AzureConversationModel::get_answer_stream(model_config, prompt, context, system_prompt, req, res, conversation_id);
@@ -131,7 +131,7 @@ Option<std::string> ConversationModel::get_standalone_question(const nlohmann::j
         return CFConversationModel::get_standalone_question(conversation_history, question, model_config);
     } else if(model_namespace == "vllm") {
         return vLLMConversationModel::get_standalone_question(conversation_history, question, model_config);
-    } else if(model_namespace == "gcp") {
+    } else if(model_namespace == "google") {
         return GeminiConversationModel::get_standalone_question(conversation_history, question, model_config);
     } else if(model_namespace == "azure") {
         return AzureConversationModel::get_standalone_question(conversation_history, question, model_config);
@@ -149,7 +149,7 @@ Option<nlohmann::json> ConversationModel::format_question(const std::string& mes
         return CFConversationModel::format_question(message);
     } else if(model_namespace == "vllm") {
         return vLLMConversationModel::format_question(message);
-    } else if(model_namespace == "gcp") {
+    } else if(model_namespace == "google") {
         return GeminiConversationModel::format_question(message);
     } else if(model_namespace == "azure") {
         return AzureConversationModel::format_question(message);
@@ -167,7 +167,7 @@ Option<nlohmann::json> ConversationModel::format_answer(const std::string& messa
         return CFConversationModel::format_answer(message);
     } else if(model_namespace == "vllm") {
         return vLLMConversationModel::format_answer(message);
-    } else if(model_namespace == "gcp") {
+    } else if(model_namespace == "google") {
         return GeminiConversationModel::format_answer(message);
     } else if(model_namespace == "azure") {
         return AzureConversationModel::format_answer(message);
@@ -185,7 +185,7 @@ Option<size_t> ConversationModel::get_minimum_required_bytes(const nlohmann::jso
         return Option<size_t>(CFConversationModel::get_minimum_required_bytes());
     } else if(model_namespace == "vllm") {
         return Option<size_t>(vLLMConversationModel::get_minimum_required_bytes());
-    } else if(model_namespace == "gcp") {
+    } else if(model_namespace == "google") {
         return Option<size_t>(GeminiConversationModel::get_minimum_required_bytes());
     } else if(model_namespace == "azure") {
         return Option<size_t>(AzureConversationModel::get_minimum_required_bytes());
