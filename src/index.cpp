@@ -6368,7 +6368,7 @@ Option<bool> Index::search_wildcard(const std::vector<sort_by>& sort_fields, Top
         // loglog_counter for the intermediate topsters will be initialized, we only need to merge their sketches in
         // `Index::aggregate_topster`.
         delete topster;
-        topster = new Topster<KV>(topster_size, 0, false, group_found_params);
+        topster = new Topster<KV>(topster_size, 0, true, group_found_params, false);
     }
 
     filter_result_iterator->compute_iterators();
