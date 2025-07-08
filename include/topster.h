@@ -239,7 +239,7 @@ struct Topster {
     spp::sparse_hash_map<uint64_t, Topster<T, get_key, get_distinct_key, is_greater, is_smaller>*> group_kv_map;
 
     // For estimating the count of groups identified by `distinct_key`.
-    bool is_group_by_first_pass;
+    const bool is_group_by_first_pass;
     std::unique_ptr<LogLogBeta> loglog_counter;
 
     // For estimating the size of each group in the first pass of group_by. We'll have the exact size of each group in
@@ -252,7 +252,8 @@ struct Topster {
     }
 
     explicit Topster(size_t capacity, size_t distinct, bool is_group_by_first_pass,
-                     const group_found_params_t& group_found_params = {}) :
+                     const group_found_params_t& group_found_params = {},
+                     const bool& initialize_loglog_counter = true) :
                         MAX_SIZE(capacity), size(0), distinct(distinct),
                         is_group_by_first_pass(is_group_by_first_pass),
                         group_found_params(group_found_params) {
@@ -270,7 +271,7 @@ struct Topster {
             kvs[i] = &data[i];
         }
 
-        if (is_group_by_first_pass) {
+        if (is_group_by_first_pass && initialize_loglog_counter) {
             loglog_counter = std::make_unique<LogLogBeta>();
         }
 
@@ -330,7 +331,7 @@ struct Topster {
         const bool& is_group_by_second_pass = distinct && !is_group_by_first_pass;
 
         if(!is_group_by_second_pass && less_than_min_heap) {
-            if (is_group_by_first_pass) {
+            if (is_group_by_first_pass && loglog_counter != nullptr) {
                 loglog_counter->add(std::to_string(get_distinct_key(kv)));
             }
             // for non-distinct or first group_by pass, if incoming value is smaller than min-heap ignore
@@ -390,7 +391,7 @@ struct Topster {
                 heap_op_index = existing_kv->array_index;
                 map.erase(is_group_by_first_pass ? get_distinct_key(kvs[heap_op_index]) : get_key(kvs[heap_op_index]));
             } else {  // not duplicate
-                if (is_group_by_first_pass) {
+                if (is_group_by_first_pass && loglog_counter != nullptr) {
                     loglog_counter->add(std::to_string(key));
                 }
 
