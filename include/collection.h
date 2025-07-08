@@ -333,6 +333,8 @@ struct collection_search_args_t {
                              const std::string& stopwords_set,
                              const uint64_t& start_ts,
                              collection_search_args_t& args);
+
+    void override_union_global_params(union_global_params_t& global_params);
 };
 
 class Collection: std::enable_shared_from_this<Collection> {
@@ -1023,6 +1025,8 @@ public:
                                      const std::vector<facet_index_type_t>& facet_index_types,
                                      bool is_group_by_first_pass,
                                      std::set<uint32_t>& group_by_missing_value_ids) const;
+
+    Option<bool> process_facet_return_parent(std::vector<std::string>& facet_return_parent) const;
 
     // Override operations
 

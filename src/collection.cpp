@@ -2298,6 +2298,13 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         }
     }
 
+    if(!coll_args.facet_return_parent.empty()) {
+        auto op = process_facet_return_parent(coll_args.facet_return_parent);
+        if(!op.ok()) {
+            return op;
+        }
+    }
+
     std::vector<facet_index_type_t> facet_index_types;
     std::vector<std::string> facet_index_str_types;
     StringUtils::split(facet_index_type, facet_index_str_types, ",");
@@ -3195,8 +3202,15 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 the_field = ref_collection->get_schema().at(a_facet.field_name);
             }
 
-            bool should_return_parent = std::find(facet_return_parent.begin(), facet_return_parent.end(),
-                                                  the_field.name) != facet_return_parent.end();
+            bool should_return_parent;
+            if(facet_return_parent.size() == 1 && facet_return_parent[0] == "*") {
+                //wildcard match
+                should_return_parent = true;
+            } else {
+                should_return_parent = std::find(facet_return_parent.begin(), facet_return_parent.end(),
+                          the_field.name) != facet_return_parent.end();
+
+            }
 
             for(size_t fi = 0; fi < max_facets; fi++) {
                 // remap facet value hash with actual string
@@ -3580,7 +3594,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         auto& conversation_standalone_query = conversation_standalone_queries[search_index];
         auto& vector_query = vector_queries[search_index];
         auto& facets = facets_list[search_index];
-        auto& per_page = per_pages[search_index];
+        auto& per_page = per_pages[search_index] = union_params.per_page;;
         auto& transcribed_query = transcribed_queries[search_index];
         auto& override_metadata = override_metadata_list[search_index];
         const auto default_sorting_field_used = coll_args.sort_fields.empty() &&
@@ -7396,6 +7410,41 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
     return Option<bool>(true);
 }
 
+Option<bool> Collection::process_facet_return_parent(std::vector<std::string>& facet_return_parent) const {
+    std::vector<std::string> result;
+
+    for(auto val : facet_return_parent) {
+        if(val.back() == '*') {
+            if(val.size() == 1) { //pure wildcard
+                result.clear();
+                result.emplace_back("*");
+                facet_return_parent = result;
+                return Option<bool>(true);
+            } else { //fields ending with *
+                auto prefix = val.substr(0, val.size() - 1);
+                auto pair = search_schema.equal_prefix_range(prefix);
+
+                if(pair.first == pair.second) {
+                    // not found
+                    std::string error = "Could not find a facet_return_parent field for `" + val + "` in the schema.";
+                    return Option<bool>(404, error);
+                }
+
+                // Collect the fields that match the prefix and are marked as facet.
+                for(auto field = pair.first; field != pair.second; field++) {
+                    if(field->facet) {
+                        result.emplace_back(field->name);
+                    }
+                }
+            }
+        } else { //normal field name
+            result.emplace_back(val);
+        }
+    }
+    facet_return_parent = std::move(result);
+    return Option<bool>(true);
+}
+
 Option<bool> Collection::compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
                                                const uint32_t facet_query_num_typos,
                                                uint32_t* all_result_ids, const size_t& all_result_ids_len,
@@ -8483,4 +8532,11 @@ union_global_params_t::union_global_params_t(const std::map<std::string, std::st
     }
 
     fetch_size = std::min<size_t>(offset + per_page, limit_hits);
+}
+
+void collection_search_args_t::override_union_global_params(union_global_params_t& global_params) {
+    page = global_params.page;
+    per_page = global_params.per_page;
+    offset = global_params.offset;
+    limit_hits = global_params.limit_hits;
 }
