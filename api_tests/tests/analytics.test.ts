@@ -1032,10 +1032,10 @@ describe(Phases.MULTI_SNAPSHOT, () => {
     expect(res.ok).toBe(true);
     let data1 = AnalyticsEventList.safeParse(await res.json());
     expect(data1.success).toBe(true);
-    expect(data1.data?.events?.length).toBe(1);
+    expect(data1.data?.events?.length).toBe(2);
     expect(data1.data?.events?.[0]?.name).toBe("product_clicks");
     expect(data1.data?.events?.[0]?.event_type).toBe("click");
-    expect(data1.data?.events?.[0]?.doc_id).toEqual("1");
+    expect(data1.data?.events?.[0]?.doc_ids).toEqual(["2", "1"]);
     expect(data1.data?.events?.[0]?.user_id).toBe("user1");
   });
 });
