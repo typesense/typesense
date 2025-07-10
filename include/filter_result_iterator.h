@@ -17,13 +17,16 @@ struct reference_filter_result_t {
     uint32_t count = 0;
     uint32_t* docs = nullptr;
     bool is_reference_array_field = true;
+    bool delete_docs = true;
 
     // In case of nested join, references can further have references.
     std::map<std::string, reference_filter_result_t>* coll_to_references = nullptr;
 
     explicit reference_filter_result_t(uint32_t count = 0, uint32_t* docs = nullptr,
-                                        bool is_reference_array_field = true) : count(count), docs(docs),
-                                        is_reference_array_field(is_reference_array_field) {}
+                                       bool is_reference_array_field = true, bool delete_docs = true) :
+                                       count(count), docs(docs),
+                                       is_reference_array_field(is_reference_array_field),
+                                       delete_docs(delete_docs) {}
 
     reference_filter_result_t(const reference_filter_result_t& obj) {
         if (&obj == this) {
@@ -34,6 +37,7 @@ struct reference_filter_result_t {
         docs = new uint32_t[count];
         memcpy(docs, obj.docs, count * sizeof(uint32_t));
         is_reference_array_field = obj.is_reference_array_field;
+        delete_docs = obj.delete_docs;
 
         copy_references(obj, *this);
     }
@@ -47,6 +51,7 @@ struct reference_filter_result_t {
         docs = new uint32_t[count];
         memcpy(docs, obj.docs, count * sizeof(uint32_t));
         is_reference_array_field = obj.is_reference_array_field;
+        delete_docs = obj.delete_docs;
 
         copy_references(obj, *this);
         return *this;
@@ -61,6 +66,7 @@ struct reference_filter_result_t {
         docs = obj.docs;
         coll_to_references = obj.coll_to_references;
         is_reference_array_field = obj.is_reference_array_field;
+        delete_docs = obj.delete_docs;
 
         // Set default values in obj.
         obj.count = 0;
@@ -72,7 +78,9 @@ struct reference_filter_result_t {
     }
 
     ~reference_filter_result_t() {
-        delete[] docs;
+        if (delete_docs) {
+            delete[] docs;
+        }
         delete[] coll_to_references;
     }
 

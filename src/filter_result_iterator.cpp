@@ -2672,16 +2672,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
             continue;
         }
 
-        auto& result_reference = result->coll_to_references[i];
-        if (is_group_by_first_pass) {
-            // Copying since the references will be required in the second pass.
-            result_reference.insert(filter_result.coll_to_references[result_index].begin(),
-                                    filter_result.coll_to_references[result_index].end());
-        } else {
-            // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
-            // not used afterwards.
-            result_reference = std::move(filter_result.coll_to_references[result_index]);
-        }
+        result->coll_to_references[i] = filter_result.coll_to_references[result_index];
     }
 
     validity = result_index < filter_result.count ? valid : invalid;
@@ -2735,16 +2726,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
             continue;
         }
 
-        auto& result_reference = result->coll_to_references[i];
-        if (is_group_by_first_pass) {
-            // Copying since the references will be required in the second pass.
-            result_reference.insert(filter_result.coll_to_references[match_index].begin(),
-                                    filter_result.coll_to_references[match_index].end());
-        } else {
-            // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
-            // not used afterwards.
-            result_reference = std::move(filter_result.coll_to_references[match_index]);
-        }
+        result->coll_to_references[i] = filter_result.coll_to_references[match_index];
     }
 
     validity = result_index < filter_result.count ? valid : invalid;
@@ -2796,9 +2778,7 @@ void filter_result_iterator_t::compute_iterators() {
         validity = invalid;
         is_filter_result_initialized = false;
         return;
-    }
-
-    if (timeout_info != nullptr && is_timed_out()) {
+    } else if (is_filter_result_initialized || (timeout_info != nullptr && is_timed_out())) {
         return;
     }
 
@@ -2974,6 +2954,10 @@ void filter_result_iterator_t::compute_iterators() {
             is_timed_out(true);
         }
     } else if (f.is_string()) {
+        if (index->search_schema.count(filter_node->filter_exp.field_name) == 0) {
+            return;
+        }
+
         // Resetting posting_list_iterators.
         for (uint32_t i = 0; i < posting_lists.size(); i++) {
             auto const& plists = posting_lists[i];
