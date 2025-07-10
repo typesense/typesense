@@ -192,32 +192,6 @@ struct field {
         this->infix = (infix != -1) ? bool(infix) : false;
     }
 
-    field& operator=(const field& obj) noexcept {
-        if (&obj == this) {
-            return *this;
-        }
-
-        name = obj.name;
-        type = obj.type;
-        facet = obj.facet;
-        optional = obj.optional;
-        index = obj.index;
-        locale = obj.locale;
-        sort = obj.sort;
-        infix = obj.infix;
-        nested = obj.nested;
-        store = obj.store;
-        nested_array = obj.nested_array;
-        num_dim = obj.num_dim;
-        embed = obj.embed;
-        vec_dist = obj.vec_dist;
-        reference = obj.reference;
-        range_index = obj.range_index;
-        is_reference_helper = obj.is_reference_helper;
-
-        return *this;
-    }
-
     bool operator<(const field& f) const {
         return name < f.name;
     }
@@ -862,60 +836,6 @@ struct facet {
                    : field_name(field_name), facet_range_map(facet_range),
                    is_range_query(is_range_q), is_sort_by_alpha(sort_by_alpha), sort_order(order),
                    sort_field(sort_by_field), orig_index(orig_index), is_top_k(is_top_k), reference_collection_name(reference_collection_name) {
-    }
-
-    facet(const facet& obj) {
-        if (&obj == this) {
-            return;
-        }
-
-        field_name = obj.field_name;
-        result_map = obj.result_map;
-        value_result_map = obj.value_result_map;
-        fvalue_tokens = obj.fvalue_tokens;
-        hash_tokens = obj.hash_tokens;
-        hash_groups = obj.hash_groups;
-        stats = obj.stats;
-        facet_range_map = obj.facet_range_map;
-        is_range_query = obj.is_range_query;
-        sampled = obj.sampled;
-        is_wildcard_match = obj.is_wildcard_match;
-        is_intersected = obj.is_intersected;
-        is_sort_by_alpha = obj.is_sort_by_alpha;
-        sort_order = obj.sort_order;
-        sort_field = obj.sort_field;
-        orig_index = obj.orig_index;
-        reference_collection_name = obj.reference_collection_name;
-        references = obj.references;
-        is_top_k = obj.is_top_k;
-    }
-
-    facet& operator=(facet&& obj) noexcept {
-        if (&obj == this) {
-            return *this;
-        }
-
-        field_name = obj.field_name;
-        result_map = obj.result_map;
-        value_result_map = obj.value_result_map;
-        fvalue_tokens = obj.fvalue_tokens;
-        hash_tokens = obj.hash_tokens;
-        hash_groups = obj.hash_groups;
-        stats = obj.stats;
-        facet_range_map = std::move(obj.facet_range_map);
-        is_range_query = obj.is_range_query;
-        sampled = obj.sampled;
-        is_wildcard_match = obj.is_wildcard_match;
-        is_intersected = obj.is_intersected;
-        is_sort_by_alpha = obj.is_sort_by_alpha;
-        sort_order = obj.sort_order;
-        sort_field = obj.sort_field;
-        orig_index = obj.orig_index;
-        reference_collection_name = obj.reference_collection_name;
-        references = std::move(obj.references);
-        is_top_k = obj.is_top_k;
-
-        return *this;
     }
 };
 
