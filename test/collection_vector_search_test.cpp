@@ -5752,3 +5752,43 @@ nlohmann::json schema = R"({
     ASSERT_TRUE(parse_op.ok());
     ASSERT_FALSE(q.values.empty());
 }
+
+TEST_F(CollectionVectorTest, TestOptionalEmbeddingField) {
+nlohmann::json schema = R"({
+        "name": "test",
+        "fields": [
+            {
+                "name": "text",
+                "type": "string",
+                "store": false
+            },
+            {
+                "embed": {
+                    "from": [
+                        "text"
+                    ],
+                    "model_config": {
+                        "model_name": "ts/e5-small-v2"
+                    }
+                },
+                "name": "embedding",
+                "type": "float[]",
+                "optional": true
+            }
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll1 != nullptr);
+
+    nlohmann::json doc = R"({
+        "text": "This is a test document."
+    })"_json;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    doc["embedding"] = std::vector<float>{};
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+}
