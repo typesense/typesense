@@ -2003,57 +2003,150 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterUpdateOldDocs) {
 }
 
 TEST_F(CollectionSchemaChangeTest, AlterReferenceField) {
-    nlohmann::json req_json = R"({
-        "name": "coll",
-        "fields": [
-            {"name": ".*", "type": "auto"}
+    auto schema_json =
+            R"({
+                "name":  "books",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": true}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "id": "0",
+                "title": "Famous Five",
+                "author_id": "0"
+            })"_json,
+            R"({
+                "id": "1",
+                "title": "Space War Blues",
+                "author_id": "1"
+            })"_json,
+            R"({
+                "id": "2",
+                "title": "12:01 PM",
+                "author_id": "1"
+            })"_json,
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    const auto coll = collection_create_op.get();
+    for (auto const &json: documents) {
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "authors",
+                "fields": [
+                    {"name": "first_name", "type": "string"},
+                    {"name": "last_name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "0",
+                "first_name": "Enid",
+                "last_name": "Blyton"
+            })"_json,
+            R"({
+                "id": "1",
+                "first_name": "Richard",
+                "last_name": "Lupoff"
+            })"_json,
+            R"({
+                "id": "2",
+                "first_name": "William",
+                "last_name": "Shakespeare"
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+
+    auto collection_summary = coll->get_summary_json();
+    ASSERT_EQ("books", collection_summary["name"]);
+    ASSERT_EQ(3, collection_summary["num_documents"].get<size_t>());
+    ASSERT_EQ(2, collection_summary["fields"].size());
+    ASSERT_EQ("title", collection_summary["fields"][0]["name"]);
+    ASSERT_EQ("author_id", collection_summary["fields"][1]["name"]);
+    ASSERT_EQ("authors.id", collection_summary["fields"][1]["reference"]);
+
+    //first drop the reference field
+    auto alter_schema = R"({
+        "fields":[
+            {"name": "author_id", "drop": true }
         ]
     })"_json;
 
-    auto coll_op = collectionManager.create_collection(req_json);
-    ASSERT_TRUE(coll_op.ok());
+    auto op = coll->alter(alter_schema);
+    if(!op.ok()) {
+        LOG(ERROR) << op.error();
+        FAIL();
+    }
 
-    auto coll = coll_op.get();
-    nlohmann::json schema_change = R"({
-            "fields": [
-                {"name": "ref_field", "type": "string", "reference": "Ref_Coll.ref_field"}
-            ]
-        })"_json;
+    collection_summary = coll->get_summary_json();
 
-    auto schema_change_op = coll->alter(schema_change);
-    ASSERT_FALSE(schema_change_op.ok());
-    ASSERT_EQ("Adding/Modifying reference field `ref_field` using alter operation is not yet supported. "
-              "Workaround is to drop the whole collection and re-index it.", schema_change_op.error());
+    ASSERT_EQ("books", collection_summary["name"]);
+    ASSERT_EQ(3, collection_summary["num_documents"].get<size_t>());
+    ASSERT_EQ(1, collection_summary["fields"].size());
+    ASSERT_EQ("title", collection_summary["fields"][0]["name"]);
 
-    req_json = R"({
-        "name": "coll_1",
-        "fields": [
-            {"name": "reference_field", "type": "string", "reference": "Ref_coll.foo"}
+    //add new reference field
+    alter_schema = R"({
+        "fields":[
+            {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": true}
         ]
     })"_json;
 
-    coll_op = collectionManager.create_collection(req_json);
-    ASSERT_TRUE(coll_op.ok());
 
-    auto coll_1 = coll_op.get();
-    schema_change = R"({
-            "fields": [
-                {"name": "reference_field", "drop": true},
-                {"name": "reference_field", "type": "string", "reference": "Ref_Coll.foo"}
-            ]
-        })"_json;
+    op = coll->alter(alter_schema);
+    if(!op.ok()) {
+        LOG(ERROR) << op.error();
+        FAIL();
+    }
 
-    schema_change_op = coll_1->alter(schema_change);
-    ASSERT_FALSE(schema_change_op.ok());
-    ASSERT_EQ("Adding/Modifying reference field `reference_field` using alter operation is not yet supported. "
-              "Workaround is to drop the whole collection and re-index it.", schema_change_op.error());
+    collection_summary = coll->get_summary_json();
 
-    schema_change = R"({
-            "fields": [
-                {"name": "reference_field", "drop": true}
-            ]
-        })"_json;
+    ASSERT_EQ("books", collection_summary["name"]);
+    ASSERT_EQ(3, collection_summary["num_documents"].get<size_t>());
+    ASSERT_EQ(2, collection_summary["fields"].size());
+    ASSERT_EQ("title", collection_summary["fields"][0]["name"]);
+    ASSERT_EQ("author_id", collection_summary["fields"][1]["name"]);
+    ASSERT_EQ("authors.id", collection_summary["fields"][1]["reference"]);
 
-    schema_change_op = coll_1->alter(schema_change);
-    ASSERT_TRUE(schema_change_op.ok());
+    //try reindeixng
+    alter_schema = R"({
+        "fields":[
+            {"name": "author_id", "drop": true },
+            {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": true, "facet": true}
+        ]
+    })"_json;
+
+    op = coll->alter(alter_schema);
+    if(!op.ok()) {
+        LOG(ERROR) << op.error();
+        FAIL();
+    }
+
+    collection_summary = coll->get_summary_json();
+
+    ASSERT_EQ("books", collection_summary["name"]);
+    ASSERT_EQ(3, collection_summary["num_documents"].get<size_t>());
+    ASSERT_EQ(2, collection_summary["fields"].size());
+    ASSERT_EQ("title", collection_summary["fields"][0]["name"]);
+    ASSERT_EQ("author_id", collection_summary["fields"][1]["name"]);
+    ASSERT_EQ("authors.id", collection_summary["fields"][1]["reference"]);
+    ASSERT_EQ(true, collection_summary["fields"][1]["facet"].get<bool>());
 }

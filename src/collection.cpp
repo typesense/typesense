@@ -6185,6 +6185,13 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             iter_batch.clear();
         }
 
+        auto populate_reference_helper_fields_op = Join::populate_reference_helper_fields(document, search_schema, reference_fields,
+                                                                                     object_reference_helper_fields,
+                                                                                     false);
+        if (!populate_reference_helper_fields_op.ok()) {
+            return populate_reference_helper_fields_op;
+        }
+
         if(altered_docs % ((1 << 14)) == 0) {
             // having a cheaper higher layer check to prevent checking clock too often
             auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
@@ -6521,6 +6528,17 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         if(kv.value().contains("drop")) {
             delete_field_names.insert(field_name);
         }
+
+        //check for reference field, if found then remove reference field helper too
+        const auto& field_it = search_schema.find(field_name);
+        if(field_it != search_schema.end() && !field_it->reference.empty()) {
+            const auto reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+            if(search_schema.find(reference_helper_field) != search_schema.end()) {
+                delete_field_names.insert(reference_helper_field);
+            } else {
+                return Option<bool>(404,"reference helper field not found while altering field `" + field_name + "`");
+            }
+        }
     }
 
     std::unordered_map<std::string, field> new_dynamic_fields;
@@ -6557,7 +6575,14 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 del_fields.push_back(field_it.value());
                 updated_search_schema.erase(field_it.key());
                 updated_nested_fields.erase(field_it.key());
-                
+
+                if(!field_it->reference.empty()) {
+                    //validated before only, so directly add to fields to delete
+                    const auto ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+                    const auto ref_helper_field = search_schema.at(ref_helper_field_name);
+                    del_fields.push_back(ref_helper_field);
+                }
+
                 if(field_it.value().embed.count(fields::from) != 0) {
                     updated_embedding_fields.erase(field_it.key());
                 }
@@ -6613,14 +6638,18 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
                 auto& f = diff_fields.back();
 
-                // When `reference` field is present in schema, we add a reference helper field. So checking if the
-                // second last field has a reference property or not.
+                //for reference fields, need to add both original and reference helper field
                 if (f.is_reference_helper && diff_fields.size() > 1 &&
                             !diff_fields[diff_fields.size() - 2].reference.empty()) {
                     const auto& ref_field = diff_fields[diff_fields.size() - 2];
-                    return Option<bool>(400, "Adding/Modifying reference field `" + ref_field.name +
-                                                "` using alter operation is not yet supported. Workaround is to drop "
-                                                "the whole collection and re-index it.");
+
+                    updated_search_schema[ref_field.name] = ref_field;
+
+                    if(is_reindex) {
+                        reindex_fields.push_back(ref_field);
+                    } else {
+                        addition_fields.push_back(ref_field);
+                    }
                 }
 
                 if(f.is_dynamic()) {
@@ -7004,10 +7033,11 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
         }
     }
 
-    auto add_reference_helper_fields_op = Join::add_reference_helper_fields(document, schema, reference_fields,
-                                                                            object_reference_helper_fields, is_update);
-    if (!add_reference_helper_fields_op.ok()) {
-        return add_reference_helper_fields_op;
+    auto populate_reference_helper_fields_op = Join::populate_reference_helper_fields(document, schema, reference_fields,
+                                                                                 object_reference_helper_fields,
+                                                                                 is_update);
+    if (!populate_reference_helper_fields_op.ok()) {
+        return populate_reference_helper_fields_op;
     }
 
     return Option<bool>(true);
