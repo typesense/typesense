@@ -3874,3 +3874,119 @@ TEST_F(CollectionFacetingTest, FacetingWithNegativeInt) {
     ASSERT_FLOAT_EQ(-5, results["facet_counts"][0]["stats"]["min"]);
     ASSERT_FLOAT_EQ(25, results["facet_counts"][0]["stats"]["sum"]);
 }
+
+
+TEST_F(CollectionFacetingTest, FacetSearchWithFieldLevelSymbolsToIndex) {
+    // symbols_to_index defined at collection level
+    nlohmann::json schema2 = R"({
+        "name": "test3",
+        "fields": [
+            {
+                "name": "name",
+                "type": "string",
+                "facet": true,
+                "optional": false,
+                "index": true,
+                "sort": true,
+                "infix": false,
+                "locale": "",
+                "stem": false,
+                "stem_dictionary": "",
+                "store": true
+            }
+        ],
+        "default_sorting_field": "",
+        "enable_nested_fields": false,
+        "symbols_to_index": ["+"]
+    })"_json;
+
+    auto collection_create_op2 = collectionManager.create_collection(schema2);
+    ASSERT_TRUE(collection_create_op2.ok());
+    Collection* coll2 = collection_create_op2.get();
+
+    nlohmann::json doc;
+    doc["name"] = "C++";
+    auto add_op2 = coll2->add(doc.dump());
+    ASSERT_TRUE(add_op2.ok());
+
+    auto search_op2 = coll2->search("*", {}, "", {"name"}, {}, {0}, 10, 1,
+                                   token_ordering::FREQUENCY, {true}, 10,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "name:C++");
+
+    ASSERT_TRUE(search_op2.ok());
+    auto results2 = search_op2.get();
+
+    ASSERT_EQ(1, results2["facet_counts"].size());
+    ASSERT_EQ("name", results2["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, results2["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("C++", results2["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(1, results2["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("<mark>C++</mark>", results2["facet_counts"][0]["counts"][0]["highlighted"]);
+
+    // Also test regular search to ensure the document is indexed correctly
+    auto regular_search2 = coll2->search("C++", {"name"}, "", {}, {}, {0}, 10, 1,
+                                        token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(regular_search2.ok());
+    auto regular_results2 = regular_search2.get();
+    ASSERT_EQ(1, regular_results2["hits"].size());
+    ASSERT_EQ("C++", regular_results2["hits"][0]["document"]["name"]);
+
+    collectionManager.drop_collection("test3");
+
+    // symbols_to_index defined at field level but not at collection level
+    nlohmann::json schema = R"({
+        "name": "test2",
+        "fields": [
+            {
+                "name": "name",
+                "type": "string",
+                "facet": true,
+                "optional": false,
+                "index": true,
+                "sort": true,
+                "infix": false,
+                "locale": "",
+                "stem": false,
+                "stem_dictionary": "",
+                "store": true,
+                "symbols_to_index": ["+"]
+            }
+        ],
+        "default_sorting_field": "",
+        "enable_nested_fields": false,
+        "symbols_to_index": []
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    Collection* coll = collection_create_op.get();
+
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_op = coll->search("*", {}, "", {"name"}, {}, {0}, 10, 1,
+                                  token_ordering::FREQUENCY, {true}, 10,
+                                  spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "name:C++");
+
+    ASSERT_TRUE(search_op.ok());
+    auto results = search_op.get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ("name", results["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("C++", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("<mark>C++</mark>", results["facet_counts"][0]["counts"][0]["highlighted"]);
+
+    auto regular_search = coll->search("C++", {"name"}, "", {}, {}, {0}, 10, 1,
+                                       token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(regular_search.ok());
+    auto regular_results = regular_search.get();
+    ASSERT_EQ(1, regular_results["hits"].size());
+    ASSERT_EQ("C++", regular_results["hits"][0]["document"]["name"]);
+
+    collectionManager.drop_collection("test2");
+
+}
