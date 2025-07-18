@@ -6334,6 +6334,41 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         }
     }
 
+    std::unique_lock lck(mutex);
+
+    //update after successful alter operation
+    if(!del_fields.empty()) {
+        for(const auto& f : del_fields) {
+            if(reference_fields.find(f.name) != reference_fields.end()) {
+                reference_fields.erase(f.name);
+            }
+        }
+    }
+
+    if(!addition_fields.empty() || !reindex_fields.empty()) {
+        auto add_reference_field = [&] (const field& f) {
+            auto dot_index = f.reference.find('.');
+            auto ref_coll_name = f.reference.substr(0, dot_index);
+            auto ref_field_name = f.reference.substr(dot_index + 1);
+
+            reference_fields.emplace(f.name, reference_info_t(ref_coll_name, ref_field_name, f.is_async_reference));
+        };
+
+        for(const auto& f : addition_fields) {
+            if(!f.reference.empty()) {
+                add_reference_field(f);
+            }
+        }
+
+        for(const auto& f : reindex_fields) {
+            if(!f.reference.empty()) {
+                add_reference_field(f);
+            }
+        }
+    }
+
+    lck.unlock();
+
     // hide credentials in the alter payload return
     for(auto& field_json : alter_payload["fields"]) {
         if(field_json[fields::embed].count(fields::model_config) != 0) {
