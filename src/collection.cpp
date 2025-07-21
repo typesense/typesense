@@ -2274,6 +2274,12 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     // process weights for search fields
     std::vector<search_field_t> weighted_search_fields;
+    
+    std::string original_first_field_name;
+    if (!processed_search_fields.empty()) {
+        original_first_field_name = processed_search_fields[0].name;
+    }
+    
     process_search_field_weights(processed_search_fields, query_by_weights, weighted_search_fields);
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
@@ -2606,7 +2612,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                facet_index_types, enable_typos_for_numerical_tokens,
                                                enable_synonyms, synonym_prefix, synonyms_num_typos,
                                                enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches,
-                                               validate_field_names, this);
+                                               validate_field_names, this, original_first_field_name);
 
     return Option<bool>(true);
 }

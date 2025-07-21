@@ -2640,7 +2640,8 @@ Option<bool> Index::run_search(search_args* search_params) {
                           search_params->validate_field_names,
                           true,
                           group_by_missing_value_ids,
-                          search_params->collection
+                          search_params->collection,
+                          search_params->original_first_field_name
         );
 
         // The filter iterator can be updated in places like `Index::do_phrase_search`.
@@ -2811,7 +2812,8 @@ Option<bool> Index::run_search(search_args* search_params) {
                   search_params->validate_field_names,
                   false,
                   group_by_missing_value_ids,
-                  search_params->collection
+                  search_params->collection,
+                  search_params->original_first_field_name
     );
 
     // The filter iterator can be updated in places like `Index::do_phrase_search`.
@@ -3502,7 +3504,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool enable_lazy_filter,
                    bool enable_typos_for_alpha_numerical_tokens, const size_t& max_filter_by_candidates,
                    bool rerank_hybrid_matches, const bool& validate_field_names, bool is_group_by_first_pass,
-                   std::set<uint32_t>& group_by_missing_value_ids, Collection const *const collection) const {
+                   std::set<uint32_t>& group_by_missing_value_ids, Collection const *const collection,
+                   const std::string& original_first_field_name) const {
     std::shared_lock lock(mutex);
 
     group_found_params_t group_found_params{};
@@ -3806,7 +3809,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
         }
 
-        auto search_field_it = search_schema.find(the_fields[0].name);
+        // Use original first field name for synonym processing (before field reordering by weights)
+        const std::string& synonym_field_name = original_first_field_name.empty() ? 
+                                                the_fields[0].name : original_first_field_name;
+        auto search_field_it = search_schema.find(synonym_field_name);
         const bool found_search_field = (search_field_it != search_schema.end());
 
         if(enable_synonyms && found_search_field) {
