@@ -1706,3 +1706,60 @@ TEST_F(CollectionSynonymsTest, SynonymsWithMultiToken) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSynonymsTest, SynonymConsistentWithQueryByWeights) {
+    // synonyms should still be processed using the original first field's locale, not the reordered first field's locale
+    
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title_en", "type": "string"},
+            {"name": "title_de", "type": "string", "locale": "de"},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json synonym_json = {
+        {"id", "car-auto"},
+        {"synonyms", {"car", "automobile"}}
+    };
+    
+    ASSERT_TRUE(coll1->add_synonym(synonym_json).ok());
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["title_en"] = "red car";
+    doc1["title_de"] = "rotes auto";
+    doc1["points"] = 100;
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    nlohmann::json doc2;
+    doc2["id"] = "2";
+    doc2["title_en"] = "blue automobile";
+    doc2["title_de"] = "blaues fahrzeug";
+    doc2["points"] = 200;
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    // Test 1: Search without query_by_weights (original field order)
+    // Synonyms should work because first field (title_en) matches synonym locale (none)
+    auto res_no_weights = coll1->search("automobile", {"title_en", "title_de"}, "", {}, {}, {0}, 10, 1).get();
+    
+    // Test 2: Search with query_by_weights that puts German field first
+    std::vector<uint32_t> weights = {1, 3};
+    auto res_with_weights = coll1->search("automobile", {"title_en", "title_de"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0,
+                                        spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "",
+                                        30, 4, "", 40, {}, {}, {}, 0, "<mark>", "</mark>", weights).get();
+
+    ASSERT_EQ(res_no_weights["found"].get<uint32_t>(), res_with_weights["found"].get<uint32_t>());
+    ASSERT_EQ(res_no_weights["hits"].size(), res_with_weights["hits"].size());
+    
+    // Should find both documents due to synonyms (car <-> automobile)
+    ASSERT_EQ(2, res_no_weights["hits"].size());
+    ASSERT_EQ(2, res_with_weights["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
