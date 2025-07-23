@@ -1117,6 +1117,8 @@ public:
 
     bool is_referenced_in(const std::string& collection_name) const;
 
+    bool references(const std::string& collection_name) const;
+
     // Return a copy of the referenced field in the referencing collection to avoid schema lookups in the future. The
     // tradeoff is that we have to make sure any changes during collection alter operation are passed to the referencing
     // collection.

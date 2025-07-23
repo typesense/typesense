@@ -2787,10 +2787,12 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
         return Option<nlohmann::json>(init_index_search_args_op.code(), init_index_search_args_op.error());
     }
 
+    lock.unlock();
     const auto search_op = index->run_search(search_params_guard.get());
     if (!search_op.ok()) {
         return Option<nlohmann::json>(search_op.code(), search_op.error());
     }
+    lock.lock();
 
     const auto& search_params = search_params_guard.get();
     const auto& group_limit = search_params->group_limit;
@@ -7826,6 +7828,16 @@ int64_t Collection::reference_string_sort_score(const string &field_name,  const
 bool Collection::is_referenced_in(const std::string& collection_name) const {
     std::shared_lock lock(mutex);
     return referenced_in.count(collection_name) > 0;
+}
+
+bool Collection::references(const std::string& collection_name) const {
+    for (const auto& pair: reference_fields) {
+        const auto& ref_info = pair.second;
+        if (collection_name == ref_info.collection) {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::set<update_reference_info_t> Collection::add_referenced_ins(std::map<std::string, reference_info_t>& ref_infos) {
