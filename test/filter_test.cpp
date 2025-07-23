@@ -70,7 +70,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_TRUE(iter_null_filter_tree_test.init_status().ok());
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_null_filter_tree_test.validity);
 
-    Option<bool> filter_op = filter::parse_filter_query("name: foo", coll->get_schema(), store, doc_id_prefix,
+    Option<bool> filter_op = parse_filter_query("name: foo", coll->get_schema(), store, doc_id_prefix,
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -82,7 +82,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name: [`ALPHA1]X`,`ALPHA2]X`,`ALPHA3]X`]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name: [`ALPHA1]X`,`ALPHA2]X`,`ALPHA3]X`]", coll->get_schema(), store, doc_id_prefix,
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -94,7 +94,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name: Jeremy", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name: Jeremy", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -111,7 +111,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name: [Jeremy, Howard, Richard]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name: [Jeremy, Howard, Richard]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -128,7 +128,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name:= Jeremy Howard", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name:= Jeremy Howard", coll->get_schema(), store, doc_id_prefix,
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -145,7 +145,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags:= PLATINUM", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags:= PLATINUM", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -156,7 +156,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags:= [gold, silver]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags:= [gold, silver]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -174,7 +174,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags:!= gold", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags:!= gold", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -193,7 +193,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name: James || tags: bronze", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name: James || tags: bronze", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -223,7 +223,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name: James || (tags: gold && tags: silver)", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name: James || (tags: gold && tags: silver)", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -246,7 +246,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name: James || (tags: gold && tags: [silver, bronze])", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name: James || (tags: gold && tags: [silver, bronze])", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -264,7 +264,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: platinum || name: James", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: platinum || name: James", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -281,7 +281,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: gold && rating: < 6", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: gold && rating: < 6", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -315,7 +315,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: gold", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: gold", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -369,7 +369,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags:= [gold, silver]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags:= [gold, silver]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -410,7 +410,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: gold", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: gold", coll->get_schema(), store, doc_id_prefix,
                                                 filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -462,7 +462,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_TRUE(add_op.ok());
 
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: bronze", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: bronze", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
 
     auto iter_add_phrase_ids_test = new filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
@@ -483,7 +483,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     delete filter_tree_root;
 
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: [gold]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: [gold]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -502,7 +502,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     delete filter_tree_root;
 
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags:= bronze", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags:= bronze", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -522,7 +522,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     delete filter_tree_root;
 
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: gold", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: gold", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -541,7 +541,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: != [gold, silver]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: != [gold, silver]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
     auto iter_string_not_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
@@ -594,7 +594,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     }
 
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("in_stock: false", bool_coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("in_stock: false", bool_coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -614,7 +614,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     delete filter_tree_root;
 
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("in_stock: true", bool_coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("in_stock: true", bool_coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -667,7 +667,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     search_stop_us = UINT64_MAX; // `Index::fuzzy_search_fields` checks for timeout.
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: g*", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: g*", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -687,7 +687,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: != g*", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: != g*", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -793,7 +793,7 @@ TEST_F(FilterTest, FilterTreeInitialization) {
     const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
 
-    Option<bool> filter_op = filter::parse_filter_query("age: 0 && (rating: >0 && years: 2016)", coll->get_schema(), store, doc_id_prefix,
+    Option<bool> filter_op = parse_filter_query("age: 0 && (rating: >0 && years: 2016)", coll->get_schema(), store, doc_id_prefix,
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -811,7 +811,7 @@ TEST_F(FilterTest, FilterTreeInitialization) {
     delete filter_tree_root;
     filter_tree_root = nullptr;
 
-    filter_op = filter::parse_filter_query("(rating: >0 && years: 2016) && age: 0", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("(rating: >0 && years: 2016) && age: 0", coll->get_schema(), store, doc_id_prefix,
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -828,7 +828,7 @@ TEST_F(FilterTest, FilterTreeInitialization) {
     delete filter_tree_root;
     filter_tree_root = nullptr;
 
-    filter_op = filter::parse_filter_query("(age: 0 && rating: >0) || (age: 0 && rating: >0)", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("(age: 0 && rating: >0) || (age: 0 && rating: >0)", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -869,7 +869,7 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
     const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
 
-    Option<bool> filter_op = filter::parse_filter_query("tags:!= gold", coll->get_schema(), store, doc_id_prefix,
+    Option<bool> filter_op = parse_filter_query("tags:!= gold", coll->get_schema(), store, doc_id_prefix,
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -889,7 +889,7 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: != fine platinum", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: != fine platinum", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -918,7 +918,7 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: != [gold, silver]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: != [gold, silver]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
     auto iter_string_array_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
@@ -964,7 +964,7 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
         ASSERT_TRUE(add_op.ok());
     }
 
-    filter_op = filter::parse_filter_query("tags: != gold", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: != gold", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1013,7 +1013,7 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
     delete filter_tree_root;
     filter_tree_root = nullptr;
 
-    filter_op = filter::parse_filter_query("name: James || tags: != bronze", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name: James || tags: != bronze", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1038,7 +1038,7 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: != silver || tags: != gold", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: != silver || tags: != gold", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1062,7 +1062,7 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name: James && tags: != gold", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name: James && tags: != gold", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1112,7 +1112,7 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: != silver && tags: != gold", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("tags: != silver && tags: != gold", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1188,7 +1188,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
     const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
 
-    Option<bool> filter_op = filter::parse_filter_query("age: > 32", coll->get_schema(), store, doc_id_prefix,
+    Option<bool> filter_op = parse_filter_query("age: > 32", coll->get_schema(), store, doc_id_prefix,
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1209,7 +1209,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("age: >= 32", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("age: >= 32", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1276,7 +1276,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("age: != 21", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("age: != 21", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1325,7 +1325,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("age: != [21]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("age: != [21]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1379,7 +1379,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("age: [<=21, >32]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("age: [<=21, >32]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1432,7 +1432,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("age: != [<24, >44]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("age: != [<24, >44]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1486,7 +1486,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("age: [21..32, >44]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("age: [21..32, >44]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1544,7 +1544,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("rating: <5", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("rating: <5", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1563,7 +1563,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("rating: >5", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("rating: >5", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1611,7 +1611,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("rating: != 7.812", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("rating: != 7.812", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1660,7 +1660,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("rating: != [7.812]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("rating: != [7.812]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1714,7 +1714,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("rating: [< 1, >6]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("rating: [< 1, >6]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1767,7 +1767,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("rating: != [<1, >8]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("rating: != [<1, >8]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1821,7 +1821,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("rating: [0..6, >8]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("rating: [0..6, >8]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1909,7 +1909,7 @@ TEST_F(FilterTest, PrefixStringFilter) {
     filter_node_t* filter_tree_root = nullptr;
 
     search_stop_us = UINT64_MAX; // `Index::fuzzy_search_fields` checks for timeout.
-    Option<bool> filter_op = filter::parse_filter_query("name:= S*", coll->get_schema(), store, doc_id_prefix,
+    Option<bool> filter_op = parse_filter_query("name:= S*", coll->get_schema(), store, doc_id_prefix,
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1929,7 +1929,7 @@ TEST_F(FilterTest, PrefixStringFilter) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name: S*", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name: S*", coll->get_schema(), store, doc_id_prefix,
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1966,7 +1966,7 @@ TEST_F(FilterTest, PrefixStringFilter) {
     }
 
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name:= S*", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name:= S*", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -1999,7 +1999,7 @@ TEST_F(FilterTest, PrefixStringFilter) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name: S*", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name: S*", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -2032,7 +2032,7 @@ TEST_F(FilterTest, PrefixStringFilter) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name:= Steve R*", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name:= Steve R*", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -2051,7 +2051,7 @@ TEST_F(FilterTest, PrefixStringFilter) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name: Steve R*", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name: Steve R*", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -2085,7 +2085,7 @@ TEST_F(FilterTest, PrefixStringFilter) {
     }
 
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name:= Steve R*", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name:= Steve R*", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -2118,7 +2118,7 @@ TEST_F(FilterTest, PrefixStringFilter) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name: Steve R*", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("name: Steve R*", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -2183,7 +2183,7 @@ TEST_F(FilterTest, IdFilterIterator) {
     const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
 
-    Option<bool> filter_op = filter::parse_filter_query("id: *", coll->get_schema(), store, doc_id_prefix,
+    Option<bool> filter_op = parse_filter_query("id: *", coll->get_schema(), store, doc_id_prefix,
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -2226,7 +2226,7 @@ TEST_F(FilterTest, IdFilterIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("id: != [foo, *, bar]", coll->get_schema(), store, doc_id_prefix,
+    filter_op = parse_filter_query("id: != [foo, *, bar]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -2284,7 +2284,7 @@ TEST_F(FilterTest, ObjectFitlterIterator) {
     }
     const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
-    Option<bool> filter_op = filter::parse_filter_query("ingredients.{name : cheese && concentration : >50}",
+    Option<bool> filter_op = parse_filter_query("ingredients.{name : cheese && concentration : >50}",
                                                         coll->get_schema(), store, doc_id_prefix, filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
     auto const enable_lazy_evaluation = true;
@@ -2334,7 +2334,7 @@ TEST_F(FilterTest, ObjectFitlterIterator) {
     delete result;
 
     delete filter_tree_root;
-    filter_op = filter::parse_filter_query("ingredients.{name : cheese && concentration : [25..45]}",
+    filter_op = parse_filter_query("ingredients.{name : cheese && concentration : [25..45]}",
                                                         coll->get_schema(), store, doc_id_prefix, filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
     root_object_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
@@ -2365,7 +2365,7 @@ TEST_F(FilterTest, ObjectFitlterIterator) {
     delete filter_tree_root;
     filter_tree_root = nullptr;
 
-    filter_op = filter::parse_filter_query("ingredients.{name : cheese && concentration : >50} || "
+    filter_op = parse_filter_query("ingredients.{name : cheese && concentration : >50} || "
                                            "ingredients.{name : cheese && concentration : [25..45]}",
                                            coll->get_schema(), store, doc_id_prefix, filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
@@ -2397,7 +2397,7 @@ TEST_F(FilterTest, ObjectFitlterIterator) {
     delete filter_tree_root;
     filter_tree_root = nullptr;
 
-    filter_op = filter::parse_filter_query("ingredients.{ (name: spinach && concentration: >50) || "
+    filter_op = parse_filter_query("ingredients.{ (name: spinach && concentration: >50) || "
                                                             "(name: jalepeno && concentration: [25..45]) ||"
                                                             "(name: pizza sauce && concentration: <30) }",
                                            coll->get_schema(), store, doc_id_prefix, filter_tree_root);
@@ -2430,7 +2430,7 @@ TEST_F(FilterTest, ObjectFitlterIterator) {
     delete filter_tree_root;
     filter_tree_root = nullptr;
 
-    filter_op = filter::parse_filter_query("name: p* && ingredients.{name : cheese && concentration : [25..45]}",
+    filter_op = parse_filter_query("name: p* && ingredients.{name : cheese && concentration : [25..45]}",
                                            coll->get_schema(), store, doc_id_prefix, filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -2462,7 +2462,7 @@ TEST_F(FilterTest, ObjectFitlterIterator) {
 
     delete filter_tree_root;
 
-    filter_op = filter::parse_filter_query("ingredients.{name: != spinach && concentration: >50}",
+    filter_op = parse_filter_query("ingredients.{name: != spinach && concentration: >50}",
                                            coll->get_schema(), store, doc_id_prefix, filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 

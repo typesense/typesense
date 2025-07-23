@@ -100,7 +100,7 @@ TEST_F(PersonalizationAutoEmbeddingTest, TestAutoEmbeddingFields) {
     auto fields = collection->get_fields();
     bool has_user_embedding = false;
     bool has_item_embedding = false;
-    
+
     for (const auto& field : fields) {
         if (field.name == "user_embedding") {
             has_user_embedding = true;
@@ -113,7 +113,7 @@ TEST_F(PersonalizationAutoEmbeddingTest, TestAutoEmbeddingFields) {
             ASSERT_EQ(field.embed["model_config"]["personalization_embedding_type"], "item");
         }
     }
-    
+
     ASSERT_TRUE(has_user_embedding);
     ASSERT_TRUE(has_item_embedding);
 
@@ -167,7 +167,7 @@ TEST_F(PersonalizationAutoEmbeddingTest, TestAutoEmbeddingFields) {
     ASSERT_TRUE(doc_op_updated.ok());
     ASSERT_EQ(document1_updated["user_embedding"].size(), 256);
     ASSERT_EQ(document1_updated["item_embedding"].size(), 256);
-    
+
     bool user_embeddings_different = false;
     for (size_t i = 0; i < document0["user_embedding"].size(); i++) {
         if (document0["user_embedding"][i] != document0_updated["user_embedding"][i]) {

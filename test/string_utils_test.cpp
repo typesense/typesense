@@ -359,7 +359,7 @@ TEST(StringUtilsTest, ShouldSplitRangeFacet){
 
 void tokenizeTestHelper(const std::string& filter_query, const std::vector<std::string>& tokenList) {
     std::queue<std::string> tokenizeOutput;
-    auto tokenize_op = filter::tokenize_filter_query(filter_query, tokenizeOutput);
+    auto tokenize_op = tokenize_filter_query(filter_query, tokenizeOutput);
     ASSERT_TRUE(tokenize_op.ok());
     for (auto const& token: tokenList) {
         ASSERT_EQ(token, tokenizeOutput.front());

@@ -36,7 +36,7 @@ protected:
 
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf " + state_dir_path + " && mkdir -p " + state_dir_path).c_str());
-        
+
         LOG(INFO) << "Truncating and creating: " << analytics_dir_path;
         system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
         analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);

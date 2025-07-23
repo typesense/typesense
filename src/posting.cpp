@@ -529,14 +529,14 @@ void posting_t::get_or_iterator(void*& raw_posting_list, std::vector<or_iterator
         posting_list_t* full_posting_list = compact_posting_list->to_full_posting_list();
         expanded_plists.emplace_back(full_posting_list);
 
-        std::vector<posting_list_t::iterator_t> its;
-        its.push_back(full_posting_list->new_iterator(nullptr, nullptr, 0));
-        or_iterators.emplace_back(or_iterator_t(its));
+        std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> its;
+        its.push_back(full_posting_list->new_iterator_ptr(nullptr, nullptr, 0));
+        or_iterators.emplace_back(or_iterator_t(std::move(its)));
     } else {
         posting_list_t* full_posting_list = (posting_list_t*)(raw_posting_list);
-        std::vector<posting_list_t::iterator_t> its;
-        its.push_back(full_posting_list->new_iterator(nullptr, nullptr, 0));
-        or_iterators.emplace_back(or_iterator_t(its));
+        std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> its;
+        its.push_back(full_posting_list->new_iterator_ptr(nullptr, nullptr, 0));
+        or_iterators.emplace_back(or_iterator_t(std::move(its)));
     }
 }
 

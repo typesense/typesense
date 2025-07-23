@@ -132,7 +132,7 @@ TEST_F(PersonalizationModelManagerTest, GetAllModelsEmpty) {
 TEST_F(PersonalizationModelManagerTest, GetAllModelsWithData) {
     nlohmann::json model1 = create_valid_model("test_id1");
     nlohmann::json model2 = create_valid_model("test_id2");
-    
+
     PersonalizationModelManager::add_model(model1, "test_id1", true, get_onnx_model_archive());
     PersonalizationModelManager::add_model(model2, "test_id2", true, get_onnx_model_archive());
 

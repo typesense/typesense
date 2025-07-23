@@ -25,6 +25,7 @@
 #include "tsl/htrie_set.h"
 #include <tsl/htrie_map.h>
 #include <or_iterator.h>
+#include <join.h>
 #include "id_list.h"
 #include "synonym_index.h"
 #include "override.h"
@@ -34,7 +35,6 @@
 #include "facet_index.h"
 #include "numeric_range_trie.h"
 #include "geopolygon_index.h"
-
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
 using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
@@ -83,25 +83,6 @@ struct query_tokens_t {
     std::vector<std::vector<std::string>> q_exclude_tokens;
     std::vector<std::vector<std::string>> q_phrases;
     std::vector<std::vector<std::string>> q_synonyms;
-};
-
-enum enable_t {
-    always,
-    fallback,
-    off
-};
-
-struct search_field_t {
-    std::string name;
-    std::string str_name;   // for lookup of non-string fields in art index
-    size_t weight;
-    size_t num_typos;
-    bool prefix;
-    enable_t infix;
-
-    search_field_t(const std::string& name, const std::string& str_name, size_t weight, size_t num_typos,
-                   bool prefix, enable_t infix):
-            name(name), str_name(str_name), weight(weight), num_typos(num_typos), prefix(prefix), infix(infix) { }
 };
 
 enum text_match_type_t {
@@ -390,20 +371,6 @@ struct group_by_field_it_t {
     bool is_string;
 };
 
-struct Hasher32 {
-    // Helps to spread the hash key and is used for sort index.
-    // see: https://github.com/greg7mdp/sparsepp/issues/21#issuecomment-270816275
-    size_t operator()(uint32_t k) const { return (k ^ 2166136261U)  * 16777619UL; }
-};
-
-struct negate_left_join_t {
-    bool is_negate_join = false;
-    size_t excluded_ids_size = 0;
-    std::unique_ptr<uint32_t []> excluded_ids = nullptr;
-
-    negate_left_join_t() = default;
-};
-
 struct pair_hash {
     template <class T1, class T2>
     std::size_t operator() (const std::pair<T1, T2> &pair) const {
@@ -577,7 +544,7 @@ private:
                                        bool is_group_by_first_pass,
                                        std::set<uint32_t>& group_by_missing_value_ids) const;
 
-    static void popular_fields_of_token(const spp::sparse_hash_map<std::string, art_tree*>& search_index,
+    static void popular_fields_of_token(const std::vector<art_tree*>& art_trees,
                                         const std::string& previous_token,
                                         const std::vector<search_field_t>& the_fields,
                                         const size_t num_search_fields,
@@ -720,7 +687,7 @@ public:
                            const bool prioritize_token_position,
                            size_t num_query_tokens,
                            int syn_orig_num_tokens,
-                           const std::vector<posting_list_t::iterator_t>& posting_lists);
+                           const std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& posting_lists);
 
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
 
@@ -953,9 +920,9 @@ public:
 
     size_t num_seq_ids() const;
 
-    void handle_exclusion(const size_t num_search_fields, std::vector<query_tokens_t>& field_query_tokens,
-                          const std::vector<search_field_t>& search_fields, uint32_t*& exclude_token_ids,
-                          size_t& exclude_token_ids_size) const;
+    Option<bool> handle_exclusion(const size_t num_search_fields, std::vector<query_tokens_t>& field_query_tokens,
+                                  const std::vector<search_field_t>& search_fields, uint32_t*& exclude_token_ids,
+                                  size_t& exclude_token_ids_size) const;
 
     Option<bool> do_infix_search(const size_t num_search_fields, const std::vector<search_field_t>& the_fields,
                                  const std::vector<enable_t>& infixes,
@@ -1113,7 +1080,7 @@ public:
                                      const int syn_orig_num_tokens,
                                      const uint32_t seq_id,
                                      const std::vector<sort_by>& sort_fields,
-                                     const tsl::htrie_map<char, field>& search_schema,
+                                     const std::vector<bool>& is_array_search_fields,
                                      const std::vector<std::vector<art_leaf*>>& searched_queries,
                                      const int* sort_order,
                                      int64_t& out_best_field_match_score);
@@ -1215,6 +1182,20 @@ public:
                                      bool is_group_by_first_pass,
                                      std::set<uint32_t>& group_by_missing_value_ids,
                                      Collection const *const collection) const;
+
+    Option<art_tree*> get_art_tree_with_lock(const std::string& field_name) const;
+
+    std::unique_ptr<posting_list_t::ref_iterator_t> get_ref_iterator(const std::string& referencing_collection_name,
+                                                                     const std::string& query_field_name,
+                                                                     const std::string& token_str,
+                                                                     uint32_t field_id,
+                                                                     const std::string& reference_field_name) const;
+
+    std::unique_ptr<posting_list_t::iterator_t> get_posting_iterator(const std::string& field_name,
+                                                                     const std::string& token,
+                                                                     const uint32_t& field_id,
+                                                                     std::vector<posting_list_t*>& expanded_plists,
+                                                                     art_leaf*& leaf) const;
 };
 
 template<class T>

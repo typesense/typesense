@@ -1,7 +1,6 @@
 #pragma once
 
 #include <vector>
-#include <filter_result_iterator.h>
 #include "posting_list.h"
 
 /*
@@ -9,13 +8,13 @@
  */
 class or_iterator_t {
 private:
-    std::vector<posting_list_t::iterator_t> its;
+    std::vector<std::unique_ptr<posting_list_t::base_iterator_t>> its;
     int curr_index = 0;
 
     void advance_smallest();
 
 public:
-    explicit or_iterator_t(std::vector<posting_list_t::iterator_t>& its);
+    explicit or_iterator_t(std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>&& its);
 
     or_iterator_t(or_iterator_t&& rhs) noexcept;
     or_iterator_t& operator=(or_iterator_t&& rhs) noexcept;
@@ -45,7 +44,7 @@ public:
 
     [[nodiscard]] uint32_t id() const;
 
-    [[nodiscard]] const std::vector<posting_list_t::iterator_t>& get_its() const;
+    [[nodiscard]] const std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& get_its() const;
 
     static bool take_id(result_iter_state_t& istate, uint32_t id, bool& is_excluded);
 

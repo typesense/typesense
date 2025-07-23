@@ -2186,3 +2186,55 @@ void CollectionManager::remove_internal_fields(std::map<std::string, std::string
         }
     }
 }
+
+Option<field> CollectionManager::get_collection_field(const std::string& collection_name,
+                                                      const std::string& field_name) {
+    auto& cm = CollectionManager::get_instance();
+    auto ref_collection = cm.get_collection(collection_name);
+    if (ref_collection == nullptr) {
+        return Option<field>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return ref_collection->get_field_with_lock(field_name);
+}
+
+Option<art_tree*> CollectionManager::get_art_tree(const std::string& collection_name,
+                                                  const std::string& field_name) {
+    auto& cm = CollectionManager::get_instance();
+    auto ref_collection = cm.get_collection(collection_name);
+    if (ref_collection == nullptr) {
+        return Option<art_tree*>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return ref_collection->get_art_tree_with_lock(field_name);
+}
+
+std::unique_ptr<posting_list_t::ref_iterator_t> CollectionManager::get_ref_iterator(const std::string& collection_name,
+                                                                                    const std::string& ref_coll_name,
+                                                                                    const std::string& ref_field_name,
+                                                                                    const std::string& token_str,
+                                                                                    uint32_t field_id,
+                                                                                    const std::string& reference_field_name) {
+    auto& cm = CollectionManager::get_instance();
+    auto ref_collection = cm.get_collection(ref_coll_name);
+    if (ref_collection == nullptr) {
+        return nullptr;
+    }
+
+    return ref_collection->get_ref_iterator(collection_name, ref_field_name, token_str, field_id, reference_field_name);
+}
+
+std::unique_ptr<posting_list_t::iterator_t> CollectionManager::get_posting_iterator(const std::string& collection_name,
+                                                                                    const std::string& field_name,
+                                                                                    const std::string& token,
+                                                                                    const uint32_t& field_id,
+                                                                                    std::vector<posting_list_t*>& expanded_plists,
+                                                                                    art_leaf*& leaf) {
+    auto& cm = CollectionManager::get_instance();
+    auto ref_collection = cm.get_collection(collection_name);
+    if (ref_collection == nullptr) {
+        return nullptr;
+    }
+
+    return ref_collection->get_posting_iterator(field_name, token, field_id, expanded_plists, leaf);
+}

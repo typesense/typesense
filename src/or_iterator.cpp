@@ -1,5 +1,6 @@
 #include "or_iterator.h"
 #include "filter.h"
+#include "filter_result_iterator.h"
 
 bool or_iterator_t::at_end(const std::vector<or_iterator_t>& its) {
     // if any iterator is invalid, we stop
@@ -119,16 +120,16 @@ bool or_iterator_t::next() {
 
 void or_iterator_t::advance_smallest() {
     // we will advance the smallest value and point current_index to next smallest value across the lists
-    auto smallest_value = its[curr_index].id();
+    auto smallest_value = its[curr_index]->id();
     curr_index = 0;
 
     for(int i = 0; i < int(its.size()); i++) {
-        if(its[i].id() == smallest_value) {
-            its[i].next();
+        if(its[i]->id() == smallest_value) {
+            its[i]->next();
         }
 
-        if(!its[i].valid()) {
-            its[i].reset_cache();
+        if(!its[i]->valid()) {
+            its[i]->reset_cache();
             its.erase(its.cbegin() + i);
             i--;
         }
@@ -136,9 +137,9 @@ void or_iterator_t::advance_smallest() {
 
     uint32_t new_smallest_value = UINT32_MAX;
     for(int i = 0; i < int(its.size()); i++) {
-        if(its[i].id() < new_smallest_value) {
+        if(its[i]->id() < new_smallest_value) {
             curr_index = i;
-            new_smallest_value = its[i].id();
+            new_smallest_value = its[i]->id();
         }
     }
 }
@@ -149,16 +150,16 @@ bool or_iterator_t::skip_to(uint32_t id) {
 
     for(size_t i = 0; i < its.size(); i++) {
         auto& it = its[i];
-        it.skip_to(id);
+        it->skip_to(id);
 
-        if(!it.valid()) {
-            its[i].reset_cache();
+        if(!it->valid()) {
+            its[i]->reset_cache();
             its.erase(its.begin() + i);
             i--;
         } else {
-            if(it.id() < current_value) {
+            if(it->id() < current_value) {
                 curr_index = i;
-                current_value = it.id();
+                current_value = it->id();
             }
         }
     }
@@ -167,7 +168,7 @@ bool or_iterator_t::skip_to(uint32_t id) {
 }
 
 uint32_t or_iterator_t::id() const {
-    return its[curr_index].id();
+    return its[curr_index]->id();
 }
 
 bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_excluded) {
@@ -271,11 +272,9 @@ bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_e
     return true;
 }
 
-or_iterator_t::or_iterator_t(std::vector<posting_list_t::iterator_t>& its): its(std::move(its)) {
-    curr_index = 0;
-
+or_iterator_t::or_iterator_t(std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>&& its) : its(std::move(its)) {
     for(size_t i = 1; i < this->its.size(); i++) {
-        if(this->its[i].id() < this->its[curr_index].id()) {
+        if(this->its[i]->id() < this->its[curr_index]->id()) {
             curr_index = i;
         }
     }
@@ -292,13 +291,13 @@ or_iterator_t& or_iterator_t::operator=(or_iterator_t&& rhs) noexcept {
     return *this;
 }
 
-const std::vector<posting_list_t::iterator_t>& or_iterator_t::get_its() const {
+const std::vector<std::unique_ptr<posting_list_t::base_iterator_t>>& or_iterator_t::get_its() const {
     return its;
 }
 
 or_iterator_t::~or_iterator_t() noexcept {
     for(auto& it: its) {
-        it.reset_cache();
+        it->reset_cache();
     }
 }
 

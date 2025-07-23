@@ -1218,9 +1218,9 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     return Option<bool>(400, "The eval expression in sort_by is empty.");
                 }
 
-                Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
-                                                                          store, "", sort_field_std.eval.filter_trees[j],
-                                                                          validate_field_names);
+                Option<bool> parse_filter_op = parse_filter_query(filter_exp, search_schema,
+                                                                  store, "", sort_field_std.eval.filter_trees[j],
+                                                                  validate_field_names);
                 if (!parse_filter_op.ok()) {
                     return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
                 }
@@ -1883,6 +1883,218 @@ Option<int64_t> Collection::get_geo_distance_with_lock(const std::string& geo_fi
     return index->get_geo_distance_with_lock(geo_field_name, is_asc, seq_ids_vec, reference_lat_lng, round_distance);
 }
 
+Option<bool> Collection::process_search_fields_with_lock(const std::vector<std::string>& raw_search_fields,
+                                                         const bool& validate_field_names, bool& ignored_missing_fields,
+                                                         size_t& num_embed_fields, vector_query_t& vector_query, std::string& query,
+                                                         const size_t& remote_embedding_timeout_ms, const std::vector<bool>& prefixes,
+                                                         const size_t& remote_embedding_num_tries,
+                                                         const std::vector<uint32_t>& raw_query_by_weights,
+                                                         const std::vector<uint32_t>& num_typos, const std::vector<enable_t>& infixes,
+                                                         std::vector<search_field_t>& processed_search_fields,
+                                                         std::vector<uint32_t>& query_by_weights,
+                                                         const std::string& calling_collection_name) const {
+    std::shared_lock lock(mutex);
+    auto op = process_search_fields(raw_search_fields, validate_field_names, ignored_missing_fields, num_embed_fields,
+                                    vector_query, query, remote_embedding_timeout_ms, prefixes, remote_embedding_num_tries,
+                                    raw_query_by_weights, num_typos, infixes, processed_search_fields, query_by_weights);
+    if (!op.ok()) {
+        return op;
+    }
+
+    const auto it = referenced_in.find(calling_collection_name);
+    if (it != referenced_in.end()) {
+        processed_search_fields.back().ref_info = base_reference_info_t(it->first, it->second);
+    }
+    return op;
+}
+
+Option<bool> Collection::process_search_fields(const std::vector<std::string>& raw_search_fields,
+                                               const bool& validate_field_names, bool& ignored_missing_fields,
+                                               size_t& num_embed_fields, vector_query_t& vector_query, std::string& query,
+                                               const size_t& remote_embedding_timeout_ms, const std::vector<bool>& prefixes,
+                                               const size_t& remote_embedding_num_tries,
+                                               const std::vector<uint32_t>& raw_query_by_weights,
+                                               const std::vector<uint32_t>& num_typos, const std::vector<enable_t>& infixes,
+                                               std::vector<search_field_t>& processed_search_fields,
+                                               std::vector<uint32_t>& query_by_weights) const {
+    for(size_t i = 0; i < raw_search_fields.size(); i++) {
+        const std::string& field_name = raw_search_fields[i];
+        if(field_name == "id") {
+            // `id` field needs to be handled separately, we will not handle for now
+            std::string error = "Cannot use `id` as a query by field.";
+            return Option<bool>(400, error);
+        } else if (field_name[0] == '$') {
+            // Not checking for closing parenthesis since we use `StringUtils::split` to split on `,`.
+            // `$Authors(first_name, last_name)` will be split into: `$Authors(first_name` and `last_name)`
+            const std::regex join_pattern(R"(^\$.+\(.+)");
+            if (std::regex_search(field_name, join_pattern)) {
+                return Option<bool>(400, "Query by reference follows `$ReferencedCollectionName.fieldName` convention.");
+            }
+
+            const auto& pos = field_name.find('.');
+            if (pos != std::string::npos && pos > 1) {
+                const auto& ref_collection_name = field_name.substr(1, pos - 1);
+                auto& cm = CollectionManager::get_instance();
+                auto ref_collection = cm.get_collection(ref_collection_name);
+                if (ref_collection == nullptr) {
+                    return Option<bool>(400, "Referenced collection `" + ref_collection_name + "` in query_by not found.");
+                }
+
+                const std::vector<std::string> raw_ref_search_fields = {field_name.substr(pos + 1)};
+                const auto& process_op = ref_collection->process_search_fields_with_lock(raw_ref_search_fields,
+                                                                                         validate_field_names,
+                                                                                         ignored_missing_fields,
+                                                                                         num_embed_fields, vector_query,
+                                                                                         query, remote_embedding_timeout_ms,
+                                                                                         // todo: ... prefixes
+                                                                                         prefixes, remote_embedding_num_tries,
+                                                                                         // todo: only pass the weight of the current ref field.
+                                                                                         // todo: ... num_typos
+                                                                                         raw_query_by_weights, num_typos,
+                                                                                         // todo: ... infixes
+                                                                                         infixes, processed_search_fields,
+                                                                                         query_by_weights, name);
+                if (!process_op.ok()) {
+                    return Option<bool>(process_op.code(), "Error while processing `" + ref_collection_name +
+                                                            "` collection's query_by: " + process_op.error());
+                }
+
+                processed_search_fields.back().referenced_collection_name = ref_collection_name;
+
+                const auto it = referenced_in.find(ref_collection_name);
+                if (it != referenced_in.end()) {
+                    processed_search_fields.back().ref_info = base_reference_info_t(it->first, it->second);
+                }
+                continue;
+            }
+        }
+
+        std::vector<std::string> expanded_search_fields;
+        auto field_op = extract_field_name(field_name, search_schema, expanded_search_fields, true, enable_nested_fields);
+        if(!field_op.ok()) {
+            if(field_op.code() == 404 && !validate_field_names) {
+                ignored_missing_fields = true;
+                continue;
+            }
+
+            return field_op;
+        }
+
+        for(const auto& expanded_search_field: expanded_search_fields) {
+            if (search_schema.count(expanded_search_field) == 0) {
+                return Option<bool>(404, "Could not find `" + expanded_search_field + "` field in the schema.");
+            }
+            auto search_field = search_schema.at(expanded_search_field);
+
+            if(search_field.num_dim > 0) {
+                num_embed_fields++;
+
+                if(num_embed_fields > 1 ||
+                   (!vector_query.field_name.empty() && search_field.name != vector_query.field_name)) {
+                    std::string error = "Only one embedding field is allowed in the query.";
+                    return Option<bool>(400, error);
+                }
+
+                if(!search_field.index) {
+                    std::string error = "Field `" + search_field.name + "` is marked as a non-indexed field in the schema.";
+                    return Option<bool>(400, error);
+                }
+
+                // if(EmbedderManager::model_dir.empty()) {
+                //     std::string error = "Text embedding is not enabled. Please set `model-dir` at startup.";
+                //     return Option<nlohmann::json>(400, error);
+                // }
+
+                if(query == "*") {
+                    // ignore embedding field if query is a wildcard
+                    continue;
+                }
+
+                if(embedding_fields.find(search_field.name) == embedding_fields.end()) {
+                    std::string error = "Vector field `" + search_field.name + "` is not an auto-embedding field, do not use `query_by` with it, use `vector_query` instead.";
+                    return Option<bool>(400, error);
+                }
+
+                EmbedderManager& embedder_manager = EmbedderManager::get_instance();
+                auto embedder_op = embedder_manager.get_text_embedder(search_field.embed[fields::model_config]);
+                if(!embedder_op.ok()) {
+                    return Option<bool>(400, embedder_op.error());
+                }
+
+                auto remote_embedding_timeout_us = remote_embedding_timeout_ms * 1000;
+                if((std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > remote_embedding_timeout_us) {
+                    std::string error = "Request timed out.";
+                    return Option<bool>(500, error);
+                }
+
+                auto embedder = embedder_op.get();
+
+                if(embedder->is_remote()) {
+                    // return error if prefix search is used with openai embedder
+                    if((prefixes.size() == 1 && prefixes[0] == true) || (prefixes.size() > 1 &&  prefixes[i] == true)) {
+                        std::string error = "Prefix search is not supported for remote embedders. Please set `prefix=false` as an additional search parameter to disable prefix searching.";
+                        return Option<bool>(400, error);
+                    }
+
+                    if(remote_embedding_num_tries == 0) {
+                        std::string error = "`remote_embedding_num_tries` must be greater than 0.";
+                        return Option<bool>(400, error);
+                    }
+                }
+
+                std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + query;
+                auto embedding_op = embedder->embed_query(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
+                if(!embedding_op.success) {
+                    if(embedding_op.error.contains("error")) {
+                        return Option<bool>(400, embedding_op.error["error"].get<std::string>());
+                    } else {
+                        return Option<bool>(400, embedding_op.error.dump());
+                    }
+                }
+                std::vector<float> embedding = embedding_op.embedding;
+                // params could have been set for an embed field, so we take a backup and restore
+                vector_query.values = embedding;
+                vector_query.field_name = field_name;
+                continue;
+            }
+
+            if(!search_field.index) {
+                std::string error = "Field `" + field_name + "` is marked as a non-indexed field in the schema.";
+                return Option<bool>(400, error);
+            }
+
+            if(search_field.type != field_types::STRING && search_field.type != field_types::STRING_ARRAY) {
+                std::string error = "Field `" + field_name + "` should be a string or a string array.";
+                return Option<bool>(400, error);
+            }
+
+            auto query_weight = !raw_query_by_weights.empty() ? raw_query_by_weights[i] : 0;
+            auto num_typo = i < num_typos.size() ? num_typos[i] : num_typos[0];
+            auto prefix = i < prefixes.size() ? prefixes[i] : prefixes[0];
+            auto infix = i < infixes.size() ? infixes[i] : infixes[0];
+
+            processed_search_fields.emplace_back(expanded_search_field, search_field.faceted_name(),
+                                                 query_weight, num_typo, prefix, infix);
+            if(!raw_query_by_weights.empty()) {
+                query_by_weights.push_back(query_weight);
+            }
+        }
+    }
+
+    if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
+        std::string error = "Vector query could not find any embedded fields.";
+        return Option<bool>(400, error);
+    }
+
+    if(!query_by_weights.empty() && processed_search_fields.size() != query_by_weights.size()) {
+        std::string error = "Error, query_by_weights.size != query_by.size.";
+        return Option<bool>(400, error);
+    }
+
+    return Option<bool>(true);
+}
+
 Option<bool> Collection::init_index_search_args_with_lock(collection_search_args_t& coll_args,
                                                           std::unique_ptr<search_args>& index_args,
                                                           std::string& query,
@@ -2091,142 +2303,12 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     bool ignored_missing_fields = false;
 
-    for(size_t i = 0; i < raw_search_fields.size(); i++) {
-        const std::string& field_name = raw_search_fields[i];
-        if(field_name == "id") {
-            // `id` field needs to be handled separately, we will not handle for now
-            std::string error = "Cannot use `id` as a query by field.";
-            return Option<bool>(400, error);
-        } else if (field_name[0] == '$' && field_name.find('(') != std::string::npos &&
-                   field_name.find(')') != std::string::npos) {
-            return Option<bool>(400, "Query by reference is not yet supported.");
-        }
-
-        std::vector<std::string> expanded_search_fields;
-        auto field_op = extract_field_name(field_name, search_schema, expanded_search_fields, true, enable_nested_fields);
-        if(!field_op.ok()) {
-            if(field_op.code() == 404 && !validate_field_names) {
-                ignored_missing_fields = true;
-                continue;
-            }
-
-            return field_op;
-        }
-
-        for(const auto& expanded_search_field: expanded_search_fields) {
-            if (search_schema.count(expanded_search_field) == 0) {
-                return Option<bool>(404, "Could not find `" + expanded_search_field + "` field in the schema.");
-            }
-            auto search_field = search_schema.at(expanded_search_field);
-
-            if(search_field.num_dim > 0) {
-                num_embed_fields++;
-
-                if(num_embed_fields > 1 ||
-                   (!vector_query.field_name.empty() && search_field.name != vector_query.field_name)) {
-                    std::string error = "Only one embedding field is allowed in the query.";
-                    return Option<bool>(400, error);
-                }
-
-                if(!search_field.index) {
-                    std::string error = "Field `" + search_field.name + "` is marked as a non-indexed field in the schema.";
-                    return Option<bool>(400, error);
-                }
-
-                // if(EmbedderManager::model_dir.empty()) {
-                //     std::string error = "Text embedding is not enabled. Please set `model-dir` at startup.";
-                //     return Option<nlohmann::json>(400, error);
-                // }
-
-                if(query == "*") {
-                    // ignore embedding field if query is a wildcard
-                    continue;
-                }
-
-                if(embedding_fields.find(search_field.name) == embedding_fields.end()) {
-                    std::string error = "Vector field `" + search_field.name + "` is not an auto-embedding field, do not use `query_by` with it, use `vector_query` instead.";
-                    return Option<bool>(400, error);
-                }
-
-                EmbedderManager& embedder_manager = EmbedderManager::get_instance();
-                auto embedder_op = embedder_manager.get_text_embedder(search_field.embed[fields::model_config]);
-                if(!embedder_op.ok()) {
-                    return Option<bool>(400, embedder_op.error());
-                }
-
-                auto remote_embedding_timeout_us = remote_embedding_timeout_ms * 1000;
-                if((std::chrono::duration_cast<std::chrono::microseconds>(
-                        std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > remote_embedding_timeout_us) {
-                    std::string error = "Request timed out.";
-                    return Option<bool>(500, error);
-                }
-
-                auto embedder = embedder_op.get();
-
-                if(embedder->is_remote()) {
-                    // return error if prefix search is used with openai embedder
-                    if((prefixes.size() == 1 && prefixes[0] == true) || (prefixes.size() > 1 &&  prefixes[i] == true)) {
-                        std::string error = "Prefix search is not supported for remote embedders. Please set `prefix=false` as an additional search parameter to disable prefix searching.";
-                        return Option<bool>(400, error);
-                    }
-
-                    if(remote_embedding_num_tries == 0) {
-                        std::string error = "`remote_embedding_num_tries` must be greater than 0.";
-                        return Option<bool>(400, error);
-                    }
-                }
-
-                std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + query;
-                auto embedding_op = embedder->embed_query(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
-                if(!embedding_op.success) {
-                    if(embedding_op.error.contains("error")) {
-                        return Option<bool>(400, embedding_op.error["error"].get<std::string>());
-                    } else {
-                        return Option<bool>(400, embedding_op.error.dump());
-                    }
-                }
-                std::vector<float> embedding = embedding_op.embedding;
-                // params could have been set for an embed field, so we take a backup and restore
-                vector_query.values = embedding;
-                vector_query.field_name = field_name;
-                continue;
-            }
-
-            auto query_weight = !raw_query_by_weights.empty() ? raw_query_by_weights[i] : 0;
-            auto num_typo = i < num_typos.size() ? num_typos[i] : num_typos[0];
-            auto prefix = i < prefixes.size() ? prefixes[i] : prefixes[0];
-            auto infix = i < infixes.size() ? infixes[i] : infixes[0];
-
-            processed_search_fields.emplace_back(expanded_search_field, search_field.faceted_name(),
-                                                 query_weight, num_typo, prefix, infix);
-            if(!raw_query_by_weights.empty()) {
-                query_by_weights.push_back(query_weight);
-            }
-        }
-    }
-
-    if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
-        std::string error = "Vector query could not find any embedded fields.";
-        return Option<bool>(400, error);
-    }
-
-    if(!query_by_weights.empty() && processed_search_fields.size() != query_by_weights.size()) {
-        std::string error = "Error, query_by_weights.size != query_by.size.";
-        return Option<bool>(400, error);
-    }
-
-    for(const auto& processed_search_field: processed_search_fields) {
-        const auto& field_name = processed_search_field.name;
-        field search_field = search_schema.at(field_name);
-        if(!search_field.index) {
-            std::string error = "Field `" + field_name + "` is marked as a non-indexed field in the schema.";
-            return Option<bool>(400, error);
-        }
-
-        if(search_field.type != field_types::STRING && search_field.type != field_types::STRING_ARRAY) {
-            std::string error = "Field `" + field_name + "` should be a string or a string array.";
-            return Option<bool>(400, error);
-        }
+    const auto& process_op = process_search_fields(raw_search_fields, validate_field_names, ignored_missing_fields,
+                                                   num_embed_fields, vector_query, query, remote_embedding_timeout_ms,
+                                                   prefixes, remote_embedding_num_tries, raw_query_by_weights, num_typos,
+                                                   infixes, processed_search_fields, query_by_weights);
+    if (!process_op.ok()) {
+        return process_op;
     }
 
     // validate group by fields
@@ -2278,8 +2360,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
-    Option<bool> parse_filter_op = filter::parse_filter_query(filter_query, search_schema,
-                                                              store, doc_id_prefix, filter_tree_root, validate_field_names);
+    Option<bool> parse_filter_op = parse_filter_query(filter_query, search_schema, store, doc_id_prefix, filter_tree_root,
+                                                      validate_field_names);
     std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
     if(!parse_filter_op.ok()) {
@@ -2499,8 +2581,9 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                false, stopwords_set);
 
             process_filter_sort_overrides(filter_sort_overrides, q_include_tokens, token_order, filter_tree_root_guard,
-                                     included_ids, excluded_ids, override_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
-                                     enable_typos_for_alpha_numerical_tokens, validate_field_names);
+                                          included_ids, excluded_ids, override_metadata, curated_sort_by,
+                                          enable_typos_for_numerical_tokens, enable_typos_for_alpha_numerical_tokens,
+                                          validate_field_names);
 
             for(size_t i = 0; i < q_include_tokens.size(); i++) {
                 auto& q_include_token = q_include_tokens[i];
@@ -2516,20 +2599,41 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         }
     } else {
         field_query_tokens.emplace_back(query_tokens_t{});
-        auto most_weighted_field = search_schema.at(weighted_search_fields[0].name);
-        const std::string & field_locale = most_weighted_field.locale;
+        std::string field_locale;
+        std::shared_ptr<Stemmer> field_stemmer;
+        const auto& field_name = weighted_search_fields[0].name;
+        const auto& ref_collection_name = weighted_search_fields[0].referenced_collection_name;
+
+        if (ref_collection_name.empty()) {
+            const auto& it = search_schema.find(field_name);
+            if (it == search_schema.end()) {
+                return Option<bool>(400, "Field `" + field_name + "` not found in the schema");
+            }
+            field_locale = it->locale;
+            field_stemmer = it->get_stemmer();
+        } else {
+            auto op = CollectionManager::get_collection_field(ref_collection_name, field_name);
+            if (!op.ok()) {
+                return Option<bool>(op.code(), op.error());
+            }
+
+            const auto& field = op.get();
+            field_locale = field.locale;
+            field_stemmer = field.get_stemmer();
+        }
 
         parse_search_query(query, q_include_tokens, q_unstemmed_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
-                           field_locale, pre_segmented_query, stopwords_set, most_weighted_field.get_stemmer());
+                           field_locale, pre_segmented_query, stopwords_set, field_stemmer);
 
         // process filter overrides first, before synonyms (order is important)
 
         // included_ids, excluded_ids
         process_filter_sort_overrides(filter_sort_overrides, q_include_tokens, token_order, filter_tree_root_guard,
-                                 included_ids, excluded_ids, override_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
-                                 enable_typos_for_alpha_numerical_tokens, validate_field_names);
+                                      included_ids, excluded_ids, override_metadata, curated_sort_by,
+                                      enable_typos_for_numerical_tokens, enable_typos_for_alpha_numerical_tokens,
+                                      validate_field_names);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
@@ -4553,8 +4657,8 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
-    Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
-                                                        store, doc_id_prefix, filter_tree_root, validate_field_names);
+    Option<bool> filter_op = parse_filter_query(filter_query, search_schema, store, doc_id_prefix, filter_tree_root,
+                                                validate_field_names);
     std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
     if(!filter_op.ok()) {
@@ -4584,8 +4688,8 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
-    Option<bool> parse_op = filter::parse_filter_query(filter_query, search_schema,
-                                                       store, doc_id_prefix, filter_tree_root);
+    Option<bool> parse_op = parse_filter_query(filter_query, search_schema, store, doc_id_prefix, filter_tree_root,
+                                               validate_field_names);
     std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
     if(!parse_op.ok()) {
@@ -8576,4 +8680,44 @@ void collection_search_args_t::override_union_global_params(union_global_params_
     per_page = global_params.per_page;
     offset = global_params.offset;
     limit_hits = global_params.limit_hits;
+}
+
+Option<field> Collection::get_field_with_lock(const std::string& field_name) const {
+    std::shared_lock lock(mutex);
+    auto op = get_field(field_name);
+    return op.ok() ? op :
+                     Option<field>(op.code(), "Collection `" + name + "`: " + op.error());
+}
+
+Option<field> Collection::get_field(const std::string& field_name) const {
+    auto it = search_schema.find(field_name);
+    if (it == search_schema.end()) {
+        return Option<field>(400, "Could not find `" + field_name + "` field in the schema.");
+    }
+    return Option<field>(*it);
+}
+
+Option<art_tree*> Collection::get_art_tree_with_lock(const std::string& field_name) const {
+    std::shared_lock lock(mutex);
+
+    return index->get_art_tree_with_lock(field_name);
+}
+
+std::unique_ptr<posting_list_t::ref_iterator_t> Collection::get_ref_iterator(const std::string& referencing_collection_name,
+                                                                             const std::string& query_field_name,
+                                                                             const std::string& token_str,
+                                                                             uint32_t field_id,
+                                                                             const std::string& reference_field_name) const {
+    std::shared_lock lock(mutex);
+    return index->get_ref_iterator(referencing_collection_name, query_field_name, token_str, field_id,
+                                   reference_field_name);
+}
+
+std::unique_ptr<posting_list_t::iterator_t> Collection::get_posting_iterator(const std::string& field_name,
+                                                                             const std::string& token,
+                                                                             const uint32_t& field_id,
+                                                                             std::vector<posting_list_t*>& expanded_plists,
+                                                                             art_leaf*& leaf) const {
+    std::shared_lock lock(mutex);
+    return index->get_posting_iterator(field_name, token, field_id, expanded_plists, leaf);
 }

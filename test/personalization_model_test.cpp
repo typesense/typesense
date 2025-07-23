@@ -33,7 +33,7 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.create_collection(collection_schema);
-        
+
     }
 
     void TearDown() override {
@@ -140,7 +140,7 @@ TEST_F(PersonalizationModelTest, ValidateModelInvalidModelName) {
 TEST_F(PersonalizationModelTest, GetModelSubdir) {
     std::string model_id = "test-model";
     std::string expected_path = EmbedderManager::get_model_dir() + "/per_" + model_id;
-    
+
     std::string result = PersonalizationModel::get_model_subdir(model_id);
     ASSERT_EQ(result, expected_path);
     ASSERT_TRUE(std::filesystem::exists(result));
@@ -149,11 +149,11 @@ TEST_F(PersonalizationModelTest, GetModelSubdir) {
 TEST_F(PersonalizationModelTest, DeleteModel) {
     std::string model_id = "test-model";
     std::string model_path = PersonalizationModel::get_model_subdir(model_id);
-    
+
     // Create a dummy file in the model directory
     std::ofstream test_file(model_path + "/test.txt");
     test_file.close();
-    
+
     auto result = PersonalizationModel::delete_model(model_id);
     ASSERT_TRUE(result.ok());
     ASSERT_FALSE(std::filesystem::exists(model_path));
