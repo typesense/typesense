@@ -579,18 +579,19 @@ size_t Index::batch_memory_index(Index *index,
                                  const std::string& fallback_field_type,
                                  const std::vector<char>& token_separators,
                                  const std::vector<char>& symbols_to_index,
-                                 const bool do_validation, const size_t remote_embedding_batch_size,
+                                 const bool do_validation,
+                                 std::unordered_set<std::string>& found_fields,
+                                 const size_t remote_embedding_batch_size,
                                  const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
                                  const bool generate_embeddings,
                                  const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
-                                 const std::string& collection_name,
-                                 const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
+                                 const std::string& collection_name) {
     const size_t concurrency = Config::get_instance().get_max_indexing_concurrency();
     const size_t num_threads = std::min(concurrency, iter_batch.size());
     const size_t window_size = (num_threads == 0) ? 0 :
                                (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
     const auto& indexable_schema = use_addition_fields ? addition_fields : actual_search_schema;
-    
+
     size_t num_indexed = 0;
     size_t num_processed = 0;
     std::mutex m_process;
@@ -630,8 +631,6 @@ size_t Index::batch_memory_index(Index *index,
         cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
     }
 
-    std::unordered_set<std::string> found_fields;
-
     for(size_t i = 0; i < iter_batch.size(); i++) {
         auto& index_rec = iter_batch[i];
 
@@ -667,14 +666,8 @@ size_t Index::batch_memory_index(Index *index,
 
             const field& f = (field_name == "id") ?
                              field("id", field_types::STRING, false) : indexable_schema.at(field_name);
-            std::set<reference_pair_t> async_references;
-            auto it = async_referenced_ins.find(field_name);
-            if (it != async_referenced_ins.end()) {
-                async_references = it->second;
-            }
-
             try {
-                index->index_field_in_memory(collection_name, f, iter_batch, async_references);
+                index->index_field_in_memory(collection_name, f, iter_batch);
             } catch(std::exception& e) {
                 LOG(ERROR) << "Unhandled Typesense error: " << e.what();
                 for(auto& record: iter_batch) {
@@ -697,8 +690,7 @@ size_t Index::batch_memory_index(Index *index,
 }
 
 void Index::index_field_in_memory(const std::string& collection_name, const field& afield,
-                                  std::vector<index_record>& iter_batch,
-                                  const std::set<reference_pair_t>& async_referenced_ins) {
+                                  std::vector<index_record>& iter_batch) {
     // indexes a given field of all documents in the batch
 
     if(afield.name == "id") {
@@ -712,10 +704,6 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
                 std::unique_lock lock(seq_ids_mutex);
                 seq_ids->upsert(record.seq_id);
             }
-        }
-
-        if (!async_referenced_ins.empty()) {
-            update_async_references(collection_name, afield, iter_batch, async_referenced_ins);
         }
         return;
     }
@@ -1195,15 +1183,10 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
             }
         }
     }
-
-    if (!async_referenced_ins.empty()) {
-        update_async_references(collection_name, afield, iter_batch, async_referenced_ins);
-    }
 }
 
-void Index::update_async_references(const std::string& collection_name, const field& afield,
-                                    std::vector<index_record>& iter_batch,
-                                    const std::set<reference_pair_t>& async_referenced_ins) {
+void Index::update_async_references(const std::string& collection_name, std::vector<index_record>& iter_batch,
+                                    const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
     for (auto& record: iter_batch) {
         if (!record.indexed.ok() || record.is_update) {
             continue;
@@ -1213,65 +1196,47 @@ void Index::update_async_references(const std::string& collection_name, const fi
         auto const& seq_id = record.seq_id;
 
         for (const auto& pair: async_referenced_ins) {
-            auto const& reference_collection_name = pair.collection;
-            auto const& reference_field_name = pair.field;
-
-            auto& cm = CollectionManager::get_instance();
-            auto ref_coll = cm.get_collection(reference_collection_name);
-            if (ref_coll == nullptr) {
-                record.index_failure(400, "Collection `" + reference_collection_name + "` with async_reference to the"
-                                           " collection `" += collection_name + "` not found.");
+            const auto& referenced_field = pair.first;
+            if (document.count(referenced_field) != 1) {
                 continue;
             }
+            for (const auto& ref_info: pair.second) {
+                auto const& referencing_collection_name = ref_info.collection;
+                auto const& referencing_field_name = ref_info.field;
 
-            auto const& ref_fields = ref_coll->get_reference_fields();
-            auto const ref_field_it = ref_fields.find(reference_field_name);
-            if (ref_field_it == ref_fields.end()) {
-                record.index_failure(400, "Field `" + reference_field_name + "` not found in the ref schema of `" +=
-                                            reference_collection_name + "` having async_reference to `" += collection_name +
-                                            "` collection.");
-                continue;
-            }
+                auto& cm = CollectionManager::get_instance();
+                auto referencing_coll = cm.get_collection(referencing_collection_name);
+                if (referencing_coll == nullptr) {
+                    record.index_failure(400, "Collection `" + referencing_collection_name + "` with async_reference to the"
+                                                                                             " collection `" += collection_name + "` not found.");
+                    continue;
+                }
 
-            if (ref_field_it->second.collection != collection_name) {
-                record.index_failure(400, "`" + reference_collection_name + "." += reference_field_name +
-                                              "` does not have a reference to `" += collection_name + "` collection.");
-                continue;
-            }
+                // After collecting the value(s) present in the field referenced by the other collection(ref_coll), we will add
+                // this document's seq_id as a reference where the value(s) match.
+                std::string ref_filter_value;
+                std::set<std::string> values;
+                if (document.at(referenced_field).is_array()) {
+                    ref_filter_value = "[";
 
-            auto const& ref_schema = ref_coll->get_schema();
-            if (ref_schema.count(reference_field_name) == 0) {
-                record.index_failure(400, "Field `" + reference_field_name + "` not found in the schema of `" +=
-                                            reference_collection_name + "` having async_reference to `" +=
-                                            collection_name + "` collection.");
-                continue;
-            }
-
-            auto const& field_name = ref_field_it->second.field;
-            if (field_name != "id" && search_schema.count(field_name) == 0) {
-                record.index_failure(400, "Field `" + field_name + "`, referenced by `" += reference_collection_name +
-                                            "." += reference_field_name + "`, not found in `" += collection_name +
-                                            "` collection.");
-                continue;
-            }
-
-            auto const& optional = field_name != "id" && search_schema.at(field_name).optional;
-            auto is_required = !is_update && !optional;
-            if (is_required && document.count(field_name) != 1) {
-                record.index_failure(400, "Missing the required field `" + field_name + "` in the document.");
-                continue;
-            } else if (document.count(field_name) != 1) {
-                continue;
-            }
-
-            // After collecting the value(s) present in the field referenced by the other collection(ref_coll), we will add
-            // this document's seq_id as a reference where the value(s) match.
-            std::string ref_filter_value;
-            std::set<std::string> values;
-            if (document.at(field_name).is_array()) {
-                ref_filter_value = "[";
-
-                for (auto const& value: document[field_name]) {
+                    for (auto const& value: document[referenced_field]) {
+                        if (value.is_number_integer()) {
+                            auto const& v = std::to_string(value.get<int64_t>());
+                            ref_filter_value += v;
+                            values.insert(v);
+                        } else if (value.is_string()) {
+                            auto const& v = value.get<std::string>();
+                            ref_filter_value += v;
+                            values.insert(v);
+                        } else {
+                            record.index_failure(400, "Field `" + referenced_field + "` must only have string/int32/int64 values.");
+                            continue;
+                        }
+                        ref_filter_value += ",";
+                    }
+                    ref_filter_value[ref_filter_value.size() - 1] = ']';
+                } else {
+                    auto const& value = document[referenced_field];
                     if (value.is_number_integer()) {
                         auto const& v = std::to_string(value.get<int64_t>());
                         ref_filter_value += v;
@@ -1281,39 +1246,23 @@ void Index::update_async_references(const std::string& collection_name, const fi
                         ref_filter_value += v;
                         values.insert(v);
                     } else {
-                        record.index_failure(400, "Field `" + field_name + "` must only have string/int32/int64 values.");
+                        record.index_failure(400, "Field `" + referenced_field + "` must only have string/int32/int64 values.");
                         continue;
                     }
-                    ref_filter_value += ",";
                 }
-                ref_filter_value[ref_filter_value.size() - 1] = ']';
-            } else {
-                auto const& value = document[field_name];
-                if (value.is_number_integer()) {
-                    auto const& v = std::to_string(value.get<int64_t>());
-                    ref_filter_value += v;
-                    values.insert(v);
-                } else if (value.is_string()) {
-                    auto const& v = value.get<std::string>();
-                    ref_filter_value += v;
-                    values.insert(v);
-                } else {
-                    record.index_failure(400, "Field `" + field_name + "` must only have string/int32/int64 values.");
+
+                if (values.empty()) {
                     continue;
                 }
-            }
 
-            if (values.empty()) {
-                continue;
-            }
-
-            auto const ref_filter = reference_field_name + ":= " += ref_filter_value;
-            auto update_op = ref_coll->update_async_references_with_lock(collection_name, ref_filter, values, seq_id,
-                                                                         reference_field_name);
-            if (!update_op.ok()) {
-                record.index_failure(400, "Error while updating async reference field `" + reference_field_name +
-                                         "` of collection `" += reference_collection_name + "`: " += update_op.error());
-                break;
+                auto const ref_filter = referencing_field_name + ":= " += ref_filter_value;
+                auto update_op = referencing_coll->update_async_references_with_lock(collection_name, ref_filter, values, seq_id,
+                                                                                     referencing_field_name);
+                if (!update_op.ok()) {
+                    record.index_failure(400, "Error while updating async reference field `" + referencing_field_name +
+                                              "` of collection `" += referencing_collection_name + "`: " += update_op.error());
+                    break;
+                }
             }
         }
     }

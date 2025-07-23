@@ -121,14 +121,6 @@ inline std::string get_array_field_value(const nlohmann::json& doc, const std::s
 Option<bool> Collection::update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
                                                            const std::set<std::string>& filter_values,
                                                            const uint32_t ref_seq_id, const std::string& field_name) {
-    // Update reference helper field of the docs matching the filter.
-    filter_result_t filter_result;
-    get_filter_ids(filter, filter_result, false);
-
-    if (filter_result.count == 0) {
-        return Option<bool>(true);
-    }
-
     field field;
     {
         std::shared_lock lock(mutex);
@@ -138,6 +130,13 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
             return Option<bool>(400, "Could not find field `" + field_name + "` in the schema.");
         }
         field = it.value();
+    }
+
+    // Update reference helper field of the docs matching the filter.
+    filter_result_t filter_result;
+    get_filter_ids(filter, filter_result, false);
+    if (filter_result.count == 0) {
+        return Option<bool>(true);
     }
 
     std::vector<std::string> buffer;
@@ -839,8 +838,10 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 
     std::vector<index_record> index_batch;
     index_batch.emplace_back(std::move(rec));
+
+    std::unordered_set<std::string> dummy;
     Index::batch_memory_index(index, index_batch, default_sorting_field, search_schema, embedding_fields,
-                              fallback_field_type, token_separators, symbols_to_index, true);
+                              fallback_field_type, token_separators, symbols_to_index, true, dummy);
 
     num_documents += 1;
     return Option<>(200);
@@ -849,12 +850,29 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
                                          const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings) {
     std::shared_lock lock(mutex);
+    const auto collection_name = name;
+    std::unordered_set<std::string> found_fields;
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
                                                    search_schema, embedding_fields, fallback_field_type,
-                                                   token_separators, symbols_to_index, true, remote_embedding_batch_size,
-                                                   remote_embedding_timeout_ms, remote_embedding_num_tries,generate_embeddings,
-                                                   false, tsl::htrie_map<char, field>(), name, async_referenced_ins);
+                                                   token_separators, symbols_to_index, true, found_fields,
+                                                   remote_embedding_batch_size, remote_embedding_timeout_ms,
+                                                   remote_embedding_num_tries, generate_embeddings,
+                                                   false, tsl::htrie_map<char, field>(), collection_name);
     num_documents += num_indexed;
+
+    spp::sparse_hash_map<std::string, std::set<reference_pair_t>> found_async_referenced_ins;
+    for (const auto& field_name: found_fields) {
+        // We will update all the referencing collections that have referenced `field_name`.
+        auto it = async_referenced_ins.find(field_name);
+        if (it != async_referenced_ins.end()) {
+            found_async_referenced_ins.insert(std::make_pair(it->first, it->second));
+        }
+    }
+
+    lock.unlock();
+
+    Index::update_async_references(collection_name, index_records, found_async_referenced_ins);
+
     return num_indexed;
 }
 
@@ -6205,9 +6223,10 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
                 }
             }
 
+            std::unordered_set<std::string> dummy;
             Index::batch_memory_index(index, iter_batch, default_sorting_field, search_schema, embedding_fields,
-                                      fallback_field_type, token_separators, symbols_to_index, true, 200, 60000, 2,
-                                      found_embedding_field, true, schema_additions);
+                                      fallback_field_type, token_separators, symbols_to_index, true, dummy,
+                                      200, 60000, 2, found_embedding_field, true, schema_additions);
 
             if(found_embedding_field) {
                 for(auto& index_record : iter_batch) {
