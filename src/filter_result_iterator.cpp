@@ -1010,7 +1010,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         }
 
         bool is_referenced = coll->referenced_in.count(ref_collection_name) > 0,
-                has_reference = ref_collection->is_referenced_in(collection_name);
+                has_reference = coll->references(ref_collection_name);
         if (!is_referenced && !has_reference) {
             status = Option<bool>(400, "Failed to join on `" + ref_collection_name + "`: No reference field found.");
             validity = invalid;
