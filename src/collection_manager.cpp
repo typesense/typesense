@@ -1598,6 +1598,7 @@ Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limi
     std::vector<std::shared_ptr<Collection>> colls = collections_op.get();
 
     nlohmann::json json_summaries = nlohmann::json::array();
+    auto begin = std::chrono::high_resolution_clock::now();
 
     for(std::shared_ptr<Collection> collection: colls) {
         nlohmann::json collection_json = collection->get_summary_json();
@@ -1606,6 +1607,13 @@ Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limi
         }
 
         json_summaries.push_back(collection_json);
+
+        uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::high_resolution_clock::now() - begin).count();
+
+        if(timeMillis > 30000) {
+            return Option<nlohmann::json>(408, "Request Timeout. Please use `offset` and `limit` pagination parameters.");
+        }
     }
 
     return Option<nlohmann::json>(json_summaries);

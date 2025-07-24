@@ -338,12 +338,13 @@ nlohmann::json Collection::get_summary_json() const {
     }
 
     nlohmann::json fields_arr;
-    const std::regex sequence_id_pattern(".*_sequence_id$");
+    constexpr char kSuffix[] = "_sequence_id";
+    constexpr size_t kLen = sizeof(kSuffix) - 1; // exclude '\0'
 
     for(const field & coll_field: fields) {
-        if (std::regex_match(coll_field.name, sequence_id_pattern)) {
-            // Don't add foo_sequence_id field.
-            continue;
+        const std::string& s = coll_field.name;
+        if (s.size() >= kLen && std::memcmp(s.data() + s.size() - kLen, kSuffix, kLen) == 0) {
+            continue; // skip foo_sequence_id
         }
 
         nlohmann::json field_json;
