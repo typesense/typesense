@@ -63,11 +63,11 @@ Option<bool> Join::single_value_filter_query(nlohmann::json& document, const std
     return Option<bool>(true);
 }
 
-Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
-                                               const tsl::htrie_map<char, field>& schema,
-                                               const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
-                                               tsl::htrie_set<char>& object_reference_helper_fields,
-                                               const bool& is_update) {
+Option<bool> Join::populate_reference_helper_fields(nlohmann::json& document,
+                                                    const tsl::htrie_map<char, field>& schema,
+                                                    const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
+                                                    tsl::htrie_set<char>& object_reference_helper_fields,
+                                                    const bool& is_update) {
     tsl::htrie_set<char> flat_fields;
     if (!reference_fields.empty() && document.contains(".flat")) {
         for (const auto &item: document[".flat"].get<std::vector<std::string>>()) {
@@ -106,7 +106,6 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
             // No need to look up the reference collection since reference helper field is already populated.
             // Saves needless computation in cases where references are known beforehand. For example, when cascade
             // deleting the related docs.
-            document[fields::reference_helper_fields] += reference_helper_field;
             continue;
         }
 
