@@ -94,7 +94,8 @@ void field::add_default_json_values(nlohmann::json& json) {
 
 Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
                                         std::vector<field>& the_fields,
-                                        string& fallback_field_type, size_t& num_auto_detect_fields) {
+                                        string& fallback_field_type, size_t& num_auto_detect_fields,
+                                        const std::string& collection_name) {
     add_default_json_values(field_json);
 
     if(!field_json.is_object() ||
@@ -400,6 +401,12 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
         if (tokens.size() < 2) {
             return Option<bool>(400, "Invalid reference `" + field_json[fields::reference].get<std::string>()  + "`.");
+        }
+
+        if (tokens[0] == collection_name) {
+            return Option<bool>(400, "Referencing a field of the same collection is not allowed: `" +
+                                     field_json[fields::name].get<std::string>() + "` field references `" +
+                                     collection_name + "` collection.");
         }
 
         tokens.clear();
@@ -740,7 +747,7 @@ void field::compact_nested_fields(tsl::htrie_map<char, field>& nested_fields) {
 }
 
 Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::json &fields_json, string &fallback_field_type,
-                                          std::vector<field>& the_fields) {
+                                          std::vector<field>& the_fields, const std::string& collection_name) {
     size_t num_auto_detect_fields = 0;
     const tsl::htrie_map<char, field> dummy_search_schema;
 
@@ -753,7 +760,8 @@ Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::j
             continue;
         }
         auto op = json_field_to_field(enable_nested_fields,
-                                      field_json, the_fields, fallback_field_type, num_auto_detect_fields);
+                                      field_json, the_fields, fallback_field_type, num_auto_detect_fields,
+                                      collection_name);
         if(!op.ok()) {
             return op;
         }

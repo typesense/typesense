@@ -6614,7 +6614,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             if(is_addition || is_reindex) {
                 // must validate fields
                 auto parse_op = field::json_field_to_field(enable_nested_fields, kv.value(), diff_fields,
-                                                           fallback_field_type, num_auto_detect_fields);
+                                                           fallback_field_type, num_auto_detect_fields, name);
                 if (!parse_op.ok()) {
                     return parse_op;
                 }
