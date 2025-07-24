@@ -1848,3 +1848,60 @@ TEST_F(CollectionGroupingTest, SortByEval) {
         ASSERT_EQ(document["deduplicator"].get<std::string>(), offer["seller"]["_id"].get<std::string>());
     }
 }
+
+TEST_F(CollectionGroupingTest, HighCardinalityField) {
+    auto schema_json =
+            R"({
+                "name": "coll",
+                "fields": [
+                    {"name": "facet_field", "type": "string", "facet": true}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (size_t i = 0; i < 400; i++) {
+        nlohmann::json doc;
+        if (i % 100 == 0) {
+            doc["facet_field"] = "repeated_value";
+        } else {
+            doc["facet_field"] = std::to_string(i);
+        }
+        auto add_op = collection_create_op.get()->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll"},
+            {"q", "*"},
+            {"group_by", "facet_field"},
+            {"group_limit", "1"},
+            {"page", "7"},
+            {"per_page", "50"},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(397, res_obj["found"]);
+    ASSERT_EQ(50, res_obj["grouped_hits"].size());
+
+    req_params["page"] = "8";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(397, res_obj["found"]);
+    ASSERT_EQ(47, res_obj["grouped_hits"].size());
+
+    req_params["page"] = "9";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(397, res_obj["found"]);
+    ASSERT_EQ(0, res_obj["grouped_hits"].size());
+}

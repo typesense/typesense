@@ -40,6 +40,59 @@ void filter_result_t::copy_references(const filter_result_t& from, filter_result
     return copy_references_helper(from.coll_to_references, to.coll_to_references, from.count);
 }
 
+bool reference_filter_result_t::and_references(const std::map<std::string, reference_filter_result_t>& a_references,
+                                               const std::map<std::string, reference_filter_result_t>& b_references,
+                                               std::map<std::string, reference_filter_result_t>& result_references) {
+    // Copy the references of the document from every collection into result.
+    result_references.insert(a_references.begin(), a_references.end());
+
+    for (auto& it : b_references) {
+        auto ref_it = result_references.find(it.first);
+        if (ref_it == result_references.end()) {
+            result_references[it.first] = it.second;
+            continue;
+        }
+
+        // Both the docs of A and B have references to the same collection.
+        uint32_t* and_result = nullptr;
+        auto& ref_result = ref_it->second;
+        ref_result.count = ArrayUtils::and_scalar(ref_result.docs, ref_result.count,
+                                                  it.second.docs, it.second.count, &and_result);
+        delete [] ref_result.docs;
+        ref_result.docs = and_result;
+
+        // No common references found, this doc doesn't pass AND.
+        if (ref_result.count == 0) {
+            result_references.clear();
+            return false;
+        }
+    }
+    return true;
+}
+
+void reference_filter_result_t::or_references(const std::map<std::string, reference_filter_result_t>& a_references,
+                                              const std::map<std::string, reference_filter_result_t>& b_references,
+                                              std::map<std::string, reference_filter_result_t>& result_references) {
+    // Copy the references of the document from every collection into result.
+    result_references.insert(a_references.begin(), a_references.end());
+
+    for (auto& it : b_references) {
+        auto ref_it = result_references.find(it.first);
+        if (ref_it == result_references.end()) {
+            result_references[it.first] = it.second;
+            continue;
+        }
+
+        // Both the docs of A and B have references to the same collection.
+        uint32_t* or_result = nullptr;
+        auto& ref_result = ref_it->second;
+        ref_result.count = ArrayUtils::or_scalar(ref_result.docs, ref_result.count,
+                                                 it.second.docs, it.second.count, &or_result);
+        delete [] ref_result.docs;
+        ref_result.docs = or_result;
+    }
+}
+
 void filter_result_t::and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
     auto lenA = a.count, lenB = b.count;
     if (lenA == 0 || lenB == 0) {
@@ -73,18 +126,18 @@ void filter_result_t::and_filter_results(const filter_result_t& a, const filter_
         if (*A == *B) {
             *out = *A;
 
+            bool references_found = true;
             if (result.coll_to_references != nullptr) {
-                // Copy the references of the document from every collection into result.
-                auto& ref = result.coll_to_references[out - result.docs];
-                if (a.coll_to_references != nullptr) {
-                    ref.insert(a.coll_to_references[A - a.docs].begin(), a.coll_to_references[A - a.docs].end());
-                }
-                if (b.coll_to_references != nullptr) {
-                    ref.insert(b.coll_to_references[B - b.docs].begin(), b.coll_to_references[B - b.docs].end());
-                }
+                std::map<std::string, reference_filter_result_t> dummy{};
+                references_found = reference_filter_result_t::and_references(
+                                            a.coll_to_references != nullptr ? a.coll_to_references[A - a.docs] : dummy,
+                                            b.coll_to_references != nullptr ? b.coll_to_references[B - b.docs] : dummy,
+                                            result.coll_to_references[out - result.docs]);
             }
 
-            out++;
+            if (references_found) {
+                out++;
+            }
 
             if (++A == endA || ++B == endB) {
                 result.count = out - result.docs;
@@ -139,9 +192,15 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
                 res_index++;
             }
 
-            if (b.coll_to_references != nullptr) {
+            if (b.docs[indexB] < a.docs[indexA] && b.coll_to_references != nullptr) {
                 auto &ref = result.coll_to_references[res_index - 1];
                 ref.insert(b.coll_to_references[indexB].begin(), b.coll_to_references[indexB].end());
+            } else if (a.docs[indexA] == b.docs[indexB]) {
+                std::map<std::string, reference_filter_result_t> dummy{};
+                reference_filter_result_t::or_references(
+                                                a.coll_to_references != nullptr ? a.coll_to_references[indexA] : dummy,
+                                                b.coll_to_references != nullptr ? b.coll_to_references[indexB] : dummy,
+                                                result.coll_to_references[res_index - 1]);
             }
 
             indexB++;
@@ -264,11 +323,12 @@ void filter_result_iterator_t::and_filter_iterators() {
             }
 
             reference.clear();
-            for (const auto& item: left_it->reference) {
-                reference[item.first] = item.second;
-            }
-            for (const auto& item: right_it->reference) {
-                reference[item.first] = item.second;
+            if (!reference_filter_result_t::and_references(left_it->reference, right_it->reference, reference)) {
+                // No common references found. Move both the sub-nodes to the next seq_id.
+                left_it->next();
+                right_it->next();
+
+                continue;
             }
 
             return;
@@ -329,12 +389,7 @@ void filter_result_iterator_t::or_filter_iterators() {
                 }
 
                 reference.clear();
-                for (const auto& item: left_it->reference) {
-                    reference[item.first] = item.second;
-                }
-                for (const auto& item: right_it->reference) {
-                    reference[item.first] = item.second;
-                }
+                reference_filter_result_t::or_references(left_it->reference, right_it->reference, reference);
 
                 return;
             }
@@ -410,7 +465,19 @@ void filter_result_iterator_t::or_filter_iterators() {
             reference[item.first] = item.second;
         }
         for (const auto& item: right_it->reference) {
-            reference[item.first] = item.second;
+            auto ref_it = reference.find(item.first);
+            if (ref_it == reference.end()) {
+                reference[item.first] = item.second;
+                continue;
+            }
+
+            // Both the docs of A and B have references to a particular collection.
+            uint32_t* or_result = nullptr;
+            auto& ref_result = ref_it->second;
+            ref_result.count = ArrayUtils::or_scalar(ref_result.docs, ref_result.count,
+                                                     item.second.docs, item.second.count, &or_result);
+            delete [] ref_result.docs;
+            ref_result.docs = or_result;
         }
 
         return;
@@ -2092,11 +2159,13 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout
             }
 
             reference.clear();
-            for (const auto& item: left_it->reference) {
-                reference[item.first] = item.second;
-            }
-            for (const auto& item: right_it->reference) {
-                reference[item.first] = item.second;
+            if (!reference_filter_result_t::and_references(left_it->reference, right_it->reference, reference)) {
+                // No common references found. Move both the sub-nodes to the next seq_id.
+                left_it->next();
+                right_it->next();
+                and_filter_iterators();
+
+                return validity == invalid ? -1 : 0;
             }
             return 1;
         } else {
@@ -2135,12 +2204,13 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout
             }
 
             reference.clear();
-            if (left_validity == 1) {
+            if (left_validity == 1 && right_validity == 1) {
+                reference_filter_result_t::or_references(left_it->reference, right_it->reference, reference);
+            } else if (left_validity == 1) {
                 for (const auto& item: left_it->reference) {
                     reference[item.first] = item.second;
                 }
-            }
-            if (right_validity == 1) {
+            } else if (right_validity == 1) {
                 for (const auto& item: right_it->reference) {
                     reference[item.first] = item.second;
                 }
@@ -2602,16 +2672,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
             continue;
         }
 
-        auto& result_reference = result->coll_to_references[i];
-        if (is_group_by_first_pass) {
-            // Copying since the references will be required in the second pass.
-            result_reference.insert(filter_result.coll_to_references[result_index].begin(),
-                                    filter_result.coll_to_references[result_index].end());
-        } else {
-            // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
-            // not used afterwards.
-            result_reference = std::move(filter_result.coll_to_references[result_index]);
-        }
+        result->coll_to_references[i] = filter_result.coll_to_references[result_index];
     }
 
     validity = result_index < filter_result.count ? valid : invalid;
@@ -2665,16 +2726,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
             continue;
         }
 
-        auto& result_reference = result->coll_to_references[i];
-        if (is_group_by_first_pass) {
-            // Copying since the references will be required in the second pass.
-            result_reference.insert(filter_result.coll_to_references[match_index].begin(),
-                                    filter_result.coll_to_references[match_index].end());
-        } else {
-            // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
-            // not used afterwards.
-            result_reference = std::move(filter_result.coll_to_references[match_index]);
-        }
+        result->coll_to_references[i] = filter_result.coll_to_references[match_index];
     }
 
     validity = result_index < filter_result.count ? valid : invalid;
@@ -2726,9 +2778,7 @@ void filter_result_iterator_t::compute_iterators() {
         validity = invalid;
         is_filter_result_initialized = false;
         return;
-    }
-
-    if (timeout_info != nullptr && is_timed_out()) {
+    } else if (is_filter_result_initialized || (timeout_info != nullptr && is_timed_out())) {
         return;
     }
 
@@ -2904,6 +2954,10 @@ void filter_result_iterator_t::compute_iterators() {
             is_timed_out(true);
         }
     } else if (f.is_string()) {
+        if (index->search_schema.count(filter_node->filter_exp.field_name) == 0) {
+            return;
+        }
+
         // Resetting posting_list_iterators.
         for (uint32_t i = 0; i < posting_lists.size(); i++) {
             auto const& plists = posting_lists[i];
