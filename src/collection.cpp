@@ -3086,6 +3086,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             remove_flat_fields(document);
             remove_reference_helper_fields(document);
 
+            lock.unlock();
             auto prune_op = prune_doc(document,
                                       include_fields_full,
                                       exclude_fields_full,
@@ -3097,6 +3098,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             if (!prune_op.ok()) {
                 return Option<nlohmann::json>(prune_op.code(), prune_op.error());
             }
+            lock.lock();
 
             wrapper_doc["document"] = document;
             wrapper_doc["highlight"] = highlight_res;
@@ -4601,6 +4603,7 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
     if(!filter_op.ok()) {
         return filter_op;
     }
+    lock.unlock();
 
     return index->do_filtering_with_lock(filter_tree_root, filter_result, name, should_timeout, validate_field_names);
 }
@@ -4613,7 +4616,7 @@ Option<bool> Collection::get_related_ids(const std::string& ref_field_name, cons
 Option<bool> Collection::get_object_array_related_id(const std::string& ref_field_name,
                                                      const uint32_t& seq_id, const uint32_t& object_index,
                                                      uint32_t& result) const {
-    return index->get_object_array_related_id(name, ref_field_name, seq_id, object_index, result);
+    return index->get_object_array_related_id(get_name(), ref_field_name, seq_id, object_index, result);
 }
 
 Option<bool> Collection::get_reference_filter_ids(const std::string & filter_query,
