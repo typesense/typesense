@@ -108,6 +108,21 @@ TEST_F(CollectionJoinTest, SchemaReferenceField) {
             R"({
                 "name": "Customers",
                 "fields": [
+                    {"name": "self_reference", "type": "string", "reference": "Customers.id"},
+                    {"name": "customer_name", "type": "string"},
+                    {"name": "product_price", "type": "float"}
+                ]
+            })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("Referencing a field of the same collection is not allowed: `self_reference` field references `Customers` collection.",
+              collection_create_op.error());
+
+    schema_json =
+            R"({
+                "name": "Customers",
+                "fields": [
                     {"name": "product_id", "type": "string", "reference": "Products.product_id"},
                     {"name": "customer_name", "type": "string"},
                     {"name": "product_price", "type": "float"}

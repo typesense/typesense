@@ -1633,7 +1633,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         return Option<Collection*>(400, "Parameter `name` is required.");
     }
 
-    if(!req_json["name"].is_string() || req_json["name"].get<std::string>().empty()) {
+    const auto& collection_name = req_json["name"];
+    if(!collection_name.is_string() || collection_name.get<std::string>().empty()) {
         return Option<Collection*>(400, "Parameter `name` must be a non-empty string.");
     }
 
@@ -1723,7 +1724,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     std::string fallback_field_type;
     std::vector<field> fields;
     auto parse_op = field::json_fields_to_fields(req_json[ENABLE_NESTED_FIELDS].get<bool>(),
-                                                 req_json["fields"], fallback_field_type, fields);
+                                                 req_json["fields"], fallback_field_type, fields, collection_name);
 
     if(!parse_op.ok()) {
         return Option<Collection*>(parse_op.code(), parse_op.error());
@@ -1758,7 +1759,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     const auto created_at = static_cast<uint64_t>(std::time(nullptr));
 
-    return CollectionManager::get_instance().create_collection(req_json["name"], num_memory_shards,
+    return CollectionManager::get_instance().create_collection(collection_name, num_memory_shards,
                                                                 fields, default_sorting_field, created_at,
                                                                 fallback_field_type,
                                                                 req_json[SYMBOLS_TO_INDEX],
