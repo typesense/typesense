@@ -549,20 +549,36 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
             batch_doc_ids.insert(doc_id);
 
-            std::shared_lock lock(mutex);
+            std::string fallback_field_type_copy;
+            std::unordered_map<std::string, field> dynamic_fields_copy;
+            tsl::htrie_map<char, field> nested_fields_copy;
+            spp::sparse_hash_map<std::string, reference_info_t> reference_fields_copy;
+            spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins_copy;
+            tsl::htrie_map<char, field> search_schema_copy;
+            tsl::htrie_set<char> object_reference_helper_fields_copy;
+            {
+                std::shared_lock lock(mutex);
+                fallback_field_type_copy = fallback_field_type;
+                dynamic_fields_copy = dynamic_fields;
+                nested_fields_copy = nested_fields;
+                reference_fields_copy = reference_fields;
+                async_referenced_ins_copy = async_referenced_ins;
+                search_schema_copy = search_schema;
+                object_reference_helper_fields_copy = object_reference_helper_fields;
+            }
 
             // if `fallback_field_type` or `dynamic_fields` is enabled, update schema first before indexing
-            if(!fallback_field_type.empty() || !dynamic_fields.empty() || !nested_fields.empty() ||
-                !reference_fields.empty() || !async_referenced_ins.empty()) {
+            if(!fallback_field_type_copy.empty() || !dynamic_fields_copy.empty() || !nested_fields_copy.empty() ||
+                !reference_fields_copy.empty() || !async_referenced_ins_copy.empty()) {
 
                 Option<bool> new_fields_op = detect_new_fields(record.doc, dirty_values,
-                                                               search_schema, dynamic_fields,
-                                                               nested_fields,
-                                                               fallback_field_type,
+                                                               search_schema_copy, dynamic_fields_copy,
+                                                               nested_fields_copy,
+                                                               fallback_field_type_copy,
                                                                record.is_update,
                                                                new_fields,
                                                                enable_nested_fields,
-                                                               reference_fields, object_reference_helper_fields);
+                                                               reference_fields_copy, object_reference_helper_fields_copy);
                 if(!new_fields_op.ok()) {
                     record.index_failure(new_fields_op.code(), new_fields_op.error());
                 }
