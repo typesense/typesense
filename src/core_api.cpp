@@ -2534,6 +2534,62 @@ bool post_clear_cache(const std::shared_ptr<http_req>& req, const std::shared_pt
     return true;
 }
 
+bool get_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    Config& config = Config::get_instance();
+    nlohmann::json response;
+
+    // Add non-sensitive configuration values
+    response["data_dir"] = config.get_data_dir();
+    response["log_dir"] = config.get_log_dir();
+    response["analytics_dir"] = config.get_analytics_dir();
+    response["analytics_db_ttl"] = config.get_analytics_db_ttl();
+    response["analytics_minute_rate_limit"] = config.get_analytics_minute_rate_limit();
+    response["api_address"] = config.get_api_address();
+    response["api_port"] = config.get_api_port();
+    response["peering_address"] = config.get_peering_address();
+    response["peering_port"] = config.get_peering_port();
+    response["peering_subnet"] = config.get_peering_subnet();
+    response["nodes"] = config.get_nodes();
+    response["master"] = config.get_master();
+    response["enable_cors"] = config.get_enable_cors();
+    response["cors_domains"] = config.get_cors_domains();
+    response["max_memory_ratio"] = config.get_max_memory_ratio();
+    response["snapshot_interval_seconds"] = config.get_snapshot_interval_seconds();
+    response["snapshot_max_byte_count_per_rpc"] = config.get_snapshot_max_byte_count_per_rpc();
+    response["healthy_read_lag"] = config.get_healthy_read_lag();
+    response["healthy_write_lag"] = config.get_healthy_write_lag();
+    response["log_slow_requests_time_ms"] = config.get_log_slow_requests_time_ms();
+    response["log_slow_searches_time_ms"] = config.get_log_slow_searches_time_ms();
+    response["num_collections_parallel_load"] = config.get_num_collections_parallel_load();
+    response["num_documents_parallel_load"] = config.get_num_documents_parallel_load();
+    response["thread_pool_size"] = config.get_thread_pool_size();
+    response["enable_access_logging"] = config.get_enable_access_logging();
+    response["disk_used_max_percentage"] = config.get_disk_used_max_percentage();
+    response["memory_used_max_percentage"] = config.get_memory_used_max_percentage();
+    response["cache_num_entries"] = config.get_cache_num_entries();
+    response["embedding_cache_num_entries"] = config.get_embedding_cache_num_entries();
+    response["skip_writes"] = config.get_skip_writes().load();
+    response["reset_peers_on_error"] = config.get_reset_peers_on_error().load();
+    response["enable_search_analytics"] = config.get_enable_search_analytics();
+    response["analytics_flush_interval"] = config.get_analytics_flush_interval();
+    response["housekeeping_interval"] = config.get_housekeeping_interval();
+    response["db_compaction_interval"] = config.get_db_compaction_interval();
+    response["enable_lazy_filter"] = config.get_enable_lazy_filter();
+    response["enable_search_logging"] = config.get_enable_search_logging();
+    response["max_per_page"] = config.get_max_per_page();
+    response["filter_by_max_ops"] = config.get_filter_by_max_ops();
+    response["max_group_limit"] = config.get_max_group_limit();
+    response["db_write_buffer_size"] = config.get_db_write_buffer_size();
+    response["db_max_write_buffer_number"] = config.get_db_max_write_buffer_number();
+    response["db_max_log_file_size"] = config.get_db_max_log_file_size();
+    response["db_keep_log_file_num"] = config.get_db_keep_log_file_num();
+    response["max_indexing_concurrency"] = config.get_max_indexing_concurrency();
+    response["ssl_refresh_interval_seconds"] = config.get_ssl_refresh_interval_seconds();
+
+    res->set_200(response.dump());
+    return true;
+}
+
 bool post_compact_db(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager& collectionManager = CollectionManager::get_instance();
     rocksdb::Status status = collectionManager.get_store()->compact_all();

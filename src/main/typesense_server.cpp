@@ -129,6 +129,7 @@ void master_server_routes() {
     server->del("/limits/active/:id", del_throttle);
     server->del("/limits/exceeds/:id", del_exceed);
     server->post("/config", post_config, false, false);
+    server->get("/config", get_config);
 
     // for proxying remote embedders
     server->post("/proxy", post_proxy);

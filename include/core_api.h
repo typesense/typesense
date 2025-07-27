@@ -129,6 +129,8 @@ bool post_vote(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
 
 bool post_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool get_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 bool post_clear_cache(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool post_compact_db(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
