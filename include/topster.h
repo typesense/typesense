@@ -173,6 +173,9 @@ struct Union_KV : public KV {
     Union_KV(KV& kv, uint32_t search_index) : KV(kv.query_index, kv.key, kv.distinct_key, kv.match_score_index, kv.scores),
                                                search_index(search_index) {
         reference_filter_results = std::move(kv.reference_filter_results);
+        // Copy hybrid search specific fields
+        vector_distance = kv.vector_distance;
+        text_match_score = kv.text_match_score;
     }
 
     Union_KV() = default;

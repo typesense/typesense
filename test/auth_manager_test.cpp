@@ -265,6 +265,70 @@ TEST_F(AuthManagerTest, VerifyAuthentication) {
                                            sparams, embedded_params));
 }
 
+TEST_F(AuthManagerTest, PresetOperationsAuthentication) {
+    std::map<std::string, std::string> sparams;
+    std::vector<nlohmann::json> embedded_params(1);
+
+    // Test all four preset operations with individual keys
+    api_key_t preset_list_key = api_key_t("preset_list", "preset list key", {"presets:list"}, {"*"}, FUTURE_TS);
+    api_key_t preset_get_key = api_key_t("preset_get", "preset get key", {"presets:get"}, {"*"}, FUTURE_TS);
+    api_key_t preset_upsert_key = api_key_t("preset_upsert", "preset upsert key", {"presets:upsert"}, {"*"}, FUTURE_TS);
+    api_key_t preset_delete_key = api_key_t("preset_delete", "preset delete key", {"presets:delete"}, {"*"}, FUTURE_TS);
+
+    auth_manager.create_key(preset_list_key);
+    auth_manager.create_key(preset_get_key);
+    auth_manager.create_key(preset_upsert_key);
+    auth_manager.create_key(preset_delete_key);
+
+    // Test each operation with its specific key
+    ASSERT_TRUE(auth_manager.authenticate("presets:list", {collection_key_t("", preset_list_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("presets:get", {collection_key_t("", preset_get_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("presets:upsert", {collection_key_t("", preset_upsert_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("presets:delete", {collection_key_t("", preset_delete_key.value)}, sparams, embedded_params));
+
+    // Test cross-operation access (should fail)
+    ASSERT_FALSE(auth_manager.authenticate("presets:get", {collection_key_t("", preset_list_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("presets:upsert", {collection_key_t("", preset_get_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("presets:delete", {collection_key_t("", preset_upsert_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("presets:list", {collection_key_t("", preset_delete_key.value)}, sparams, embedded_params));
+
+    // Test wildcard preset permission
+    api_key_t wildcard_presets_key = api_key_t("preset_wild", "wildcard presets key", {"presets:*"}, {"*"}, FUTURE_TS);
+    auth_manager.create_key(wildcard_presets_key);
+
+    ASSERT_TRUE(auth_manager.authenticate("presets:list", {collection_key_t("", wildcard_presets_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("presets:get", {collection_key_t("", wildcard_presets_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("presets:upsert", {collection_key_t("", wildcard_presets_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("presets:delete", {collection_key_t("", wildcard_presets_key.value)}, sparams, embedded_params));
+
+    // Test that wildcard preset doesn't grant access to other operations
+    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("", wildcard_presets_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("collections:list", {collection_key_t("", wildcard_presets_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("keys:list", {collection_key_t("", wildcard_presets_key.value)}, sparams, embedded_params));
+
+    // Test combination of preset operations
+    api_key_t preset_combo_key = api_key_t("preset_combo", "preset combo key", {"presets:list", "presets:get", "presets:upsert"}, {"*"}, FUTURE_TS);
+    auth_manager.create_key(preset_combo_key);
+
+    ASSERT_TRUE(auth_manager.authenticate("presets:list", {collection_key_t("", preset_combo_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("presets:get", {collection_key_t("", preset_combo_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("presets:upsert", {collection_key_t("", preset_combo_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("presets:delete", {collection_key_t("", preset_combo_key.value)}, sparams, embedded_params));
+
+    // Test expired preset key
+    uint64_t PAST_TS = uint64_t(std::time(0)) - 100;
+    api_key_t expired_preset_key = api_key_t("preset_expired", "expired preset key", {"presets:list"}, {"*"}, PAST_TS);
+    auth_manager.create_key(expired_preset_key);
+
+    ASSERT_FALSE(auth_manager.authenticate("presets:list", {collection_key_t("", expired_preset_key.value)}, sparams, embedded_params));
+
+    // Test with invalid API key
+    ASSERT_FALSE(auth_manager.authenticate("presets:list", {collection_key_t("", "invalid_key")}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("presets:get", {collection_key_t("", "invalid_key")}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("presets:upsert", {collection_key_t("", "invalid_key")}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("presets:delete", {collection_key_t("", "invalid_key")}, sparams, embedded_params));
+}
+
 TEST_F(AuthManagerTest, GenerationOfAPIAction) {
     route_path rpath_search = route_path("GET", {"collections", ":collection", "documents", "search"}, nullptr, false, false);
     route_path rpath_multi_search = route_path("POST", {"multi_search"}, nullptr, false, false);
@@ -282,6 +346,11 @@ TEST_F(AuthManagerTest, GenerationOfAPIAction) {
     route_path rpath_analytics_rules_put = route_path("PUT", {"analytics", "rules", ":id"}, nullptr, false, false);
     route_path rpath_ops_cache_clear_post = route_path("POST", {"operations", "cache", "clear"}, nullptr, false, false);
     route_path rpath_conv_models_list = route_path("GET", {"conversations", "models"}, nullptr, false, false);
+    // Presets
+    route_path rpath_presets_list = route_path("GET", {"presets"}, nullptr, false, false);
+    route_path rpath_presets_get = route_path("GET", {"presets", ":name"}, nullptr, false, false);
+    route_path rpath_presets_upsert = route_path("PUT", {"presets", ":name"}, nullptr, false, false);
+    route_path rpath_presets_delete = route_path("DELETE", {"presets", ":name"}, nullptr, false, false);
 
     ASSERT_STREQ("documents:search", rpath_search._get_action().c_str());
     ASSERT_STREQ("documents:search", rpath_multi_search._get_action().c_str());
@@ -299,6 +368,10 @@ TEST_F(AuthManagerTest, GenerationOfAPIAction) {
     ASSERT_STREQ("analytics/rules:upsert", rpath_analytics_rules_put._get_action().c_str());
     ASSERT_STREQ("operations/cache/clear:create", rpath_ops_cache_clear_post._get_action().c_str());
     ASSERT_STREQ("conversations/models:list", rpath_conv_models_list._get_action().c_str());
+    ASSERT_STREQ("presets:list", rpath_presets_list._get_action().c_str());
+    ASSERT_STREQ("presets:get", rpath_presets_get._get_action().c_str());
+    ASSERT_STREQ("presets:upsert", rpath_presets_upsert._get_action().c_str());
+    ASSERT_STREQ("presets:delete", rpath_presets_delete._get_action().c_str());
 }
 
 TEST_F(AuthManagerTest, ScopedAPIKeys) {

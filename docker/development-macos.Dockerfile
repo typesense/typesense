@@ -4,28 +4,28 @@
 # 3) docker build -t typesense-builder -f docker/development-macos.Dockerfile .
 
 # Build & Run typesense-server:
-#    docker run -p 8108:8108 \
-#                 -v "$(pwd)":/build/typesense \
-#                 -v typesense-bazel-cache:/root/.cache/bazel \
-#                 -v"$(pwd)"/typesense-data:/data \
-#                 -e TYPESENSE_TARGET=typesense-server \
-#                 typesense-builder \
-#                 --data-dir=/data \
-#                 --api-key=xyz \
-#                 --enable-cors
+   docker run -p 8108:8108 \
+                -v "$(pwd)":/build/typesense \
+                -v typesense-bazel-cache:/root/.cache/bazel \
+                -v"$(pwd)"/typesense-data:/data \
+                -e TYPESENSE_TARGET=typesense-server \
+                typesense-builder \
+                --data-dir=/data \
+                --api-key=xyz \
+                --enable-cors
 #
 # Build & Test entire test suite:
-#    docker run -v "$(pwd)":/build/typesense \
-#                 -v typesense-bazel-cache:/root/.cache/bazel \
-#                 -e TYPESENSE_TARGET=typesense-test \
-#                 typesense-builder
+   docker run -v "$(pwd)":/build/typesense \
+                -v typesense-bazel-cache:/root/.cache/bazel \
+                -e TYPESENSE_TARGET=typesense-test \
+                typesense-builder
 #
 # Build & Test single test:
-#    docker run -v "$(pwd)":/build/typesense \
-#                 -v typesense-bazel-cache:/root/.cache/bazel \
-#                 -e TYPESENSE_TARGET=typesense-test \
-#                 typesense-builder \
-#                 --gtest_filter="TestSuiteName.TestName"
+   docker run -v "$(pwd)":/build/typesense \
+                -v typesense-bazel-cache:/root/.cache/bazel \
+                -e TYPESENSE_TARGET=typesense-test \
+                typesense-builder \
+                --gtest_filter="UnionTest.HybridSearchVectorDistance"
 #
 
 FROM ubuntu:20.04

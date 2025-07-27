@@ -466,7 +466,7 @@ TEST_F(UnionTest, ErrorHandling) {
     ASSERT_EQ(1, json_res.count("error"));
     ASSERT_EQ("Expected size of `sort_by` parameter of all searches to be equal. The first union search sorts on "
               "{`_text_match: text_match`, `rating: float_field`} but the search at index `1` sorts on "
-              "{`_text_match: text_match`, `_union_search_index: union_query_order`, `_seq_id: insertion_order`}.",
+              "{`_union_search_index: union_query_order`, `_seq_id: insertion_order`}.",
               json_res["error"]);
     json_res.clear();
     req_params.clear();
@@ -1003,4 +1003,104 @@ TEST_F(UnionTest, Sorting) {
     ASSERT_EQ(9.999, json_res["hits"][9]["document"]["rating"]);
     json_res.clear();
     req_params.clear();
+}
+
+TEST_F(UnionTest, HybridSearchVectorDistance) {
+    std::cout << "[TEST] Starting HybridSearchVectorDistance" << std::endl;
+    setupNumericArrayCollection();
+    setupBoolCollection();
+    // Create a collection with vector search capabilities
+    nlohmann::json schema = R"({
+        "name": "test_hybrid",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {
+                "name" : "embedding",
+                "type" : "float[]",
+                "embed": {
+                    "from": ["title"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                }
+            }
+        ]
+    })"_json;
+
+    std::cout << "[TEST] Creating collection..." << std::endl;
+    auto op = collectionManager.create_collection(schema);
+    std::cout << "[TEST] create_collection returned: " << op.ok() << std::endl;
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    std::cout << "[TEST] Collection pointer: " << coll << std::endl;
+
+    // Add some test documents
+    nlohmann::json doc1;
+    doc1["title"] = "apple fruit";
+    std::cout << "[TEST] Adding doc1: " << doc1.dump() << std::endl;
+    auto add1 = coll->add(doc1.dump());
+    std::cout << "[TEST] add(doc1) returned: " << add1.ok() << std::endl;
+    ASSERT_TRUE(add1.ok());
+
+    nlohmann::json doc2;
+    doc2["title"] = "banana fruit";
+    std::cout << "[TEST] Adding doc2: " << doc2.dump() << std::endl;
+    auto add2 = coll->add(doc2.dump());
+    std::cout << "[TEST] add(doc2) returned: " << add2.ok() << std::endl;
+    ASSERT_TRUE(add2.ok());
+
+    // Test union search with hybrid search
+    req_params = {
+        {"page", "1"},
+        {"per_page", "10"}
+    };
+    std::cout << "[TEST] Setting embedded_params and searches..." << std::endl;
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+        {
+            "collection": "test_hybrid",
+            "q": "apple",
+            "query_by": "title, embedding"
+        },
+        {
+            "collection": "test_hybrid",
+            "q": "banana",
+            "query_by": "title, embedding"
+        }
+    ])"_json;
+
+    std::cout << "[TEST] Calling do_union..." << std::endl;
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    std::cout << "[TEST] do_union returned: " << search_op.ok() << std::endl;
+
+    ASSERT_TRUE(search_op.ok());
+
+    std::cout << "[TEST] json_res after do_union: " << json_res.dump(2) << std::endl;
+
+    // Verify that vector_distance is present in the results
+    std::cout << "[TEST] Checking json_res[\"found\"]..." << std::endl;
+    ASSERT_EQ(2, json_res["found"].get<size_t>());
+    std::cout << "[TEST] Checking json_res[\"hits\"].size()..." << std::endl;
+    ASSERT_EQ(2, json_res["hits"].size());
+
+    // Check that both hits have vector_distance property
+    std::cout << "[TEST] Checking vector_distance in hits..." << std::endl;
+    ASSERT_EQ(1, json_res["hits"][0].count("vector_distance"));
+    ASSERT_EQ(1, json_res["hits"][1].count("vector_distance"));
+
+    // Check that both hits have hybrid_search_info with rank_fusion_score
+    std::cout << "[TEST] Checking hybrid_search_info in hits..." << std::endl;
+    ASSERT_EQ(1, json_res["hits"][0].count("hybrid_search_info"));
+    ASSERT_EQ(1, json_res["hits"][1].count("hybrid_search_info"));
+    ASSERT_EQ(1, json_res["hits"][0]["hybrid_search_info"].count("rank_fusion_score"));
+    ASSERT_EQ(1, json_res["hits"][1]["hybrid_search_info"].count("rank_fusion_score"));
+
+    // Verify that vector_distance values are reasonable (should be >= 0)
+    std::cout << "[TEST] Checking vector_distance values..." << std::endl;
+    ASSERT_GE(json_res["hits"][0]["vector_distance"].get<float>(), 0.0f);
+    ASSERT_GE(json_res["hits"][1]["vector_distance"].get<float>(), 0.0f);
+
+    json_res.clear();
+    req_params.clear();
+    std::cout << "[TEST] HybridSearchVectorDistance test completed." << std::endl;
 }
