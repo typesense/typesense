@@ -10523,3 +10523,53 @@ TEST_F(CollectionJoinTest, AlteredReferenceFieldOnRestart) {
     ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
     ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
 }
+
+TEST_F(JoinIncludeExcludeFieldsTest, RelatedDocsCount) {
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"include_fields", "*, $Customers(*, strategy:nest_array, related_docs_count:product_count) as Customers"}
+    };
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["product_count"].get<size_t>());
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["product_count"].get<size_t>());
+
+    //order should not bother
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(id:*)"},
+            {"include_fields", "$Customers(customer_id, customer_name, related_docs_count:product_count, strategy:nest_array) as Customers"},
+            {"exclude_fields", "embedding"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["product_count"].get<size_t>());
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["product_count"].get<size_t>());
+
+    //typo will result in error
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:*)"},
+            {"include_fields", "*, $Customers(*, strategy:nest_array, related_doc_count:product_count) as Customers"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Unknown reference `include_fields` parameter: `related_doc_count`.",search_op.error());
+}
