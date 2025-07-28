@@ -5788,7 +5788,10 @@ nlohmann::json schema = R"({
     auto add_op = coll1->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
 
-    doc["embedding"] = std::vector<float>{};
+    doc = R"({
+        "text": "This is another test document.",
+        "embedding": []
+    })"_json;
     add_op = coll1->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
 }
