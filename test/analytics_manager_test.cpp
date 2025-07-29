@@ -305,6 +305,151 @@ TEST_F(AnalyticsManagerTest, MetaFieldsAnalyticsTest) {
     ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries3").ok());
 }
 
+TEST_F(AnalyticsManagerTest, MetaFieldsGenerateUniqueIDs) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "size", "type": "int32"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Black shirt";
+    doc["size"] = 40;
+    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
+
+    nlohmann::json suggestions_schema = R"({
+        "name": "top_queries_unique_test",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "filter_by", "type" : "string"},
+          {"name": "analytics_tag", "type" : "string"},
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    nlohmann::json analytics_rule = R"({
+        "name": "unique_id_test_rule",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "expand_query": true,
+            "meta_fields": ["analytics_tag"],
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries_unique_test"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    // black with make:1970
+    analyticsManager.add_suggestion("titles", "black", "black", true, "user1", "", "make:1970");
+    // black with make:1975
+    analyticsManager.add_suggestion("titles", "black", "black", true, "user2", "", "make:1975");
+
+    auto popularQueries = analyticsManager.get_popular_queries();
+    popularQueries["top_queries_unique_test"]->compact_user_queries(0);
+    
+    auto localCounts = popularQueries["top_queries_unique_test"]->get_local_counts();
+    
+    ASSERT_EQ(2, localCounts.size());
+    
+    for (const auto& entry : localCounts) {
+        const auto& meta = entry.first;
+        uint32_t count = entry.second;
+        
+        ASSERT_EQ("black", meta.query);
+        ASSERT_EQ("", meta.filter_str);
+        ASSERT_EQ(1, count);
+        
+    }
+
+    ASSERT_TRUE(analyticsManager.remove_rule("unique_id_test_rule").ok());
+}
+
+TEST_F(AnalyticsManagerTest, MetaFieldsGenerateUniqueIDsWithFilterAndTag) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles2",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "size", "type": "int32"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Black shirt";
+    doc["size"] = 40;
+    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
+
+    nlohmann::json suggestions_schema = R"({
+        "name": "top_queries_filter_tag_test",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "filter_by", "type" : "string"},
+          {"name": "analytics_tag", "type" : "string"},
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    nlohmann::json analytics_rule = R"({
+        "name": "filter_tag_unique_id_test_rule",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "expand_query": true,
+            "meta_fields": ["filter_by", "analytics_tag"],
+            "source": {
+                "collections": ["titles2"]
+            },
+            "destination": {
+                "collection": "top_queries_filter_tag_test"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    // black with size > 30 and make:1970
+    analyticsManager.add_suggestion("titles2", "black", "black", true, "user1", "size:>30", "make:1970");
+    // black with size > 30 and make:1975
+    analyticsManager.add_suggestion("titles2", "black", "black", true, "user2", "size:>30", "make:1975");
+    // black with size > 40 and make:1970
+    analyticsManager.add_suggestion("titles2", "black", "black", true, "user3", "size:>40", "make:1970");
+
+    auto popularQueries = analyticsManager.get_popular_queries();
+    popularQueries["top_queries_filter_tag_test"]->compact_user_queries(0);
+    
+    auto localCounts = popularQueries["top_queries_filter_tag_test"]->get_local_counts();
+    
+    ASSERT_EQ(3, localCounts.size());
+    
+    
+    for (const auto& entry : localCounts) {
+        const auto& meta = entry.first;
+        uint32_t count = entry.second;
+        
+        ASSERT_EQ("black", meta.query);
+        ASSERT_EQ(1, count);
+    }
+
+    ASSERT_TRUE(analyticsManager.remove_rule("filter_tag_unique_id_test_rule").ok());
+}
+
 TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
     nlohmann::json titles_schema = R"({
             "name": "titles",

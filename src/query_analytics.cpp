@@ -67,7 +67,17 @@ void QueryAnalytics::serialize_as_docs(std::string& docs) {
             doc["analytics_tag"] = it->first.tag_str;
         }
 
-        doc["id"] = std::to_string(StringUtils::hash_wy(it->first.query.c_str(), it->first.query.size()));
+        std::string id_source = it->first.query;
+        
+        if (meta_fields.find("filter_by") != meta_fields.end() && !it->first.filter_str.empty()) {
+            id_source += "|filter:" + it->first.filter_str;
+        }
+        
+        if (meta_fields.find("analytics_tag") != meta_fields.end() && !it->first.tag_str.empty()) {
+            id_source += "|tag:" + it->first.tag_str;
+        }
+        
+        doc["id"] = std::to_string(StringUtils::hash_wy(id_source.c_str(), id_source.size()));
         doc["q"] = it->first.query;
         doc["$operations"]["increment"]["count"] = it->second;
         docs += doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore) + "\n";
