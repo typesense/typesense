@@ -620,7 +620,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
                 continue;
             }
 
-            if (collection->get_object_reference_helper_fields().count(field_name) != 0) {
+            if (collection->get_object_reference_fields().count(field_name) != 0) {
                 std::vector<std::string> keys;
                 StringUtils::split(field_name, keys, ".");
                 auto const& key = keys[0];

@@ -555,7 +555,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             spp::sparse_hash_map<std::string, reference_info_t> reference_fields_copy;
             spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins_copy;
             tsl::htrie_map<char, field> search_schema_copy;
-            tsl::htrie_set<char> object_reference_helper_fields_copy;
+            tsl::htrie_set<char> object_reference_fields_copy;
             {
                 std::shared_lock lock(mutex);
                 fallback_field_type_copy = fallback_field_type;
@@ -564,7 +564,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 reference_fields_copy = reference_fields;
                 async_referenced_ins_copy = async_referenced_ins;
                 search_schema_copy = search_schema;
-                object_reference_helper_fields_copy = object_reference_helper_fields;
+                object_reference_fields_copy = object_reference_fields;
             }
 
             // if `fallback_field_type` or `dynamic_fields` is enabled, update schema first before indexing
@@ -578,7 +578,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                                                                record.is_update,
                                                                new_fields,
                                                                enable_nested_fields,
-                                                               reference_fields_copy, object_reference_helper_fields_copy);
+                                                               reference_fields_copy, object_reference_fields_copy);
                 if(!new_fields_op.ok()) {
                     record.index_failure(new_fields_op.code(), new_fields_op.error());
                 }
@@ -5838,9 +5838,9 @@ tsl::htrie_map<char, field> Collection::get_embedding_fields() {
     return embedding_fields;
 };
 
-tsl::htrie_set<char> Collection::get_object_reference_helper_fields() const {
+tsl::htrie_set<char> Collection::get_object_reference_fields() const {
     std::shared_lock lock(mutex);
-    return object_reference_helper_fields;
+    return object_reference_fields;
 }
 
 std::string Collection::get_meta_key(const std::string & collection_name) {
@@ -6222,7 +6222,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         auto populate_reference_helper_fields_op = Join::populate_reference_helper_fields(document, search_schema, reference_fields,
-                                                                                          object_reference_helper_fields,
+                                                                                          object_reference_fields,
                                                                                           true);
         if (!populate_reference_helper_fields_op.ok()) {
             return populate_reference_helper_fields_op;
@@ -6792,7 +6792,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     reference_fields.emplace(field.name,
                                              reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference));
                     if (field.nested) {
-                        object_reference_helper_fields.insert(field.name);
+                        object_reference_fields.insert(field.name);
                     }
 
                     for (auto& update_ref_info: update_ref_infos) {
@@ -6919,7 +6919,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                            fallback_field_type, false,
                                                            new_fields,
                                                            enable_nested_fields,
-                                                           reference_fields, object_reference_helper_fields);
+                                                           reference_fields, object_reference_fields);
             if(!new_fields_op.ok()) {
                 return new_fields_op;
             }
@@ -7102,7 +7102,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                                            std::vector<field>& new_fields,
                                            const bool enable_nested_fields,
                                            const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
-                                           tsl::htrie_set<char>& object_reference_helper_fields) {
+                                           tsl::htrie_set<char>& object_reference_fields) {
 
     auto kv = document.begin();
     while(kv != document.end()) {
@@ -7188,7 +7188,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
     }
 
     auto populate_reference_helper_fields_op = Join::populate_reference_helper_fields(document, schema, reference_fields,
-                                                                                 object_reference_helper_fields,
+                                                                                 object_reference_fields,
                                                                                  is_update);
     if (!populate_reference_helper_fields_op.ok()) {
         return populate_reference_helper_fields_op;
@@ -7240,7 +7240,7 @@ Index* Collection::init_index() {
 
             reference_fields.emplace(field.name, reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference));
             if (field.nested) {
-                object_reference_helper_fields.insert(field.name);
+                object_reference_fields.insert(field.name);
             }
 
             for (auto& update_ref_info: update_ref_infos) {
