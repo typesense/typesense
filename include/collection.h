@@ -442,7 +442,7 @@ private:
     /// "field name" -> List of <collection, field> pairs where this collection is referenced and is marked as `async`.
     spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins;
 
-    /// Reference fields that are part of an object. The reference doc of these fields will be included in the object
+    /// Reference fields that are part of an object. The referenced doc of these fields will be included in the object
     /// rather than in the document.
     tsl::htrie_set<char> object_reference_fields;
 
