@@ -1,0 +1,7 @@
+version: 0.1
+endpoints:
+  - name: typesense-api
+    port: 8108
+    type: REST
+    networkVisibility: Project
+    context: /
