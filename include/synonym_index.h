@@ -177,5 +177,6 @@ public:
         swap(first.synonym_index, second.synonym_index);
         swap(first.synonym_definitions, second.synonym_definitions);
         swap(first.synonym_trie_root, second.synonym_trie_root);
+        swap(first.name, second.name);
     }
 };

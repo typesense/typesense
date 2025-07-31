@@ -1860,9 +1860,13 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     }
 
     // migrate synonyms if exists
+    const std::string& syn_lower_bound_key =
+                std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "_";
+
+    std::string syn_upper_bound_key = std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" +
+                                      this_collection_name + "`";  // cannot inline this
     std::vector<std::string> collection_synonym_jsons;
-    cm.store->scan_fill(SynonymIndex::get_synonym_key(this_collection_name, ""),
-                        std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "`",
+    cm.store->scan_fill(syn_lower_bound_key, syn_upper_bound_key,
                         collection_synonym_jsons);
     if(!collection_synonym_jsons.empty()) {
         SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
@@ -1874,6 +1878,17 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
             return Option<bool>(synonym_index_op.code(), synonym_index_op.error());
         }
         SynonymIndex* synonym_index = synonym_index_op.get();
+
+        // delete existing synonyms first
+        rocksdb::Slice syn_upper_bound(syn_upper_bound_key);
+
+        auto iter = cm.store->scan(syn_lower_bound_key, &syn_upper_bound);
+        while(iter->Valid() && iter->key().starts_with(syn_lower_bound_key)) {
+            cm.store->remove(iter->key().ToString());
+            iter->Next();
+        }
+        delete iter;
+
         for(const auto & collection_synonym_json: collection_synonym_jsons) {
             nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
             synonym_t synonym;
@@ -1882,26 +1897,16 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
                 LOG(ERROR) << "Skipping loading of synonym: " << parse_op.error();
                 continue;
             }
-            synonym_index->add_synonym(synonym, true);
+            auto add_op = synonym_index->add_synonym(synonym, true);
+            if(!add_op.ok()) {
+                LOG(ERROR) << "Error while adding synonym: " << add_op.error();
+            }
         }
 
         // Add the SynonymIndex to the collection
         collection->set_synonym_sets({this_collection_name + "_synonyms_index"});
 
-        // delete synonyms
-        const std::string& del_synonym_prefix =
-                std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "_";
-
-        std::string syn_upper_bound_key = std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" +
-                                      this_collection_name + "`";  // cannot inline this
-        rocksdb::Slice syn_upper_bound(syn_upper_bound_key);
-
-        auto iter = cm.store->scan(del_synonym_prefix, &syn_upper_bound);
-        while(iter->Valid() && iter->key().starts_with(del_synonym_prefix)) {
-            cm.store->remove(iter->key().ToString());
-            iter->Next();
-        }
-        delete iter;
+        LOG(INFO) << "Migrated synonyms for collection " << this_collection_name;
     }
 
     // Fetch records from the store and re-create memory index
