@@ -108,6 +108,21 @@ TEST_F(CollectionJoinTest, SchemaReferenceField) {
             R"({
                 "name": "Customers",
                 "fields": [
+                    {"name": "self_reference", "type": "string", "reference": "Customers.id"},
+                    {"name": "customer_name", "type": "string"},
+                    {"name": "product_price", "type": "float"}
+                ]
+            })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("Referencing a field of the same collection is not allowed: `self_reference` field references `Customers` collection.",
+              collection_create_op.error());
+
+    schema_json =
+            R"({
+                "name": "Customers",
+                "fields": [
                     {"name": "product_id", "type": "string", "reference": "Products.product_id"},
                     {"name": "customer_name", "type": "string"},
                     {"name": "product_price", "type": "float"}
@@ -2219,15 +2234,6 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     ASSERT_EQ(search_op.error(), "Failed to join on `Customers` collection: Could not find a filter "
                                  "field named `foo` in the schema.");
 
-    search_op = coll->search("s", {"product_name"}, "$Customers (customer_id:=customer_a) && $Customers(product_price:<100)", {}, {}, {0},
-                             10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ(search_op.error(), "More than one joins found for collection `Customers` in the `filter_by`. Instead of "
-                                 "providing separate join conditions like `$customer_product_prices(customer_id:=customer_a)"
-                                 " && $customer_product_prices(custom_price:<100)`, the join condition should be"
-                                 " provided as a single filter expression like `$customer_product_prices(customer_id:=customer_a"
-                                 " && custom_price:<100)`");
-
     auto result = coll->search("s", {"product_name"}, "$Customers(customer_id:=customer_a && product_price:<100)", {},
                                {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD).get();
 
@@ -2282,6 +2288,48 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"].get<std::string>());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "s"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a) && $Customers(product_price:<100)"}
+    };
+
+    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op_bool.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"]);
+    ASSERT_EQ("customer_a", res_obj["hits"][0]["document"]["Customers"]["customer_id"]);
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["Customers"]["product_price"]);
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "s"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a) || $Customers(product_price:<100)"}
+    };
+
+    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op_bool.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"]);
+    ASSERT_EQ("customer_a", res_obj["hits"][0]["document"]["Customers"]["customer_id"]);
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["Customers"]["product_price"]);
+
+    ASSERT_EQ(6, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["Customers"].size());
+    ASSERT_EQ("customer_a", res_obj["hits"][1]["document"]["Customers"][0]["customer_id"]);
+    ASSERT_EQ(75, res_obj["hits"][1]["document"]["Customers"][1]["product_price"]);
 
     auto customers_coll = collectionManager.get_collection_unsafe("Customers");
     customers_coll->remove("0");
@@ -8653,6 +8701,17 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
         ASSERT_EQ("$Customers((customer_id:customer_a) && product_price:<100)", query_filter);
     }
 
+    embedded_filter = "field:value && $Customers(customer_id:customer_a) || $Customers(foo:bar)";
+    query_filter = "$Customers(product_price:<100)";
+    ASSERT_TRUE(Join::merge_join_conditions(embedded_filter, query_filter));
+    ASSERT_EQ("field:value && $Customers(customer_id:customer_a) || $Customers(foo:bar)", embedded_filter);
+    ASSERT_EQ("$Customers(product_price:<100)", query_filter);
+
+    embedded_filter = "field:value && $Customers(customer_id:customer_a) || foo:bar";
+    query_filter = "$Customers(product_price:<100) || $Customers(foo:bar)";
+    ASSERT_EQ("field:value && $Customers(customer_id:customer_a) || foo:bar", embedded_filter);
+    ASSERT_EQ("$Customers(product_price:<100) || $Customers(foo:bar)", query_filter);
+
     // Malformed inputs
     {
         embedded_filter = " (( $Customers(customer_id:customer_a) )) ";
@@ -8673,14 +8732,6 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
 
         embedded_filter = "field:value && $Customers(customer_id:customer_a) || foo:bar";
         query_filter = "$Customers(product_price:<100)";
-        ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
-
-        embedded_filter = "field:value && $Customers(customer_id:customer_a) || $Customers(foo:bar)";
-        query_filter = "$Customers(product_price:<100)";
-        ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
-
-        embedded_filter = "field:value && $Customers(customer_id:customer_a) || foo:bar";
-        query_filter = "$Customers(product_price:<100) || $Customers(foo:bar)";
         ASSERT_FALSE(Join::merge_join_conditions(embedded_filter, query_filter));
     }
 
@@ -8803,26 +8854,24 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
             {"filter_by", "$Customers(product_price:<100)"},
     };
     embedded_params = R"({
-                        "filter_by": "$Customers(customer_id:customer_a) || $Customers(customer_id:customer_a) "
+                        "filter_by": "$Customers(customer_id:customer_a) || $Customers(customer_id:customer_b) "
                      })"_json;
 
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Error applying search parameters inside Scoped Search API key", search_op.error());
+    ASSERT_TRUE(search_op.ok());
 
-    req_params = {
-            {"collection", "Products"},
-            {"q", "*"},
-            {"filter_by", "$Customers(customer_id:customer_a) && $Customers(product_price:<100)"},
-    };
-    embedded_params.clear();
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"]);
+    ASSERT_EQ("customer_a", res_obj["hits"][0]["document"]["Customers"]["customer_id"]);
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["Customers"]["product_price"]);
 
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("More than one joins found for collection `Customers` in the `filter_by`. Instead of providing separate "
-              "join conditions like `$customer_product_prices(customer_id:=customer_a) && "
-              "$customer_product_prices(custom_price:<100)`, the join condition should be provided as a single filter "
-              "expression like `$customer_product_prices(customer_id:=customer_a && custom_price:<100)`", search_op.error());
+    ASSERT_EQ(6, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
+    ASSERT_EQ("customer_b", res_obj["hits"][1]["document"]["Customers"]["customer_id"]);
+    ASSERT_EQ(75, res_obj["hits"][1]["document"]["Customers"]["product_price"]);
 }
 
 TEST_F(CollectionJoinTest, QueryByReference) {
@@ -9513,4 +9562,1014 @@ TEST_F(CollectionJoinTest, NegateLeftJoinOneToMany) {
     ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
     ASSERT_EQ("comb", res_obj["hits"][0]["document"]["product_name"]);
     ASSERT_EQ(0, res_obj["hits"][0]["document"].count("User_Views"));
+}
+
+TEST_F(CollectionJoinTest, FacetByReference) {
+    auto schema_json =
+            R"({
+            "name": "Products",
+            "fields": [
+                {"name": "product_id", "type": "string"},
+                {"name": "product_name", "type": "string"},
+                {"name": "product_description", "type": "string"},
+                {"name": "rating", "type": "int32", "facet": true}
+            ]
+        })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+            "product_id":  "product_a",
+            "product_name": "shampoo",
+            "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair.",
+            "rating": "2"
+        })"_json,
+            R"({
+            "product_id": "product_b",
+            "product_name": "soap",
+            "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients.",
+            "rating": "4"
+        })"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+            "name": "Customers",
+            "fields": [
+                {"name": "customer_id", "type": "string"},
+                {"name": "customer_name", "type": "string", "facet":true},
+                {"name": "product_price", "type": "float", "facet": true},
+                {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+            ]
+        })"_json;
+    documents = {
+            R"({
+            "customer_id": "customer_a",
+            "customer_name": "Joe",
+            "product_price": 143,
+            "product_id": "product_a"
+        })"_json,
+            R"({
+            "customer_id": "customer_a",
+            "customer_name": "Joe",
+            "product_price": 73.5,
+            "product_id": "product_b"
+        })"_json,
+            R"({
+            "customer_id": "customer_b",
+            "customer_name": "Dan",
+            "product_price": 75,
+            "product_id": "product_a"
+        })"_json,
+            R"({
+            "customer_id": "customer_b",
+            "customer_name": "Dan",
+            "product_price": 140,
+            "product_id": "product_b"
+        })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "$Customers(customer_id: customer_a)"},
+            {"facet_by", "$Customers(product_price)"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    nlohmann::json res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"]);
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
+
+    ASSERT_EQ(2, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Customers(product_price)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("143", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("$Customers(product_price: 143)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ("73.5", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ("$Customers(product_price: 73.5)", res_obj["facet_counts"][0]["counts"][1]["facet_filter"].get<std::string>());
+
+    //check with other reference fields
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "$Customers(customer_id: customer_a)"},
+            {"facet_by", "$Customers(customer_name)"}
+    };
+
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"]);
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
+
+    ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Customers(customer_name)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ("$Customers(customer_name: `Joe`)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
+    ASSERT_EQ(2, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("Joe", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+}
+
+TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
+    auto schema_json =
+            R"({
+            "name": "Students",
+            "fields": [
+                {"name": "student_id", "type": "string"},
+                {"name": "student_name", "type": "string", "facet":true}
+            ]
+        })"_json;
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+            "student_id": "1",
+            "student_name": "Joe"
+        })"_json,
+            R"({
+            "student_id": "2",
+            "student_name": "Ben"
+        })"_json,
+            R"({
+            "student_id": "3",
+            "student_name": "Dan"
+        })"_json,
+            R"({
+            "student_id": "4",
+            "student_name": "Rob"
+        })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+            "name": "Grades",
+            "fields": [
+                {"name": "student_id", "type": "string", "reference": "Students.student_id"},
+                {"name": "grade", "type": "int32", "facet":true}
+            ]
+        })"_json;
+
+    documents = {
+            R"({
+            "student_id": "1",
+            "grade": 78
+        })"_json,
+            R"({
+            "student_id": "2",
+            "grade": 82
+        })"_json,
+            R"({
+            "student_id": "3",
+            "grade": 67
+        })"_json,
+            R"({
+            "student_id": "4",
+            "grade": 91
+        })"_json
+    };
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Students"},
+            {"q", "*"},
+            {"filter_by", "$Grades(student_id: 3)"},
+            {"facet_by", "$Grades(grade(A:[80, 100], B:[60, 80], C:[40, 60]))"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["student_id"]);
+
+    ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Grades(grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("B", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("$Grades(grade: [60..80])", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
+
+    //open ranges
+    req_params = {
+            {"collection", "Students"},
+            {"q", "*"},
+            {"filter_by", "$Grades(student_id: 4)"},
+            {"facet_by", "$Grades(grade(A+:[80, ]))"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][0]["document"]["student_id"]);
+
+    ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Grades(grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("A+", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("$Grades(grade: >=80)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
+
+    req_params = {
+            {"collection", "Students"},
+            {"q", "*"},
+            {"filter_by", "$Grades(student_id: 3)"},
+            {"facet_by", "$Grades(grade(C:[ ,70]))"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["student_id"]);
+
+    ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Grades(grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("C", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("$Grades(grade: <=70)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
+
+    //sorting on referenced facet_field
+    schema_json =
+            R"({
+            "name": "Subjects",
+            "enable_nested_fields": true,
+            "fields": [
+                {"name": "student_id", "type": "string", "reference": "Students.student_id", "facet":true},
+                {"name": "electives", "type": "object", "facet":true},
+                {"name": "electives.*", "type": "auto", "facet":true}
+            ]
+        })"_json;
+
+    documents = {
+            R"({
+            "student_id": "1",
+            "electives" : {
+                "Design_of_Machines" : true,
+                "Motor_Mechanics" : true,
+                "Engine_Creations" : false,
+                "grade": 87,
+                "merit_rank": 3
+            }
+        })"_json,
+            R"({
+            "student_id": "2",
+            "electives" : {
+                "Design_of_Machines" : true,
+                "Motor_Mechanics" : false,
+                "Engine_Creations" : true,
+                "grade": 97,
+                "merit_rank": 1
+            }
+        })"_json,
+            R"({
+            "student_id": "3",
+            "electives" : {
+                "Design_of_Machines" : false,
+                "Motor_Mechanics" : true,
+                "Engine_Creations" : true,
+                "grade": 81,
+                "merit_rank": 3
+            }
+        })"_json,
+            R"({
+            "student_id": "4",
+            "electives" : {
+                "Design_of_Machines" : true,
+                "Motor_Mechanics" : false,
+                "Engine_Creations" : true,
+                "grade": 79,
+                "merit_rank":2
+            }
+        })"_json
+    };
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "Students"},
+            {"q", "*"},
+            {"filter_by", "$Subjects(electives.Design_of_Machines : true)"},
+            {"facet_by", "$Subjects(student_id(sort_by:_alpha:desc))"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"]);
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][2]["document"]["id"]);
+
+    ASSERT_EQ(3, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Subjects(student_id)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("4", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("$Subjects(student_id: `4`)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ("2", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ("$Subjects(student_id: `2`)", res_obj["facet_counts"][0]["counts"][1]["facet_filter"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][2]["count"]);
+    ASSERT_EQ("1", res_obj["facet_counts"][0]["counts"][2]["value"].get<std::string>());
+    ASSERT_EQ("$Subjects(student_id: `1`)", res_obj["facet_counts"][0]["counts"][2]["facet_filter"].get<std::string>());
+
+    req_params = {
+            {"collection", "Students"},
+            {"q", "*"},
+            {"filter_by", "$Subjects(electives.Design_of_Machines : true)"},
+            {"facet_by", "$Subjects(electives.grade(sort_by:electives.merit_rank:asc))"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"]);
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][2]["document"]["id"]);
+
+    ASSERT_EQ(3, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Subjects(electives.grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("97", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("$Subjects(electives.grade: 97)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ("79", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ("$Subjects(electives.grade: 79)", res_obj["facet_counts"][0]["counts"][1]["facet_filter"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][2]["count"]);
+    ASSERT_EQ("87", res_obj["facet_counts"][0]["counts"][2]["value"].get<std::string>());
+    ASSERT_EQ("$Subjects(electives.grade: 87)", res_obj["facet_counts"][0]["counts"][2]["facet_filter"].get<std::string>());
+}
+
+TEST_F(CollectionJoinTest, AlterReferenceField) {
+    auto schema_json =
+            R"({
+                "name":  "books",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": true}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "id": "0",
+                "title": "Famous Five",
+                "author_id": "0"
+            })"_json,
+            R"({
+                "id": "1",
+                "title": "Space War Blues",
+                "author_id": "1"
+            })"_json,
+            R"({
+                "id": "2",
+                "title": "12:01 PM",
+                "author_id": "1"
+            })"_json,
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    const auto coll = collection_create_op.get();
+    for (auto const &json: documents) {
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "authors",
+                "fields": [
+                    {"name": "first_name", "type": "string"},
+                    {"name": "last_name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "0",
+                "first_name": "Enid",
+                "last_name": "Blyton"
+            })"_json,
+            R"({
+                "id": "1",
+                "first_name": "Richard",
+                "last_name": "Lupoff"
+            })"_json,
+            R"({
+                "id": "2",
+                "first_name": "William",
+                "last_name": "Shakespeare"
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+
+    auto collection_summary = coll->get_summary_json();
+    ASSERT_EQ("books", collection_summary["name"]);
+    ASSERT_EQ(3, collection_summary["num_documents"].get<size_t>());
+    ASSERT_EQ(2, collection_summary["fields"].size());
+    ASSERT_EQ("title", collection_summary["fields"][0]["name"]);
+    ASSERT_EQ("author_id", collection_summary["fields"][1]["name"]);
+    ASSERT_EQ("authors.id", collection_summary["fields"][1]["reference"]);
+
+    auto schema = coll->get_schema();
+    ASSERT_EQ(1, schema.count("author_id"));
+
+    auto reference_fields = coll->get_reference_fields();
+    ASSERT_EQ(1, reference_fields.count("author_id"));
+
+    auto doc = coll->get("0").get();
+    ASSERT_EQ(1, doc.count("author_id_sequence_id"));
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "books"},
+            {"q", "*"},
+            {"filter_by", "$authors(id:1)"},
+            {"include_fields", "$authors(name) as author_name"}
+    };
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    nlohmann::json embedded_params;
+    std::string json_res;
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+
+    //first drop the reference field
+    auto alter_schema = R"({
+        "fields":[
+            {"name": "author_id", "drop": true }
+        ]
+    })"_json;
+
+    auto op = coll->alter(alter_schema);
+    if(!op.ok()) {
+        LOG(ERROR) << op.error();
+        FAIL();
+    }
+
+    collection_summary = coll->get_summary_json();
+
+    ASSERT_EQ("books", collection_summary["name"]);
+    ASSERT_EQ(3, collection_summary["num_documents"].get<size_t>());
+    ASSERT_EQ(1, collection_summary["fields"].size());
+    ASSERT_EQ("title", collection_summary["fields"][0]["name"]);
+
+    schema = coll->get_schema();
+    ASSERT_EQ(0, schema.count("author_id"));
+
+    reference_fields = coll->get_reference_fields();
+    ASSERT_EQ(0, reference_fields.count("author_id"));
+
+    req_params = {
+            {"collection", "books"},
+            {"q", "*"},
+            {"filter_by", "$authors(id:1)"},
+            {"include_fields", "$authors(name) as author_name"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok()); //referenced field got removed so join won't work
+
+    //add new reference field
+    alter_schema = R"({
+        "fields":[
+            {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": true}
+        ]
+    })"_json;
+
+
+    op = coll->alter(alter_schema);
+    if(!op.ok()) {
+        LOG(ERROR) << op.error();
+        FAIL();
+    }
+
+    collection_summary = coll->get_summary_json();
+
+    ASSERT_EQ("books", collection_summary["name"]);
+    ASSERT_EQ(3, collection_summary["num_documents"].get<size_t>());
+    ASSERT_EQ(2, collection_summary["fields"].size());
+    ASSERT_EQ("title", collection_summary["fields"][0]["name"]);
+    ASSERT_EQ("author_id", collection_summary["fields"][1]["name"]);
+    ASSERT_EQ("authors.id", collection_summary["fields"][1]["reference"]);
+
+    //check if field is added to schema
+    schema = coll->get_schema();
+    ASSERT_EQ(1, schema.count("author_id"));
+    ASSERT_FALSE(schema.at("author_id").reference.empty());
+    ASSERT_EQ("authors.id", schema.at("author_id").reference);
+    ASSERT_EQ(schema.count("author_id_sequence_id"), 1);
+    ASSERT_TRUE(schema.at("author_id_sequence_id").index);
+
+    reference_fields = coll->get_reference_fields();
+    ASSERT_EQ(1, reference_fields.count("author_id"));
+    ASSERT_EQ(reference_fields.at("author_id").collection, "authors");
+    ASSERT_EQ(reference_fields.at("author_id").field, "id");
+
+    doc = coll->get("0").get();
+    ASSERT_EQ(1, doc.count("author_id_sequence_id"));
+    ASSERT_EQ(0, doc["author_id_sequence_id"]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("author_id_sequence_id", doc[".ref"][0]);
+
+    //check joins on updated schema
+    req_params = {
+            {"collection", "books"},
+            {"q", "*"},
+            {"filter_by", "$authors(id:1)"},
+            {"include_fields", "$authors(name) as author_name"}
+    };
+   now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+   search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+   ASSERT_TRUE(search_op.ok());
+   res_obj = nlohmann::json::parse(json_res);
+   ASSERT_EQ(2, res_obj["found"].get<size_t>());
+   ASSERT_EQ(2, res_obj["hits"].size());
+   ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+   ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+
+    //try reindeixng
+    alter_schema = R"({
+        "fields":[
+            {"name": "author_id", "drop": true },
+            {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": true, "facet": true}
+        ]
+    })"_json;
+
+    op = coll->alter(alter_schema);
+    if(!op.ok()) {
+        LOG(ERROR) << op.error();
+        FAIL();
+    }
+
+    collection_summary = coll->get_summary_json();
+
+    ASSERT_EQ("books", collection_summary["name"]);
+    ASSERT_EQ(3, collection_summary["num_documents"].get<size_t>());
+    ASSERT_EQ(2, collection_summary["fields"].size());
+    ASSERT_EQ("title", collection_summary["fields"][0]["name"]);
+    ASSERT_EQ("author_id", collection_summary["fields"][1]["name"]);
+    ASSERT_EQ("authors.id", collection_summary["fields"][1]["reference"]);
+    ASSERT_EQ(true, collection_summary["fields"][1]["facet"].get<bool>());
+
+    schema = coll->get_schema();
+    ASSERT_EQ(1, schema.count("author_id"));
+    ASSERT_FALSE(schema.at("author_id").reference.empty());
+    ASSERT_EQ("authors.id", schema.at("author_id").reference);
+    ASSERT_EQ(schema.count("author_id_sequence_id"), 1);
+    ASSERT_TRUE(schema.at("author_id_sequence_id").index);
+
+    reference_fields = coll->get_reference_fields();
+    ASSERT_EQ(1, reference_fields.count("author_id"));
+    ASSERT_EQ(reference_fields.at("author_id").collection, "authors");
+    ASSERT_EQ(reference_fields.at("author_id").field, "id");
+
+    doc = coll->get("0").get();
+    ASSERT_EQ(1, doc.count("author_id_sequence_id"));
+    ASSERT_EQ(0, doc["author_id_sequence_id"]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("author_id_sequence_id", doc[".ref"][0]);
+
+    req_params = {
+            {"collection", "books"},
+            {"q", "*"},
+            {"filter_by", "$authors(id:1)"},
+            {"facet_by", "author_id"},
+            {"include_fields", "$authors(name) as author_name"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+
+    ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("1", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+}
+
+TEST_F(CollectionJoinTest, AlteredReferenceFieldOnRestart) {
+    auto schema_json =
+            R"({
+                "name":  "books",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "author_id", "type": "string"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "id": "0",
+                "title": "Famous Five",
+                "author_id": "0"
+            })"_json,
+            R"({
+                "id": "1",
+                "title": "Space War Blues",
+                "author_id": "1"
+            })"_json,
+            R"({
+                "id": "2",
+                "title": "12:01 PM",
+                "author_id": "1"
+            })"_json,
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll = collection_create_op.get();
+    for (auto const &json: documents) {
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "authors",
+                "fields": [
+                    {"name": "first_name", "type": "string"},
+                    {"name": "last_name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "0",
+                "first_name": "Enid",
+                "last_name": "Blyton"
+            })"_json,
+            R"({
+                "id": "1",
+                "first_name": "Richard",
+                "last_name": "Lupoff"
+            })"_json,
+            R"({
+                "id": "2",
+                "first_name": "William",
+                "last_name": "Shakespeare"
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto alter_schema = R"({
+        "fields":[
+            {"name": "author_id", "drop": true },
+            {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": true}
+        ]
+    })"_json;
+
+
+    auto op = coll->alter(alter_schema);
+    if(!op.ok()) {
+        LOG(ERROR) << op.error();
+        FAIL();
+    }
+
+    auto collection_summary = coll->get_summary_json();
+
+    ASSERT_EQ("books", collection_summary["name"]);
+    ASSERT_EQ(3, collection_summary["num_documents"].get<size_t>());
+    ASSERT_EQ(2, collection_summary["fields"].size());
+    ASSERT_EQ("title", collection_summary["fields"][0]["name"]);
+    ASSERT_EQ("author_id", collection_summary["fields"][1]["name"]);
+    ASSERT_EQ("authors.id", collection_summary["fields"][1]["reference"]);
+
+    //check if field is added to schema
+    auto schema = coll->get_schema();
+    ASSERT_EQ(1, schema.count("author_id"));
+    ASSERT_FALSE(schema.at("author_id").reference.empty());
+    ASSERT_EQ("authors.id", schema.at("author_id").reference);
+    ASSERT_EQ(schema.count("author_id_sequence_id"), 1);
+    ASSERT_TRUE(schema.at("author_id_sequence_id").index);
+
+    auto reference_fields = coll->get_reference_fields();
+    ASSERT_EQ(1, reference_fields.count("author_id"));
+    ASSERT_EQ(reference_fields.at("author_id").collection, "authors");
+    ASSERT_EQ(reference_fields.at("author_id").field, "id");
+
+    auto doc = coll->get("0").get();
+    ASSERT_EQ(1, doc.count("author_id_sequence_id"));
+    ASSERT_EQ(0, doc["author_id_sequence_id"]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("author_id_sequence_id", doc[".ref"][0]);
+
+    //check joins on updated schema
+    std::map<std::string, std::string> req_params = {
+            {"collection", "books"},
+            {"q", "*"},
+            {"filter_by", "$authors(id:1)"},
+            {"include_fields", "$authors(name) as author_name"}
+    };
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    nlohmann::json embedded_params;
+    std::string json_res;
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+
+    //emulate restart
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+    ASSERT_TRUE(load_op.ok());
+
+    //check if reference helper fields are loaded
+    coll = collectionManager.get_collection("books").get();
+    doc = coll->get("0").get();
+    ASSERT_EQ(1, doc.count("author_id_sequence_id"));
+    ASSERT_EQ(0, doc["author_id_sequence_id"]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("author_id_sequence_id", doc[".ref"][0]);
+
+    //check join queries after restart
+    req_params = {
+            {"collection", "books"},
+            {"q", "*"},
+            {"filter_by", "$authors(id:1)"},
+            {"include_fields", "$authors(name) as author_name"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+
+
+
+    alter_schema = R"({
+        "fields":[
+            {"name": "author_id", "drop": true },
+            {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": false}
+        ]
+    })"_json;
+
+
+    op = coll->alter(alter_schema);
+    if(!op.ok()) {
+        LOG(ERROR) << op.error();
+        FAIL();
+    }
+
+    collection_summary = coll->get_summary_json();
+
+    ASSERT_EQ("books", collection_summary["name"]);
+    ASSERT_EQ(3, collection_summary["num_documents"].get<size_t>());
+    ASSERT_EQ(2, collection_summary["fields"].size());
+    ASSERT_EQ("title", collection_summary["fields"][0]["name"]);
+    ASSERT_EQ("author_id", collection_summary["fields"][1]["name"]);
+    ASSERT_EQ("authors.id", collection_summary["fields"][1]["reference"]);
+
+    //check if field is added to schema
+    schema = coll->get_schema();
+    ASSERT_EQ(1, schema.count("author_id"));
+    ASSERT_FALSE(schema.at("author_id").reference.empty());
+    ASSERT_EQ("authors.id", schema.at("author_id").reference);
+    ASSERT_EQ(schema.count("author_id_sequence_id"), 1);
+    ASSERT_TRUE(schema.at("author_id_sequence_id").index);
+
+    reference_fields = coll->get_reference_fields();
+    ASSERT_EQ(1, reference_fields.count("author_id"));
+    ASSERT_EQ(reference_fields.at("author_id").collection, "authors");
+    ASSERT_EQ(reference_fields.at("author_id").field, "id");
+
+    doc = coll->get("0").get();
+    ASSERT_EQ(1, doc.count("author_id_sequence_id"));
+    ASSERT_EQ(0, doc["author_id_sequence_id"]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("author_id_sequence_id", doc[".ref"][0]);
+
+    //check joins on updated schema
+    req_params = {
+            {"collection", "books"},
+            {"q", "*"},
+            {"filter_by", "$authors(id:1)"},
+            {"include_fields", "$authors(name) as author_name"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+
+    //emulate restart
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    load_op = collectionManager.load(8, 1000);
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+    ASSERT_TRUE(load_op.ok());
+
+    //check if reference helper fields are loaded
+    coll = collectionManager.get_collection("books").get();
+    doc = coll->get("0").get();
+    ASSERT_EQ(1, doc.count("author_id_sequence_id"));
+    ASSERT_EQ(0, doc["author_id_sequence_id"]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("author_id_sequence_id", doc[".ref"][0]);
+
+    //check join queries after restart
+    req_params = {
+            {"collection", "books"},
+            {"q", "*"},
+            {"filter_by", "$authors(id:1)"},
+            {"include_fields", "$authors(name) as author_name"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+}
+
+TEST_F(JoinIncludeExcludeFieldsTest, RelatedDocsCount) {
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"include_fields", "*, $Customers(*, strategy:nest_array, related_docs_count:product_count) as Customers"}
+    };
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["product_count"].get<size_t>());
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["product_count"].get<size_t>());
+
+    //order should not bother
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(id:*)"},
+            {"include_fields", "$Customers(customer_id, customer_name, related_docs_count:product_count, strategy:nest_array) as Customers"},
+            {"exclude_fields", "embedding"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["product_count"].get<size_t>());
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["product_count"].get<size_t>());
+
+    //typo will result in error
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:*)"},
+            {"include_fields", "*, $Customers(*, strategy:nest_array, related_doc_count:product_count) as Customers"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Unknown reference `include_fields` parameter: `related_doc_count`.",search_op.error());
 }

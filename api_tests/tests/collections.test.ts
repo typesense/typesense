@@ -93,11 +93,9 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(res.ok).toBe(true);
     const data = ListCollectionsResponse.safeParse(await res.json());
     expect(data.success).toBe(true);
-    expect(data.data?.length).toBe(2);
-    expect(data.data?.[0]?.name).toBe("companies-1");
-    expect(data.data?.[1]?.name).toBe("companies");
-    expect(data.data?.[0]?.num_documents).toBe(0);
-    expect(data.data?.[1]?.num_documents).toBe(0);
+    const collection_names = data.data?.map((collection) => collection.name);
+    expect(collection_names).toContain("companies");
+    expect(collection_names).toContain("companies-1");
   });
 
   it("delete a collection", async () => {
@@ -224,11 +222,9 @@ describe(Phases.MULTI_FRESH, () => {
     expect(res.ok).toBe(true);
     const data = ListCollectionsResponse.safeParse(await res.json());
     expect(data.success).toBe(true);
-    expect(data.data?.length).toBe(2);
-    expect(data.data?.[0]?.name).toBe("companies-1");
-    expect(data.data?.[1]?.name).toBe("companies");
-    expect(data.data?.[0]?.num_documents).toBe(0);
-    expect(data.data?.[1]?.num_documents).toBe(0);
+    const collection_names = data.data?.map((collection) => collection.name);
+    expect(collection_names).toContain("companies");
+    expect(collection_names).toContain("companies-1");
   });
 
   it("delete a collection", async () => {

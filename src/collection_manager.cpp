@@ -1006,10 +1006,13 @@ bool parse_multi_eval(const std::string& sort_by_str, uint32_t& index, std::vect
         index = open_paren_pos;
         std::string eval_expr = "(";
         int paren_count = 1;
+        bool in_backtick = false;
         while (++index < sort_by_str.size() && paren_count > 0) {
-            if (sort_by_str[index] == '(') {
+            if (sort_by_str[index] == '`') {
+                in_backtick = !in_backtick;
+            } else if (!in_backtick && sort_by_str[index] == '(') {
                 paren_count++;
-            } else if (sort_by_str[index] == ')') {
+            } else if (!in_backtick && sort_by_str[index] == ')') {
                 paren_count--;
             }
             eval_expr += sort_by_str[index];
@@ -1060,10 +1063,13 @@ bool parse_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sor
     // _eval(<expr>):<order>
     std::string eval_expr = "(";
     int paren_count = 1;
+    bool in_backtick = false;
     while (++index < sort_by_str.size() && paren_count > 0) {
-        if (sort_by_str[index] == '(') {
+        if (sort_by_str[index] == '`') {
+            in_backtick = !in_backtick;
+        } else if (!in_backtick && sort_by_str[index] == '(') {
             paren_count++;
-        } else if (sort_by_str[index] == ')') {
+        } else if (!in_backtick && sort_by_str[index] == ')') {
             paren_count--;
         }
         eval_expr += sort_by_str[index];
@@ -1606,6 +1612,7 @@ Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limi
     std::vector<std::shared_ptr<Collection>> colls = collections_op.get();
 
     nlohmann::json json_summaries = nlohmann::json::array();
+    auto begin = std::chrono::high_resolution_clock::now();
 
     for(std::shared_ptr<Collection> collection: colls) {
         nlohmann::json collection_json = collection->get_summary_json();
@@ -1614,6 +1621,13 @@ Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limi
         }
 
         json_summaries.push_back(collection_json);
+
+        uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::high_resolution_clock::now() - begin).count();
+
+        if(timeMillis > 30000) {
+            return Option<nlohmann::json>(408, "Request Timeout. Please use `offset` and `limit` pagination parameters.");
+        }
     }
 
     return Option<nlohmann::json>(json_summaries);
@@ -1634,7 +1648,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         return Option<Collection*>(400, "Parameter `name` is required.");
     }
 
-    if(!req_json["name"].is_string() || req_json["name"].get<std::string>().empty()) {
+    const auto& collection_name = req_json["name"];
+    if(!collection_name.is_string() || collection_name.get<std::string>().empty()) {
         return Option<Collection*>(400, "Parameter `name` must be a non-empty string.");
     }
 
@@ -1743,7 +1758,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     std::string fallback_field_type;
     std::vector<field> fields;
     auto parse_op = field::json_fields_to_fields(req_json[ENABLE_NESTED_FIELDS].get<bool>(),
-                                                 req_json["fields"], fallback_field_type, fields);
+                                                 req_json["fields"], fallback_field_type, fields, collection_name);
 
     if(!parse_op.ok()) {
         return Option<Collection*>(parse_op.code(), parse_op.error());
@@ -1778,7 +1793,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     const auto created_at = static_cast<uint64_t>(std::time(nullptr));
 
-    return CollectionManager::get_instance().create_collection(req_json["name"], num_memory_shards,
+    return CollectionManager::get_instance().create_collection(collection_name, num_memory_shards,
                                                                 fields, default_sorting_field, created_at,
                                                                 fallback_field_type,
                                                                 req_json[SYMBOLS_TO_INDEX],
@@ -1894,7 +1909,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
         if(collection->get_enable_nested_fields()) {
             std::vector<field> flattened_fields;
-            field::flatten_doc(document, collection->get_nested_fields(), {}, true, flattened_fields);
+            field::flatten_doc(document, collection->get_nested_fields(), {}, false, flattened_fields);
         }
 
         auto dirty_values = DIRTY_VALUES::COERCE_OR_DROP;

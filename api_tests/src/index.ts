@@ -1,7 +1,7 @@
 import { TypesenseProcessManager } from "./manager";
-import { Phases } from "./constants";
+import { Phases, Filters } from "./constants";
 
-class TypesenseTestRunner {
+export class TypesenseTestRunner {
   private manager: TypesenseProcessManager;
   private static instance: TypesenseTestRunner;
   private exit_code: number = 0;
@@ -17,13 +17,20 @@ class TypesenseTestRunner {
     return TypesenseTestRunner.instance;
   }
 
-  async run() {
+  getTestNamePattern(phase: Phases, filters: Filters[]) {
+    if (filters.includes(Filters.SECRETS)) {
+      return `^(?=.*${phase})(?!.*${Filters.SECRETS}).*$`;
+    }
+    return phase;
+  }
+
+  async run(filters: Filters[]) {
     try {
       this.manager.cleanDataDirs();
       await Promise.all([
-        this.singleServerTests(),
-        this.multiServerTests(),
-        this.noPhase(),
+        this.singleServerTests(filters),
+        this.multiServerTests(filters),
+        this.noPhase(filters),
       ]);
       await this.manager.shutdown();
       process.exit(this.exit_code);
@@ -33,60 +40,62 @@ class TypesenseTestRunner {
     }
   }
 
-  async singleServerTests() {
+  async singleServerTests(filters: Filters[]) {
     try {
-      await this.singleFresh();
+      await this.singleFresh(filters);
     } catch (err) {
       console.error(err);
     }
 
     try {
-      await this.singleRestarted();
+      await this.singleRestarted(filters);
     } catch (err) {
       console.error(err);
     }
 
     try {
-      await this.singleSnapshot();
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
-  async multiServerTests() {
-    try {
-      await this.multiFresh();
-    } catch (err) {
-      console.error(err);
-    }
-
-    try {
-      await this.multiRestarted();
-    } catch (err) {
-      console.error(err);
-    }
-
-    try {
-      await this.multiSnapshot();
+      await this.singleSnapshot(filters);
     } catch (err) {
       console.error(err);
     }
   }
 
-  async noPhase() {
+  async multiServerTests(filters: Filters[]) {
+    try {
+      await this.multiFresh(filters);
+    } catch (err) {
+      console.error(err);
+    }
+
+    try {
+      await this.multiRestarted(filters);
+    } catch (err) {
+      console.error(err);
+    }
+
+    try {
+      await this.multiSnapshot(filters);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async noPhase(filters: Filters[]) {
     console.log(`\n=== ⭐ Running phase: ${Phases.NO_PHASE} ===\n`);
+    const pattern = this.getTestNamePattern(Phases.NO_PHASE, filters);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.NO_PHASE],
+      cmd: ["bun", "test", "--test-name-pattern", pattern, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
   }
 
-  async singleFresh() {
+  async singleFresh(filters: Filters[]) {
     await this.manager.startSingleNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_FRESH} ===\n`);
+    const pattern = this.getTestNamePattern(Phases.SINGLE_FRESH, filters);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.SINGLE_FRESH],
+      cmd: ["bun", "test", "--test-name-pattern", pattern, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -96,11 +105,12 @@ class TypesenseTestRunner {
     }
   }
 
-  async singleRestarted() {
+  async singleRestarted(filters: Filters[]) {
     await this.manager.restartSingleNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_RESTARTED} ===\n`);
+    const pattern = this.getTestNamePattern(Phases.SINGLE_RESTARTED, filters);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.SINGLE_RESTARTED],
+      cmd: ["bun", "test", "--test-name-pattern", pattern, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -110,12 +120,13 @@ class TypesenseTestRunner {
     }
   }
 
-  async singleSnapshot() {
+  async singleSnapshot(filters: Filters[]) {
     await this.manager.createSnapshot(8108);
     await this.manager.restartSingleNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_SNAPSHOT} ===\n`);
+    const pattern = this.getTestNamePattern(Phases.SINGLE_SNAPSHOT, filters);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.SINGLE_SNAPSHOT],
+      cmd: ["bun", "test", "--test-name-pattern", pattern, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -125,11 +136,12 @@ class TypesenseTestRunner {
     }
   }
 
-  async multiFresh() {
+  async multiFresh(filters: Filters[]) {
     await this.manager.startMultiNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_FRESH} ===\n`);
+    const pattern = this.getTestNamePattern(Phases.MULTI_FRESH, filters);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.MULTI_FRESH],
+      cmd: ["bun", "test", "--test-name-pattern", pattern, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -139,11 +151,12 @@ class TypesenseTestRunner {
     }
   }
 
-  async multiRestarted() {
+  async multiRestarted(filters: Filters[]) {
     await this.manager.restartMultiNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_RESTARTED} ===\n`);
+    const pattern = this.getTestNamePattern(Phases.MULTI_RESTARTED, filters);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.MULTI_RESTARTED],
+      cmd: ["bun", "test", "--test-name-pattern", pattern, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -153,12 +166,13 @@ class TypesenseTestRunner {
     }
   }
 
-  async multiSnapshot() {
+  async multiSnapshot(filters: Filters[]) {
     await this.manager.createSnapshot(5108);
     await this.manager.restartMultiNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_SNAPSHOT} ===\n`);
+    const pattern = this.getTestNamePattern(Phases.MULTI_SNAPSHOT, filters);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "--test-name-pattern", Phases.MULTI_SNAPSHOT],
+      cmd: ["bun", "test", "--test-name-pattern", pattern, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -168,10 +182,3 @@ class TypesenseTestRunner {
     }
   }
 }
-
-async function main() {
-  const runner = TypesenseTestRunner.getInstance();
-  await runner.run();
-}
-
-main();

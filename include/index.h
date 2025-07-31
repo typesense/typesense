@@ -200,6 +200,7 @@ struct search_args {
     bool validate_field_names;
     size_t found_count = 0;
     size_t found_docs = 0;
+    Collection const *const collection;
 
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
                 const text_match_type_t match_type, std::vector<facet>& facets,
@@ -219,7 +220,8 @@ struct search_args {
                 std::unique_ptr<filter_node_t>&& filter_tree_root_guard, bool enable_lazy_filter, const size_t max_filter_by_candidates,
                 std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                 bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
-                bool enable_typos_for_alpha_numerical_tokens, bool rerank_hybrid_matches, const bool& validate_field_names, const std::vector<std::string>& synonym_sets) :
+                bool enable_typos_for_alpha_numerical_tokens, bool rerank_hybrid_matches, const bool& validate_field_names,
+                Collection const *const collection, const std::vector<std::string>& synonym_sets) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), match_type(match_type), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(std::move(sort_fields_std)),
@@ -245,7 +247,8 @@ struct search_args {
             enable_typos_for_numerical_tokens(enable_typos_for_numerical_tokens), enable_synonyms(enable_synonyms),
             synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens),
-            rerank_hybrid_matches(rerank_hybrid_matches), validate_field_names(validate_field_names), synonym_sets(synonym_sets) {
+            rerank_hybrid_matches(rerank_hybrid_matches), validate_field_names(validate_field_names),
+            collection(collection), synonym_sets(synonym_sets){
 
     }
 
@@ -505,7 +508,7 @@ private:
 
     void log_leaves(int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
-    void do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
+    Option<bool> do_facets(std::vector<facet>& facets, facet_query_t& facet_query,
                    bool estimate_facets, size_t facet_sample_percent,
                    const std::vector<facet_info_t>& facet_infos,
                    size_t group_limit, const std::vector<std::string>& group_by_fields,
@@ -514,7 +517,9 @@ private:
                    int max_facet_count, bool is_wildcard_query,
                    const std::vector<facet_index_type_t>& facet_index_types,
                    bool is_group_by_first_pass,
-                   std::set<uint32_t>& group_by_missing_value_ids) const;
+                   std::set<uint32_t>& group_by_missing_value_ids,
+                   Collection const *const collection,
+                   std::unordered_map<std::string, reference_filter_result_t>* reference_facet_ids) const;
 
     bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
                                   std::unique_ptr<filter_node_t>& filter_tree_root, const bool& validate_field_names) const;
@@ -628,7 +633,10 @@ private:
                                    const tsl::htrie_map<char, field>& embedding_fields,
                                    const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size = 200,
                                    const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);
-    
+
+    Option<bool> get_related_ids(const std::string& reference_helper_field_name,
+                                 const uint32_t& seq_id, std::vector<uint32_t>& result) const;
+
     static void process_embed_results(const std::vector<std::pair<index_record*, std::string>>& values_to_embed_text,
                                       const std::vector<embedding_res_t>& embeddings_text,
                                       const std::vector<std::pair<index_record*, std::string>>& values_to_embed_image,
@@ -799,7 +807,8 @@ public:
                 bool rerank_hybrid_matches, const bool& validate_field_names,
                 bool is_group_by_first_pass,
                 std::set<uint32_t>& group_by_missing_value_ids,
-                const std::vector<std::string>& synonym_sets) const;
+                Collection const *const collection,
+               const std::vector<std::string>& synonym_sets) const;
 
     void remove_field(uint32_t seq_id, nlohmann::json& document, const std::string& field_name,
                       const bool is_update);
@@ -907,16 +916,36 @@ public:
 
     static void remove_matched_tokens(std::vector<std::string>& tokens, const std::set<std::string>& rule_token_set) ;
 
-    void compute_facet_infos(const std::vector<facet>& facets, facet_query_t& facet_query,
-                             const uint32_t facet_query_num_typos,
-                             uint32_t* all_result_ids, const size_t& all_result_ids_len,
-                             const std::vector<std::string>& group_by_fields,
-                             size_t group_limit, bool is_wildcard_no_filter_query,
-                             size_t max_candidates,
-                             std::vector<facet_info_t>& facet_infos,
-                             const std::vector<facet_index_type_t>& facet_index_types,
-                             bool is_group_by_first_pass,
-                             std::set<uint32_t>& group_by_missing_value_ids) const;
+    Option<bool> compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
+                                               const uint32_t facet_query_num_typos,
+                                               uint32_t* all_result_ids, const size_t& all_result_ids_len,
+                                               const std::vector<std::string>& group_by_fields,
+                                               size_t group_limit, bool is_wildcard_no_filter_query,
+                                               size_t max_candidates,
+                                               std::vector<facet_info_t>& facet_infos,
+                                               const std::vector<facet_index_type_t>& facet_index_types,
+                                               bool is_group_by_first_pass,
+                                               std::set<uint32_t>& group_by_missing_value_ids,
+                                               Collection const *const collection) const;
+
+    void get_reference_facet_ids(const uint32_t* all_result_ids, const size_t& all_result_ids_len,
+                                 const std::string& collection_name, Collection const *const ref_collection,
+                                 filter_result_iterator_t& filter_result_iterator,
+                                 std::unordered_map<std::string, reference_filter_result_t>& reference_facet_ids) const;
+
+    Option<bool> compute_facet_infos(const std::vector<facet>& facets, facet_query_t& facet_query,
+                                     const uint32_t facet_query_num_typos,
+                                     uint32_t* all_result_ids, const size_t& all_result_ids_len,
+                                     const std::vector<std::string>& group_by_fields,
+                                     size_t group_limit, bool is_wildcard_no_filter_query,
+                                     size_t max_candidates,
+                                     std::vector<facet_info_t>& facet_infos,
+                                     const std::vector<facet_index_type_t>& facet_index_types,
+                                     bool is_group_by_first_pass,
+                                     std::set<uint32_t>& group_by_missing_value_ids,
+                                     Collection const *const collection,
+                                     filter_result_iterator_t& filter_result_iterator,
+                                     std::unordered_map<std::string, reference_filter_result_t>& reference_facet_ids) const;
 
     void resolve_space_as_typos(std::vector<std::string>& qtokens, const std::string& field_name,
                                 std::vector<std::vector<std::string>>& resolved_queries) const;
@@ -1123,9 +1152,6 @@ public:
     Option<bool> seq_ids_outside_top_k(const std::string& field_name, size_t k,
                                        std::vector<uint32_t>& outside_seq_ids);
 
-    Option<bool> get_related_ids(const std::string& field_name, const uint32_t& seq_id,
-                                 std::vector<uint32_t>& result) const;
-
     Option<bool> get_object_array_related_id(const std::string& collection_name,
                                              const std::string& reference_helper_field_name,
                                              const uint32_t& seq_id, const uint32_t& object_index,
@@ -1173,6 +1199,21 @@ public:
                                     const bool& is_group_by_first_pass);
 
     GeoPolygonIndex* get_geopolygon_index(const std::string& field_name) const;
+
+    Option<bool> get_related_ids_with_lock(const std::string& reference_helper_field_name,
+                                           const uint32_t& seq_id, std::vector<uint32_t>& result) const;
+
+    Option<bool> do_facets_with_lock(std::vector<facet> & facets, facet_query_t & facet_query,
+                                     bool estimate_facets, size_t facet_sample_percent,
+                                     const std::vector<facet_info_t>& facet_infos,
+                                     size_t group_limit, const std::vector<std::string>& group_by_fields,
+                                     const bool group_missing_values,
+                                     const uint32_t* result_ids, size_t results_size,
+                                     int max_facet_count, bool is_wildcard_query,
+                                     const std::vector<facet_index_type_t>& facet_index_types,
+                                     bool is_group_by_first_pass,
+                                     std::set<uint32_t>& group_by_missing_value_ids,
+                                     Collection const *const collection) const;
 };
 
 template<class T>

@@ -14,6 +14,7 @@
 #include "vector_query_ops.h"
 #include <mutex>
 #include "stemmer_manager.h"
+#include "filter_result_iterator.h"
 
 namespace field_types {
     // first field value indexed will determine the type
@@ -416,12 +417,14 @@ struct field {
 
     static Option<bool> json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
                                             std::vector<field>& the_fields,
-                                            string& fallback_field_type, size_t& num_auto_detect_fields);
+                                            string& fallback_field_type, size_t& num_auto_detect_fields,
+                                            const std::string& collection_name = "");
 
     static Option<bool> json_fields_to_fields(bool enable_nested_fields,
                                               nlohmann::json& fields_json,
                                               std::string& fallback_field_type,
-                                              std::vector<field>& the_fields);
+                                              std::vector<field>& the_fields,
+                                              const std::string& collection_name = "");
 
     static Option<bool> validate_and_init_embed_field(const tsl::htrie_map<char, field>& search_schema,
                                                        nlohmann::json& field_json,
@@ -503,6 +506,7 @@ namespace ref_include {
     static const std::string merge_string = "merge";
     static const std::string nest_string = "nest";
     static const std::string nest_array_string = "nest_array";
+    static const std::string related_docs_count = "related_docs_count";
 
     enum strategy_enum {merge = 0, nest, nest_array};
 
@@ -526,6 +530,7 @@ struct ref_include_exclude_fields {
     std::string exclude_fields;
     std::string alias;
     ref_include::strategy_enum strategy = ref_include::nest;
+    std::string related_docs_field;
 
     // In case we have nested join.
     std::vector<ref_include_exclude_fields> nested_join_includes = {};
@@ -771,7 +776,7 @@ struct range_specs_t {
 };
 
 struct facet {
-    const std::string field_name;
+    std::string field_name;
     spp::sparse_hash_map<uint64_t, facet_count_t> result_map;
     spp::sparse_hash_map<std::string, facet_count_t> value_result_map;
 
@@ -803,6 +808,10 @@ struct facet {
 
     uint32_t orig_index;
 
+    std::string reference_collection_name;
+
+    reference_filter_result_t references;
+
     bool is_top_k = false;
 
     bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair) {
@@ -827,10 +836,10 @@ struct facet {
 
     explicit facet(const std::string& field_name, uint32_t orig_index, bool is_top_k = false, std::map<int64_t, range_specs_t> facet_range = {},
                    bool is_range_q = false, bool sort_by_alpha=false, const std::string& order="",
-                   const std::string& sort_by_field="")
+                   const std::string& sort_by_field="", const std::string& reference_collection_name = "")
                    : field_name(field_name), facet_range_map(facet_range),
                    is_range_query(is_range_q), is_sort_by_alpha(sort_by_alpha), sort_order(order),
-                   sort_field(sort_by_field), orig_index(orig_index), is_top_k(is_top_k) {
+                   sort_field(sort_by_field), orig_index(orig_index), is_top_k(is_top_k), reference_collection_name(reference_collection_name) {
     }
 };
 
@@ -842,6 +851,7 @@ struct facet_info_t {
     bool should_compute_stats = false;
     bool use_value_index = false;
     field facet_field{"", "", false};
+    std::string reference_collection_name;
 };
 
 struct facet_query_t {
@@ -855,6 +865,7 @@ struct facet_value_t {
     uint32_t count;
     int64_t sort_field_val;
     nlohmann::json parent;
+    std::string facet_filter;
 };
 
 struct facet_hash_values_t {

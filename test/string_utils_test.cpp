@@ -339,6 +339,18 @@ TEST(StringUtilsTest, ShouldSplitRangeFacet){
     ASSERT_EQ("grade(A:[80,100], B:[60, 80], C:[40, 60])", mixed_facets[1]);
     ASSERT_EQ("rank", mixed_facets[2]);
 
+    std::string reference_facets_string = " $Collection(score(fail:[0, 40], pass:[40, 100]), city) , grade,";
+    std::vector<std::string> reference_facets;
+    StringUtils::split_facet(reference_facets_string, reference_facets);
+    ASSERT_EQ("$Collection(score(fail:[0, 40], pass:[40, 100]), city)", reference_facets[0]);
+    ASSERT_EQ("grade", reference_facets[1]);
+
+    reference_facets_string = "score(fail:[0, 40], pass:[40, 100]), $Collection(city)";
+    reference_facets.clear();
+    StringUtils::split_facet(reference_facets_string, reference_facets);
+    ASSERT_EQ("score(fail:[0, 40], pass:[40, 100])", reference_facets[0]);
+    ASSERT_EQ("$Collection(city)", reference_facets[1]);
+
     // empty string should produce empty list
     std::vector<std::string> lines_empty;
     StringUtils::split_facet("", lines_empty);
@@ -347,7 +359,7 @@ TEST(StringUtilsTest, ShouldSplitRangeFacet){
 
 void tokenizeTestHelper(const std::string& filter_query, const std::vector<std::string>& tokenList) {
     std::queue<std::string> tokenizeOutput;
-    auto tokenize_op = StringUtils::tokenize_filter_query(filter_query, tokenizeOutput);
+    auto tokenize_op = filter::tokenize_filter_query(filter_query, tokenizeOutput);
     ASSERT_TRUE(tokenize_op.ok());
     for (auto const& token: tokenList) {
         ASSERT_EQ(token, tokenizeOutput.front());

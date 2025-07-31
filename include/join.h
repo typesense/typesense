@@ -69,11 +69,11 @@ struct ref_include_collection_names_t {
 class Join {
 public:
 
-    static Option<bool> add_reference_helper_fields(nlohmann::json& document,
-                                                    const tsl::htrie_map<char, field>& schema,
-                                                    const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
-                                                    tsl::htrie_set<char>& object_reference_helper_fields,
-                                                    const bool& is_update);
+    static Option<bool> populate_reference_helper_fields(nlohmann::json& document,
+                                                         const tsl::htrie_map<char, field>& schema,
+                                                         const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
+                                                         tsl::htrie_set<char>& object_reference_helper_fields,
+                                                         const bool& is_update);
 
     static Option<bool> prune_ref_doc(nlohmann::json& doc,
                                       const reference_filter_result_t& references,
@@ -87,8 +87,7 @@ public:
                                            const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
                                            const nlohmann::json& original_doc);
 
-    static Option<bool> parse_reference_filter(const std::string& filter_query, std::queue<std::string>& tokens, size_t& index,
-                                               std::set<std::string>& ref_collection_names);
+    static Option<bool> parse_reference_filter(const std::string& filter_query, std::queue<std::string>& tokens, size_t& index);
 
     static Option<bool> split_reference_include_exclude_fields(const std::string& include_exclude_fields,
                                                                size_t& index, std::string& token);

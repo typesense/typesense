@@ -63,11 +63,11 @@ Option<bool> Join::single_value_filter_query(nlohmann::json& document, const std
     return Option<bool>(true);
 }
 
-Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
-                                               const tsl::htrie_map<char, field>& schema,
-                                               const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
-                                               tsl::htrie_set<char>& object_reference_helper_fields,
-                                               const bool& is_update) {
+Option<bool> Join::populate_reference_helper_fields(nlohmann::json& document,
+                                                    const tsl::htrie_map<char, field>& schema,
+                                                    const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
+                                                    tsl::htrie_set<char>& object_reference_helper_fields,
+                                                    const bool& is_update) {
     tsl::htrie_set<char> flat_fields;
     if (!reference_fields.empty() && document.contains(".flat")) {
         for (const auto &item: document[".flat"].get<std::vector<std::string>>()) {
@@ -106,7 +106,6 @@ Option<bool> Join::add_reference_helper_fields(nlohmann::json& document,
             // No need to look up the reference collection since reference helper field is already populated.
             // Saves needless computation in cases where references are known beforehand. For example, when cascade
             // deleting the related docs.
-            document[fields::reference_helper_fields] += reference_helper_field;
             continue;
         }
 
@@ -469,6 +468,10 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
     }
 
     // One-to-many relation.
+    if(!ref_include_exclude.related_docs_field.empty()) {
+        doc[ref_include_exclude.related_docs_field] = references.count;
+    }
+
     for (uint32_t i = 0; i < references.count; i++) {
         auto ref_doc_seq_id = references.docs[i];
 
@@ -770,24 +773,11 @@ Option<bool> parse_reference_filter_helper(const std::string& filter_query, size
     return Option<bool>(true);
 }
 
-Option<bool> Join::parse_reference_filter(const std::string& filter_query, std::queue<std::string>& tokens, size_t& index,
-                                          std::set<std::string>& ref_collection_names) {
+Option<bool> Join::parse_reference_filter(const std::string& filter_query, std::queue<std::string>& tokens, size_t& index) {
     std::string ref_coll_name, join;
     auto parse_op = parse_reference_filter_helper(filter_query, index, ref_coll_name, join);
     if (!parse_op.ok()) {
         return parse_op;
-    }
-
-    auto it = ref_collection_names.find(ref_coll_name);
-    if (it == ref_collection_names.end()) {
-        ref_collection_names.insert(ref_coll_name);
-    } else {
-        return Option<bool>(400, "More than one joins found for collection `" + ref_coll_name + "` in the `filter_by`." +=
-                                    " Instead of providing separate join conditions like "
-                                    "`$customer_product_prices(customer_id:=customer_a) && "
-                                    "$customer_product_prices(custom_price:<100)`,"
-                                    " the join condition should be provided as a single filter expression like"
-                                    " `$customer_product_prices(customer_id:=customer_a && custom_price:<100)`");
     }
 
     tokens.push(join);
@@ -858,20 +848,8 @@ int8_t skip_index_to_join(const std::string& filter_query, size_t& i) {
             if (c == '$' || (i + 1 < size && c == '!' && filter_query[i + 1] == '$')) {
                 return 1;
             } else {
-                while (i + 1 < size && filter_query[++i] != ':');
-                if (i >= size) {
-                    return -1;
-                }
-
-                bool in_backtick = false;
-                do {
-                    c = filter_query[++i];
-                    if (c == '`') {
-                        in_backtick = !in_backtick;
-                    }
-                } while (i < size && (in_backtick || (c != '(' && c != ')' &&
-                                                      !(c == '&' && filter_query[i + 1] == '&') &&
-                                                      !(c == '|' && filter_query[i + 1] == '|'))));
+                std::string token;
+                filter::parse_filter_string(filter_query, token, i);
             }
         }
     }
@@ -986,7 +964,7 @@ Option<bool> parse_nested_exclude(const std::string& exclude_field_exp,
 }
 
 Option<bool> parse_ref_include_parameters(const std::string& include_field_exp, const std::string& parameters,
-                                          ref_include::strategy_enum& strategy_enum) {
+                                          ref_include::strategy_enum& strategy_enum, std::string& related_docs_field) {
     std::vector<std::string> parameters_map;
     StringUtils::split(parameters, parameters_map, ",");
     for (const auto &item: parameters_map) {
@@ -1004,6 +982,8 @@ Option<bool> parse_ref_include_parameters(const std::string& include_field_exp, 
                 return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + string_to_enum_op.error());
             }
             strategy_enum = string_to_enum_op.get();
+        } else if (key == ref_include::related_docs_count) {
+            related_docs_field = StringUtils::trim(parameter_pair[1]);
         } else {
             return Option<bool>(400, "Unknown reference `include_fields` parameter: `" + key + "`.");
         }
@@ -1065,6 +1045,7 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
 
         // ... $inventory(qty, strategy:merge) as inventory
         auto strategy_enum = ref_include::nest;
+        std::string related_docs_field;
         if (colon_pos < closing_parenthesis_pos) {
             auto const& parameters_start = ref_fields.rfind(',', colon_pos);
             std::string parameters;
@@ -1076,7 +1057,7 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
                 ref_fields = ref_fields.substr(0, parameters_start);
             }
 
-            auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum);
+            auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum, related_docs_field);
             if (!parse_params_op.ok()) {
                 return parse_params_op;
             }
@@ -1096,7 +1077,7 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
         ref_alias = !ref_alias.empty() ? (StringUtils::trim(ref_alias) + (nest_ref_doc ? "" : ".")) : "";
 
         ref_include_exclude_fields_vec.emplace_back(ref_include_exclude_fields{ref_collection_name, ref_fields, "",
-                                                                               ref_alias, strategy_enum});
+                                                                               ref_alias, strategy_enum, related_docs_field});
         ref_include_exclude_fields_vec.back().nested_join_includes = std::move(nested_ref_include_exclude_fields_vec);
 
         // Referenced collection in filter_by is already mentioned in include_fields.
@@ -1153,6 +1134,7 @@ Option<bool> Join::initialize_ref_include_exclude_fields_vec(const std::string& 
         auto ref_fields = ref_include.substr(parenthesis_index + 1, ref_include.size() - parenthesis_index - 2);
 
         auto strategy_enum = ref_include::nest;
+        std::string related_docs_field;
         auto colon_pos = ref_fields.find(':');
         if (colon_pos != std::string::npos) {
             auto const& parameters_start = ref_fields.rfind(',', colon_pos);
@@ -1165,7 +1147,7 @@ Option<bool> Join::initialize_ref_include_exclude_fields_vec(const std::string& 
                 ref_fields = ref_fields.substr(0, parameters_start);
             }
 
-            auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum);
+            auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum, related_docs_field);
             if (!parse_params_op.ok()) {
                 return parse_params_op;
             }
@@ -1182,7 +1164,7 @@ Option<bool> Join::initialize_ref_include_exclude_fields_vec(const std::string& 
         auto const& nest_ref_doc = strategy_enum == ref_include::nest || strategy_enum == ref_include::nest_array;
         auto ref_alias = !alias.empty() ? (StringUtils::trim(alias) + (nest_ref_doc ? "" : ".")) : "";
         ref_include_exclude_fields_vec.emplace_back(ref_include_exclude_fields{ref_collection_name, ref_fields, "",
-                                                                               ref_alias, strategy_enum});
+                                                                               ref_alias, strategy_enum, related_docs_field});
 
         // Referenced collection in filter_by is already mentioned in include_fields.
         if (ref_include_coll_names != nullptr) {
@@ -1275,8 +1257,11 @@ bool Join::merge_join_conditions(string& embedded_filter, string& query_filter) 
         }
 
         if (coll_name_to_embedded_join.find(ref_coll_name) != coll_name_to_embedded_join.end()) {
-            // Multiple joins to the same collection found.
-            return false;
+            // Don't merge in case there are multiple joins to the same collection since there can be scenarios where
+            // merging don't make sense like:
+            // ($businessLocation(hasOffers:=true) && $business(billingsStatus:=active)) ||
+            //       ($businessLocation(hasDeal:=true) && $business(status:=active))
+            return true;
         }
 
         coll_name_to_embedded_join[ref_coll_name] = join;

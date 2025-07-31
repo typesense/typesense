@@ -340,12 +340,13 @@ nlohmann::json Collection::get_summary_json() const {
     }
 
     nlohmann::json fields_arr;
-    const std::regex sequence_id_pattern(".*_sequence_id$");
+    constexpr char kSuffix[] = "_sequence_id";
+    constexpr size_t kLen = sizeof(kSuffix) - 1; // exclude '\0'
 
     for(const field & coll_field: fields) {
-        if (std::regex_match(coll_field.name, sequence_id_pattern)) {
-            // Don't add foo_sequence_id field.
-            continue;
+        const std::string& s = coll_field.name;
+        if (s.size() >= kLen && std::memcmp(s.data() + s.size() - kLen, kSuffix, kLen) == 0) {
+            continue; // skip foo_sequence_id
         }
 
         nlohmann::json field_json;
@@ -848,7 +849,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 
 size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
                                          const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings) {
-    std::unique_lock lock(mutex);
+    std::shared_lock lock(mutex);
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
                                                    search_schema, embedding_fields, fallback_field_type,
                                                    token_separators, symbols_to_index, true, remote_embedding_batch_size,
@@ -2312,6 +2313,13 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         }
     }
 
+    if(!coll_args.facet_return_parent.empty()) {
+        auto op = process_facet_return_parent(coll_args.facet_return_parent);
+        if(!op.ok()) {
+            return op;
+        }
+    }
+
     std::vector<facet_index_type_t> facet_index_types;
     std::vector<std::string> facet_index_str_types;
     StringUtils::split(facet_index_type, facet_index_str_types, ",");
@@ -2620,7 +2628,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                facet_index_types, enable_typos_for_numerical_tokens,
                                                enable_synonyms, synonym_prefix, synonyms_num_typos,
                                                enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches,
-                                               validate_field_names, all_synonym_sets);
+                                               validate_field_names, this, all_synonym_sets);
 
     return Option<bool>(true);
 }
@@ -2968,9 +2976,13 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
         bool is_cyrillic = Tokenizer::is_cyrillic(fq_field.locale);
         bool normalise = is_cyrillic ? false : true;
 
+        // Use field-level symbols/separators if available, otherwise fall back to collection-level
+        const auto& symbols = fq_field.symbols_to_index.empty() ? symbols_to_index : fq_field.symbols_to_index;
+        const auto& separators = fq_field.token_separators.empty() ? token_separators : fq_field.token_separators;
+
         std::vector<std::string> facet_query_tokens;
         Tokenizer(facet_query.query, normalise, !fq_field.is_string(), fq_field.locale,
-                  symbols_to_index, token_separators, fq_field.get_stemmer()).tokenize(facet_query_tokens);
+                  symbols, separators, fq_field.get_stemmer()).tokenize(facet_query_tokens);
 
         facet_query_num_tokens = facet_query_tokens.size();
         facet_query_last_token = facet_query_tokens.empty() ? "" : facet_query_tokens.back();
@@ -3160,6 +3172,10 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
         facet_result["sampled"] = a_facet.sampled;
         facet_result["counts"] = nlohmann::json::array();
 
+        if(!a_facet.reference_collection_name.empty()) {
+            facet_result["field_name"] = a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
+        }
+
         std::vector<facet_value_t> facet_values;
         std::vector<facet_count_t> facet_counts;
 
@@ -3182,12 +3198,57 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
         std::nth_element(facet_counts.begin(), facet_counts.begin() + nthElement, facet_counts.end(),
                          Collection::facet_count_compare);
 
+        field the_field;
+        std::shared_ptr<Collection> ref_collection;
+        if (a_facet.reference_collection_name.empty()) {
+            the_field = search_schema.at(a_facet.field_name);
+        } else {
+            auto& cm = CollectionManager::get_instance();
+            ref_collection = cm.get_collection(a_facet.reference_collection_name);
+            if (ref_collection == nullptr) {
+                continue;
+            }
+
+            the_field = ref_collection->get_schema().at(a_facet.field_name);
+        }
+
         if(a_facet.is_range_query){
             for(const auto& kv : a_facet.result_map){
                 auto facet_range_iter = a_facet.facet_range_map.find(kv.first);
                 if(facet_range_iter != a_facet.facet_range_map.end()){
                     auto & facet_count = kv.second;
                     facet_value_t facet_value = {facet_range_iter->second.range_label, std::string(), facet_count.count};
+
+                    if(!a_facet.reference_collection_name.empty()) {
+                        std::string facet_filter = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ": ";
+                        std::string lower_range, upper_range;
+                        //lower range
+                        if(the_field.is_float()){
+                            lower_range = StringUtils::float_to_str(Index::int64_t_to_float(facet_range_iter->second.lower_range));
+                        } else {
+                            lower_range = std::to_string(facet_range_iter->second.lower_range);
+                        }
+
+                        //upper range
+                        if(the_field.is_float()){
+                            upper_range = StringUtils::float_to_str(Index::int64_t_to_float(facet_range_iter->first));
+                        } else {
+                            upper_range = std::to_string(facet_range_iter->first);
+                        }
+
+                        if(facet_range_iter->second.lower_range == INT64_MIN) {
+                            //format : range_label[ , val]
+                            facet_filter += "<=" + upper_range + ")";
+                        } else if(facet_range_iter->first == INT64_MAX) {
+                            //format : range_label[val, ]
+                            facet_filter += ">=" + lower_range + ")";
+                        } else {
+                            facet_filter += "[" + lower_range + ".." + upper_range + "])";
+                        }
+
+                        facet_value.facet_filter = facet_filter;
+                    }
+
                     facet_values.emplace_back(facet_value);
                 }
                 else{
@@ -3195,9 +3256,15 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 }
             }
         } else {
-            auto the_field = search_schema.at(a_facet.field_name);
-            bool should_return_parent = std::find(facet_return_parent.begin(), facet_return_parent.end(),
-                                                  the_field.name) != facet_return_parent.end();
+            bool should_return_parent;
+            if(facet_return_parent.size() == 1 && facet_return_parent[0] == "*") {
+                //wildcard match
+                should_return_parent = true;
+            } else {
+                should_return_parent = std::find(facet_return_parent.begin(), facet_return_parent.end(),
+                          the_field.name) != facet_return_parent.end();
+
+            }
 
             for(size_t fi = 0; fi < max_facets; fi++) {
                 // remap facet value hash with actual string
@@ -3206,6 +3273,8 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
 
                 if(a_facet.is_intersected) {
                     value = facet_count.fvalue;
+                } else if(ref_collection != nullptr) {
+                    value = ref_collection->get_facet_str_val_with_lock(the_field.name, facet_count.fhash);
                 } else {
                     value = index->get_facet_str_val(the_field.name, facet_count.fhash);
                 }
@@ -3216,9 +3285,13 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                     bool use_word_tokenizer = Tokenizer::has_word_tokenizer(the_field.locale);
                     bool normalise = !use_word_tokenizer;
 
+                    // Use field-level symbols/separators if available, otherwise fall back to collection-level
+                    const auto& symbols = the_field.symbols_to_index.empty() ? symbols_to_index : the_field.symbols_to_index;
+                    const auto& separators = the_field.token_separators.empty() ? token_separators : the_field.token_separators;
+
                     std::vector<std::string> fquery_tokens;
-                    Tokenizer(facet_query.query, true, false, the_field.locale, symbols_to_index,
-                              token_separators, the_field.get_stemmer()).tokenize(fquery_tokens);
+                    Tokenizer(facet_query.query, true, false, the_field.locale, symbols,
+                              separators, the_field.get_stemmer()).tokenize(fquery_tokens);
 
                     if(fquery_tokens.empty()) {
                         continue;
@@ -3239,8 +3312,8 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                             }
                         }
 
-                        Tokenizer(facet_query.query, true, false, the_field.locale, symbols_to_index,
-                                  token_separators, the_field.get_stemmer()).tokenize(ftokens[ti]);
+                        Tokenizer(facet_query.query, true, false, the_field.locale, symbols,
+                                  separators, the_field.get_stemmer()).tokenize(ftokens[ti]);
 
                         const std::string& resolved_token = ftokens[ti];
                         size_t root_len = (fquery_tokens.size() == ftokens.size()) ?
@@ -3252,8 +3325,8 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                     }
 
                     std::vector<std::string> raw_fquery_tokens;
-                    Tokenizer(facet_query.query, normalise, false, the_field.locale, symbols_to_index,
-                              token_separators, the_field.get_stemmer()).tokenize(raw_fquery_tokens);
+                    Tokenizer(facet_query.query, normalise, false, the_field.locale, symbols,
+                              separators, the_field.get_stemmer()).tokenize(raw_fquery_tokens);
 
                     if(raw_fquery_tokens.empty()) {
                         continue;
@@ -3267,11 +3340,11 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                     match_index_t match_index(Match(), 0, 0);
 
                     uint8_t index_symbols[256] = {};
-                    for(char c: symbols_to_index) {
+                    for(char c: symbols) {
                         index_symbols[uint8_t(c)] = 1;
                     }
 
-                    handle_highlight_text(value, normalise, the_field, false, symbols_to_index, token_separators,
+                    handle_highlight_text(value, normalise, the_field, false, symbols, separators,
                                           highlight, string_utils, use_word_tokenizer,
                                           highlight_affix_num_tokens, qtoken_leaves, last_valid_offset_index,
                                           prefix_token_num_chars, false, snippet_threshold, false, ftokens,
@@ -3294,6 +3367,20 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 const auto& highlighted_text = highlight.snippets.empty() ? value : highlight.snippets[0];
                 facet_value_t facet_value = {value, highlighted_text, facet_count.count,
                                              facet_count.sort_field_val, parent};
+
+                if(!a_facet.reference_collection_name.empty()) {
+                    std::string facet_filter = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ": ";
+
+                    if(the_field.is_string()) {
+                        facet_filter += std::string("`") + value + std::string("`");
+                    } else {
+                        facet_filter += value;
+                    }
+
+                    facet_filter += std::string(")");
+                    facet_value.facet_filter = facet_filter;
+                }
+
                 facet_values.emplace_back(facet_value);
             }
         }
@@ -3333,6 +3420,11 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             if(!facet_count.parent.empty()) {
                 facet_value_count["parent"] = facet_count.parent;
             }
+
+            if(!facet_count.facet_filter.empty()) {
+                facet_value_count["facet_filter"] = facet_count.facet_filter;
+            }
+
             facet_result["counts"].push_back(facet_value_count);
         }
 
@@ -4498,7 +4590,7 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
 
 Option<bool> Collection::get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
                                          std::vector<uint32_t>& result) const {
-    return index->get_related_ids(ref_field_name, seq_id, result);
+    return index->get_related_ids_with_lock(ref_field_name, seq_id, result);
 }
 
 Option<bool> Collection::get_object_array_related_id(const std::string& ref_field_name,
@@ -5707,7 +5799,7 @@ tsl::htrie_map<char, field> Collection::get_embedding_fields() {
     return embedding_fields;
 };
 
-tsl::htrie_set<char> Collection::get_object_reference_helper_fields() {
+tsl::htrie_set<char> Collection::get_object_reference_helper_fields() const {
     std::shared_lock lock(mutex);
     return object_reference_helper_fields;
 }
@@ -5997,6 +6089,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     std::vector<field> new_fields;
     tsl::htrie_map<char, field> schema_additions;
     bool found_embedding_field = false;
+    bool found_reference_field = false;
 
     std::unique_lock ulock(mutex);
 
@@ -6016,6 +6109,10 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         if(f.nested) {
             check_and_add_nested_field(nested_fields, f);
+        }
+
+        if(f.is_async_reference) {
+            found_reference_field = true;
         }
 
         if(f.embed.count(fields::from) != 0) {
@@ -6072,6 +6169,13 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             field::flatten_doc(document, nested_fields, {}, true, flattened_fields);
         }
 
+        auto populate_reference_helper_fields_op = Join::populate_reference_helper_fields(document, search_schema, reference_fields,
+                                                                                          object_reference_helper_fields,
+                                                                                          true);
+        if (!populate_reference_helper_fields_op.ok()) {
+            return populate_reference_helper_fields_op;
+        }
+
         index_record record(altered_docs, seq_id, document, index_operation_t::CREATE, DIRTY_VALUES::COERCE_OR_DROP);
         iter_batch.emplace_back(std::move(record));
 
@@ -6105,6 +6209,21 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
                         } else {
                             index_record.index_success();
                         }
+                    }
+                }
+            }
+
+            if(found_reference_field) {
+                //if alter operation contains adding, reindexing reference field then need to update on disk too
+                for(auto& index_record : iter_batch) {
+                    const std::string& serialized_json = index_record.doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+                    bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
+
+                    if(!write_ok) {
+                        LOG(ERROR) << "Inserting doc with new reference field failed for seq id: " << index_record.seq_id;
+                        index_record.index_failure(500, "Could not write to on-disk storage.");
+                    } else {
+                        index_record.index_success();
                     }
                 }
             }
@@ -6218,6 +6337,40 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     if(!reindex_fields.empty()) {
         LOG(INFO) << "Processing field additions and deletions first...";
     }
+
+    std::unique_lock lck(mutex);
+    //update after successful alter operation
+    if(!del_fields.empty()) {
+        for(const auto& f : del_fields) {
+            if(reference_fields.find(f.name) != reference_fields.end()) {
+                reference_fields.erase(f.name);
+            }
+        }
+    }
+
+    if(!addition_fields.empty() || !reindex_fields.empty()) {
+        auto add_reference_field = [&] (const field& f) {
+            auto dot_index = f.reference.find('.');
+            auto ref_coll_name = f.reference.substr(0, dot_index);
+            auto ref_field_name = f.reference.substr(dot_index + 1);
+
+            reference_fields.emplace(f.name, reference_info_t(ref_coll_name, ref_field_name, f.is_async_reference));
+        };
+
+        for(const auto& f : addition_fields) {
+            if(!f.reference.empty()) {
+                add_reference_field(f);
+            }
+        }
+
+        for(const auto& f : reindex_fields) {
+            if(!f.reference.empty()) {
+                add_reference_field(f);
+            }
+        }
+    }
+
+    lck.unlock();
 
     auto batch_alter_op = batch_alter_data(addition_fields, del_fields, fallback_field_type);
     if(!batch_alter_op.ok()) {
@@ -6450,6 +6603,17 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         if(kv.value().contains("drop")) {
             delete_field_names.insert(field_name);
         }
+
+        //check for reference field, if found then remove reference field helper too
+        const auto& field_it = search_schema.find(field_name);
+        if(field_it != search_schema.end() && !field_it->reference.empty()) {
+            const auto reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+            if(search_schema.find(reference_helper_field) != search_schema.end()) {
+                delete_field_names.insert(reference_helper_field);
+            } else {
+                return Option<bool>(404,"reference helper field not found while altering field `" + field_name + "`");
+            }
+        }
     }
 
     std::unordered_map<std::string, field> new_dynamic_fields;
@@ -6486,7 +6650,14 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 del_fields.push_back(field_it.value());
                 updated_search_schema.erase(field_it.key());
                 updated_nested_fields.erase(field_it.key());
-                
+
+                if(!field_it->reference.empty()) {
+                    //validated before only, so directly add to fields to delete
+                    const auto ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+                    const auto ref_helper_field = search_schema.at(ref_helper_field_name);
+                    del_fields.push_back(ref_helper_field);
+                }
+
                 if(field_it.value().embed.count(fields::from) != 0) {
                     updated_embedding_fields.erase(field_it.key());
                 }
@@ -6535,21 +6706,53 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             if(is_addition || is_reindex) {
                 // must validate fields
                 auto parse_op = field::json_field_to_field(enable_nested_fields, kv.value(), diff_fields,
-                                                           fallback_field_type, num_auto_detect_fields);
+                                                           fallback_field_type, num_auto_detect_fields, name);
                 if (!parse_op.ok()) {
                     return parse_op;
                 }
 
                 auto& f = diff_fields.back();
 
-                // When `reference` field is present in schema, we add a reference helper field. So checking if the
-                // second last field has a reference property or not.
                 if (f.is_reference_helper && diff_fields.size() > 1 &&
                             !diff_fields[diff_fields.size() - 2].reference.empty()) {
-                    const auto& ref_field = diff_fields[diff_fields.size() - 2];
-                    return Option<bool>(400, "Adding/Modifying reference field `" + ref_field.name +
-                                                "` using alter operation is not yet supported. Workaround is to drop "
-                                                "the whole collection and re-index it.");
+                    const auto& field = diff_fields[diff_fields.size() - 2];
+
+                    updated_search_schema[field.name] = field;
+
+                    auto dot_index = field.reference.find('.');
+                    auto ref_coll_name = field.reference.substr(0, dot_index);
+                    auto ref_field_name = field.reference.substr(dot_index + 1);
+                    struct field ref_field;
+
+                    std::set<update_reference_info_t> update_ref_infos{};
+
+                    auto& collectionManager = CollectionManager::get_instance();
+                    auto ref_coll = collectionManager.get_collection(ref_coll_name); // resolves alias
+                    if (ref_coll != nullptr) {
+                        ref_coll_name = ref_coll->name;
+                        update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
+                                                                       ref_field_name, ref_field);
+                    }
+
+                    auto ref_info = reference_info_t{name, field.name, field.is_async_reference, ref_field_name};
+                    ref_info.referenced_field = ref_field;
+                    collectionManager.add_referenced_ins(ref_coll_name, std::move(ref_info));
+
+                    reference_fields.emplace(field.name,
+                                             reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference));
+                    if (field.nested) {
+                        object_reference_helper_fields.insert(field.name);
+                    }
+
+                    for (auto& update_ref_info: update_ref_infos) {
+                        update_reference_field(update_ref_info.field, update_ref_info.referenced_field);
+                    }
+
+                    if (is_reindex) {
+                        reindex_fields.push_back(field);
+                    } else {
+                        addition_fields.push_back(field);
+                    }
                 }
 
                 if(f.is_dynamic()) {
@@ -6933,10 +7136,11 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
         }
     }
 
-    auto add_reference_helper_fields_op = Join::add_reference_helper_fields(document, schema, reference_fields,
-                                                                            object_reference_helper_fields, is_update);
-    if (!add_reference_helper_fields_op.ok()) {
-        return add_reference_helper_fields_op;
+    auto populate_reference_helper_fields_op = Join::populate_reference_helper_fields(document, schema, reference_fields,
+                                                                                 object_reference_helper_fields,
+                                                                                 is_update);
+    if (!populate_reference_helper_fields_op.ok()) {
+        return populate_reference_helper_fields_op;
     }
 
     return Option<bool>(true);
@@ -7046,6 +7250,11 @@ bool Collection::get_enable_nested_fields() {
     return enable_nested_fields;
 }
 
+Option<bool> Collection::parse_facet_with_lock(const std::string& facet_field, std::vector<facet>& facets) const {
+    std::shared_lock lock(mutex);
+    return parse_facet(facet_field, facets);
+}
+
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const {
     const std::string _alpha = "_alpha";
     bool top_k = false;
@@ -7064,10 +7273,46 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
     std::vector<std::tuple<int64_t, int64_t, std::string>> tupVec;
 
-    for(int i = 0; i < facet_field.size(); ) {
-        if(facet_field[i] == '(') {
+    if (facet_field[0] == '$') { // Reference facet_by
+        std::string error_message = "Error parsing reference facet: ";
+        auto open_paren_pos = facet_field.find('(');
+        if (open_paren_pos == std::string::npos) {
+            return Option<bool>(400, error_message + "`" + facet_field + "`.");
+        }
+
+        std::string ref_collection_name = facet_field.substr(1, open_paren_pos - 1);
+        auto& cm = CollectionManager::get_instance();
+        auto ref_collection = cm.get_collection(ref_collection_name);
+        if (ref_collection == nullptr) {
+            return Option<bool>(400,
+                                error_message + "Referenced collection `" + ref_collection_name + "` not found.");
+        }
+
+        std::string ref_facet_expression = facet_field.substr(open_paren_pos + 1,
+                                                              facet_field.size() - open_paren_pos - 2);
+        std::vector<std::string> ref_facet_strings;
+        StringUtils::split_facet(ref_facet_expression, ref_facet_strings);
+
+        std::vector<facet> ref_facets;
+        for (const auto& ref_facet: ref_facet_strings) {
+            auto parse_op = ref_collection->parse_facet_with_lock(ref_facet, ref_facets);
+            if (!parse_op.ok()) {
+                return Option<bool>(parse_op.code(), error_message + parse_op.error());
+            }
+        }
+
+        for (auto& ref_facet: ref_facets) {
+            ref_facet.reference_collection_name = ref_collection_name;
+            facets.emplace_back(std::move(ref_facet));
+        }
+
+        return Option<bool>(true);
+    }
+
+    for (int i = 0; i < facet_field.size();) {
+        if (facet_field[i] == '(') {
             //facet field name complete, check validity
-            if(search_schema.count(facet_field_name) == 0 || !search_schema.at(facet_field_name).facet) {
+            if (search_schema.count(facet_field_name) == 0 || !search_schema.at(facet_field_name).facet) {
                 std::string error = "Could not find a facet field named `" + facet_field_name + "` in the schema.";
                 return Option<bool>(404, error);
             }
@@ -7075,20 +7320,20 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             paran_open = true;
             i++;
             continue;
-        } else if(facet_field[i] == '*') {
-            if(i == facet_field.size() - 1) {
+        } else if (facet_field[i] == '*') {
+            if (i == facet_field.size() - 1) {
                 auto prefix = facet_field.substr(0, facet_field.size() - 1);
                 auto pair = search_schema.equal_prefix_range(prefix);
 
-                if(pair.first == pair.second) {
+                if (pair.first == pair.second) {
                     // not found
                     std::string error = "Could not find a facet field for `" + facet_field + "` in the schema.";
                     return Option<bool>(404, error);
                 }
 
                 // Collect the fields that match the prefix and are marked as facet.
-                for(auto field = pair.first; field != pair.second; field++) {
-                    if(field->facet) {
+                for (auto field = pair.first; field != pair.second; field++) {
+                    if (field->facet) {
                         facets.emplace_back(facet(field->name, facets.size()));
                         facets.back().is_wildcard_match = true;
                     }
@@ -7099,9 +7344,9 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             } else {
                 return Option<bool>(404, "Only prefix matching with a wildcard is allowed.");
             }
-        } else if(facet_field[i] == ')') {
-            if(paran_open == true && (facet_param_count == commaCount + 1)) {
-                if(!colon_found && !top_k_found) {
+        } else if (facet_field[i] == ')') {
+            if (paran_open == true && (facet_param_count == commaCount + 1)) {
+                if (!colon_found && !top_k_found) {
                     return Option<bool>(400, "Invalid facet param `" + param_str + "`.");
                 }
 
@@ -7111,34 +7356,34 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             } else {
                 return Option<bool>(400, "Invalid facet format.");
             }
-        } else if(facet_field[i] == ':') {
-            if(paran_open == false || facet_param_count != commaCount) {
+        } else if (facet_field[i] == ':') {
+            if (paran_open == false || facet_param_count != commaCount) {
                 return Option<bool>(400, "Invalid facet format.");
             }
             colon_found = true;
             StringUtils::trim(param_str);
 
-            if(param_str == "sort_by") { //sort_by params
+            if (param_str == "sort_by") { //sort_by params
                 sort_found = true;
-                for(i; facet_field.size(); i++) {
-                    if(facet_field[i] == ',' || facet_field[i] == ')') {
+                for (i; facet_field.size(); i++) {
+                    if (facet_field[i] == ',' || facet_field[i] == ')') {
                         break;
                     } else {
-                        param_str+=facet_field[i];
+                        param_str += facet_field[i];
                     }
                 }
 
                 std::vector<std::string> tokens;
                 StringUtils::split(param_str, tokens, ":");
 
-                if(tokens.size() != 3) {
+                if (tokens.size() != 3) {
                     std::string error = "Invalid sort format.";
                     return Option<bool>(400, error);
                 }
 
-                if(tokens[1] == _alpha) {
+                if (tokens[1] == _alpha) {
                     const field& a_field = search_schema.at(facet_field_name);
-                    if(!a_field.is_string()) {
+                    if (!a_field.is_string()) {
                         std::string error = "Facet field should be string type to apply alpha sort.";
                         return Option<bool>(400, error);
                     }
@@ -7146,61 +7391,62 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                 } else { //sort_field based sort
                     sort_field = tokens[1];
 
-                    if(search_schema.count(sort_field) == 0 || !search_schema.at(sort_field).facet) {
-                        std::string error = "Could not find a facet field named `" + sort_field + "` in the schema.";
+                    if (search_schema.count(sort_field) == 0 || !search_schema.at(sort_field).facet) {
+                        std::string error =
+                                "Could not find a facet field named `" + sort_field + "` in the schema.";
                         return Option<bool>(404, error);
                     }
 
                     const field& a_field = search_schema.at(sort_field);
-                    if(a_field.is_string()) {
+                    if (a_field.is_string()) {
                         std::string error = "Sort field should be non string type to apply sort.";
                         return Option<bool>(400, error);
                     }
                 }
 
-                if(tokens[2] == "asc") {
+                if (tokens[2] == "asc") {
                     order = "asc";
-                } else if(tokens[2] == "desc") {
+                } else if (tokens[2] == "desc") {
                     order = "desc";
                 } else {
                     std::string error = "Invalid sort param.";
                     return Option<bool>(400, error);
                 }
                 facet_param_count++;
-            } else if(param_str == "top_k") { //top_k param
+            } else if (param_str == "top_k") { //top_k param
                 top_k_found = true;
                 param_str.clear();
                 i++; //skip :
-                for(i; i < facet_field.size(); i++) {
-                    if(facet_field[i] == ',' || facet_field[i] == ')') {
+                for (i; i < facet_field.size(); i++) {
+                    if (facet_field[i] == ',' || facet_field[i] == ')') {
                         break;
                     }
-                    param_str+=facet_field[i];
+                    param_str += facet_field[i];
                 }
 
-                if(param_str.empty() || (param_str != "true" && param_str != "false")) {
+                if (param_str.empty() || (param_str != "true" && param_str != "false")) {
                     return Option<bool>(400, "top_k string format is invalid.");
                 }
 
-                if(param_str == "true") {
+                if (param_str == "true") {
                     top_k = true;
                 }
                 facet_param_count++;
-            } else if((i + 1) < facet_field.size() && facet_field[i+1] == '[') { //range params
+            } else if ((i + 1) < facet_field.size() && facet_field[i + 1] == '[') { //range params
                 const field& a_field = search_schema.at(facet_field_name);
-                if(tupVec.empty()) {
-                    if(!a_field.is_integer() && !a_field.is_float()) {
+                if (tupVec.empty()) {
+                    if (!a_field.is_integer() && !a_field.is_float()) {
                         std::string error = "Range facet is restricted to only integer and float fields.";
                         return Option<bool>(400, error);
                     }
 
-                    if(!a_field.sort) {
+                    if (!a_field.sort) {
                         return Option<bool>(400, "Range facets require sort enabled for the field.");
                     }
                 }
                 auto range_val = param_str;
                 StringUtils::trim(range_val);
-                if(range_val.empty()) {
+                if (range_val.empty()) {
                     return Option<bool>(400, "Facet range value is not valid.");
                 }
 
@@ -7209,11 +7455,11 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
                 brace_open = true;
                 auto commaFound = 0;
-                i+=2; //skip : and [
+                i += 2; //skip : and [
                 param_str.clear();
-                while(i < facet_field.size()) {
-                    if(facet_field[i]== ',') {
-                        if(commaFound == 1) {
+                while (i < facet_field.size()) {
+                    if (facet_field[i] == ',') {
+                        if (commaFound == 1) {
                             return Option<bool>(400, "Error splitting the facet range values.");
                         }
 
@@ -7221,13 +7467,13 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                         StringUtils::trim(lower);
                         param_str.clear();
                         commaFound++;
-                    } else if(facet_field[i] == ']') {
+                    } else if (facet_field[i] == ']') {
                         brace_open = false;
                         upper = param_str;
                         StringUtils::trim(upper);
                         i++; //skip ] and break loop
                         break;
-                    } else if(facet_field[i] == ')') {
+                    } else if (facet_field[i] == ')') {
                         return Option<bool>(400, "Error splitting the facet range values.");
                     } else {
                         param_str += facet_field[i];
@@ -7235,22 +7481,22 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                     i++;
                 }
 
-                if(lower.empty()) {
+                if (lower.empty()) {
                     lower_range = INT64_MIN;
-                } else if(a_field.is_integer() && StringUtils::is_int64_t(lower)) {
+                } else if (a_field.is_integer() && StringUtils::is_int64_t(lower)) {
                     lower_range = std::stoll(lower);
-                } else if(a_field.is_float() && StringUtils::is_float(lower)) {
+                } else if (a_field.is_float() && StringUtils::is_float(lower)) {
                     float val = std::stof(lower);
                     lower_range = Index::float_to_int64_t(val);
                 } else {
                     return Option<bool>(400, "Facet range value is not valid.");
                 }
 
-                if(upper.empty()) {
+                if (upper.empty()) {
                     upper_range = INT64_MAX;
-                } else if(a_field.is_integer() && StringUtils::is_int64_t(upper)) {
+                } else if (a_field.is_integer() && StringUtils::is_int64_t(upper)) {
                     upper_range = std::stoll(upper);
-                } else if(a_field.is_float() && StringUtils::is_float(upper)) {
+                } else if (a_field.is_float() && StringUtils::is_float(upper)) {
                     float val = std::stof(upper);
                     upper_range = Index::float_to_int64_t(val);
                 } else {
@@ -7264,47 +7510,47 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             }
 
             continue;
-        } else if(facet_field[i] == ',') {
+        } else if (facet_field[i] == ',') {
             param_str.clear();
             commaCount++;
             i++;
             continue;
         }
 
-        if(!paran_open) {
-            facet_field_name+=facet_field[i];
+        if (!paran_open) {
+            facet_field_name += facet_field[i];
         } else {
-            param_str+=facet_field[i];
+            param_str += facet_field[i];
         }
         i++;
     }
 
-    if(paran_open || brace_open || facet_param_count != commaCount) {
+    if (paran_open || brace_open || facet_param_count != commaCount) {
         return Option<bool>(400, "Invalid facet format.");
     }
 
-    if(facet_param_count == 0 && !is_wildcard) {
+    if (facet_param_count == 0 && !is_wildcard) {
         //facets with params will be validated while parsing
         // for normal facets need to perform check
-        if(search_schema.count(facet_field_name) == 0 || !search_schema.at(facet_field_name).facet) {
+        if (search_schema.count(facet_field_name) == 0 || !search_schema.at(facet_field_name).facet) {
             std::string error = "Could not find a facet field named `" + facet_field_name + "` in the schema.";
             return Option<bool>(404, error);
         }
     }
 
-    if(!tupVec.empty()) { //add range facets
+    if (!tupVec.empty()) { //add range facets
         sort(tupVec.begin(), tupVec.end());
 
         facet a_facet(facet_field_name, facets.size());
         auto& range_map = a_facet.facet_range_map;
 
-        for(const auto& tup: tupVec) {
+        for (const auto& tup: tupVec) {
             const auto& lower_range = std::get<0>(tup);
             const auto& upper_range = std::get<1>(tup);
             const std::string& range_val = std::get<2>(tup);
 
             //check if ranges are continous or not
-            if((!range_map.empty()) && (range_map.find(lower_range) == range_map.end())) {
+            if ((!range_map.empty()) && (range_map.find(lower_range) == range_map.end())) {
                 std::string error = "Ranges in range facet syntax should be continous.";
                 return Option<bool>(400, error);
             }
@@ -7315,12 +7561,81 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         a_facet.is_top_k = top_k;
 
         facets.emplace_back(std::move(a_facet));
-    } else if(!is_wildcard) { //add other facet types, wildcard facets are already added while parsing
+    } else if (!is_wildcard) { //add other facet types, wildcard facets are already added while parsing
         facets.emplace_back(facet(facet_field_name, facets.size(), top_k, {}, false, sort_alpha,
                                   order, sort_field));
     }
 
     return Option<bool>(true);
+}
+
+Option<bool> Collection::process_facet_return_parent(std::vector<std::string>& facet_return_parent) const {
+    std::vector<std::string> result;
+
+    for(auto val : facet_return_parent) {
+        if(val.back() == '*') {
+            if(val.size() == 1) { //pure wildcard
+                result.clear();
+                result.emplace_back("*");
+                facet_return_parent = result;
+                return Option<bool>(true);
+            } else { //fields ending with *
+                auto prefix = val.substr(0, val.size() - 1);
+                auto pair = search_schema.equal_prefix_range(prefix);
+
+                if(pair.first == pair.second) {
+                    // not found
+                    std::string error = "Could not find a facet_return_parent field for `" + val + "` in the schema.";
+                    return Option<bool>(404, error);
+                }
+
+                // Collect the fields that match the prefix and are marked as facet.
+                for(auto field = pair.first; field != pair.second; field++) {
+                    if(field->facet) {
+                        result.emplace_back(field->name);
+                    }
+                }
+            }
+        } else { //normal field name
+            result.emplace_back(val);
+        }
+    }
+    facet_return_parent = std::move(result);
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
+                                               const uint32_t facet_query_num_typos,
+                                               uint32_t* all_result_ids, const size_t& all_result_ids_len,
+                                               const std::vector<std::string>& group_by_fields,
+                                               size_t group_limit, bool is_wildcard_no_filter_query,
+                                               size_t max_candidates,
+                                               std::vector<facet_info_t>& facet_infos,
+                                               const std::vector<facet_index_type_t>& facet_index_types,
+                                               bool is_group_by_first_pass,
+                                               std::set<uint32_t>& group_by_missing_value_ids) const {
+
+    std::shared_lock lock(mutex);
+    return index->compute_facet_infos_with_lock(facets, facet_query, facet_query_num_typos, all_result_ids, all_result_ids_len,
+                                                group_by_fields, group_limit, is_wildcard_no_filter_query, max_candidates, facet_infos,
+                                                facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, this);
+}
+
+Option<bool> Collection::do_facets_with_lock(std::vector<facet>& facets, facet_query_t& facet_query,
+                                             bool estimate_facets, size_t facet_sample_percent,
+                                             const std::vector<facet_info_t>& facet_infos,
+                                             size_t group_limit, const std::vector<std::string>& group_by_fields,
+                                             const bool group_missing_values,
+                                             const uint32_t* result_ids, size_t results_size,
+                                             int max_facet_count, bool is_wildcard_query,
+                                             const std::vector<facet_index_type_t>& facet_index_types,
+                                             bool is_group_by_first_pass,
+                                             std::set<uint32_t>& group_by_missing_value_ids) const {
+
+    std::shared_lock lock(mutex);
+    return index->do_facets_with_lock(facets, facet_query, estimate_facets, facet_sample_percent, facet_infos, group_limit,
+                                      group_by_fields, group_missing_values, result_ids, results_size, max_facet_count, is_wildcard_query,
+                                      facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, this);
 }
 
 Option<bool> Collection::populate_include_exclude_fields(const spp::sparse_hash_set<std::string>& include_fields,
@@ -7566,7 +7881,7 @@ void Collection::update_reference_field(const std::string& field_name, const fie
 Option<bool> Collection::get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
                                                    std::vector<uint32_t>& result) const {
     std::shared_lock lock(mutex);
-    return index->get_related_ids(field_name, seq_id, result);
+    return index->get_related_ids_with_lock(field_name, seq_id, result);
 }
 
 Option<uint32_t> Collection::get_sort_index_value_with_lock(const std::string& field_name,
@@ -8346,6 +8661,15 @@ void Collection::reset_alter_status_counters() {
     alter_in_progress = false;
     validated_docs = 0;
     altered_docs = 0;
+}
+
+std::string Collection::get_facet_str_val(const std::string& field_name, uint32_t facet_id) {
+    return index->get_facet_str_val(field_name, facet_id);
+}
+
+std::string Collection::get_facet_str_val_with_lock(const std::string& field_name, uint32_t facet_id) {
+    std::shared_lock lock(mutex);
+    return get_facet_str_val(field_name, facet_id);
 }
 
 union_global_params_t::union_global_params_t(const std::map<std::string, std::string> &req_params) {

@@ -1388,6 +1388,113 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     ASSERT_FALSE(res.error().empty());
     ASSERT_EQ(400, res.code());
     ASSERT_EQ("Facet range value is not valid.", res.error());
+
+    fields = {
+            field("ref_score", field_types::INT32, true),
+            field("ref_grade", field_types::INT32, true),
+            field("ref_rank", field_types::INT32, true),
+            field("ref_range", field_types::INT32, true),
+            field("ref_scale", field_types::INT32, false),
+    };
+
+    collectionManager.create_collection("ref_coll", 1, fields).get();
+
+    range_facet_fields = {
+            "$ref_coll(ref_score(fail:[0, 40], pass:[40, 100]), ref_grade(A:[80, 100], B:[60, 80], C:[40, 60]))"
+    };
+    range_facets.clear();
+    for(const std::string & facet_field: range_facet_fields) {
+        coll1->parse_facet(facet_field, range_facets);
+    }
+    ASSERT_EQ(2, range_facets.size());
+
+    ASSERT_EQ("ref_score", range_facets[0].field_name);
+    ASSERT_TRUE(range_facets[0].is_range_query);
+    ASSERT_EQ(2, range_facets[0].facet_range_map.size());
+    ASSERT_EQ("ref_coll", range_facets[0].reference_collection_name);
+
+    ASSERT_EQ("ref_grade", range_facets[1].field_name);
+    ASSERT_TRUE(range_facets[1].is_range_query);
+    ASSERT_EQ(3, range_facets[1].facet_range_map.size());
+    ASSERT_EQ("ref_coll", range_facets[1].reference_collection_name);
+
+    normal_facet_fields = {
+            "$ref_coll(ref_score, ref_grade)"
+    };
+    normal_facets.clear();
+    for(const std::string & facet_field: normal_facet_fields) {
+        coll1->parse_facet(facet_field, normal_facets);
+    }
+    ASSERT_EQ(2, normal_facets.size());
+
+    ASSERT_EQ("ref_score", normal_facets[0].field_name);
+    ASSERT_EQ("ref_coll", normal_facets[0].reference_collection_name);
+    ASSERT_EQ("ref_grade", normal_facets[1].field_name);
+    ASSERT_EQ("ref_coll", normal_facets[1].reference_collection_name);
+
+    wildcard_facet_fields = {
+            "$ref_coll(ref_ran*, ref_sc*)",
+    };
+    wildcard_facets.clear();
+    for(const std::string & facet_field: wildcard_facet_fields) {
+        coll1->parse_facet(facet_field, wildcard_facets);
+    }
+
+    ASSERT_EQ(3, wildcard_facets.size());
+
+    expected = {"ref_range", "ref_rank", "ref_score"};
+    for (size_t i = 0; i < wildcard_facets.size(); i++) {
+        ASSERT_TRUE(expected.count(wildcard_facets[i].field_name) == 1);
+        ASSERT_EQ("ref_coll", wildcard_facets[i].reference_collection_name);
+    }
+
+    wildcard_facets.clear();
+    coll1->parse_facet("$ref_coll(*)", wildcard_facets);
+
+    // Last field is not a facet.
+    ASSERT_EQ(fields.size() - 1, wildcard_facets.size());
+
+    expected.clear();
+    for (size_t i = 0; i < fields.size() - 1; i++) {
+        expected.insert(fields[i].name);
+    }
+
+    for (size_t i = 0; i < wildcard_facets.size(); i++) {
+        ASSERT_TRUE(expected.count(wildcard_facets[i].field_name) == 1);
+        ASSERT_EQ("ref_coll", wildcard_facets[i].reference_collection_name);
+    }
+
+    mixed_facet_fields = {
+            "$ref_coll(ref_score, ref_grade(A:[80, 100], B:[60,  80], C:[40,60]), ref_ra*)",
+    };
+
+    mixed_facets.clear();
+    for(const std::string & facet_field: mixed_facet_fields) {
+        coll1->parse_facet(facet_field, mixed_facets);
+    }
+    ASSERT_EQ(4, mixed_facets.size());
+
+    mixed_facets_ptr.clear();
+    for(auto& f: mixed_facets) {
+        mixed_facets_ptr.push_back(&f);
+    }
+
+    std::sort(mixed_facets_ptr.begin(), mixed_facets_ptr.end(), [](const facet* f1, const facet* f2) {
+        return f1->field_name < f2->field_name;
+    });
+
+    ASSERT_EQ("ref_score", mixed_facets_ptr[3]->field_name);
+    ASSERT_EQ("ref_coll", mixed_facets_ptr[3]->reference_collection_name);
+
+    ASSERT_EQ("ref_grade", mixed_facets_ptr[0]->field_name);
+    ASSERT_TRUE(mixed_facets_ptr[0]->is_range_query);
+    ASSERT_GT(mixed_facets_ptr[0]->facet_range_map.size(), 0);
+    ASSERT_EQ("ref_coll", mixed_facets_ptr[0]->reference_collection_name);
+
+    ASSERT_EQ("ref_rank", mixed_facets_ptr[2]->field_name);
+    ASSERT_EQ("ref_coll", mixed_facets_ptr[2]->reference_collection_name);
+    ASSERT_EQ("ref_range", mixed_facets_ptr[1]->field_name);
+    ASSERT_EQ("ref_coll", mixed_facets_ptr[1]->reference_collection_name);
 }
 
 TEST_F(CollectionFacetingTest, RangeFacetTest) {
@@ -2295,6 +2402,72 @@ TEST_F(CollectionFacetingTest, FacetingReturnParent) {
     ASSERT_EQ("0", results["facet_counts"][3]["counts"][0]["value"]);
     ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][3]["counts"][1]["parent"].dump());
     ASSERT_EQ("255", results["facet_counts"][3]["counts"][1]["value"]);
+
+    //should support dynamic fields
+    search_op = coll1->search("*", {},"", {"value.color", "value.r"},
+                              {}, {2}, 10, 1,FREQUENCY, {true},
+                              1, spp::sparse_hash_set<std::string>(),
+                              spp::sparse_hash_set<std::string>(),10, "",
+                              30, 4, "",
+                              Index::TYPO_TOKENS_THRESHOLD, "", "",{},
+                              3, "<mark>", "</mark>", {},
+                              UINT32_MAX, true, false, true,
+                              "", false, 6000*1000, 4, 7,
+                              fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                              2, 2, false, "",
+                              true, 0, max_score, 100,
+                              0, 0, "exhaustive", 30000,
+                              2, "", {"value.*"});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    results = search_op.get();
+    ASSERT_EQ(2, results["facet_counts"].size());
+
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("red", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("blue", results["facet_counts"][0]["counts"][1]["value"]);
+
+    ASSERT_EQ(2, results["facet_counts"][1]["counts"].size());
+    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][1]["counts"][0]["parent"].dump());
+    ASSERT_EQ("0", results["facet_counts"][1]["counts"][0]["value"]);
+    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][1]["counts"][1]["parent"].dump());
+    ASSERT_EQ("255", results["facet_counts"][1]["counts"][1]["value"]);
+
+    //pure wildcard
+    search_op = coll1->search("*", {},"", {"value.color", "value.r"},
+                              {}, {2}, 10, 1,FREQUENCY, {true},
+                              1, spp::sparse_hash_set<std::string>(),
+                              spp::sparse_hash_set<std::string>(),10, "",
+                              30, 4, "",
+                              Index::TYPO_TOKENS_THRESHOLD, "", "",{},
+                              3, "<mark>", "</mark>", {},
+                              UINT32_MAX, true, false, true,
+                              "", false, 6000*1000, 4, 7,
+                              fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                              2, 2, false, "",
+                              true, 0, max_score, 100,
+                              0, 0, "exhaustive", 30000,
+                              2, "", {"*"});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    results = search_op.get();
+    ASSERT_EQ(2, results["facet_counts"].size());
+
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("red", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("blue", results["facet_counts"][0]["counts"][1]["value"]);
+
+    ASSERT_EQ(2, results["facet_counts"][1]["counts"].size());
+    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][1]["counts"][0]["parent"].dump());
+    ASSERT_EQ("0", results["facet_counts"][1]["counts"][0]["value"]);
+    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][1]["counts"][1]["parent"].dump());
+    ASSERT_EQ("255", results["facet_counts"][1]["counts"][1]["value"]);
 }
 
 TEST_F(CollectionFacetingTest, FacetingReturnParentDeepNested) {
@@ -3700,4 +3873,120 @@ TEST_F(CollectionFacetingTest, FacetingWithNegativeInt) {
     ASSERT_FLOAT_EQ(20, results["facet_counts"][0]["stats"]["max"]);
     ASSERT_FLOAT_EQ(-5, results["facet_counts"][0]["stats"]["min"]);
     ASSERT_FLOAT_EQ(25, results["facet_counts"][0]["stats"]["sum"]);
+}
+
+
+TEST_F(CollectionFacetingTest, FacetSearchWithFieldLevelSymbolsToIndex) {
+    // symbols_to_index defined at collection level
+    nlohmann::json schema2 = R"({
+        "name": "test3",
+        "fields": [
+            {
+                "name": "name",
+                "type": "string",
+                "facet": true,
+                "optional": false,
+                "index": true,
+                "sort": true,
+                "infix": false,
+                "locale": "",
+                "stem": false,
+                "stem_dictionary": "",
+                "store": true
+            }
+        ],
+        "default_sorting_field": "",
+        "enable_nested_fields": false,
+        "symbols_to_index": ["+"]
+    })"_json;
+
+    auto collection_create_op2 = collectionManager.create_collection(schema2);
+    ASSERT_TRUE(collection_create_op2.ok());
+    Collection* coll2 = collection_create_op2.get();
+
+    nlohmann::json doc;
+    doc["name"] = "C++";
+    auto add_op2 = coll2->add(doc.dump());
+    ASSERT_TRUE(add_op2.ok());
+
+    auto search_op2 = coll2->search("*", {}, "", {"name"}, {}, {0}, 10, 1,
+                                   token_ordering::FREQUENCY, {true}, 10,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "name:C++");
+
+    ASSERT_TRUE(search_op2.ok());
+    auto results2 = search_op2.get();
+
+    ASSERT_EQ(1, results2["facet_counts"].size());
+    ASSERT_EQ("name", results2["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, results2["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("C++", results2["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(1, results2["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("<mark>C++</mark>", results2["facet_counts"][0]["counts"][0]["highlighted"]);
+
+    // Also test regular search to ensure the document is indexed correctly
+    auto regular_search2 = coll2->search("C++", {"name"}, "", {}, {}, {0}, 10, 1,
+                                        token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(regular_search2.ok());
+    auto regular_results2 = regular_search2.get();
+    ASSERT_EQ(1, regular_results2["hits"].size());
+    ASSERT_EQ("C++", regular_results2["hits"][0]["document"]["name"]);
+
+    collectionManager.drop_collection("test3");
+
+    // symbols_to_index defined at field level but not at collection level
+    nlohmann::json schema = R"({
+        "name": "test2",
+        "fields": [
+            {
+                "name": "name",
+                "type": "string",
+                "facet": true,
+                "optional": false,
+                "index": true,
+                "sort": true,
+                "infix": false,
+                "locale": "",
+                "stem": false,
+                "stem_dictionary": "",
+                "store": true,
+                "symbols_to_index": ["+"]
+            }
+        ],
+        "default_sorting_field": "",
+        "enable_nested_fields": false,
+        "symbols_to_index": []
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    Collection* coll = collection_create_op.get();
+
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_op = coll->search("*", {}, "", {"name"}, {}, {0}, 10, 1,
+                                  token_ordering::FREQUENCY, {true}, 10,
+                                  spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "name:C++");
+
+    ASSERT_TRUE(search_op.ok());
+    auto results = search_op.get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ("name", results["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("C++", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("<mark>C++</mark>", results["facet_counts"][0]["counts"][0]["highlighted"]);
+
+    auto regular_search = coll->search("C++", {"name"}, "", {}, {}, {0}, 10, 1,
+                                       token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(regular_search.ok());
+    auto regular_results = regular_search.get();
+    ASSERT_EQ(1, regular_results["hits"].size());
+    ASSERT_EQ("C++", regular_results["hits"][0]["document"]["name"]);
+
+    collectionManager.drop_collection("test2");
+
 }

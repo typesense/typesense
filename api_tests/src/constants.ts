@@ -7,3 +7,7 @@ export enum Phases {
   MULTI_SNAPSHOT = "multi-snapshot",
   NO_PHASE = "no-phase",
 }
+
+export enum Filters {
+  SECRETS = "secrets - ",
+}

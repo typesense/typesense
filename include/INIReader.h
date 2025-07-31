@@ -72,19 +72,9 @@ int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
 #define INI_INLINE_COMMENT_PREFIXES ";"
 #endif
 
-/* Nonzero to use stack, zero to use heap (malloc/free). */
-#ifndef INI_USE_STACK
-#define INI_USE_STACK 1
-#endif
-
 /* Stop parsing on first error (default is to keep parsing). */
 #ifndef INI_STOP_ON_FIRST_ERROR
 #define INI_STOP_ON_FIRST_ERROR 0
-#endif
-
-/* Maximum line length for any line in INI file. */
-#ifndef INI_MAX_LINE
-#define INI_MAX_LINE 200
 #endif
 
 #ifdef __cplusplus
@@ -105,9 +95,7 @@ https://github.com/benhoyt/inih
 #include <ctype.h>
 #include <string.h>
 
-#if !INI_USE_STACK
 #include <stdlib.h>
-#endif
 
 #define MAX_SECTION 50
 #define MAX_NAME 50
@@ -161,12 +149,8 @@ inline static char* strncpy0(char* dest, const char* src, size_t size)
 inline int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
                             void* user)
 {
-    /* Uses a fair bit of stack (use heap instead if you need to) */
-#if INI_USE_STACK
-    char line[INI_MAX_LINE];
-#else
-    char* line;
-#endif
+    char *line   = NULL;
+    size_t cap   =  0;
     char section[MAX_SECTION] = "";
     char prev_name[MAX_NAME] = "";
 
@@ -177,15 +161,9 @@ inline int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler
     int lineno = 0;
     int error = 0;
 
-#if !INI_USE_STACK
-    line = (char*)malloc(INI_MAX_LINE);
-    if (!line) {
-        return -2;
-    }
-#endif
-
     /* Scan through stream line by line */
-    while (reader(line, INI_MAX_LINE, stream) != NULL) {
+    ssize_t nread;
+    while ((nread = getline(&line, &cap, (FILE*)stream)) != -1) {
         lineno++;
 
         start = line;
@@ -262,9 +240,7 @@ inline int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler
 #endif
     }
 
-#if !INI_USE_STACK
     free(line);
-#endif
 
     return error;
 }

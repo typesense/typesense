@@ -1,6 +1,9 @@
 {
   "name": "api_tests",
-  "module": "src/index.ts",
+  "module": "src/cli.ts",
+  "bin": {
+    "typesense-api-tests": "./src/cli.ts"
+  },
   "type": "module",
   "private": true,
   "devDependencies": {
@@ -10,6 +13,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "api_tests": ".",
     "zod": "^3.25.67"
   }
 }
