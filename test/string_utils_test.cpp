@@ -351,6 +351,27 @@ TEST(StringUtilsTest, ShouldSplitRangeFacet){
     ASSERT_EQ("score(fail:[0, 40], pass:[40, 100])", reference_facets[0]);
     ASSERT_EQ("$Collection(city)", reference_facets[1]);
 
+    reference_facets_string = "rating, $Customers(product_price)";
+    reference_facets.clear();
+    StringUtils::split_facet(reference_facets_string, reference_facets);
+    ASSERT_EQ("rating", reference_facets[0]);
+    ASSERT_EQ("$Customers(product_price)", reference_facets[1]);
+
+    reference_facets_string = "rating, $Customers(product_price), score(fail:[0, 40], pass:[40, 100])";
+    reference_facets.clear();
+    StringUtils::split_facet(reference_facets_string, reference_facets);
+    ASSERT_EQ("rating", reference_facets[0]);
+    ASSERT_EQ("$Customers(product_price)", reference_facets[1]);
+    ASSERT_EQ("score(fail:[0, 40], pass:[40, 100])", reference_facets[2]);
+
+    reference_facets_string = "rating, $Customers(product_price), score(fail:[0, 40], pass:[40, 100]), $Customers(score(fail:[0, 40], pass:[40, 100]), city)";
+    reference_facets.clear();
+    StringUtils::split_facet(reference_facets_string, reference_facets);
+    ASSERT_EQ("rating", reference_facets[0]);
+    ASSERT_EQ("$Customers(product_price)", reference_facets[1]);
+    ASSERT_EQ("score(fail:[0, 40], pass:[40, 100])", reference_facets[2]);
+    ASSERT_EQ("$Customers(score(fail:[0, 40], pass:[40, 100]), city)", reference_facets[3]);
+
     // empty string should produce empty list
     std::vector<std::string> lines_empty;
     StringUtils::split_facet("", lines_empty);
