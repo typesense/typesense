@@ -35,9 +35,9 @@ struct KV {
     std::map<std::string, reference_filter_result_t> reference_filter_results;
 
     KV(uint16_t queryIndex, uint64_t key, uint64_t distinct_key, int8_t match_score_index, const int64_t *scores,
-       std::map<std::string, reference_filter_result_t>  reference_filter_results = {}):
+       std::map<std::string, reference_filter_result_t>  reference_filter_results = {}, float vector_distance = -1.0f):
             match_score_index(match_score_index), query_index(queryIndex), array_index(0), key(key),
-            distinct_key(distinct_key), reference_filter_results(std::move(reference_filter_results)) {
+            distinct_key(distinct_key), vector_distance(vector_distance), reference_filter_results(std::move(reference_filter_results)) {
         this->scores[0] = scores[0];
         this->scores[1] = scores[1];
         this->scores[2] = scores[2];
@@ -170,7 +170,7 @@ struct KV {
 struct Union_KV : public KV {
     uint32_t search_index{};
 
-    Union_KV(KV& kv, uint32_t search_index) : KV(kv.query_index, kv.key, kv.distinct_key, kv.match_score_index, kv.scores),
+    Union_KV(KV& kv, uint32_t search_index) : KV(kv.query_index, kv.key, kv.distinct_key, kv.match_score_index, kv.scores, {}, kv.vector_distance),
                                                search_index(search_index) {
         reference_filter_results = std::move(kv.reference_filter_results);
     }
