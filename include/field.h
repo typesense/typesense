@@ -810,7 +810,7 @@ struct facet {
 
     std::string reference_collection_name;
 
-    reference_filter_result_t references;
+    reference_filter_result_t references{};
 
     bool is_top_k = false;
 

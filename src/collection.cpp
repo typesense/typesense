@@ -7294,6 +7294,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
         for (auto& ref_facet: ref_facets) {
             ref_facet.reference_collection_name = ref_collection_name;
+            ref_facet.orig_index = facets.size();
             facets.emplace_back(std::move(ref_facet));
         }
 
