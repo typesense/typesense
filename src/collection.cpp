@@ -2598,7 +2598,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     if(facet_sample_slope > 0 && facet_sample_threshold > 0) {
         auto sample_slope = facet_sample_slope/100.f;
-        facet_sample_percent_computed = std::max(0.f, 100 - sample_slope * (get_num_documents() - facet_sample_threshold) / facet_sample_threshold);
+        facet_sample_percent_computed = std::max(5.f, 100 - sample_slope * (get_num_documents() - facet_sample_threshold) / facet_sample_threshold);
     }
 
     // search all indices
