@@ -1880,6 +1880,118 @@ TEST_F(FilterTest, NumericFilterIterator) {
     delete filter_tree_root;
 }
 
+TEST_F(FilterTest, StandaloneExclamationFilterSyntax) {
+    nlohmann::json schema =
+            R"({
+                "name": "Collection",
+                "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "age", "type": "int32"},
+                    {"name": "rating", "type": "float"},
+                    {"name": "is_active", "type": "bool"},
+                    {"name": "tags", "type": "string[]"}
+                ]
+            })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["name"] = "Alice";
+    doc1["age"] = 25;
+    doc1["rating"] = 4.5;
+    doc1["is_active"] = true;
+    doc1["tags"] = {"active", "premium"};
+    auto add_op = coll->add(doc1.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc2;
+    doc2["name"] = "Bob";
+    doc2["age"] = 30;
+    doc2["rating"] = 3.8;
+    doc2["is_active"] = false;
+    doc2["tags"] = {"inactive"};
+    add_op = coll->add(doc2.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc3;
+    doc3["name"] = "Charlie";
+    doc3["age"] = 25;
+    doc3["rating"] = 4.2;
+    doc3["is_active"] = true;
+    doc3["tags"] = {"active"};
+    add_op = coll->add(doc3.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+
+    Option<bool> filter_op = filter::parse_filter_query("age:![25]", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto results = coll->search("*", {}, "age:![25]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("Bob", results["hits"][0]["document"]["name"].get<std::string>());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    filter_op = filter::parse_filter_query("age:![25, 30]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    results = coll->search("*", {}, "age:![25, 30]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    filter_op = filter::parse_filter_query("rating:![4.5]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    results = coll->search("*", {}, "rating:![4.5]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    filter_op = filter::parse_filter_query("is_active:![true]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    results = coll->search("*", {}, "is_active:![true]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("Bob", results["hits"][0]["document"]["name"].get<std::string>());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    filter_op = filter::parse_filter_query("is_active:![true, false]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    results = coll->search("*", {}, "is_active:![true, false]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    filter_op = filter::parse_filter_query("age:!=[25]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto results_traditional = coll->search("*", {}, "age:!=[25]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    auto results_new = coll->search("*", {}, "age:![25]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    
+    ASSERT_EQ(results_traditional["found"].get<size_t>(), results_new["found"].get<size_t>());
+    ASSERT_EQ(results_traditional["hits"][0]["document"]["name"].get<std::string>(),
+              results_new["hits"][0]["document"]["name"].get<std::string>());
+
+    delete filter_tree_root;
+    collectionManager.drop_collection("Collection");
+}
+
 TEST_F(FilterTest, PrefixStringFilter) {
     auto schema_json =
             R"({
