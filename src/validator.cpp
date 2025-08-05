@@ -705,7 +705,7 @@ Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document,
             const auto& field_vec = document[field.name];
             if(!field_vec.is_array() || field_vec.empty() || !field_vec[0].is_number() ||
                 field_vec.size() != field.num_dim) {
-                if(field.optional) {
+                if(field.optional && field_vec.empty()) {
                     // if the field is optional, we can ignore it
                     continue;
                 }
