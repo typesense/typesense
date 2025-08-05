@@ -507,6 +507,8 @@ namespace ref_include {
     static const std::string nest_string = "nest";
     static const std::string nest_array_string = "nest_array";
     static const std::string related_docs_count = "related_docs_count";
+    static const std::string sort_by = "sort_by";
+    static const std::string limit = "limit";
 
     enum strategy_enum {merge = 0, nest, nest_array};
 
@@ -530,8 +532,10 @@ struct ref_include_exclude_fields {
     std::string exclude_fields;
     std::string alias;
     ref_include::strategy_enum strategy = ref_include::nest;
-    std::string related_docs_field;
-
+    std::string related_docs_field = "";
+    std::string sort_field = "";
+    std::string sort_order = "";
+    size_t limit = 0;
     // In case we have nested join.
     std::vector<ref_include_exclude_fields> nested_join_includes = {};
 };
