@@ -17,7 +17,7 @@
 
 void copy_references_helper(const std::map<std::string, reference_filter_result_t>* from,
                             std::map<std::string, reference_filter_result_t>*& to, const uint32_t& count) {
-    if (from == nullptr) {
+    if (from == nullptr || count == 0) {
         return;
     }
 
