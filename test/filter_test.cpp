@@ -1992,6 +1992,44 @@ TEST_F(FilterTest, StandaloneExclamationFilterSyntax) {
     collectionManager.drop_collection("Collection");
 }
 
+TEST_F(FilterTest, StandaloneExclamationFilterValidation) {
+    nlohmann::json schema =
+            R"({
+                "name": "Collection",
+                "fields": [
+                    {"name": "age", "type": "int32"},
+                    {"name": "rating", "type": "float"},
+                    {"name": "is_active", "type": "bool"}
+                ]
+            })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+
+    auto filter_op = filter::parse_filter_query("age:!", coll->get_schema(), store, doc_id_prefix,
+                                                filter_tree_root);
+    ASSERT_FALSE(filter_op.ok());
+    ASSERT_TRUE(filter_op.error().find("Filter value cannot be empty after '!' operator") != std::string::npos);
+
+    filter_op = filter::parse_filter_query("rating:!", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_FALSE(filter_op.ok());
+    ASSERT_TRUE(filter_op.error().find("Filter value cannot be empty after '!' operator") != std::string::npos);
+
+    filter_op = filter::parse_filter_query("is_active:!", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_FALSE(filter_op.ok());
+    ASSERT_TRUE(filter_op.error().find("Filter value cannot be empty after '!' operator") != std::string::npos);
+
+    filter_op = filter::parse_filter_query("age:!   ", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_FALSE(filter_op.ok());
+    ASSERT_TRUE(filter_op.error().find("Filter value cannot be empty after '!' operator") != std::string::npos);
+
+    collectionManager.drop_collection("Collection");
+}
+
 TEST_F(FilterTest, PrefixStringFilter) {
     auto schema_json =
             R"({

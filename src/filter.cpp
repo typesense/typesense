@@ -526,6 +526,10 @@ Option<bool> toFilter(const std::string& expression,
             apply_not_equals = true;
             while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
             raw_value = raw_value.substr(filter_value_index);
+            
+            if (raw_value.empty()) {
+                return Option<bool>(400, "Error with filter field `" + _field.name + "`: Filter value cannot be empty after '!' operator.");
+            }
         }
         
         // could be a single value or a list
@@ -589,10 +593,11 @@ Option<bool> toFilter(const std::string& expression,
         }
         if (filter_value_index != 0) {
             raw_value = raw_value.substr(filter_value_index);
-        }
-        if (filter_value_index == raw_value.size()) {
-            return Option<bool>(400, "Error with filter field `" + _field.name +
-                                     "`: Filter value cannot be empty.");
+            
+            if (raw_value.empty()) {
+                return Option<bool>(400, "Error with filter field `" + _field.name +
+                                         "`: Filter value cannot be empty after '!' operator.");
+            }
         }
         if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
             filter_exp = {field_name, {}, {}};
