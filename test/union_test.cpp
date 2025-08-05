@@ -816,9 +816,9 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
 
     ASSERT_EQ(5, json_res["union_request_params"][0]["found"]);
-    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection"]);
+    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection_name"]);
     ASSERT_EQ(5, json_res["union_request_params"][1]["found"]);
-    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection"]);
+    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection_name"]);
     json_res.clear();
     req_params.clear();
 
@@ -859,9 +859,9 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
 
     ASSERT_EQ(2, json_res["union_request_params"][0]["per_page"]);
-    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection"]);
+    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection_name"]);
     ASSERT_EQ(2, json_res["union_request_params"][1]["per_page"]);
-    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection"]);
+    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection_name"]);
     json_res.clear();
     req_params.clear();
 
