@@ -1963,6 +1963,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     const text_match_type_t& match_type = coll_args.match_type;
     const size_t& facet_sample_percent = coll_args.facet_sample_percent;
     const size_t& facet_sample_threshold = coll_args.facet_sample_threshold;
+    const size_t& facet_sample_slope = coll_args.facet_sample_slope;
     const size_t& page_offset = coll_args.offset;
     const std::string& facet_index_type = coll_args.facet_strategy;
     const size_t& remote_embedding_timeout_ms = coll_args.remote_embedding_timeout_ms;
@@ -2033,6 +2034,14 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     if(facet_sample_percent > 100) {
         return Option<bool>(400, "Value of `facet_sample_percent` must be less than 100.");
+    }
+
+    if(facet_sample_slope > 100) {
+        return Option<bool>(400, "Value of `facet_sample_slope` must be less than 100.");
+    }
+
+    if(facet_sample_slope > 0 && facet_sample_threshold == 0) {
+        return Option<bool>(400, "Value of `facet_sample_threshold` must be greater than 0 with `facet_sample_slope`.");
     }
 
     if(synonyms_num_typos > 2) {
@@ -2585,6 +2594,13 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         }
     }
 
+    size_t facet_sample_percent_computed = facet_sample_percent;
+
+    if(facet_sample_slope > 0 && facet_sample_threshold > 0) {
+        auto sample_slope = facet_sample_slope/100.f;
+        facet_sample_percent_computed = std::max(5.f, 100 - sample_slope * (get_num_documents() - facet_sample_threshold) / facet_sample_threshold);
+    }
+
     // search all indices
 
     size_t index_id = 0;
@@ -2602,7 +2618,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                min_len_1typo, min_len_2typo, max_candidates, infixes,
                                                max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                                filter_curated_hits, split_join_tokens, vector_query,
-                                               facet_sample_percent, facet_sample_threshold, drop_tokens_param,
+                                               facet_sample_percent_computed, facet_sample_threshold, drop_tokens_param,
                                                std::move(filter_tree_root_guard), enable_lazy_filter, max_filter_by_candidates,
                                                facet_index_types, enable_typos_for_numerical_tokens,
                                                enable_synonyms, synonym_prefix, synonyms_num_typos,
@@ -2656,6 +2672,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           const text_match_type_t match_type,
                                           const size_t facet_sample_percent,
                                           const size_t facet_sample_threshold,
+                                          const size_t facet_sample_slope,
                                           const size_t page_offset,
                                           const std::string& facet_index_type,
                                           const size_t remote_embedding_timeout_ms,
@@ -2708,7 +2725,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                          filter_curated_hits_option, prioritize_token_position, vector_query_str,
                                          enable_highlight_v1, search_time_start_us, match_type,
-                                         facet_sample_percent, facet_sample_threshold, page_offset,
+                                         facet_sample_percent, facet_sample_threshold, facet_sample_slope, page_offset,
                                          facet_index_type, remote_embedding_timeout_ms, remote_embedding_num_tries,
                                          stopwords_set, facet_return_parent,
                                          ref_include_exclude_fields_vec,
@@ -8364,6 +8381,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
 
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
+    size_t facet_sample_slope = 0;
 
     bool conversation = false;
     std::string conversation_id;
@@ -8408,6 +8426,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {FACET_QUERY_NUM_TYPOS, &facet_query_num_typos},
             {FACET_SAMPLE_PERCENT, &facet_sample_percent},
             {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
+            {FACET_SAMPLE_SLOPE, &facet_sample_slope},
             {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
             {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
             {SYNONYM_NUM_TYPOS, &synonym_num_typos},
@@ -8632,7 +8651,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                     filter_curated_hits_option, prioritize_token_position, vector_query,
                                     enable_highlight_v1, start_ts, match_type,
-                                    facet_sample_percent, facet_sample_threshold, offset,
+                                    facet_sample_percent, facet_sample_threshold, facet_sample_slope, offset,
                                     facet_strategy, remote_embedding_timeout_ms, remote_embedding_num_tries,
                                     stopwords_set, facet_return_parent,
                                     ref_include_exclude_fields_vec,

@@ -669,8 +669,8 @@ TEST_F(CollectionGroupingTest, ControlMissingValues) {
                              "", 10,
                              {}, {}, {"brand"}, 2,
                              "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                             100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, false).get();
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "",
+                             {}, {}, "right_to_left", true, false).get();
 
     ASSERT_EQ(3, res["grouped_hits"].size());
     ASSERT_EQ("Omega", res["grouped_hits"][0]["group_key"][0].get<std::string>());
@@ -692,8 +692,8 @@ TEST_F(CollectionGroupingTest, ControlMissingValues) {
                         "", 10,
                         {}, {}, {"brand"}, 2,
                         "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                        4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                        100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true).get();
+                        4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "", {},
+                        {}, "right_to_left", true, true).get();
 
     ASSERT_EQ(2, res["grouped_hits"].size());
 
@@ -745,7 +745,7 @@ TEST_F(CollectionGroupingTest, SkipFieldValidation) {
                              6000*1000, 4, 7, fallback, 4,
                              {off}, INT16_MAX, INT16_MAX,2,
                              2, false, "", true,
-                             0, max_score, 100, 0, 0,
+                             0, max_score, 100, 0, 0, 0,
                              "exhaustive", 30000, 2, "",
                              {},{}, "right_to_left", true,
                              true, false, "", "", "",
@@ -772,7 +772,7 @@ TEST_F(CollectionGroupingTest, SkipFieldValidation) {
                            6000*1000, 4, 7, fallback, 4,
                            {off}, INT16_MAX, INT16_MAX,2,
                            2, false, "", true,
-                           0, max_score, 100, 0, 0,
+                           0, max_score, 100, 0, 0, 0,
                            "exhaustive", 30000, 2, "",
                            {},{}, "right_to_left", true,
                            true, false, "", "", "",
@@ -802,7 +802,7 @@ TEST_F(CollectionGroupingTest, SkipFieldValidation) {
                            6000*1000, 4, 7, fallback, 4,
                            {off}, INT16_MAX, INT16_MAX,2,
                            2, false, "", true,
-                           0, max_score, 100, 0, 0,
+                           0, max_score, 100, 0, 0, 0,
                            "exhaustive", 30000, 2, "",
                            {},{}, "right_to_left", true,
                            true, false, "", "", "",
@@ -1042,8 +1042,8 @@ TEST_F(CollectionGroupingTest, SkipToReverseGroupBy) {
                              "", 10,
                              {}, {}, {"brand"}, 2,
                              "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                             100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, false).get();
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2,
+                             "", {}, {}, "right_to_left", true, false).get();
 
     ASSERT_EQ(1, res["grouped_hits"].size());
 
@@ -1075,8 +1075,8 @@ TEST_F(CollectionGroupingTest, SkipToReverseGroupBy) {
                              "", 10,
                              {}, {}, {"brand"}, 2,
                              "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                             100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, false).get();
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "",
+                             {}, {}, "right_to_left", true, false).get();
 
     ASSERT_EQ(5, res["grouped_hits"].size());
 
@@ -1104,8 +1104,8 @@ TEST_F(CollectionGroupingTest, SkipToReverseGroupBy) {
                              "", 10,
                              {}, {}, {"brand"}, 2,
                              "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                             100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true).get();
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "",
+                             {}, {}, "right_to_left", true, true).get();
 
     ASSERT_EQ(4, res["grouped_hits"].size());
 
