@@ -339,12 +339,13 @@ nlohmann::json Collection::get_summary_json() const {
     }
 
     nlohmann::json fields_arr;
-    const std::regex sequence_id_pattern(".*_sequence_id$");
+    constexpr char kSuffix[] = "_sequence_id";
+    constexpr size_t kLen = sizeof(kSuffix) - 1; // exclude '\0'
 
     for(const field & coll_field: fields) {
-        if (std::regex_match(coll_field.name, sequence_id_pattern)) {
-            // Don't add foo_sequence_id field.
-            continue;
+        const std::string& s = coll_field.name;
+        if (s.size() >= kLen && std::memcmp(s.data() + s.size() - kLen, kSuffix, kLen) == 0) {
+            continue; // skip foo_sequence_id
         }
 
         nlohmann::json field_json;
@@ -1963,6 +1964,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     const text_match_type_t& match_type = coll_args.match_type;
     const size_t& facet_sample_percent = coll_args.facet_sample_percent;
     const size_t& facet_sample_threshold = coll_args.facet_sample_threshold;
+    const size_t& facet_sample_slope = coll_args.facet_sample_slope;
     const size_t& page_offset = coll_args.offset;
     const std::string& facet_index_type = coll_args.facet_strategy;
     const size_t& remote_embedding_timeout_ms = coll_args.remote_embedding_timeout_ms;
@@ -2033,6 +2035,14 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     if(facet_sample_percent > 100) {
         return Option<bool>(400, "Value of `facet_sample_percent` must be less than 100.");
+    }
+
+    if(facet_sample_slope > 100) {
+        return Option<bool>(400, "Value of `facet_sample_slope` must be less than 100.");
+    }
+
+    if(facet_sample_slope > 0 && facet_sample_threshold == 0) {
+        return Option<bool>(400, "Value of `facet_sample_threshold` must be greater than 0 with `facet_sample_slope`.");
     }
 
     if(synonyms_num_typos > 2) {
@@ -2585,6 +2595,13 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         }
     }
 
+    size_t facet_sample_percent_computed = facet_sample_percent;
+
+    if(facet_sample_slope > 0 && facet_sample_threshold > 0) {
+        auto sample_slope = facet_sample_slope/100.f;
+        facet_sample_percent_computed = std::max(5.f, 100 - sample_slope * (get_num_documents() - facet_sample_threshold) / facet_sample_threshold);
+    }
+
     // search all indices
 
     size_t index_id = 0;
@@ -2602,7 +2619,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                min_len_1typo, min_len_2typo, max_candidates, infixes,
                                                max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                                filter_curated_hits, split_join_tokens, vector_query,
-                                               facet_sample_percent, facet_sample_threshold, drop_tokens_param,
+                                               facet_sample_percent_computed, facet_sample_threshold, drop_tokens_param,
                                                std::move(filter_tree_root_guard), enable_lazy_filter, max_filter_by_candidates,
                                                facet_index_types, enable_typos_for_numerical_tokens,
                                                enable_synonyms, synonym_prefix, synonyms_num_typos,
@@ -2656,6 +2673,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           const text_match_type_t match_type,
                                           const size_t facet_sample_percent,
                                           const size_t facet_sample_threshold,
+                                          const size_t facet_sample_slope,
                                           const size_t page_offset,
                                           const std::string& facet_index_type,
                                           const size_t remote_embedding_timeout_ms,
@@ -2708,7 +2726,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                          filter_curated_hits_option, prioritize_token_position, vector_query_str,
                                          enable_highlight_v1, search_time_start_us, match_type,
-                                         facet_sample_percent, facet_sample_threshold, page_offset,
+                                         facet_sample_percent, facet_sample_threshold, facet_sample_slope, page_offset,
                                          facet_index_type, remote_embedding_timeout_ms, remote_embedding_num_tries,
                                          stopwords_set, facet_return_parent,
                                          ref_include_exclude_fields_vec,
@@ -3689,7 +3707,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         }
 
         nlohmann::json params;
-        params["collection"] = coll->get_name();
+        params["collection_name"] = coll->get_name();
         params["per_page"] = union_params.per_page;
         params["q"] = coll_args.raw_query;
         params["found"] = found;
@@ -3726,7 +3744,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
             for (size_t i = 0; i < first_search_sort_fields.size(); i++) {
                 if (this_search_sort_fields[i].type != first_search_sort_fields[i].type) {
                     std::string append_hint;
-                    const auto& first_search_collection_name = request_json_list[0]["collection"].get<std::string>();
+                    const auto& first_search_collection_name = request_json_list[0]["collection_name"].get<std::string>();
                     if (default_sorting_field_used && first_request_default_sorting_field_used) {
                         // Both the current and first search request have declared a default sorting field.
                         append_hint = " Both `" + coll->get_name() + "` and `" + first_search_collection_name +
@@ -6079,6 +6097,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     std::vector<field> new_fields;
     tsl::htrie_map<char, field> schema_additions;
     bool found_embedding_field = false;
+    bool found_reference_field = false;
 
     std::unique_lock ulock(mutex);
 
@@ -6098,6 +6117,10 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         if(f.nested) {
             check_and_add_nested_field(nested_fields, f);
+        }
+
+        if(f.is_async_reference) {
+            found_reference_field = true;
         }
 
         if(f.embed.count(fields::from) != 0) {
@@ -6154,6 +6177,13 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             field::flatten_doc(document, nested_fields, {}, true, flattened_fields);
         }
 
+        auto populate_reference_helper_fields_op = Join::populate_reference_helper_fields(document, search_schema, reference_fields,
+                                                                                          object_reference_helper_fields,
+                                                                                          true);
+        if (!populate_reference_helper_fields_op.ok()) {
+            return populate_reference_helper_fields_op;
+        }
+
         index_record record(altered_docs, seq_id, document, index_operation_t::CREATE, DIRTY_VALUES::COERCE_OR_DROP);
         iter_batch.emplace_back(std::move(record));
 
@@ -6187,6 +6217,21 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
                         } else {
                             index_record.index_success();
                         }
+                    }
+                }
+            }
+
+            if(found_reference_field) {
+                //if alter operation contains adding, reindexing reference field then need to update on disk too
+                for(auto& index_record : iter_batch) {
+                    const std::string& serialized_json = index_record.doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+                    bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
+
+                    if(!write_ok) {
+                        LOG(ERROR) << "Inserting doc with new reference field failed for seq id: " << index_record.seq_id;
+                        index_record.index_failure(500, "Could not write to on-disk storage.");
+                    } else {
+                        index_record.index_success();
                     }
                 }
             }
@@ -6300,6 +6345,40 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     if(!reindex_fields.empty()) {
         LOG(INFO) << "Processing field additions and deletions first...";
     }
+
+    std::unique_lock lck(mutex);
+    //update after successful alter operation
+    if(!del_fields.empty()) {
+        for(const auto& f : del_fields) {
+            if(reference_fields.find(f.name) != reference_fields.end()) {
+                reference_fields.erase(f.name);
+            }
+        }
+    }
+
+    if(!addition_fields.empty() || !reindex_fields.empty()) {
+        auto add_reference_field = [&] (const field& f) {
+            auto dot_index = f.reference.find('.');
+            auto ref_coll_name = f.reference.substr(0, dot_index);
+            auto ref_field_name = f.reference.substr(dot_index + 1);
+
+            reference_fields.emplace(f.name, reference_info_t(ref_coll_name, ref_field_name, f.is_async_reference));
+        };
+
+        for(const auto& f : addition_fields) {
+            if(!f.reference.empty()) {
+                add_reference_field(f);
+            }
+        }
+
+        for(const auto& f : reindex_fields) {
+            if(!f.reference.empty()) {
+                add_reference_field(f);
+            }
+        }
+    }
+
+    lck.unlock();
 
     auto batch_alter_op = batch_alter_data(addition_fields, del_fields, fallback_field_type);
     if(!batch_alter_op.ok()) {
@@ -6530,6 +6609,17 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         if(kv.value().contains("drop")) {
             delete_field_names.insert(field_name);
         }
+
+        //check for reference field, if found then remove reference field helper too
+        const auto& field_it = search_schema.find(field_name);
+        if(field_it != search_schema.end() && !field_it->reference.empty()) {
+            const auto reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+            if(search_schema.find(reference_helper_field) != search_schema.end()) {
+                delete_field_names.insert(reference_helper_field);
+            } else {
+                return Option<bool>(404,"reference helper field not found while altering field `" + field_name + "`");
+            }
+        }
     }
 
     std::unordered_map<std::string, field> new_dynamic_fields;
@@ -6566,7 +6656,14 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 del_fields.push_back(field_it.value());
                 updated_search_schema.erase(field_it.key());
                 updated_nested_fields.erase(field_it.key());
-                
+
+                if(!field_it->reference.empty()) {
+                    //validated before only, so directly add to fields to delete
+                    const auto ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+                    const auto ref_helper_field = search_schema.at(ref_helper_field_name);
+                    del_fields.push_back(ref_helper_field);
+                }
+
                 if(field_it.value().embed.count(fields::from) != 0) {
                     updated_embedding_fields.erase(field_it.key());
                 }
@@ -6615,21 +6712,53 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             if(is_addition || is_reindex) {
                 // must validate fields
                 auto parse_op = field::json_field_to_field(enable_nested_fields, kv.value(), diff_fields,
-                                                           fallback_field_type, num_auto_detect_fields);
+                                                           fallback_field_type, num_auto_detect_fields, name);
                 if (!parse_op.ok()) {
                     return parse_op;
                 }
 
                 auto& f = diff_fields.back();
 
-                // When `reference` field is present in schema, we add a reference helper field. So checking if the
-                // second last field has a reference property or not.
                 if (f.is_reference_helper && diff_fields.size() > 1 &&
                             !diff_fields[diff_fields.size() - 2].reference.empty()) {
-                    const auto& ref_field = diff_fields[diff_fields.size() - 2];
-                    return Option<bool>(400, "Adding/Modifying reference field `" + ref_field.name +
-                                                "` using alter operation is not yet supported. Workaround is to drop "
-                                                "the whole collection and re-index it.");
+                    const auto& field = diff_fields[diff_fields.size() - 2];
+
+                    updated_search_schema[field.name] = field;
+
+                    auto dot_index = field.reference.find('.');
+                    auto ref_coll_name = field.reference.substr(0, dot_index);
+                    auto ref_field_name = field.reference.substr(dot_index + 1);
+                    struct field ref_field;
+
+                    std::set<update_reference_info_t> update_ref_infos{};
+
+                    auto& collectionManager = CollectionManager::get_instance();
+                    auto ref_coll = collectionManager.get_collection(ref_coll_name); // resolves alias
+                    if (ref_coll != nullptr) {
+                        ref_coll_name = ref_coll->name;
+                        update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
+                                                                       ref_field_name, ref_field);
+                    }
+
+                    auto ref_info = reference_info_t{name, field.name, field.is_async_reference, ref_field_name};
+                    ref_info.referenced_field = ref_field;
+                    collectionManager.add_referenced_ins(ref_coll_name, std::move(ref_info));
+
+                    reference_fields.emplace(field.name,
+                                             reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference));
+                    if (field.nested) {
+                        object_reference_helper_fields.insert(field.name);
+                    }
+
+                    for (auto& update_ref_info: update_ref_infos) {
+                        update_reference_field(update_ref_info.field, update_ref_info.referenced_field);
+                    }
+
+                    if (is_reindex) {
+                        reindex_fields.push_back(field);
+                    } else {
+                        addition_fields.push_back(field);
+                    }
                 }
 
                 if(f.is_dynamic()) {
@@ -7013,10 +7142,11 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
         }
     }
 
-    auto add_reference_helper_fields_op = Join::add_reference_helper_fields(document, schema, reference_fields,
-                                                                            object_reference_helper_fields, is_update);
-    if (!add_reference_helper_fields_op.ok()) {
-        return add_reference_helper_fields_op;
+    auto populate_reference_helper_fields_op = Join::populate_reference_helper_fields(document, schema, reference_fields,
+                                                                                 object_reference_helper_fields,
+                                                                                 is_update);
+    if (!populate_reference_helper_fields_op.ok()) {
+        return populate_reference_helper_fields_op;
     }
 
     return Option<bool>(true);
@@ -7182,6 +7312,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
         for (auto& ref_facet: ref_facets) {
             ref_facet.reference_collection_name = ref_collection_name;
+            ref_facet.orig_index = facets.size();
             facets.emplace_back(std::move(ref_facet));
         }
 
@@ -8236,6 +8367,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
 
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
+    size_t facet_sample_slope = 0;
 
     bool conversation = false;
     std::string conversation_id;
@@ -8280,6 +8412,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {FACET_QUERY_NUM_TYPOS, &facet_query_num_typos},
             {FACET_SAMPLE_PERCENT, &facet_sample_percent},
             {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
+            {FACET_SAMPLE_SLOPE, &facet_sample_slope},
             {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
             {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
             {SYNONYM_NUM_TYPOS, &synonym_num_typos},
@@ -8504,7 +8637,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                     filter_curated_hits_option, prioritize_token_position, vector_query,
                                     enable_highlight_v1, start_ts, match_type,
-                                    facet_sample_percent, facet_sample_threshold, offset,
+                                    facet_sample_percent, facet_sample_threshold, facet_sample_slope, offset,
                                     facet_strategy, remote_embedding_timeout_ms, remote_embedding_num_tries,
                                     stopwords_set, facet_return_parent,
                                     ref_include_exclude_fields_vec,

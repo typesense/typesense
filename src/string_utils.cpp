@@ -408,10 +408,10 @@ size_t StringUtils::split_facet(const std::string &s, std::vector<std::string> &
 
             auto index = range_pos + 1;
             int paren_count = 1;
-            while (++index < s.size() && paren_count > 0) {
-                if (s[index] == '(') {
+            while (++index < current_str.size() && paren_count > 0) {
+                if (current_str[index] == '(') {
                     paren_count++;
-                } else if (s[index] == ')') {
+                } else if (current_str[index] == ')') {
                     paren_count--;
                 }
             }

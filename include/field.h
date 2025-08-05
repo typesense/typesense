@@ -417,12 +417,14 @@ struct field {
 
     static Option<bool> json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
                                             std::vector<field>& the_fields,
-                                            string& fallback_field_type, size_t& num_auto_detect_fields);
+                                            string& fallback_field_type, size_t& num_auto_detect_fields,
+                                            const std::string& collection_name = "");
 
     static Option<bool> json_fields_to_fields(bool enable_nested_fields,
                                               nlohmann::json& fields_json,
                                               std::string& fallback_field_type,
-                                              std::vector<field>& the_fields);
+                                              std::vector<field>& the_fields,
+                                              const std::string& collection_name = "");
 
     static Option<bool> validate_and_init_embed_field(const tsl::htrie_map<char, field>& search_schema,
                                                        nlohmann::json& field_json,
@@ -504,6 +506,7 @@ namespace ref_include {
     static const std::string merge_string = "merge";
     static const std::string nest_string = "nest";
     static const std::string nest_array_string = "nest_array";
+    static const std::string related_docs_count = "related_docs_count";
 
     enum strategy_enum {merge = 0, nest, nest_array};
 
@@ -527,6 +530,7 @@ struct ref_include_exclude_fields {
     std::string exclude_fields;
     std::string alias;
     ref_include::strategy_enum strategy = ref_include::nest;
+    std::string related_docs_field;
 
     // In case we have nested join.
     std::vector<ref_include_exclude_fields> nested_join_includes = {};
@@ -806,7 +810,7 @@ struct facet {
 
     std::string reference_collection_name;
 
-    reference_filter_result_t references;
+    reference_filter_result_t references{};
 
     bool is_top_k = false;
 

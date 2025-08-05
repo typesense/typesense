@@ -1850,8 +1850,7 @@ TEST_F(CollectionAllFieldsTest, FieldTokenSeparators) {
                             spp::sparse_hash_set<std::string>(), 5, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>",
                             {}, 1000,
                             true, false, true, "", false, 6000 * 1000, 4, 7, fallback, 4, {off}, 3, 3, 2, 2, false, "",
-                            true, 0, max_score,
-                            100, 0, 4294967295UL, "").get();
+                            true, 0, max_score, 100, 0, 0, 4294967295UL, "").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"]);
@@ -1862,8 +1861,7 @@ TEST_F(CollectionAllFieldsTest, FieldTokenSeparators) {
                         spp::sparse_hash_set<std::string>(), 5, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {},
                         1000,
                         true, false, true, "", false, 6000 * 1000, 4, 7, fallback, 4, {off}, 3, 3, 2, 2, false, "", true, 0,
-                        max_score,
-                        100, 0, 4294967295UL, "").get();
+                        max_score, 100, 0, 0, 4294967295UL, "").get();
 
     ASSERT_EQ(0, res["hits"].size());
 
@@ -1892,8 +1890,7 @@ TEST_F(CollectionAllFieldsTest, FieldTokenSeparators) {
                        spp::sparse_hash_set<std::string>(), 5, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {},
                        1000,
                        true, false, true, "", false, 6000 * 1000, 4, 7, fallback, 4, {off}, 3, 3, 2, 2, false, "", true, 0,
-                       max_score,
-                       100, 0, 4294967295UL, "").get();
+                       max_score, 100, 0, 0, 4294967295UL, "").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"]); //field token separator works over collection level
