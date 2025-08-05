@@ -3689,7 +3689,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         }
 
         nlohmann::json params;
-        params["collection"] = coll->get_name();
+        params["collection_name"] = coll->get_name();
         params["per_page"] = union_params.per_page;
         params["q"] = coll_args.raw_query;
         params["found"] = found;
@@ -3726,7 +3726,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
             for (size_t i = 0; i < first_search_sort_fields.size(); i++) {
                 if (this_search_sort_fields[i].type != first_search_sort_fields[i].type) {
                     std::string append_hint;
-                    const auto& first_search_collection_name = request_json_list[0]["collection"].get<std::string>();
+                    const auto& first_search_collection_name = request_json_list[0]["collection_name"].get<std::string>();
                     if (default_sorting_field_used && first_request_default_sorting_field_used) {
                         // Both the current and first search request have declared a default sorting field.
                         append_hint = " Both `" + coll->get_name() + "` and `" + first_search_collection_name +
