@@ -588,10 +588,10 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
     // restore old analytics configs
     std::vector<std::string> old_analytics_config_jsons;
-    LOG(INFO) << "Found " << old_analytics_config_jsons.size() << " old analytics config(s) on disk.";
     store->scan_fill(AnalyticsManager::OLD_ANALYTICS_RULE_PREFIX,
                      std::string(AnalyticsManager::OLD_ANALYTICS_RULE_PREFIX) + "`",
                      old_analytics_config_jsons);
+    LOG(INFO) << "Found " << old_analytics_config_jsons.size() << " old analytics config(s) on disk.";
 
     size_t restored_old_analytics_configs = 0;
     for(const auto& old_analytics_config_json: old_analytics_config_jsons) {

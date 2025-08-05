@@ -608,7 +608,7 @@ Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
             {"meta_fields", meta_fields},
           }
         }};
-        auto create_op = create_rule(payload, false, true, false);
+        auto create_op = create_rule(payload, false, true, true);
         if(!create_op.ok()) {
           return Option<bool>(400, create_op.error());
         }
@@ -666,7 +666,7 @@ Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
               {"weight", weight},
             }}
           };
-          auto create_op = create_rule(payload, false, true, false);
+          auto create_op = create_rule(payload, false, true, true);
           if(!create_op.ok()) {
             return Option<bool>(400, create_op.error());
           }
