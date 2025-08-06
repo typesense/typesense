@@ -1038,6 +1038,11 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
                             try {
                                 const std::vector<float>& float_vals = record.doc[afield.name].get<std::vector<float>>();
                                 if(float_vals.size() != afield.num_dim) {
+                                    if(afield.optional && float_vals.empty()) {
+                                        // skip empty vector
+                                        batch_counter++;
+                                        continue;
+                                    }
                                     record.index_failure(400, "Vector size mismatch.");
                                 } else {
                                     if(afield.vec_dist == cosine) {
