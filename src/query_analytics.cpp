@@ -102,7 +102,7 @@ Option<bool> QueryAnalytics::add_event(const std::string& client_ip, const nlohm
     auto it = query_counts.find(query_event);
     // skip count when map has become too large (to prevent abuse)
     if(it == query_counts.end() && query_counts.size() < counter_event_it->second.limit * 2) {
-      query_counts.emplace(query_event, 1);
+      query_counts[query_event] = 1;
     } else {
       it->second++;
     }
@@ -136,7 +136,7 @@ Option<bool> QueryAnalytics::add_internal_event(const query_internal_event_t& ev
     const auto& rule = query_rules.find(rule_name)->second;
     if(rule.type == event_data.type && rule.capture_search_requests && event_data.q.size() <= MAX_QUERY_LENGTH) {
       if(rule.type == POPULAR_QUERIES_TYPE && popular_user_collection_prefix_queries[event_data.user_id][event_data.collection].size() < 100) {
-        popular_user_collection_prefix_queries[event_data.user_id][event_data.collection].emplace_back(query_event_t{
+        popular_user_collection_prefix_queries[event_data.user_id][event_data.collection].push_back(query_event_t{
           rule.expand_query ? event_data.expanded_q : event_data.q,
           "query",
           now_ts_us,
@@ -145,7 +145,7 @@ Option<bool> QueryAnalytics::add_internal_event(const query_internal_event_t& ev
           event_data.analytics_tag
         });
       } else if (rule.type == NO_HIT_QUERIES_TYPE && nohits_user_collection_prefix_queries[event_data.user_id][event_data.collection].size() < 100) {
-        nohits_user_collection_prefix_queries[event_data.user_id][event_data.collection].emplace_back(query_event_t{
+        nohits_user_collection_prefix_queries[event_data.user_id][event_data.collection].push_back(query_event_t{
           rule.expand_query ? event_data.expanded_q : event_data.q,
           "query",
           now_ts_us,
@@ -154,7 +154,7 @@ Option<bool> QueryAnalytics::add_internal_event(const query_internal_event_t& ev
           event_data.analytics_tag
         });
       } else if (rule.type == LOG_TYPE && log_user_collection_prefix_queries[event_data.user_id][event_data.collection].size() < 100) {
-        log_user_collection_prefix_queries[event_data.user_id][event_data.collection].emplace_back(query_event_t{
+        log_user_collection_prefix_queries[event_data.user_id][event_data.collection].push_back(query_event_t{
           rule.expand_query ? event_data.expanded_q : event_data.q,
           "query",
           now_ts_us,
@@ -179,6 +179,7 @@ Option<nlohmann::json> QueryAnalytics::create_rule(nlohmann::json& payload, bool
     if(payload.contains("rule_tag")) {
       existing_rule["rule_tag"] = payload["rule_tag"].get<std::string>();
     }
+
     if(payload.contains("params")) {
       if(payload["params"].contains("limit")) {
         existing_rule["params"]["limit"] = payload["params"]["limit"].get<uint32_t>();
@@ -272,8 +273,8 @@ Option<nlohmann::json> QueryAnalytics::create_rule(nlohmann::json& payload, bool
         query_counter_events.erase(existing_query_counter_event_it);
       }
     }
-    query_counter_events.emplace(payload["name"].get<std::string>(), counter_event);
-    query_rules.emplace(payload["name"].get<std::string>(), query_rule_config_t{
+    query_counter_events[payload["name"].get<std::string>()] = counter_event;
+    query_rules[payload["name"].get<std::string>()] = query_rule_config_t{
       payload["name"].get<std::string>(),
       payload["type"].get<std::string>(),
       payload["collection"].get<std::string>(),
@@ -284,11 +285,11 @@ Option<nlohmann::json> QueryAnalytics::create_rule(nlohmann::json& payload, bool
       payload["params"].contains("expand_query") ? payload["params"]["expand_query"].get<bool>() : false,
       payload["params"].contains("capture_search_requests") ? payload["params"]["capture_search_requests"].get<bool>() : true,
       payload["params"].contains("meta_fields") ? payload["params"]["meta_fields"].get<std::set<std::string>>() : std::set<std::string>()
-    });
+    };
     if(!update) {
       auto collection_rules_map_it = collection_rules_map.find(payload["collection"].get<std::string>());
       if(collection_rules_map_it == collection_rules_map.end()) {
-        collection_rules_map.emplace(payload["collection"].get<std::string>(), std::vector<std::string>());
+        collection_rules_map[payload["collection"].get<std::string>()] = std::vector<std::string>();
         collection_rules_map_it = collection_rules_map.find(payload["collection"].get<std::string>());
       }
       collection_rules_map_it->second.push_back(payload["name"].get<std::string>());
@@ -297,12 +298,12 @@ Option<nlohmann::json> QueryAnalytics::create_rule(nlohmann::json& payload, bool
 
   if (payload["type"] == LOG_TYPE) {
     if(!update) {
-      query_log_events.emplace(payload["name"].get<std::string>(), std::vector<query_event_t>());
+      query_log_events[payload["name"].get<std::string>()] = std::vector<query_event_t>();
     }
     if (update) {
       query_rules.erase(payload["name"].get<std::string>());
     }
-    query_rules.emplace(payload["name"].get<std::string>(), query_rule_config_t{
+    query_rules[payload["name"].get<std::string>()] = query_rule_config_t{
       payload["name"].get<std::string>(),
       payload["type"].get<std::string>(),
       payload["collection"].get<std::string>(),
@@ -313,11 +314,11 @@ Option<nlohmann::json> QueryAnalytics::create_rule(nlohmann::json& payload, bool
       payload["params"].contains("expand_query") ? payload["params"]["expand_query"].get<bool>() : false,
       payload["params"].contains("capture_search_requests") ? payload["params"]["capture_search_requests"].get<bool>() : true,
       payload["params"].contains("meta_fields") ? payload["params"]["meta_fields"].get<std::set<std::string>>() : std::set<std::string>()
-    });
+    };
     if(!update) {
       auto collection_rules_map_it = collection_rules_map.find(payload["collection"].get<std::string>());
       if(collection_rules_map_it == collection_rules_map.end()) {
-        collection_rules_map.emplace(payload["collection"].get<std::string>(), std::vector<std::string>());
+        collection_rules_map[payload["collection"].get<std::string>()] = std::vector<std::string>();
         collection_rules_map_it = collection_rules_map.find(payload["collection"].get<std::string>());
       }
       collection_rules_map_it->second.push_back(payload["name"].get<std::string>());
@@ -379,7 +380,7 @@ Option<nlohmann::json> QueryAnalytics::list_rules(const std::string& rule_tag) {
     if(rule_tag.empty() || value.rule_tag == rule_tag) {
       nlohmann::json rule;
       value.to_json(rule);
-      rules.emplace_back(rule);
+      rules.push_back(rule);
     }
   }
   return Option<nlohmann::json>(rules);

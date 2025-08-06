@@ -37,6 +37,7 @@ private:
     QueryAnalytics& query_analytics = QueryAnalytics::get_instance();
     LRU::Cache<std::string, external_event_cache_t> external_events_cache;
     std::unordered_map<std::string, std::string> rules_map;
+    std::unordered_map<std::string, nlohmann::json> rules;
 
     Store* store = nullptr;
     Store* analytics_store = nullptr;
@@ -66,7 +67,7 @@ public:
     Option<nlohmann::json> list_rules(const std::string& rule_tag = "");
     Option<nlohmann::json> get_rule(const std::string& name);
     Option<nlohmann::json> create_rule(nlohmann::json& payload,
-                                       bool update,
+                                       bool upsert,
                                        bool write_to_disk,
                                        bool is_live_req);
     Option<bool> create_old_rule(nlohmann::json& payload);

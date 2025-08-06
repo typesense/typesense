@@ -139,6 +139,115 @@ TEST_F(AnalyticsManagerTest, CreateRule) {
     ASSERT_TRUE(create_op.ok());
 }
 
+TEST_F(AnalyticsManagerTest, UpsertRule) {
+  nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" },
+        {"name": "country", "type": "string", "facet": true },
+        {"name": "popularity", "type": "int32", "optional": true}
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  nlohmann::json queries_schema = R"({
+      "name": "queries",
+      "fields": [
+          {"name": "q", "type": "string"},
+          {"name": "count", "type": "int32"}
+      ]
+  })"_json;
+
+  auto queries_coll_create_op = collectionManager.create_collection(queries_schema);
+  ASSERT_TRUE(queries_coll_create_op.ok());
+
+  queries_schema = R"({
+      "name": "queries1",
+      "fields": [
+          {"name": "q", "type": "string"},
+          {"name": "count", "type": "int32"}
+      ]
+  })"_json;
+
+  queries_coll_create_op = collectionManager.create_collection(queries_schema);
+  ASSERT_TRUE(queries_coll_create_op.ok());
+
+  nlohmann::json popular_queries_analytics_rule = R"({
+      "name": "popular_queries_products",
+      "type": "popular_queries",
+      "collection": "products",
+      "event_type": "query",
+      "rule_tag": "popular_queries",
+      "params": {
+        "destination_collection": "queries",
+        "capture_search_requests": false,
+        "limit": 1000
+      }
+    })"_json;
+
+  auto create_op = analyticsManager.create_rule(popular_queries_analytics_rule, true, true, true);
+  ASSERT_TRUE(create_op.ok());
+
+  auto get_op = analyticsManager.get_rule("popular_queries_products");
+  ASSERT_TRUE(get_op.ok());
+  ASSERT_EQ(get_op.get()["name"], "popular_queries_products");
+  ASSERT_EQ(get_op.get()["type"], "popular_queries");
+  ASSERT_EQ(get_op.get()["collection"], "products");
+  ASSERT_EQ(get_op.get()["event_type"], "query");
+  ASSERT_EQ(get_op.get()["rule_tag"], "popular_queries");
+  ASSERT_EQ(get_op.get()["params"]["destination_collection"], "queries");
+
+  create_op = analyticsManager.create_rule(popular_queries_analytics_rule, true, true, true);
+  ASSERT_TRUE(create_op.ok());
+
+  get_op = analyticsManager.get_rule("popular_queries_products");
+  ASSERT_TRUE(get_op.ok());
+  ASSERT_EQ(get_op.get()["name"], "popular_queries_products");
+  ASSERT_EQ(get_op.get()["type"], "popular_queries");
+  ASSERT_EQ(get_op.get()["collection"], "products");
+  ASSERT_EQ(get_op.get()["event_type"], "query");
+  ASSERT_EQ(get_op.get()["rule_tag"], "popular_queries");
+  ASSERT_EQ(get_op.get()["params"]["destination_collection"], "queries");
+
+  popular_queries_analytics_rule["event_type"] = "click";
+  create_op = analyticsManager.create_rule(popular_queries_analytics_rule, true, true, true);
+  ASSERT_FALSE(create_op.ok());
+  ASSERT_EQ(create_op.code(), 400);
+  ASSERT_EQ(create_op.error(), "Rule event type cannot be changed");
+
+  popular_queries_analytics_rule["event_type"] = "query";
+  popular_queries_analytics_rule["collection"] = "non_existent_collection";
+  create_op = analyticsManager.create_rule(popular_queries_analytics_rule, true, true, true);
+  ASSERT_FALSE(create_op.ok());
+  ASSERT_EQ(create_op.code(), 400);
+  ASSERT_EQ(create_op.error(), "Rule collection cannot be changed");
+
+  popular_queries_analytics_rule["event_type"] = "query";
+  popular_queries_analytics_rule["collection"] = "products";
+  popular_queries_analytics_rule["params"]["destination_collection"] = "queries1";
+  create_op = analyticsManager.create_rule(popular_queries_analytics_rule, true, true, true);
+  ASSERT_TRUE(create_op.ok());
+  ASSERT_EQ(create_op.get()["name"], "popular_queries_products");
+  ASSERT_EQ(create_op.get()["type"], "popular_queries");
+  ASSERT_EQ(create_op.get()["collection"], "products");
+  ASSERT_EQ(create_op.get()["event_type"], "query");
+  ASSERT_EQ(create_op.get()["rule_tag"], "popular_queries");
+  ASSERT_EQ(create_op.get()["params"]["destination_collection"], "queries1");
+
+  get_op = analyticsManager.get_rule("popular_queries_products");
+  ASSERT_TRUE(get_op.ok());
+  ASSERT_EQ(get_op.get()["name"], "popular_queries_products");
+  ASSERT_EQ(get_op.get()["type"], "popular_queries");
+  ASSERT_EQ(get_op.get()["collection"], "products");
+  ASSERT_EQ(get_op.get()["event_type"], "query");
+  ASSERT_EQ(get_op.get()["rule_tag"], "popular_queries");
+  ASSERT_EQ(get_op.get()["params"]["destination_collection"], "queries1");
+}
+
 TEST_F(AnalyticsManagerTest, GetRule) {
   nlohmann::json products_schema = R"({
         "name": "products",

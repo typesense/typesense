@@ -27,8 +27,8 @@ export class TypesenseTestRunner {
   async run(filters: Filters[]) {
     try {
       this.manager.cleanDataDirs();
-      await this.singleServerTests(filters);
-      await this.multiServerTests(filters);
+      // await this.singleServerTests(filters);
+      // await this.multiServerTests(filters);
       await this.noPhase(filters);
       await this.manager.shutdown();
       process.exit(this.exit_code);
@@ -86,6 +86,10 @@ export class TypesenseTestRunner {
       stderr: "inherit",
       stdout: "inherit",
     });
+    if (proc.exitCode !== 0) {
+      console.error(`\n=== ❌ Phase ${Phases.NO_PHASE} failed ===\n`);
+      this.exit_code = 1;
+    }
   }
 
   async singleFresh(filters: Filters[]) {

@@ -197,8 +197,8 @@ Option<nlohmann::json> DocAnalytics::create_rule(nlohmann::json& payload, bool u
           }
           doc_rules.erase(payload["name"].get<std::string>());
         }
-        doc_counter_events.emplace(payload["name"].get<std::string>(), counter_event);
-        doc_rules.emplace(payload["name"].get<std::string>(), doc_rule_config_t{
+        doc_counter_events[payload["name"].get<std::string>()] = counter_event;
+        doc_rules[payload["name"].get<std::string>()] = doc_rule_config_t{
           payload["name"].get<std::string>(),
           payload["type"].get<std::string>(),
           payload["collection"].get<std::string>(),
@@ -207,18 +207,18 @@ Option<nlohmann::json> DocAnalytics::create_rule(nlohmann::json& payload, bool u
           payload.contains("rule_tag") ? payload["rule_tag"].get<std::string>() : "",
           payload["params"]["weight"].get<uint32_t>(),
           payload["params"].contains("destination_collection") ? payload["params"]["destination_collection"].get<std::string>() : payload["collection"].get<std::string>(),
-        });
+        };
     }
 
     if(payload["type"] == LOG_TYPE) {
         if(!update) {
-          doc_log_events.emplace(payload["name"].get<std::string> (), std::vector<doc_event_t>());
+          doc_log_events[payload["name"].get<std::string>()] = std::vector<doc_event_t>();
         }
         if (update) {
           auto it = doc_rules.find(payload["name"].get<std::string>());
           doc_rules.erase(it);
         }
-        doc_rules.emplace(payload["name"].get<std::string>(), doc_rule_config_t{
+        doc_rules[payload["name"].get<std::string>()] = doc_rule_config_t{
           payload["name"].get<std::string>(),
           payload["type"].get<std::string>(),
           payload["collection"].get<std::string>(),
@@ -227,7 +227,7 @@ Option<nlohmann::json> DocAnalytics::create_rule(nlohmann::json& payload, bool u
           payload.contains("rule_tag") ? payload["rule_tag"].get<std::string>() : "",
           0,
           "",
-        });
+        };
     }
     return Option<nlohmann::json>(payload);
 

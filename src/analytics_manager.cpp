@@ -386,22 +386,26 @@ Option<nlohmann::json> AnalyticsManager::get_rule(const std::string& name) {
     return Option<nlohmann::json>(400, get_rule_op.error());
 }
 
-Option<nlohmann::json> AnalyticsManager::create_rule(nlohmann::json& payload, bool update, bool write_to_disk, bool is_live_req) {
+Option<nlohmann::json> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk, bool is_live_req) {
     std::unique_lock lock(mutex);
     std::string name;
     Option<nlohmann::json> op_response(500, "Internal server error");
+    bool update = false;
+    if (!payload.contains("name") || !payload["name"].is_string() || payload["name"].get<std::string>().empty()) {
+        return Option<nlohmann::json>(400, "Name is required when creating an analytics rule");
+    }
+    name = payload["name"].get<std::string>();
+
+    if (rules_map.find(name) != rules_map.end()) {
+        if (upsert) {
+            update = true;
+        } else {
+            return Option<nlohmann::json>(400, "Rule already exists");
+        }
+    }
 
     if (!update) {
         // Validations for creating a new rule
-        if (!payload.contains("name") || !payload["name"].is_string() || payload["name"].get<std::string>().empty()) {
-            return Option<nlohmann::json>(400, "Name is required when creating an analytics rule");
-        }
-        name = payload["name"].get<std::string>();
-
-        if (rules_map.find(name) != rules_map.end()) {
-            return Option<nlohmann::json>(400, "Rule already exists");
-        }
-
         if (!payload.contains("event_type") || !payload["event_type"].is_string()) {
             return Option<nlohmann::json>(400, "Event type is required when creating a new analytics rule");
         }
@@ -435,9 +439,9 @@ Option<nlohmann::json> AnalyticsManager::create_rule(nlohmann::json& payload, bo
         }
 
         if (is_doc_rule) {
-            op_response = doc_analytics.create_rule(payload, update, is_live_req);
+            op_response = doc_analytics.create_rule(payload, false, is_live_req);
         } else {
-            op_response = query_analytics.create_rule(payload, update, is_live_req);
+            op_response = query_analytics.create_rule(payload, false, is_live_req);
         }
 
         if (!op_response.ok()) {
@@ -453,16 +457,17 @@ Option<nlohmann::json> AnalyticsManager::create_rule(nlohmann::json& payload, bo
             }
         }
 
-        rules_map.emplace(name, is_doc_rule ? "doc" : "query");
+        rules_map[name] = is_doc_rule ? "doc" : "query";
+        rules[name] = op_response.get();
     } else {
         // Validations for updating an existing rule
-        if (payload.contains("type")) {
+        if (payload.contains("type") && payload["type"].get<std::string>() != rules[name]["type"].get<std::string>()) {
             return Option<nlohmann::json>(400, "Rule type cannot be changed");
         }
-        if (payload.contains("collection")) {
+        if (payload.contains("collection") && payload["collection"].get<std::string>() != rules[name]["collection"].get<std::string>()) {
             return Option<nlohmann::json>(400, "Rule collection cannot be changed");
         }
-        if (payload.contains("event_type")) {
+        if (payload.contains("event_type") && payload["event_type"].get<std::string>() != rules[name]["event_type"].get<std::string>()) {
             return Option<nlohmann::json>(400, "Rule event type cannot be changed");
         }
         if (payload.contains("rule_tag") && !payload["rule_tag"].is_string()) {
@@ -476,9 +481,9 @@ Option<nlohmann::json> AnalyticsManager::create_rule(nlohmann::json& payload, bo
         }
 
         if (is_doc_rule) {
-            op_response = doc_analytics.create_rule(payload, update, is_live_req);
+            op_response = doc_analytics.create_rule(payload, true, is_live_req);
         } else {
-            op_response = query_analytics.create_rule(payload, update, is_live_req);
+            op_response = query_analytics.create_rule(payload, true, is_live_req);
         }
 
         if (!op_response.ok()) {
@@ -493,6 +498,7 @@ Option<nlohmann::json> AnalyticsManager::create_rule(nlohmann::json& payload, bo
                 return Option<nlohmann::json>(500, "Error while storing the config to disk.");
             }
         }
+        rules[name] = op_response.get();
     }
 
     return Option<nlohmann::json>(op_response.get());

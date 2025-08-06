@@ -79,7 +79,7 @@ void master_server_routes() {
     server->get("/analytics/rules", get_analytics_rules);
     server->get("/analytics/rules/:name", get_analytics_rule);
     server->post("/analytics/rules", post_create_analytics_rules);
-    server->patch("/analytics/rules/:name", patch_update_analytics_rules);
+    server->put("/analytics/rules/:name", put_upsert_analytics_rules);
     server->del("/analytics/rules/:name", del_analytics_rules);
     server->post("/analytics/events", post_create_event);
     server->post("/analytics/aggregate_events", post_write_analytics_to_db);

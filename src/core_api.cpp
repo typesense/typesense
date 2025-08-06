@@ -3820,7 +3820,7 @@ bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std
     return true;
 }
 
-bool patch_update_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool put_upsert_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     if (req->params.count("name") != 1 || req->params["name"].empty()) {
         res->set_400("Missing required parameter 'name'.");
         return false;

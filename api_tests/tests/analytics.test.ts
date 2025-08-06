@@ -165,6 +165,35 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(data.data?.params?.capture_search_requests).toBe(false);
   });
 
+  it("upsert a query log analytics rule", async () => {
+    let res = await fetchSingleNode("/analytics/rules/product_queries_without_capture", {
+      method: "PUT",
+      body: JSON.stringify({
+        name: "product_queries_without_capture",
+        type: "log",
+        collection: "analytics_products",
+        event_type: "query",
+        rule_tag: "tag2",
+        params: {
+          capture_search_requests: false,
+          meta_fields: ["analytics_tag"],
+          expand_query: true,
+        },
+      }),
+    });
+    expect(res.ok).toBe(true);
+    let data = AnalyticsRule.safeParse(await res.json());
+    expect(data.success).toBe(true);
+    expect(data.data?.name).toBe("product_queries_without_capture");
+    expect(data.data?.type).toBe("log");
+    expect(data.data?.collection).toBe("analytics_products");
+    expect(data.data?.event_type).toBe("query");
+    expect(data.data?.rule_tag).toBe("tag2");
+    expect(data.data?.params?.meta_fields).toEqual(["analytics_tag"]);
+    expect(data.data?.params?.expand_query).toBe(true);
+    expect(data.data?.params?.capture_search_requests).toBe(false);
+  });
+
   it("create a document counter analytics rule", async () => {
     let res = await fetchSingleNode("/analytics/rules", {
       method: "POST",
@@ -321,7 +350,7 @@ describe(Phases.SINGLE_FRESH, () => {
     });
     
     const res = await fetchSingleNode("/analytics/rules/product_clicks_temp", {
-      method: "PATCH",
+      method: "PUT",
       body: JSON.stringify({
         rule_tag: "tag3",
       }),
