@@ -2027,6 +2027,21 @@ TEST_F(FilterTest, StandaloneExclamationFilterValidation) {
     ASSERT_FALSE(filter_op.ok());
     ASSERT_TRUE(filter_op.error().find("Filter value cannot be empty after '!' operator") != std::string::npos);
 
+    filter_op = filter::parse_filter_query("age:!=", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_FALSE(filter_op.ok());
+    ASSERT_TRUE(filter_op.error().find("Not an int32") != std::string::npos);
+
+    filter_op = filter::parse_filter_query("rating:!=", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_FALSE(filter_op.ok());
+    ASSERT_TRUE(filter_op.error().find("Not a float") != std::string::npos);
+
+    filter_op = filter::parse_filter_query("is_active:!=", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_FALSE(filter_op.ok());
+    ASSERT_TRUE(filter_op.error().find("Filter value cannot be empty") != std::string::npos);
+
     collectionManager.drop_collection("Collection");
 }
 
@@ -2095,6 +2110,17 @@ TEST_F(FilterTest, StandaloneExclamationSingleValues) {
     ASSERT_EQ(results_traditional["found"].get<size_t>(), results_new["found"].get<size_t>());
     ASSERT_EQ(results_traditional["hits"][0]["document"]["name"].get<std::string>(),
               results_new["hits"][0]["document"]["name"].get<std::string>());
+
+    results = coll->search("*", {}, "age:!=25", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("Bob", results["hits"][0]["document"]["name"].get<std::string>());
+
+    results = coll->search("*", {}, "rating:!=4.5", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "is_active:!=true", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("Bob", results["hits"][0]["document"]["name"].get<std::string>());
 
     collectionManager.drop_collection("Collection");
 }
