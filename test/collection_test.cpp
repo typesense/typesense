@@ -5367,3 +5367,71 @@ TEST_F(CollectionTest, PinnedHitsFoundCount) {
         }
     }
 }
+
+TEST_F(CollectionTest, TokenSeparatorHighlightingIssue) {
+    nlohmann::json token_separators_json = nlohmann::json::array();
+    token_separators_json.push_back(".");
+    token_separators_json.push_back("-");
+    token_separators_json.push_back("_");
+    token_separators_json.push_back("@");
+    
+    nlohmann::json symbols_to_index_json = nlohmann::json::array();
+    
+    std::vector<field> fields = {
+        field("email", field_types::STRING, true, true, true, "", -1, -1, false, 
+              0, 0, cosine, "", nlohmann::json(), false, true, false, "", 
+              nlohmann::json(), false, token_separators_json, symbols_to_index_json)
+    };
+
+    std::vector<std::string> symbols_to_index_vec = {};
+    std::vector<std::string> token_separators_vec = {".", "-", "_"};
+
+    Collection* coll = collectionManager.create_collection("users", 1, fields, "", 0, "", 
+                                                           symbols_to_index_vec, token_separators_vec).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "124";
+    doc1["email"] = "bob.saget@example.org";
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+
+    nlohmann::json doc2;
+    doc2["id"] = "125";
+    doc2["email"] = "zack.morris@example.com";
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    nlohmann::json doc3;
+    doc3["id"] = "126";
+    doc3["email"] = "tony.danza@example.net";
+    ASSERT_TRUE(coll->add(doc3.dump()).ok());
+
+    auto results = coll->search("example", {"email"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(3, results["found"].get<int>());
+
+    for(auto& hit : results["hits"]) {
+        auto highlights = hit["highlights"];
+        ASSERT_GT(highlights.size(), 0);
+        
+        auto email_highlight = highlights[0];
+        ASSERT_EQ("email", email_highlight["field"].get<std::string>());
+        
+        auto matched_tokens = email_highlight["matched_tokens"];
+        bool found_example = false;
+        for(auto& token : matched_tokens) {
+            std::string token_str = token.get<std::string>();
+            if(token_str == "example") {
+                found_example = true;
+                break;
+            }
+        }
+        
+        EXPECT_TRUE(found_example) << "Expected 'example' to be in matched tokens, but got: " << matched_tokens.dump();
+        
+        std::string snippet = email_highlight["snippet"].get<std::string>();
+        EXPECT_TRUE(snippet.find("<mark>example</mark>") != std::string::npos) 
+            << "Expected snippet to highlight 'example', but got: " << snippet;
+    }
+
+    collectionManager.drop_collection("users");
+}
