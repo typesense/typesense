@@ -618,6 +618,9 @@ Option<bool> toFilter(const std::string& expression,
                 filter_exp.comparators.push_back(bool_comparator);
             }
         } else {
+            if (raw_value.empty()) {
+                return Option<bool>(400, "Error with filter field `" + _field.name + "`: Filter value cannot be empty.");
+            }
             if (raw_value != "true" && raw_value != "false") {
                 return Option<bool>(400, "Value of filter field `" + _field.name + "` must be `true` or `false`.");
             }
