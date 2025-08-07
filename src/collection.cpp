@@ -5036,7 +5036,10 @@ void Collection::highlight_result(const bool& enable_nested_fields, const std::v
             text = document[search_field.name][match_index.index];
         }
 
-        handle_highlight_text(text, normalise, search_field, false, symbols_to_index, token_separators,
+        const auto& field_symbols = search_field.symbols_to_index.empty() ? symbols_to_index : search_field.symbols_to_index;
+        const auto& field_separators = search_field.token_separators.empty() ? token_separators : search_field.token_separators;
+
+        handle_highlight_text(text, normalise, search_field, false, field_symbols, field_separators,
                               highlight, string_utils, use_word_tokenizer, highlight_affix_num_tokens,
                               qtoken_leaves, last_valid_offset_index, prefix_token_num_chars,
                               highlight_fully, snippet_threshold, is_infix_search, raw_query_tokens,
