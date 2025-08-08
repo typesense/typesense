@@ -255,6 +255,28 @@ TEST_F(CollectionFilteringTest, FilterByExactPhraseMatchInArray) {
     ASSERT_EQ(expected_ids, actual_ids);
 }
 
+TEST_F(CollectionFilteringTest, FilterByNegatedExactPhraseMatch) {
+    Collection *coll;
+    std::vector<field> fields = {
+            field("text", field_types::STRING, false)
+    };
+    coll = collectionManager.create_collection("coll_negated_phrase", 1, fields, "").get();
+
+    coll->add(R"({"id": "1", "text": "this is a test"})");
+    coll->add(R"({"id": "2", "text": "this is not a test"})");
+    coll->add(R"({"id": "3", "text": "another test case"})");
+
+    auto results = coll->search("*", {"text"}, "text:!=\"this is a test\"", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    std::set<std::string> expected_ids = {"2", "3"};
+    std::set<std::string> actual_ids;
+    for(const auto& hit : results["hits"]) {
+        actual_ids.insert(hit["document"]["id"].get<std::string>());
+    }
+    ASSERT_EQ(expected_ids, actual_ids);
+}
+
 TEST_F(CollectionFilteringTest, LazyEvaluationOfFilterBy) {
     Collection *coll;
     std::vector<field> fields = {
@@ -287,6 +309,36 @@ TEST_F(CollectionFilteringTest, LazyEvaluationOfFilterBy) {
     ASSERT_TRUE(search_op.ok());
     auto res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(3, res_obj["found"].get<size_t>());
+
+    std::set<std::string> expected_ids = {"2", "5", "8"};
+    std::set<std::string> actual_ids;
+    for(const auto& hit : res_obj["hits"]) {
+        actual_ids.insert(hit["document"]["id"].get<std::string>());
+    }
+    ASSERT_EQ(expected_ids, actual_ids);
+}
+
+TEST_F(CollectionFilteringTest, FilterByExactPhraseMatchInArray) {
+    Collection *coll;
+    std::vector<field> fields = {
+            field("tags", field_types::STRING_ARRAY, true)
+    };
+    coll = collectionManager.create_collection("coll_phrase_array", 1, fields, "").get();
+
+    coll->add(R"({"id": "1", "tags": ["new york", "travel"]})");
+    coll->add(R"({"id": "2", "tags": ["new", "york", "travel"]})");
+    coll->add(R"({"id": "3", "tags": ["paris", "travel"]})");
+    coll->add(R"({"id": "4", "tags": ["new york", "paris"]})");
+
+    auto results = coll->search("*", {"tags"}, "tags:[\"new york\", paris]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    std::set<std::string> expected_ids = {"1", "3", "4"};
+    std::set<std::string> actual_ids;
+    for(const auto& hit : results["hits"]) {
+        actual_ids.insert(hit["document"]["id"].get<std::string>());
+    }
+    ASSERT_EQ(expected_ids, actual_ids);
 }
 
 TEST_F(CollectionFilteringTest, FacetFieldStringFiltering) {
