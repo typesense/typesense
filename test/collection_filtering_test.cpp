@@ -232,6 +232,29 @@ TEST_F(CollectionFilteringTest, FilterByExactPhraseMatch) {
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionFilteringTest, FilterByExactPhraseMatchInArray) {
+    Collection *coll;
+    std::vector<field> fields = {
+            field("tags", field_types::STRING_ARRAY, true)
+    };
+    coll = collectionManager.create_collection("coll_phrase_array", 1, fields, "").get();
+
+    coll->add(R"({"id": "1", "tags": ["new york", "travel"]})");
+    coll->add(R"({"id": "2", "tags": ["new", "york", "travel"]})");
+    coll->add(R"({"id": "3", "tags": ["paris", "travel"]})");
+    coll->add(R"({"id": "4", "tags": ["new york", "paris"]})");
+
+    auto results = coll->search("*", {"tags"}, "tags:[\"new york\", paris]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    std::set<std::string> expected_ids = {"1", "3", "4"};
+    std::set<std::string> actual_ids;
+    for(const auto& hit : results["hits"]) {
+        actual_ids.insert(hit["document"]["id"].get<std::string>());
+    }
+    ASSERT_EQ(expected_ids, actual_ids);
+}
+
 TEST_F(CollectionFilteringTest, LazyEvaluationOfFilterBy) {
     Collection *coll;
     std::vector<field> fields = {
