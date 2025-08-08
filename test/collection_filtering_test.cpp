@@ -215,6 +215,57 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
     ASSERT_EQ("1", res_obj["hits"][1]["document"].at("id"));
 }
 
+TEST_F(CollectionFilteringTest, FilterByExactPhraseMatch) {
+    Collection *coll;
+    std::vector<field> fields = {
+            field("text", field_types::STRING, false)
+    };
+    coll = collectionManager.create_collection("coll_phrase", 1, fields, "").get();
+
+    coll->add(R"({"id": "1", "text": "Lewis Hamilton has won multiple Formula One World Championships."})");
+    coll->add(R"({"id": "2", "text": "The scientist created a new formula, and this was just one of many groundbreaking discoveries in the lab."})");
+    coll->add(R"({"id": "3", "text": "Formula One is a popular sport."})");
+
+    auto results = coll->search("*", {"text"}, "text:\"Formula One\"", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionFilteringTest, LazyEvaluationOfFilterBy) {
+    Collection *coll;
+    std::vector<field> fields = {
+            field("field", field_types::STRING, false)
+    };
+    coll = collectionManager.create_collection("coll_lazy", 1, fields, "").get();
+
+    coll->add(R"({"id": "1", "field": "foo"})");
+    coll->add(R"({"id": "2", "field": "foo bar baz"})");
+    coll->add(R"({"id": "3", "field": "foo bar"})");
+    coll->add(R"({"id": "4", "field": "bar"})");
+    coll->add(R"({"id": "5", "field": "foo bar baz"})");
+    coll->add(R"({"id": "6", "field": "baz"})");
+    coll->add(R"({"id": "7", "field": "foo baz bar"})");
+    coll->add(R"({"id": "8", "field": "foo bar baz"})");
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll_lazy"},
+            {"q", "foo"},
+            {"query_by", "field"},
+            {"filter_by", "field:\"foo bar baz\""},
+            {"enable_lazy_filter", "true"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+}
+
 TEST_F(CollectionFilteringTest, FacetFieldStringFiltering) {
     Collection *coll_str;
 
