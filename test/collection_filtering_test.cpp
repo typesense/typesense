@@ -349,9 +349,9 @@ TEST_F(CollectionFilteringTest, LazyEvaluationOfFilterByInArray) {
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     auto res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
 
-    std::set<std::string> expected_ids = {"2", "5", "8"};
+    std::set<std::string> expected_ids = {"1", "2", "5", "8"};
     std::set<std::string> actual_ids;
     for(const auto& hit : res_obj["hits"]) {
         actual_ids.insert(hit["document"]["id"].get<std::string>());
