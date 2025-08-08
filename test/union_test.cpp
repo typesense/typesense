@@ -816,9 +816,9 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
 
     ASSERT_EQ(5, json_res["union_request_params"][0]["found"]);
-    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection"]);
+    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection_name"]);
     ASSERT_EQ(5, json_res["union_request_params"][1]["found"]);
-    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection"]);
+    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection_name"]);
     json_res.clear();
     req_params.clear();
 
@@ -859,9 +859,9 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
 
     ASSERT_EQ(2, json_res["union_request_params"][0]["per_page"]);
-    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection"]);
+    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection_name"]);
     ASSERT_EQ(2, json_res["union_request_params"][1]["per_page"]);
-    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection"]);
+    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection_name"]);
     json_res.clear();
     req_params.clear();
 
@@ -1238,4 +1238,67 @@ TEST_F(UnionTest, PinnedHits) {
     ASSERT_EQ("W2", json_res["hits"][3]["document"]["id"]);
     ASSERT_EQ("W1", json_res["hits"][4]["document"]["id"]);
     ASSERT_EQ("W0", json_res["hits"][5]["document"]["id"]);
+}
+
+TEST_F(UnionTest, HybridSearchHasVectorDistance) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vec",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                }
+            }
+        ]
+    })"_json;
+
+    auto schema2 = schema;
+    schema2["name"] = "coll2";
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto collection_create_op2 = collectionManager.create_collection(schema2);
+    ASSERT_TRUE(collection_create_op2.ok());
+
+    // index docs
+    nlohmann::json doc1 = R"({"name": "hello" })"_json;
+    auto coll1 = collection_create_op.get();
+    auto add_op1 = coll1->add(doc1.dump());
+    ASSERT_TRUE(add_op1.ok());
+
+    nlohmann::json doc2 = R"({"name": "world" })"_json;
+    auto coll2 = collection_create_op2.get();
+    auto add_op2 = coll2->add(doc2.dump());
+    ASSERT_TRUE(add_op2.ok());
+
+    // Do union search with hybrid search
+    req_params = {{"q", "hello"}};
+    auto embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    
+    auto searches = R"([
+        {
+            "collection": "coll1",
+            "query_by": "name, vec"
+        },
+        {
+            "collection": "coll2",
+            "query_by": "name, vec"
+        }
+    ])"_json;
+    nlohmann::json json_res;
+    
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    ASSERT_EQ(2, json_res["hits"].size());
+    ASSERT_EQ("coll1", json_res["hits"][0]["collection"]);
+    ASSERT_EQ("coll2", json_res["hits"][1]["collection"]);
+    ASSERT_TRUE(json_res["hits"][0].contains("vector_distance"));
+    ASSERT_TRUE(json_res["hits"][1].contains("vector_distance"));
 }

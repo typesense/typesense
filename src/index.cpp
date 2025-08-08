@@ -1039,6 +1039,11 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
                             try {
                                 const std::vector<float>& float_vals = record.doc[afield.name].get<std::vector<float>>();
                                 if(float_vals.size() != afield.num_dim) {
+                                    if(afield.optional && float_vals.empty()) {
+                                        // skip empty vector
+                                        batch_counter++;
+                                        continue;
+                                    }
                                     record.index_failure(400, "Vector size mismatch.");
                                 } else {
                                     if(afield.vec_dist == cosine) {
@@ -1534,7 +1539,7 @@ Option<bool> Index::do_facets(std::vector<facet>& facets, facet_query_t & facet_
         auto findex = a_facet.orig_index;
         if (!a_facet.reference_collection_name.empty()) {
             auto const& ref_collection_name = a_facet.reference_collection_name;
-            if (reference_facet_ids->count(ref_collection_name) == 0 ||
+            if (reference_facet_ids == nullptr || reference_facet_ids->count(ref_collection_name) == 0 ||
                 reference_facet_ids->at(ref_collection_name).count == 0) {
                 continue;
             }
@@ -1547,6 +1552,9 @@ Option<bool> Index::do_facets(std::vector<facet>& facets, facet_query_t & facet_
 
             auto& ref_facet_result = reference_facet_ids->at(ref_collection_name);
             a_facet.reference_collection_name.clear();
+            auto temp_orig_index = a_facet.orig_index;
+            // Referenced collection only has to process a single facet.
+            a_facet.orig_index = 0;
             std::vector<facet> ref_facets{a_facet};
 
             ref_collection->do_facets_with_lock(ref_facets, facet_query, estimate_facets, facet_sample_percent,
@@ -1559,6 +1567,7 @@ Option<bool> Index::do_facets(std::vector<facet>& facets, facet_query_t & facet_
                 continue;
             }
             ref_facets[0].reference_collection_name = ref_collection_name;
+            ref_facets[0].orig_index = temp_orig_index;
             a_facet = std::move(ref_facets[0]);
             a_facet.references = std::move(ref_facet_result);
             continue;
@@ -4339,7 +4348,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         for (auto& item: reference_facet_ids) {
             auto& reference_facet_result = item.second;
             uint32_t batch_reference_facet_len = window_size;
-            for(auto reference_facet_index = 0; reference_facet_index < reference_facet_result.count; ) {
+            for(size_t reference_facet_index = 0; reference_facet_index < reference_facet_result.count; ) {
                 if (reference_facet_index + window_size > reference_facet_result.count) {
                     batch_reference_facet_len = reference_facet_result.count - reference_facet_index;
                 }
@@ -4396,7 +4405,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                           batch_result_ids, batch_res_len, max_facet_values,
                           is_wildcard_no_filter_query, facet_index_types,
                           is_group_by_first_pass, group_by_missing_value_ids, collection,
-                          &batch_reference_facet_ids[thread_id]);
+                          batch_reference_facet_ids.size() > thread_id ? &batch_reference_facet_ids[thread_id] : nullptr);
 
                 std::unique_lock<std::mutex> lock(m_process);
 

@@ -29,7 +29,7 @@ struct reference_filter_result_t {
                                        delete_docs(delete_docs) {}
 
     reference_filter_result_t(const reference_filter_result_t& obj) {
-        if (&obj == this) {
+        if (&obj == this || obj.count == 0) {
             return;
         }
 
@@ -43,7 +43,7 @@ struct reference_filter_result_t {
     }
 
     reference_filter_result_t& operator=(const reference_filter_result_t& obj) noexcept {
-        if (&obj == this) {
+        if (&obj == this || obj.count == 0) {
             return *this;
         }
 
@@ -58,7 +58,7 @@ struct reference_filter_result_t {
     }
 
     reference_filter_result_t& operator=(reference_filter_result_t&& obj) noexcept {
-        if (&obj == this) {
+        if (&obj == this || obj.count == 0) {
             return *this;
         }
 

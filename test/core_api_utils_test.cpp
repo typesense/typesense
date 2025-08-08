@@ -1692,7 +1692,7 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
                                  0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
                                  10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
                                  true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
-                                 true, 0, max_score, 100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, true, model_id);
+                                 true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, true, model_id);
     
     ASSERT_TRUE(results_op.ok());
 

@@ -1266,3 +1266,335 @@ TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsGCPDifferentRegions) 
     ASSERT_TRUE(url.find("https://europe-west1-aiplatform.googleapis.com/v1/projects/test-project/locations/europe-west1/publishers/google/models/gemini-2.5-flash:generateContent") != std::string::npos);
 }
 
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsAzureSuccess) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-35-turbo",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"q\": \"laptops\",\n  \"filter_by\": \"price:>1000 && category:electronics\",\n  \"sort_by\": \"price:desc\"\n}",
+            "refusal": null
+          },
+          "logprobs": null,
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 850,
+        "completion_tokens": 45,
+        "total_tokens": 895
+      }
+    })", 200, {});
+
+    std::string query = "Find expensive laptops";
+    std::string collection_schema_prompt = "Fields: price, name, category...";
+    nlohmann::json model_config = R"({
+        "model_name": "azure/gpt-35-turbo",
+        "api_key": "test-azure-api-key",
+        "url": "https://test.openai.azure.com/openai/deployments/gpt-35-turbo/chat/completions?api-version=2024-02-15-preview",
+        "max_bytes": 1024,
+        "temperature": 0.0
+    })"_json;
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+    ASSERT_TRUE(result.ok());
+    auto params = result.get();
+    ASSERT_EQ(params["q"], "laptops");
+    ASSERT_EQ(params["filter_by"], "price:>1000 && category:electronics");
+    ASSERT_EQ(params["sort_by"], "price:desc");
+    
+    std::string url = NaturalLanguageSearchModel::get_last_request_url();
+    ASSERT_EQ(url, "https://test.openai.azure.com/openai/deployments/gpt-35-turbo/chat/completions?api-version=2024-02-15-preview");
+    
+    auto headers = NaturalLanguageSearchModel::get_last_request_headers();
+    ASSERT_EQ(headers["api-key"], "test-azure-api-key");
+    ASSERT_EQ(headers["Content-Type"], "application/json");
+    
+    std::string request_body_str = NaturalLanguageSearchModel::get_last_request_body();
+    nlohmann::json request_body = nlohmann::json::parse(request_body_str);
+    ASSERT_EQ(request_body["model"], "gpt-35-turbo");
+    ASSERT_EQ(request_body["temperature"], 0.0);
+    ASSERT_EQ(request_body["max_tokens"], 1024);
+    ASSERT_TRUE(request_body.contains("messages"));
+    ASSERT_EQ(request_body["messages"].size(), 2);
+    ASSERT_EQ(request_body["messages"][0]["role"], "system");
+    ASSERT_EQ(request_body["messages"][1]["role"], "user");
+    ASSERT_EQ(request_body["messages"][1]["content"], "Find expensive laptops");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsAzureRegexExtraction) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-4",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Based on your query, here are the search parameters:\n\n{\n  \"q\": \"smartphones\",\n  \"filter_by\": \"brand:[Apple,Samsung] && price:[500..1500]\",\n  \"sort_by\": \"rating:desc\"\n}\n\nThis will find smartphones from Apple or Samsung priced between $500-$1500, sorted by rating.",
+            "refusal": null
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    })", 200, {});
+
+    std::string query = "Find good smartphones from Apple or Samsung under $1500";
+    std::string collection_schema_prompt = "Fields: brand, price, rating...";
+    nlohmann::json model_config = R"({
+        "model_name": "azure/gpt-4",
+        "api_key": "test-key",
+        "url": "https://myresource.openai.azure.com/openai/deployments/gpt-4/chat/completions?api-version=2024-02-15-preview",
+        "max_bytes": 2048
+    })"_json;
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+    ASSERT_TRUE(result.ok());
+    auto params = result.get();
+    ASSERT_EQ(params["q"], "smartphones");
+    ASSERT_EQ(params["filter_by"], "brand:[Apple,Samsung] && price:[500..1500]");
+    ASSERT_EQ(params["sort_by"], "rating:desc");
+    
+    ASSERT_TRUE(params.contains("llm_response"));
+    ASSERT_TRUE(params["llm_response"].contains("extraction_method"));
+    ASSERT_EQ(params["llm_response"]["extraction_method"], "regex");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsAzureFailure) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "error": {
+        "message": "The API deployment for this resource does not exist.",
+        "type": "invalid_request_error",
+        "param": null,
+        "code": "DeploymentNotFound"
+      }
+    })", 404, {});
+
+    std::string query = "Find products";
+    std::string collection_schema_prompt = "Fields: name, price...";
+    nlohmann::json model_config = R"({
+        "model_name": "azure/nonexistent-model",
+        "api_key": "test-key",
+        "url": "https://test.openai.azure.com/openai/deployments/nonexistent-model/chat/completions?api-version=2024-02-15-preview",
+        "max_bytes": 1024
+    })"_json;
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 500);
+    ASSERT_EQ(result.error(), "Failed to get response from Azure OpenAI: Azure OpenAI API error: The API deployment for this resource does not exist.");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsAzureTimeout) {
+    NaturalLanguageSearchModel::add_mock_response("", 408, {});
+
+    std::string query = "Find products";
+    std::string collection_schema_prompt = "Fields: name, price...";
+    nlohmann::json model_config = R"({
+        "model_name": "azure/gpt-35-turbo",
+        "api_key": "test-key",
+        "url": "https://test.openai.azure.com/openai/deployments/gpt-35-turbo/chat/completions?api-version=2024-02-15-preview",
+        "max_bytes": 1024
+    })"_json;
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 500);
+    ASSERT_EQ(result.error(), "Failed to get response from Azure OpenAI: Azure OpenAI API timeout.");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsAzureInvalidResponse) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-35-turbo",
+      "usage": {
+        "prompt_tokens": 100,
+        "completion_tokens": 0,
+        "total_tokens": 100
+      }
+    })", 200, {});
+
+    std::string query = "Find products";
+    std::string collection_schema_prompt = "Fields: name, price...";
+    nlohmann::json model_config = R"({
+        "model_name": "azure/gpt-35-turbo",
+        "api_key": "test-key",
+        "url": "https://test.openai.azure.com/openai/deployments/gpt-35-turbo/chat/completions?api-version=2024-02-15-preview",
+        "max_bytes": 1024
+    })"_json;
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 500);
+    ASSERT_EQ(result.error(), "No valid choices in Azure OpenAI response");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, GenerateSearchParamsAzureInvalidContent) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-35-turbo",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop"
+        }
+      ]
+    })", 200, {});
+
+    std::string query = "Find products";
+    std::string collection_schema_prompt = "Fields: name, price...";
+    nlohmann::json model_config = R"({
+        "model_name": "azure/gpt-35-turbo",
+        "api_key": "test-key",
+        "url": "https://test.openai.azure.com/openai/deployments/gpt-35-turbo/chat/completions?api-version=2024-02-15-preview",
+        "max_bytes": 1024
+    })"_json;
+
+    auto result = NaturalLanguageSearchModel::generate_search_params(query, collection_schema_prompt, model_config);
+
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 500);
+    ASSERT_EQ(result.error(), "No valid content in Azure OpenAI response");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateAzureModelSuccess) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-35-turbo",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Hello!"
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "azure/gpt-35-turbo",
+      "api_key": "test-azure-key",
+      "url": "https://test.openai.azure.com/openai/deployments/gpt-35-turbo/chat/completions?api-version=2024-02-15-preview",
+      "max_bytes": 1024
+    })"_json;
+
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(result.ok());
+    
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 1);
+    std::string url = NaturalLanguageSearchModel::get_last_request_url();
+    ASSERT_EQ(url, "https://test.openai.azure.com/openai/deployments/gpt-35-turbo/chat/completions?api-version=2024-02-15-preview");
+    
+    std::string request_body_str = NaturalLanguageSearchModel::get_last_request_body();
+    nlohmann::json request_body = nlohmann::json::parse(request_body_str);
+    ASSERT_EQ(request_body["model"], "gpt-35-turbo");
+    ASSERT_EQ(request_body["messages"], R"([{"role":"user","content":"hello"}])"_json);
+    ASSERT_EQ(request_body["max_tokens"], 10);
+    ASSERT_EQ(request_body["temperature"], 0);
+    
+    auto headers = NaturalLanguageSearchModel::get_last_request_headers();
+    ASSERT_EQ(headers["api-key"], "test-azure-key");
+    ASSERT_EQ(headers["Content-Type"], "application/json");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateAzureModelFailureInvalidKey) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "error": {
+        "message": "Access denied due to invalid subscription key or wrong API endpoint. Make sure to provide a valid key for an active subscription and use a correct regional API endpoint for your resource.",
+        "type": "invalid_request_error",
+        "param": null,
+        "code": "invalid_api_key"
+      }
+    })", 401, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "azure/gpt-35-turbo",
+      "api_key": "invalid-azure-key",
+      "url": "https://test.openai.azure.com/openai/deployments/gpt-35-turbo/chat/completions?api-version=2024-02-15-preview",
+      "max_bytes": 1024
+    })"_json;
+    
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_FALSE(result.ok());
+    ASSERT_NE(result.error().find("Access denied due to invalid subscription key"), std::string::npos);
+}
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateAzureModelFailureMissingAPIKey) {
+    nlohmann::json model_config = R"({
+      "model_name": "azure/gpt-35-turbo",
+      "url": "https://test.openai.azure.com/openai/deployments/gpt-35-turbo/chat/completions?api-version=2024-02-15-preview",
+      "max_bytes": 1024
+    })"_json;
+    
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 400);
+    ASSERT_EQ(result.error(), "Property `api_key` is missing or is not a non-empty string.");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateAzureModelFailureMissingURL) {
+    nlohmann::json model_config = R"({
+      "model_name": "azure/gpt-35-turbo",
+      "api_key": "test-key",
+      "max_bytes": 1024
+    })"_json;
+    
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 400);
+    ASSERT_EQ(result.error(), "Property `url` is missing or is not a non-empty string.");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateAzureModelFailureInvalidTemperature) {
+    nlohmann::json model_config = R"({
+      "model_name": "azure/gpt-35-turbo",
+      "api_key": "test-key",
+      "url": "https://test.openai.azure.com/openai/deployments/gpt-35-turbo/chat/completions?api-version=2024-02-15-preview",
+      "max_bytes": 1024,
+      "temperature": 3.0
+    })"_json;
+    
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 400);
+    ASSERT_EQ(result.error(), "Property `temperature` must be a number between 0 and 2.");
+}
+
+TEST_F(NaturalLanguageSearchModelTest, ValidateAzureModelWithOptionalParameters) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-4",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Hello with temperature!"
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    })", 200, {});
+    
+    nlohmann::json model_config = R"({
+      "model_name": "azure/gpt-4",
+      "api_key": "test-azure-key",
+      "url": "https://test.openai.azure.com/openai/deployments/gpt-4/chat/completions?api-version=2024-02-15-preview",
+      "max_bytes": 2048,
+      "temperature": 1.5
+    })"_json;
+
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(result.ok());
+}
+

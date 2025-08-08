@@ -1895,16 +1895,16 @@ TEST_F(CollectionSpecificMoreTest, DisableFieldCountForScoring) {
                                 spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                                 "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                                4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                                100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true);
+                                4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "",
+                                {}, {}, "right_to_left", true);
 
 
     auto res = coll1->search("beta", {"name", "brand"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
                              spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                              "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                             100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", false).get();
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "",
+                             {}, {}, "right_to_left", false).get();
 
     size_t score1 = std::stoul(res["hits"][0]["text_match_info"]["score"].get<std::string>());
     size_t score2 = std::stoul(res["hits"][1]["text_match_info"]["score"].get<std::string>());
@@ -1914,8 +1914,8 @@ TEST_F(CollectionSpecificMoreTest, DisableFieldCountForScoring) {
                         spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                        4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                        100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true).get();
+                        4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "",
+                        {}, {}, "right_to_left", true).get();
 
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
@@ -2430,7 +2430,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                              spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                              "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                              0, "exhaustive", 30000, 2, "", {}, {}, "left_to_right").get();
 
     ASSERT_EQ(1, res["hits"].size());
@@ -2440,7 +2440,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                         spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                         0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left").get();
 
     ASSERT_EQ(1, res["hits"].size());
@@ -2451,7 +2451,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                         spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                         0, "exhaustive", 30000, 2, "", {}, {}, "both_sides:3").get();
     ASSERT_EQ(2, res["hits"].size());
 
@@ -2460,7 +2460,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                         spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                         0, "exhaustive", 30000, 2, "", {}, {}, "both_sides:1").get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
@@ -2470,7 +2470,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                                 spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                                4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                                4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                                 0, "exhaustive", 30000, 2, "", {}, {}, "all_sides");
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Invalid format for drop tokens mode.", res_op.error());
@@ -2479,7 +2479,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                            spp::sparse_hash_set<std::string>(),
                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                           4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                           4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                            0, "exhaustive", 30000, 2, "", {}, {}, "both_sides:x");
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Invalid format for drop tokens mode.", res_op.error());
@@ -2758,7 +2758,7 @@ TEST_F(CollectionSpecificMoreTest, DisableTyposForNumericalTokens) {
                                 6000*1000, 4, 7, fallback, 4,
                                 {off}, INT16_MAX, INT16_MAX,2,
                                 2, false, "", true,
-                                0, max_score, 100, 0, 0,
+                                0, max_score, 100, 0, 0, 0,
                                 "exhaustive", 30000, 2, "",
                                 {},{}, "right_to_left", true,
                                 true, false, "", "", "",
@@ -3237,7 +3237,7 @@ TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
                            6000*1000, 4, 7, fallback, 4,
                            {off}, INT16_MAX, INT16_MAX,2,
                            2, false, "", true,
-                           0, max_score, 100, 0, 0,
+                           0, max_score, 100, 0, 0, 0,
                            "exhaustive", 30000, 2, "",
                            {},{}, "right_to_left", true,
                            true, false, "", "", "",
@@ -3262,7 +3262,7 @@ TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
                         6000*1000, 4, 7, fallback, 4,
                         {off}, INT16_MAX, INT16_MAX,2,
                         2, false, "", true,
-                        0, max_score, 100, 0, 0,
+                        0, max_score, 100, 0, 0, 0,
                         "exhaustive", 30000, 2, "",
                         {},{}, "right_to_left", true,
                         true, false, "", "", "",
@@ -3382,7 +3382,7 @@ TEST_F(CollectionSpecificMoreTest, IgnoreMissingQueryByFields) {
                             6000*1000, 4, 7, fallback, 4,
                             {off}, INT16_MAX, INT16_MAX,2,
                             2, false, "", true,
-                            0, max_score, 100, 0, 0,
+                            0, max_score, 100, 0, 0, 0,
                             "exhaustive", 30000, 2, "",
                             {},{}, "right_to_left", true,
                             true, false, "", "", "",
@@ -3405,7 +3405,7 @@ TEST_F(CollectionSpecificMoreTest, IgnoreMissingQueryByFields) {
                                6000*1000, 4, 7, fallback, 4,
                                {off}, INT16_MAX, INT16_MAX,2,
                                2, false, "", true,
-                               0, max_score, 100, 0, 0,
+                               0, max_score, 100, 0, 0, 0,
                                "exhaustive", 30000, 2, "",
                                {},{}, "right_to_left", true,
                                true, false, "", "", "",

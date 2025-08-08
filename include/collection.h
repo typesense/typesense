@@ -142,6 +142,7 @@ struct collection_search_args_t {
 
     static constexpr auto FACET_SAMPLE_PERCENT = "facet_sample_percent";
     static constexpr auto FACET_SAMPLE_THRESHOLD = "facet_sample_threshold";
+    static constexpr auto FACET_SAMPLE_SLOPE = "facet_sample_slope";
 
     static constexpr auto CONVERSATION = "conversation";
     static constexpr auto CONVERSATION_ID = "conversation_id";
@@ -228,6 +229,7 @@ struct collection_search_args_t {
     text_match_type_t match_type;
     size_t facet_sample_percent;
     size_t facet_sample_threshold;
+    size_t facet_sample_slope;
     size_t offset;
     std::string facet_strategy;
     size_t remote_embedding_timeout_ms;
@@ -282,7 +284,7 @@ struct collection_search_args_t {
                              size_t max_extra_prefix, size_t max_extra_suffix, size_t facet_query_num_typos,
                              bool filter_curated_hits_option, bool prioritize_token_position, std::string vector_query,
                              bool enable_highlight_v1, uint64_t start_ts, text_match_type_t match_type,
-                             size_t facet_sample_percent, size_t facet_sample_threshold, size_t offset,
+                             size_t facet_sample_percent, size_t facet_sample_threshold, size_t facet_sample_slope, size_t offset,
                              std::string facet_strategy, size_t remote_embedding_timeout_ms, size_t remote_embedding_num_tries,
                              std::string stopwords_set, std::vector<std::string> facet_return_parent,
                              std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec,
@@ -313,7 +315,7 @@ struct collection_search_args_t {
             max_extra_prefix(max_extra_prefix), max_extra_suffix(max_extra_suffix), facet_query_num_typos(facet_query_num_typos),
             filter_curated_hits_option(filter_curated_hits_option), prioritize_token_position(prioritize_token_position), vector_query(std::move(vector_query)),
             enable_highlight_v1(enable_highlight_v1), start_ts(start_ts), match_type(match_type),
-            facet_sample_percent(facet_sample_percent), facet_sample_threshold(facet_sample_threshold), offset(offset),
+            facet_sample_percent(facet_sample_percent), facet_sample_threshold(facet_sample_threshold), facet_sample_slope(facet_sample_slope), offset(offset),
             facet_strategy(std::move(facet_strategy)), remote_embedding_timeout_ms(remote_embedding_timeout_ms), remote_embedding_num_tries(remote_embedding_num_tries),
             stopwords_set(std::move(stopwords_set)), facet_return_parent(std::move(facet_return_parent)),
             ref_include_exclude_fields_vec(std::move(ref_include_exclude_fields_vec)),
@@ -930,6 +932,7 @@ public:
                                   const text_match_type_t match_type = max_score,
                                   const size_t facet_sample_percent = 100,
                                   const size_t facet_sample_threshold = 0,
+                                  const size_t facet_sample_slope = 0,
                                   const size_t page_offset = 0,
                                   const std::string& facet_index_type = "exhaustive",
                                   const size_t remote_embedding_timeout_ms = 30000,

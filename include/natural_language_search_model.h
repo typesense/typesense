@@ -55,6 +55,11 @@ public:
                                                         const std::string& client_id, 
                                                         const std::string& client_secret);
 
+    static Option<bool> validate_azure_model(const nlohmann::json& model_config);
+    static Option<nlohmann::json> azure_generate_search_params(const std::string& query, 
+                                                             const std::string& collection_schema_prompt,
+                                                             const nlohmann::json& model_config);
+
     static long post_response(const std::string& url, const std::string& body, std::string& response,
                                     std::map<std::string, std::string>& res_headers,
                                     const std::unordered_map<std::string, std::string>& headers = {},
@@ -78,6 +83,10 @@ private:
     static Option<nlohmann::json> call_gcp_api(const nlohmann::json& request_body,
                                                const nlohmann::json& model_config,
                                                long timeout_ms = DEFAULT_TIMEOUT_MS);
+
+    static Option<nlohmann::json> call_azure_api(const nlohmann::json& request_body,
+                                                 const nlohmann::json& model_config,
+                                                 long timeout_ms = DEFAULT_TIMEOUT_MS);
 
 public:
 

@@ -3561,7 +3561,7 @@ TEST_F(CollectionOverrideTest, DynamicSorting) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", "size").get();
 
@@ -3576,7 +3576,7 @@ TEST_F(CollectionOverrideTest, DynamicSorting) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", "size").get();
 
@@ -3860,7 +3860,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", "foo").get();
 
@@ -3873,7 +3873,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", "alpha").get();
 
@@ -3887,7 +3887,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", "beta").get();
 
@@ -3901,7 +3901,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", "alpha,beta").get();
 
@@ -3915,7 +3915,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", "").get();
 
@@ -3995,7 +3995,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsPartialMatch) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", "alpha,zeta").get();
 
@@ -4095,7 +4095,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsWithoutStopProcessing) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", "alpha").get();
 
@@ -4171,7 +4171,7 @@ TEST_F(CollectionOverrideTest, WildcardTagRuleThatMatchesAllQueries) {
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                                  0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                                  true, true, false, "", "", override_tags).get();
 
@@ -4184,7 +4184,7 @@ TEST_F(CollectionOverrideTest, WildcardTagRuleThatMatchesAllQueries) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", override_tags).get();
 
@@ -4214,7 +4214,7 @@ TEST_F(CollectionOverrideTest, WildcardTagRuleThatMatchesAllQueries) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", override_tags).get();
 
@@ -4268,7 +4268,7 @@ TEST_F(CollectionOverrideTest, TagsOnlyRule) {
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                                  0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                                  true, true, false, "", "", "listing").get();
 
@@ -4297,7 +4297,7 @@ TEST_F(CollectionOverrideTest, TagsOnlyRule) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", "listing2").get();
 
@@ -4312,7 +4312,7 @@ TEST_F(CollectionOverrideTest, TagsOnlyRule) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", override_tag).get();
 
@@ -4444,7 +4444,7 @@ TEST_F(CollectionOverrideTest, WildcardSearchOverride) {
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                                  0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                                  true, true, false, "", "", override_tags).get();
 
@@ -4476,7 +4476,7 @@ TEST_F(CollectionOverrideTest, WildcardSearchOverride) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                             0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
                             true, true, false, "", "", override_tags).get();
 
