@@ -3010,6 +3010,29 @@ void filter_result_iterator_t::compute_iterators() {
                 for (size_t pi = 0; pi < prefix_str_ids_size; pi++) {
                     f_id_buff.push_back(prefix_str_ids[pi]);
                 }
+            } else if (a_filter.comparators[0] == CONTAINS_PHRASE) {
+                std::vector<uint32_t> result_id_vec;
+                posting_list_t::intersect(p_list, result_id_vec);
+
+                if (result_id_vec.empty()) {
+                    continue;
+                }
+
+                uint32_t* phrase_str_ids = new uint32_t[result_id_vec.size()];
+                size_t phrase_str_ids_size = 0;
+                std::unique_ptr<uint32_t[]> phrase_str_ids_guard(phrase_str_ids);
+
+                posting_list_t::get_phrase_matches(posting_list_iterators[i], f.is_array(),
+                                                  result_id_vec.data(), result_id_vec.size(),
+                                                  phrase_str_ids, phrase_str_ids_size);
+
+                if (phrase_str_ids_size == 0) {
+                    continue;
+                }
+
+                for (size_t pi = 0; pi < phrase_str_ids_size; pi++) {
+                    f_id_buff.push_back(phrase_str_ids[pi]);
+                }
             } else if (a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) {
                 // needs intersection + exact matching (unlike CONTAINS)
                 std::vector<uint32_t> result_id_vec;
