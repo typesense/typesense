@@ -1005,6 +1005,7 @@ Option<bool> filter::parse_filter_string(const std::string& filter_query, std::s
     const auto size = filter_query.size();
     const auto token_start_index = index;
     bool inBacktick = false;
+    bool inQuotes = false;
     bool preceding_colon = false;
     bool is_geo_value = false;
     auto c = filter_query[index];
@@ -1016,7 +1017,7 @@ Option<bool> filter::parse_filter_string(const std::string& filter_query, std::s
         if (c == ')' && is_geo_value) {
             is_geo_value = false;
         }
-        if (!inBacktick && !preceding_colon && c == '{' && index > 0 && filter_query[index - 1] == '.') { // Object filter
+        if (!inBacktick && !inQuotes && !preceding_colon && c == '{' && index > 0 && filter_query[index - 1] == '.') { // Object filter
             auto op = parse_object_filter(filter_query, index);
             if (!op.ok()) {
                 return op;
@@ -1031,6 +1032,9 @@ Option<bool> filter::parse_filter_string(const std::string& filter_query, std::s
         if (c == '`') {
             inBacktick = !inBacktick;
         }
+        if (c == '"' && (index == 0 || filter_query[index-1] != '\\')) {
+            inQuotes = !inQuotes;
+        }
         if (preceding_colon && c == '(') {
             is_geo_value = true;
             preceding_colon = false;
@@ -1044,7 +1048,7 @@ Option<bool> filter::parse_filter_string(const std::string& filter_query, std::s
         } else if (preceding_colon && c != ' ') {
             preceding_colon = false;
         }
-    } while (index < size && (inBacktick || is_geo_value ||
+    } while (index < size && (inBacktick || inQuotes || is_geo_value ||
                               (c != '(' && c != ')' && !(c == '&' && filter_query[index + 1] == '&') &&
                                !(c == '|' && filter_query[index + 1] == '|'))));
 
