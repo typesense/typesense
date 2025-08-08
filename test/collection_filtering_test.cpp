@@ -318,24 +318,42 @@ TEST_F(CollectionFilteringTest, LazyEvaluationOfFilterBy) {
     ASSERT_EQ(expected_ids, actual_ids);
 }
 
-TEST_F(CollectionFilteringTest, FilterByExactPhraseMatchInArray) {
+TEST_F(CollectionFilteringTest, LazyEvaluationOfFilterByInArray) {
     Collection *coll;
     std::vector<field> fields = {
-            field("tags", field_types::STRING_ARRAY, true)
+            field("field", field_types::STRING, false)
     };
-    coll = collectionManager.create_collection("coll_phrase_array", 1, fields, "").get();
+    coll = collectionManager.create_collection("coll_lazy", 1, fields, "").get();
 
-    coll->add(R"({"id": "1", "tags": ["new york", "travel"]})");
-    coll->add(R"({"id": "2", "tags": ["new", "york", "travel"]})");
-    coll->add(R"({"id": "3", "tags": ["paris", "travel"]})");
-    coll->add(R"({"id": "4", "tags": ["new york", "paris"]})");
+    coll->add(R"({"id": "1", "field": "foo"})");
+    coll->add(R"({"id": "2", "field": "foo bar baz"})");
+    coll->add(R"({"id": "3", "field": "foo bar"})");
+    coll->add(R"({"id": "4", "field": "bar"})");
+    coll->add(R"({"id": "5", "field": "foo bar baz"})");
+    coll->add(R"({"id": "6", "field": "baz"})");
+    coll->add(R"({"id": "7", "field": "foo baz bar"})");
+    coll->add(R"({"id": "8", "field": "foo bar baz"})");
 
-    auto results = coll->search("*", {"tags"}, "tags:[\"new york\", paris]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
-    ASSERT_EQ(3, results["found"].get<size_t>());
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll_lazy"},
+            {"q", "foo"},
+            {"query_by", "field"},
+            {"filter_by", "field:[foo, bar, baz, \"foo bar baz\"]"},
+            {"enable_lazy_filter", "true"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
 
-    std::set<std::string> expected_ids = {"1", "3", "4"};
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+
+    std::set<std::string> expected_ids = {"2", "5", "8"};
     std::set<std::string> actual_ids;
-    for(const auto& hit : results["hits"]) {
+    for(const auto& hit : res_obj["hits"]) {
         actual_ids.insert(hit["document"]["id"].get<std::string>());
     }
     ASSERT_EQ(expected_ids, actual_ids);
