@@ -228,8 +228,8 @@ TEST_F(CollectionFilteringTest, FilterByExactPhraseMatch) {
 
     auto results = coll->search("*", {"text"}, "text:\"Formula One\"", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(2, results["found"].get<size_t>());
-    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("3", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionFilteringTest, LazyEvaluationOfFilterBy) {
