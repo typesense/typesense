@@ -1278,6 +1278,24 @@ void posting_list_t::get_prefix_matches(std::vector<iterator_t>& its, const bool
     num_prefix_ids = prefix_id_index;
 }
 
+bool posting_list_t::has_phrase_match(std::vector<iterator_t>& its, const bool field_is_array) {
+    if (its.size() == 1) {
+        return true;
+    }
+
+    std::map<size_t, std::vector<token_positions_t>> array_token_positions;
+    get_offsets(its, array_token_positions);
+
+    for (auto& kv : array_token_positions) {
+        const auto& token_positions = kv.second;
+        if (token_positions.size() == its.size() && has_phrase_match(token_positions)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool field_is_array,
                                        const uint32_t* ids, const uint32_t num_ids,
                                        uint32_t*& exact_ids, size_t& num_exact_ids) {
