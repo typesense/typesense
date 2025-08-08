@@ -693,16 +693,25 @@ Option<bool> toFilter(const std::string& expression,
 
         std::string value_part = raw_value.substr(filter_value_index);
 
-        if (value_part.length() > 1 && value_part.front() == '"' && value_part.back() == '"') {
-            str_comparator = CONTAINS_PHRASE;
-            value_part = value_part.substr(1, value_part.length() - 2);
-            StringUtils::replace_all(value_part, "\\\"", "\"");
-            filter_exp = {field_name, {value_part}, {str_comparator}};
-        } else if (value_part[0] == '[' && value_part.back() == ']') {
+       	if (value_part.length() > 1 && value_part.front() == '"' && value_part.back() == '"') {
+        	value_part = value_part.substr(1, value_part.length() - 2);
+        	filter_exp = {field_name, {value_part}, {CONTAINS_PHRASE}};
+    	} else if (value_part[0] == '[' && value_part.back() == ']') {
             std::vector<std::string> filter_values;
-            StringUtils::split_to_values(
-                    value_part.substr(1, value_part.size() - 2), filter_values);
-            filter_exp = {field_name, filter_values, {str_comparator}};
+        	std::string array_content = value_part.substr(1, value_part.size() - 2);
+        	StringUtils::split_to_values(array_content, filter_values);
+
+        	filter_exp = {field_name, {}, {}};
+        	for(const auto& val : filter_values) {
+            	if (val.length() > 1 && val.front() == '"' && val.back() == '"') {
+                	std::string phrase_val = val.substr(1, val.length() - 2);
+                	filter_exp.values.push_back(phrase_val);
+                	filter_exp.comparators.push_back(CONTAINS_PHRASE);
+            	} else {
+                	filter_exp.values.push_back(val);
+                	filter_exp.comparators.push_back(str_comparator);
+            	}
+        	}
         } else {
             filter_exp = {field_name, {value_part}, {str_comparator}};
         }
@@ -1005,7 +1014,6 @@ Option<bool> filter::parse_filter_string(const std::string& filter_query, std::s
     const auto size = filter_query.size();
     const auto token_start_index = index;
     bool inBacktick = false;
-    bool inQuotes = false;
     bool preceding_colon = false;
     bool is_geo_value = false;
     auto c = filter_query[index];
@@ -1017,7 +1025,7 @@ Option<bool> filter::parse_filter_string(const std::string& filter_query, std::s
         if (c == ')' && is_geo_value) {
             is_geo_value = false;
         }
-        if (!inBacktick && !inQuotes && !preceding_colon && c == '{' && index > 0 && filter_query[index - 1] == '.') { // Object filter
+        if (!inBacktick && !preceding_colon && c == '{' && index > 0 && filter_query[index - 1] == '.') { // Object filter
             auto op = parse_object_filter(filter_query, index);
             if (!op.ok()) {
                 return op;
@@ -1032,9 +1040,6 @@ Option<bool> filter::parse_filter_string(const std::string& filter_query, std::s
         if (c == '`') {
             inBacktick = !inBacktick;
         }
-        if (c == '"' && (index == 0 || filter_query[index-1] != '\\')) {
-            inQuotes = !inQuotes;
-        }
         if (preceding_colon && c == '(') {
             is_geo_value = true;
             preceding_colon = false;
@@ -1048,7 +1053,7 @@ Option<bool> filter::parse_filter_string(const std::string& filter_query, std::s
         } else if (preceding_colon && c != ' ') {
             preceding_colon = false;
         }
-    } while (index < size && (inBacktick || inQuotes || is_geo_value ||
+    } while (index < size && (inBacktick || is_geo_value ||
                               (c != '(' && c != ')' && !(c == '&' && filter_query[index + 1] == '&') &&
                                !(c == '|' && filter_query[index + 1] == '|'))));
 
