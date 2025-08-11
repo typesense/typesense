@@ -519,11 +519,27 @@ Option<bool> toFilter(const std::string& expression,
         raw_value = raw_value.substr(filter_value_index);
     }
     if (_field.is_integer() || _field.is_float()) {
+        bool apply_not_equals = false;
+        size_t filter_value_index = 0;
+        if (raw_value.size() >= 1 && raw_value[0] == '!' && 
+            (raw_value.size() == 1 || raw_value[1] != '=')) {
+            apply_not_equals = true;
+            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
+            raw_value = raw_value.substr(filter_value_index);
+            
+            if (raw_value.empty()) {
+                return Option<bool>(400, "Error with filter field `" + _field.name + "`: Filter value cannot be empty after '!' operator.");
+            }
+        }
+        
         // could be a single value or a list
         if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
             Option<bool> op = toMultiValueNumericFilter(raw_value, filter_exp, _field);
             if (!op.ok()) {
                 return op;
+            }
+            if (apply_not_equals) {
+                filter_exp.apply_not_equals = true;
             }
         } else {
             Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(raw_value);
@@ -555,6 +571,9 @@ Option<bool> toFilter(const std::string& expression,
                     return validate_op;
                 }
                 filter_exp = {field_name, {raw_value}, {op_comparator.get()}};
+                if (apply_not_equals) {
+                    filter_exp.apply_not_equals = true;
+                }
             }
         }
     } else if (_field.is_bool()) {
@@ -567,13 +586,18 @@ Option<bool> toFilter(const std::string& expression,
             bool_comparator = NOT_EQUALS;
             filter_value_index++;
             while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
+        } else if (raw_value.size() >= 1 && raw_value[0] == '!' && 
+                   (raw_value.size() == 1 || raw_value[1] != '=')) {
+            bool_comparator = NOT_EQUALS;
+            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
         }
         if (filter_value_index != 0) {
             raw_value = raw_value.substr(filter_value_index);
-        }
-        if (filter_value_index == raw_value.size()) {
-            return Option<bool>(400, "Error with filter field `" + _field.name +
-                                     "`: Filter value cannot be empty.");
+            
+            if (raw_value.empty()) {
+                return Option<bool>(400, "Error with filter field `" + _field.name +
+                                         "`: Filter value cannot be empty after '!' operator.");
+            }
         }
         if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
             filter_exp = {field_name, {}, {}};
@@ -594,6 +618,9 @@ Option<bool> toFilter(const std::string& expression,
                 filter_exp.comparators.push_back(bool_comparator);
             }
         } else {
+            if (raw_value.empty()) {
+                return Option<bool>(400, "Error with filter field `" + _field.name + "`: Filter value cannot be empty.");
+            }
             if (raw_value != "true" && raw_value != "false") {
                 return Option<bool>(400, "Value of filter field `" + _field.name + "` must be `true` or `false`.");
             }

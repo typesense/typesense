@@ -65,6 +65,8 @@ Option<bool> NaturalLanguageSearchModel::validate_model(const nlohmann::json& mo
         return validate_google_model(model_config);
     } else if(model_namespace == "gcp") {
         return validate_gcp_model(model_config);
+    } else if(model_namespace == "azure") {
+        return validate_azure_model(model_config);
     }
 
     return Option<bool>(400, "Model namespace `" + model_namespace + "` is not supported.");
@@ -99,6 +101,8 @@ Option<nlohmann::json> NaturalLanguageSearchModel::generate_search_params(
         return google_generate_search_params(query, full_system_prompt, model_config);
     } else if(model_namespace == "gcp") {
         return gcp_generate_search_params(query, full_system_prompt, model_config);
+    } else if(model_namespace == "azure") {
+        return azure_generate_search_params(query, full_system_prompt, model_config);
     }
     return Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
 }
@@ -869,5 +873,124 @@ Option<nlohmann::json> NaturalLanguageSearchModel::call_gcp_api(
         return Option<nlohmann::json>(nlohmann::json::parse(response));
     } catch(const std::exception& e) {
         return Option<nlohmann::json>(500, "Failed to parse GCP Vertex AI response: Invalid JSON");
+    }
+}
+
+Option<bool> NaturalLanguageSearchModel::validate_azure_model(const nlohmann::json& model_config) {
+    if(model_config.count("api_key") == 0 || !model_config["api_key"].is_string() || 
+       model_config["api_key"].get<std::string>().empty()) {
+        return Option<bool>(400, "Property `api_key` is missing or is not a non-empty string.");
+    }
+
+    if(model_config.count("url") == 0 || !model_config["url"].is_string() || 
+       model_config["url"].get<std::string>().empty()) {
+        return Option<bool>(400, "Property `url` is missing or is not a non-empty string.");
+    }
+
+    if(model_config.count("temperature") != 0 && 
+       (!model_config["temperature"].is_number() || 
+        model_config["temperature"].get<float>() < 0 || 
+        model_config["temperature"].get<float>() > 2)) {
+        return Option<bool>(400, "Property `temperature` must be a number between 0 and 2.");
+    }
+
+    const std::string& model_name = model_config["model_name"].get<std::string>();
+    const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
+
+    nlohmann::json test_request;
+    test_request["model"] = model_name_without_namespace;
+    test_request["messages"] = R"([{"role":"user","content":"hello"}])"_json;
+    test_request["max_tokens"] = 10;
+    test_request["temperature"] = 0;
+
+    auto result = call_azure_api(test_request, model_config, VALIDATION_TIMEOUT_MS);
+    if(!result.ok()) {
+        return Option<bool>(400, result.error());
+    }
+
+    return Option<bool>(true);
+}
+
+Option<nlohmann::json> NaturalLanguageSearchModel::azure_generate_search_params(
+    const std::string& query,
+    const std::string& system_prompt,
+    const nlohmann::json& model_config) {
+
+    const std::string& model_name = model_config["model_name"].get<std::string>();
+    const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
+    float temperature = model_config.value("temperature", 0.0f);
+    size_t max_bytes = model_config["max_bytes"].get<size_t>();
+
+    nlohmann::json request_body;
+    request_body["model"] = model_name_without_namespace;
+    request_body["temperature"] = temperature;
+    request_body["max_tokens"] = max_bytes;
+    request_body["messages"] = {
+        {{"role", "system"}, {"content", system_prompt}},
+        {{"role", "user"}, {"content", query}}
+    };
+
+    auto result = call_azure_api(request_body, model_config, DEFAULT_TIMEOUT_MS);
+    if(!result.ok()) {
+        return Option<nlohmann::json>(500, "Failed to get response from Azure OpenAI: " + result.error());
+    }
+
+    auto response_json = result.get();
+    if(!response_json.contains("choices") || !response_json["choices"].is_array() || 
+       response_json["choices"].empty()) {
+        return Option<nlohmann::json>(500, "No valid choices in Azure OpenAI response");
+    }
+
+    auto& choice = response_json["choices"][0];
+    if(!choice.contains("message") || !choice["message"].contains("content") || 
+       !choice["message"]["content"].is_string()) {
+        return Option<nlohmann::json>(500, "No valid content in Azure OpenAI response");
+    }
+
+    std::string content = choice["message"]["content"].get<std::string>();
+    return extract_search_params_from_content(content, model_name_without_namespace);
+}
+
+// Helper method for making Azure OpenAI API calls
+Option<nlohmann::json> NaturalLanguageSearchModel::call_azure_api(
+    const nlohmann::json& request_body,
+    const nlohmann::json& model_config,
+    long timeout_ms) {
+    
+    const std::string& api_key = model_config["api_key"].get<std::string>();
+    const std::string& url = model_config["url"].get<std::string>();
+
+    std::unordered_map<std::string, std::string> headers = {
+        {"Content-Type", "application/json"},
+        {"api-key", api_key}
+    };
+
+    std::string response;
+    std::map<std::string, std::string> response_headers;
+    long status_code = post_response(url, request_body.dump(), response, response_headers, headers, timeout_ms);
+
+    if(status_code == 408) {
+        return Option<nlohmann::json>(408, "Azure OpenAI API timeout.");
+    }
+
+    if(status_code != 200) {
+        std::string error_msg = "Azure OpenAI API error: ";
+        try {
+            nlohmann::json response_json = nlohmann::json::parse(response);
+            if(response_json.contains("error") && response_json["error"].contains("message")) {
+                error_msg += response_json["error"]["message"].get<std::string>();
+            } else {
+                error_msg += "HTTP " + std::to_string(status_code);
+            }
+        } catch(...) {
+            error_msg += "HTTP " + std::to_string(status_code);
+        }
+        return Option<nlohmann::json>(status_code, error_msg);
+    }
+
+    try {
+        return Option<nlohmann::json>(nlohmann::json::parse(response));
+    } catch(const std::exception& e) {
+        return Option<nlohmann::json>(500, "Failed to parse Azure OpenAI response: Invalid JSON");
     }
 }
