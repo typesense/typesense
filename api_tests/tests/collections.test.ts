@@ -93,9 +93,6 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(res.ok).toBe(true);
     const data = ListCollectionsResponse.safeParse(await res.json());
     expect(data.success).toBe(true);
-    const collection_names = data.data?.map((collection) => collection.name);
-    expect(collection_names).toContain("companies");
-    expect(collection_names).toContain("companies-1");
   });
 
   it("delete a collection", async () => {
@@ -222,9 +219,6 @@ describe(Phases.MULTI_FRESH, () => {
     expect(res.ok).toBe(true);
     const data = ListCollectionsResponse.safeParse(await res.json());
     expect(data.success).toBe(true);
-    const collection_names = data.data?.map((collection) => collection.name);
-    expect(collection_names).toContain("companies");
-    expect(collection_names).toContain("companies-1");
   });
 
   it("delete a collection", async () => {

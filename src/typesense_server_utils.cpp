@@ -15,6 +15,7 @@
 #include <ifaddrs.h>
 #include <butil/files/file_enumerator.h>
 #include "analytics_manager.h"
+#include "analytics_manager.h"
 #include "housekeeper.h"
 
 #include "core_api.h"
@@ -568,7 +569,6 @@ int run_server(const Config & config, const std::string & version, void (*master
     }
 
     AnalyticsManager::get_instance().init(&store, analytics_store, analytics_minute_rate_limit);
-
     RemoteEmbedder::cache.capacity(config.get_embedding_cache_num_entries());
 
     curl_global_init(CURL_GLOBAL_SSL);
@@ -649,7 +649,7 @@ int run_server(const Config & config, const std::string & version, void (*master
             batch_indexer->run();
         });
 
-        std::thread event_sink_thread([&replication_state]() {
+        std::thread analytics_sink_thread([&replication_state]() {
             AnalyticsManager::get_instance().run(&replication_state);
         });
 
@@ -685,7 +685,7 @@ int run_server(const Config & config, const std::string & version, void (*master
         AnalyticsManager::get_instance().stop();
 
         LOG(INFO) << "Waiting for event sink thread to be done...";
-        event_sink_thread.join();
+        analytics_sink_thread.join();
 
         LOG(INFO) << "Shutting down conversation garbage collector thread...";
         ConversationManager::get_instance().stop();

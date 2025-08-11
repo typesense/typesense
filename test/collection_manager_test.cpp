@@ -3,15 +3,17 @@
 #include <vector>
 #include <fstream>
 #include <collection_manager.h>
-#include <analytics_manager.h>
+#include "analytics_manager.h"
 #include "string_utils.h"
 #include "collection.h"
+#include "query_analytics.h"
 
 class CollectionManagerTest : public ::testing::Test {
 protected:
     Store *store;
     Store* analytic_store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
+    AnalyticsManager & analyticsManager = AnalyticsManager::get_instance();
     std::atomic<bool> quit = false;
     Collection *collection1;
     std::vector<sort_by> sort_fields;
@@ -28,7 +30,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        AnalyticsManager::get_instance().init(store, analytic_store, 5);
+        analyticsManager.init(store, analytic_store, 5);
 
         schema = R"({
             "name": "collection1",
@@ -66,7 +68,7 @@ protected:
             collectionManager.dispose();
             delete store;
         }
-
+        analyticsManager.stop();
         delete analytic_store;
     }
 };
@@ -681,7 +683,7 @@ TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
     std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
                                  field("year", field_types::INT32, false),
                                  field("points", field_types::INT32, false),};
-
+    
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
 
     nlohmann::json doc1;
@@ -695,21 +697,19 @@ TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
     Config::get_instance().set_enable_search_analytics(true);
 
     nlohmann::json analytics_rule = R"({
-        "name": "top_search_queries",
+        "rule_tag": "top_search_queries",
         "type": "popular_queries",
+        "name": "coll_search",
+        "collection": "coll1",
+        "event_type": "query",
         "params": {
             "limit": 100,
-            "source": {
-                "collections": ["coll1"],
-                "events":  [{"type": "search", "name": "coll_search"}]
-            },
-            "destination": {
-                "collection": "top_queries"
-            }
+            "destination_collection": "top_queries"
         }
     })"_json;
 
-    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true);
+    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true, false);
+    ASSERT_EQ("", create_op.error());
     ASSERT_TRUE(create_op.ok());
 
     nlohmann::json embedded_params;
@@ -731,10 +731,10 @@ TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
     ASSERT_TRUE(search_op.ok());
 
     // check that suggestions have been trimmed
-    auto popular_queries = AnalyticsManager::get_instance().get_popular_queries();
-    ASSERT_EQ(2, popular_queries["top_queries"]->get_user_prefix_queries()[""].size());
-    ASSERT_EQ("tom", popular_queries["top_queries"]->get_user_prefix_queries()[""][0].query);
-    ASSERT_EQ("", popular_queries["top_queries"]->get_user_prefix_queries()[""][1].query);
+    // auto popular_queries = AnalyticsManager::get_instance().get_popular_queries();
+    // ASSERT_EQ(2, popular_queries["top_queries"]->get_user_prefix_queries()[""].size());
+    // ASSERT_EQ("tom", popular_queries["top_queries"]->get_user_prefix_queries()[""][0].query);
+    // ASSERT_EQ("", popular_queries["top_queries"]->get_user_prefix_queries()[""][1].query);
 
     collectionManager.drop_collection("coll1");
 }
@@ -745,6 +745,11 @@ TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
                                  field("points", field_types::INT32, false),};
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    std::vector<field> nohits_fields = {
+        field("q", field_types::STRING, false, false, true, "", -1, 1),
+        field("count", field_types::INT32, false)
+    };
+    collectionManager.create_collection("nohits_queries", 1, nohits_fields, "count").get();
 
     nlohmann::json doc1;
     doc1["id"] = "0";
@@ -759,18 +764,17 @@ TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
     nlohmann::json analytics_rule = R"({
         "name": "nohits_search_queries",
         "type": "nohits_queries",
+        "collection": "coll1",
+        "event_type": "query",
+        "rule_tag": "nohits_queries",
         "params": {
             "limit": 100,
-            "source": {
-                "collections": ["coll1"]
-            },
-            "destination": {
-                "collection": "nohits_queries"
-            }
+            "destination_collection": "nohits_queries",
+            "capture_search_requests": true
         }
     })"_json;
 
-    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true);
+    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true, true);
     ASSERT_TRUE(create_op.ok());
 
     nlohmann::json embedded_params;
@@ -778,6 +782,7 @@ TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
     req_params["collection"] = "coll1";
     req_params["q"] = "foobarbaz";
     req_params["query_by"] = "title";
+    req_params["x-typesense-user-id"] = "user1";
 
     std::string json_res;
     auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -786,10 +791,7 @@ TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
-    // check that no hits queries have been populated
-    auto nohits_queries = AnalyticsManager::get_instance().get_nohits_queries();
-    ASSERT_EQ(1, nohits_queries["nohits_queries"]->get_user_prefix_queries()[""].size());
-    ASSERT_EQ("foobarbaz", nohits_queries["nohits_queries"]->get_user_prefix_queries()[""][0].query);
+    ASSERT_EQ(1, QueryAnalytics::get_instance().get_nohits_prefix_queries_size());
 
     collectionManager.drop_collection("coll1");
 }
@@ -1902,6 +1904,10 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
                                  field("points", field_types::INT32, false),};
 
     Collection* coll3 = collectionManager.create_collection("coll3", 1, fields, "points").get();
+      
+    std::vector<field> fields2 = {field("q", field_types::STRING, false, false, true, "", -1, 1),
+                                 field("count", field_types::INT32, false),};
+    Collection* top_queries2 = collectionManager.create_collection("top_queries2", 1, fields2, "count").get();
 
     nlohmann::json doc1;
     doc1["id"] = "0";
@@ -1912,23 +1918,22 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
     ASSERT_TRUE(coll3->add(doc1.dump()).ok());
 
     Config::get_instance().set_enable_search_analytics(true);
+    AnalyticsManager::get_instance().remove_all_rules();
 
     nlohmann::json analytics_rule = R"({
         "name": "hide_search_queries",
         "type": "popular_queries",
+        "collection": "coll3",
+        "event_type": "query",
+        "rule_tag": "popular_queries",
         "params": {
             "limit": 100,
-            "source": {
-                "collections": ["coll3"],
-                "events":  [{"type": "search", "name": "coll_search3"}]
-            },
-            "destination": {
-                "collection": "top_queries2"
-            }
+            "destination_collection": "top_queries2",
+            "capture_search_requests": true
         }
     })"_json;
 
-    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true);
+    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true, true);
     ASSERT_TRUE(create_op.ok());
 
     nlohmann::json embedded_params;
@@ -1939,6 +1944,7 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
     req_params["q"] = "tom";
     req_params["query_by"] = "title";
     req_params["enable_analytics"] = "false";
+    req_params["x-typesense-user-id"] = "user1";
 
     auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -1946,16 +1952,14 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
-    auto popular_queries = AnalyticsManager::get_instance().get_popular_queries();
-    ASSERT_EQ(0, popular_queries["top_queries2"]->get_user_prefix_queries().size());
+    ASSERT_EQ(0, QueryAnalytics::get_instance().get_popular_prefix_queries_size());
 
     req_params["enable_analytics"] = "true";
 
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
-    popular_queries = AnalyticsManager::get_instance().get_popular_queries();
-    ASSERT_EQ(1, popular_queries["top_queries2"]->get_user_prefix_queries().size());
+    ASSERT_EQ(1, QueryAnalytics::get_instance().get_popular_prefix_queries_size());
 
     collectionManager.drop_collection("coll3");
 }

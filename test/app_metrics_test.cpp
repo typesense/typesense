@@ -6,11 +6,11 @@ protected:
     AppMetrics& metrics = AppMetrics::get_instance();
 
     virtual void SetUp() {
-
+      metrics.window_reset();
     }
 
     virtual void TearDown() {
-
+      metrics.window_reset();
     }
 };
 
