@@ -891,7 +891,7 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
         filter_sort_overrides.push_back(&override);
     }
 
-    if(!override.sort_by.empty()) {
+    if((override.rule.dynamic_filter || override.rule.dynamic_query) && !override.sort_by.empty()) {
         curated_sort_by = override.sort_by;
     }
 
@@ -949,6 +949,8 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
     }
 
     filter_curated_hits = override.filter_curated_hits;
+    curated_sort_by = override.sort_by;
+
     if(override_metadata.empty()) {
         override_metadata = override.metadata;
     }
