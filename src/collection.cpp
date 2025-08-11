@@ -2613,6 +2613,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         if(!get_synonym_index_op.ok()) {
             return Option<bool>(get_synonym_index_op.code(), get_synonym_index_op.error());
         }
+    }
     size_t facet_sample_percent_computed = facet_sample_percent;
 
     if(facet_sample_slope > 0 && facet_sample_threshold > 0) {
