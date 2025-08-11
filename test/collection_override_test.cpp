@@ -3389,7 +3389,6 @@ TEST_F(CollectionOverrideTest, StaticSorting) {
     results = coll1->search("*", {"name"}, "",
                             {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
 
-    // with override we will sort on price
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
