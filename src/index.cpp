@@ -8951,6 +8951,46 @@ void Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV
     }
 }
 
+Option<bool> Index::process_ref_include_fields_sort(std::vector<sort_by>& sort_fields_std, size_t limit, std::vector<uint32_t>& doc_ids) {
+
+    int sort_order[3];  // 1 or -1 based on DESC or ASC respectively
+    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values;
+    std::vector<size_t> geopoint_indices;
+    auto populate_op = populate_sort_mapping_with_lock(sort_order, geopoint_indices, sort_fields_std, field_values, true);
+    if (!populate_op.ok()) {
+        return populate_op;
+    }
+
+    std::vector<uint32_t> eval_filter_indexes;
+    std::map<basic_string<char>, reference_filter_result_t> references;
+    Topster<KV> topster(limit);
+
+    for(const auto& seq_id : doc_ids) {
+        int64_t scores[3] = {0};
+        int64_t match_score_index = -1;
+
+        auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
+                                                          geopoint_indices, seq_id, references, eval_filter_indexes,
+                                                          0, scores, match_score_index, 0);
+        if (!compute_sort_scores_op.ok()) {
+            return compute_sort_scores_op;
+        }
+
+        KV kv(0, seq_id, seq_id, match_score_index, scores, std::move(references));
+        topster.add(&kv);
+    }
+
+    topster.sort();
+
+    doc_ids.clear();
+    for(uint32_t t = 0; t < topster.size; t++) {
+        KV* kv = topster.getKV(t);
+        doc_ids.push_back(kv->key);
+    }
+
+    return Option<bool>(true);
+}
+
 GeoPolygonIndex* Index::get_geopolygon_index(const std::string &field_name) const {
     auto find_it = field_geopolygon_index.find(field_name);
 

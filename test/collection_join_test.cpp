@@ -10580,39 +10580,53 @@ TEST_F(JoinIncludeExcludeFieldsTest, IncludeFieldsSortLimit) {
                 "name":  "books",
                 "fields": [
                     {"name": "title", "type": "string"},
-                    {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": true, "facet": true}
+                    {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": true, "facet": true},
+                    {"name": "in_stock", "type": "bool"},
+                    {"name": "popularity", "type": "float"}
                 ]
             })"_json;
     std::vector<nlohmann::json> documents = {
             R"({
                 "id": "0",
                 "title": "Famous Five",
-                "author_id": "0"
+                "author_id": "0",
+                "in_stock": true,
+                "popularity": 4.1
             })"_json,
             R"({
                 "id": "1",
                 "title": "Space War Blues",
-                "author_id": "1"
+                "author_id": "1",
+                "in_stock": true,
+                "popularity": 3.5
             })"_json,
             R"({
                 "id": "2",
                 "title": "12:01 PM",
-                "author_id": "0"
+                "author_id": "0",
+                "in_stock": false,
+                "popularity": 4.6
             })"_json,
             R"({
                 "id": "3",
                 "title": "12:01 PM",
-                "author_id": "1"
+                "author_id": "1",
+                "in_stock": true,
+                "popularity": 3.8
             })"_json,
             R"({
                 "id": "4",
                 "title": "Midnight Summer",
-                "author_id": "1"
+                "author_id": "1",
+                "in_stock": true,
+                "popularity": 4.4
             })"_json,
             R"({
                 "id": "5",
                 "title": "Flamingo",
-                "author_id": "1"
+                "author_id": "1",
+                "in_stock": false,
+                "popularity": 4.8
             })"_json,
     };
     auto collection_create_op = collectionManager.create_collection(schema_json);
@@ -10697,7 +10711,7 @@ TEST_F(JoinIncludeExcludeFieldsTest, IncludeFieldsSortLimit) {
             {"collection",     "authors"},
             {"q",              "*"},
             {"filter_by",      "$books(id:*)"},
-            {"include_fields", "$books(*, sort_by:id:desc) as books"}
+            {"include_fields", "$books(*, sort_by:(_seq_id:desc)) as books"}
     };
     now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -10730,7 +10744,7 @@ TEST_F(JoinIncludeExcludeFieldsTest, IncludeFieldsSortLimit) {
             {"collection",     "authors"},
             {"q",              "*"},
             {"filter_by",      "$books(id:*)"},
-            {"include_fields", "$books(*, sort_by:id:desc, limit:2) as books"}
+            {"include_fields", "$books(*, sort_by:(_seq_id:desc), limit:2) as books"}
     };
     now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -10753,4 +10767,62 @@ TEST_F(JoinIncludeExcludeFieldsTest, IncludeFieldsSortLimit) {
     ASSERT_EQ("2", res_obj["hits"][1]["document"]["books"][0]["id"]);
     ASSERT_EQ("0", res_obj["hits"][1]["document"]["books"][1]["author_id"]);
     ASSERT_EQ("0", res_obj["hits"][1]["document"]["books"][1]["id"]);
+
+    req_params = {
+            {"collection",     "authors"},
+            {"q",              "*"},
+            {"filter_by",      "$books(id:*)"},
+            {"include_fields", "$books(*, sort_by:(_eval(in_stock:true):desc, popularity:desc), strategy:merge) as books"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+
+    ASSERT_EQ(4, res_obj["hits"][0]["document"]["books.in_stock"].size());
+    ASSERT_EQ(true, res_obj["hits"][0]["document"]["books.in_stock"][0].get<bool>());
+    ASSERT_EQ(true, res_obj["hits"][0]["document"]["books.in_stock"][1].get<bool>());
+    ASSERT_EQ(true, res_obj["hits"][0]["document"]["books.in_stock"][2].get<bool>());
+    ASSERT_EQ(false, res_obj["hits"][0]["document"]["books.in_stock"][3].get<bool>());
+
+    ASSERT_EQ(4, res_obj["hits"][0]["document"]["books.popularity"].size());
+    ASSERT_EQ(4.4, res_obj["hits"][0]["document"]["books.popularity"][0].get<double>());
+    ASSERT_EQ(3.8, res_obj["hits"][0]["document"]["books.popularity"][1].get<double>());
+    ASSERT_EQ(3.5, res_obj["hits"][0]["document"]["books.popularity"][2].get<double>());
+    ASSERT_EQ(4.8, res_obj["hits"][0]["document"]["books.popularity"][3].get<double>());
+
+    //now apply limiting to last search query
+
+    req_params = {
+            {"collection",     "authors"},
+            {"q",              "*"},
+            {"filter_by",      "$books(id:*)"},
+            {"include_fields", "$books(*, sort_by:(_eval(in_stock:true):asc, popularity:asc), strategy:merge, limit:1) as books"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["books.in_stock"].size());
+    ASSERT_EQ(false, res_obj["hits"][0]["document"]["books.in_stock"][0].get<bool>());
+
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["books.popularity"].size());
+    ASSERT_EQ(4.8, res_obj["hits"][0]["document"]["books.popularity"][0].get<double>());
+
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["books.in_stock"].size());
+    ASSERT_EQ(false, res_obj["hits"][1]["document"]["books.in_stock"][0].get<bool>());
+
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["books.popularity"].size());
+    ASSERT_EQ(4.6, res_obj["hits"][1]["document"]["books.popularity"][0].get<double>());
 }

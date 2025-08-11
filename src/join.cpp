@@ -389,27 +389,6 @@ Option<bool> Join::populate_reference_helper_fields(nlohmann::json& document,
     return Option<bool>(true);
 }
 
-bool process_reference_sort(nlohmann::json& docs, const std::string& sort_field, const std::string& sort_order,
-                            size_t limit) {
-
-    std::sort(docs.begin(), docs.end(), [&](const auto& doc1, const auto& doc2) {
-        if(sort_order == "asc") {
-            return doc1[sort_field] < doc2[sort_field];
-        } else if(sort_order == "desc") {
-            return doc1[sort_field] > doc2[sort_field];
-        }
-
-        return false;
-    });
-
-
-    if(limit > 0 && (docs.size() > limit)) {
-        docs.erase(docs.end() - (docs.size() - limit), docs.end());
-    }
-
-    return true;
-}
-
 Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
                                  const reference_filter_result_t& references,
                                  const tsl::htrie_set<char>& ref_include_fields_full,
@@ -493,12 +472,26 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
         doc[ref_include_exclude.related_docs_field] = references.count;
     }
 
-    std::string key;
+    std::vector<uint32_t> doc_ids(references.docs, references.docs + references.count);
+    size_t updated_count = references.count;
 
-    for (uint32_t i = 0; i < references.count; i++) {
-        auto ref_doc_seq_id = references.docs[i];
+    if(!ref_include_exclude.sort_by_str.empty() && references.count > 1) {
+        if(ref_include_exclude.limit > 0 && ref_include_exclude.limit < updated_count) {
+            updated_count = ref_include_exclude.limit;
+        }
+
+        auto op = ref_collection->process_ref_include_fields_sort(ref_include_exclude.sort_by_str, updated_count, doc_ids);
+
+        if(!op.ok()) {
+            return Option<bool>(op.code(), error_prefix + op.error());
+        }
+    }
+
+    for (uint32_t i = 0; i < updated_count; i++) {
+        auto ref_doc_seq_id = doc_ids[i];
 
         nlohmann::json ref_doc;
+        std::string key;
         auto const& nest_ref_doc = (strategy == ref_include::nest || strategy == ref_include::nest_array);
 
         auto get_doc_op = ref_collection->get_document_from_store(ref_doc_seq_id, ref_doc);
@@ -559,10 +552,6 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
                 return nested_include_exclude_op;
             }
         }
-    }
-
-    if(!ref_include_exclude.sort_field.empty()) {
-        process_reference_sort(doc[key], ref_include_exclude.sort_field, ref_include_exclude.sort_order, ref_include_exclude.limit);
     }
 
     return Option<bool>(true);
@@ -991,13 +980,36 @@ Option<bool> parse_nested_exclude(const std::string& exclude_field_exp,
 
 Option<bool> parse_ref_include_parameters(const std::string& include_field_exp, const std::string& parameters,
                                           ref_include::strategy_enum& strategy_enum, std::string& related_docs_field,
-                                          std::string& sort_field, std::string& sort_order, size_t& limit) {
+                                          std::string& sort_by_str, size_t& limit) {
+    //parse sort_by param separately if exists
+    std::string parameters_updated = parameters;
+    auto pos = parameters.find("sort_by:(");
+    if(pos != std::string::npos) {
+        pos += std::strlen("sort_by:(");
+        while (pos < parameters.size()) {
+            sort_by_str += parameters[pos];
+
+            ++pos;
+
+            if (parameters[pos] == ')' && (pos == parameters.size() - 1  || parameters[pos+1] == ',')) {
+                break;
+            }
+        }
+
+        //skip to next params
+        if(pos + 2 < parameters.size()) {
+            pos += 2;
+        }
+
+        parameters_updated = parameters.substr(pos);
+    }
+
     std::vector<std::string> parameters_map;
-    StringUtils::split(parameters, parameters_map, ",");
+    StringUtils::split(parameters_updated, parameters_map, ",");
     for (const auto &item: parameters_map) {
-        std::vector<std::string> parameter_pair;
+        std::vector <std::string> parameter_pair;
         StringUtils::split(item, parameter_pair, ":");
-        if (parameter_pair.size() != 2 && parameter_pair[0].find(ref_include::sort_by) == std::string::npos) {
+        if (parameter_pair.size() != 2) {
             continue;
         }
 
@@ -1012,14 +1024,7 @@ Option<bool> parse_ref_include_parameters(const std::string& include_field_exp, 
             strategy_enum = string_to_enum_op.get();
         } else if (key == ref_include::related_docs_count) {
             related_docs_field = StringUtils::trim(parameter_pair[1]);
-        } else if(key == ref_include::sort_by) {
-            sort_field = StringUtils::trim(parameter_pair[1]);
-            sort_order = StringUtils::trim(parameter_pair[2]);
-
-            if(sort_order != "asc" && sort_order != "desc") {
-                return Option<bool>(400, "Unknown `include_fields` sort_by parameter: `" + sort_order + "`.");
-            }
-        } else if(key == ref_include::limit) {
+        } else if (key == ref_include::limit) {
             limit = std::stoul(StringUtils::trim(parameter_pair[1]));
         } else {
             return Option<bool>(400, "Unknown reference `include_fields` parameter: `" + key + "`.");
@@ -1083,8 +1088,7 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
         // ... $inventory(qty, strategy:merge) as inventory
         auto strategy_enum = ref_include::nest;
         std::string related_docs_field;
-        std::string sort_field = "";
-        std::string sort_order = "";
+        std::string sort_by_str = "";
         size_t limit = 0;
         if (colon_pos < closing_parenthesis_pos) {
             auto const& parameters_start = ref_fields.rfind(',', colon_pos);
@@ -1098,7 +1102,7 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
             }
 
             auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum, related_docs_field,
-                                                                sort_field, sort_order, limit);
+                                                                sort_by_str, limit);
             if (!parse_params_op.ok()) {
                 return parse_params_op;
             }
@@ -1119,7 +1123,7 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
 
         ref_include_exclude_fields_vec.emplace_back(ref_include_exclude_fields{ref_collection_name, ref_fields, "",
                                                                                ref_alias, strategy_enum, related_docs_field,
-                                                                               sort_field, sort_order, limit});
+                                                                               sort_by_str, limit});
         ref_include_exclude_fields_vec.back().nested_join_includes = std::move(nested_ref_include_exclude_fields_vec);
 
         // Referenced collection in filter_by is already mentioned in include_fields.
@@ -1177,8 +1181,7 @@ Option<bool> Join::initialize_ref_include_exclude_fields_vec(const std::string& 
 
         auto strategy_enum = ref_include::nest;
         std::string related_docs_field;
-        std::string sort_field = "";
-        std::string sort_order = "";
+        std::string sort_by_str = "";
         size_t limit = 0;
         auto colon_pos = ref_fields.find(':');
         if (colon_pos != std::string::npos) {
@@ -1193,7 +1196,7 @@ Option<bool> Join::initialize_ref_include_exclude_fields_vec(const std::string& 
             }
 
             auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum, related_docs_field,
-                                                                sort_field, sort_order, limit);
+                                                                sort_by_str, limit);
             if (!parse_params_op.ok()) {
                 return parse_params_op;
             }
@@ -1211,7 +1214,7 @@ Option<bool> Join::initialize_ref_include_exclude_fields_vec(const std::string& 
         auto ref_alias = !alias.empty() ? (StringUtils::trim(alias) + (nest_ref_doc ? "" : ".")) : "";
         ref_include_exclude_fields_vec.emplace_back(ref_include_exclude_fields{ref_collection_name, ref_fields, "",
                                                                                ref_alias, strategy_enum, related_docs_field,
-                                                                               sort_field, sort_order, limit});
+                                                                               sort_by_str, limit});
 
         // Referenced collection in filter_by is already mentioned in include_fields.
         if (ref_include_coll_names != nullptr) {

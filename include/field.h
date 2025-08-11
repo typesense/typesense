@@ -533,8 +533,7 @@ struct ref_include_exclude_fields {
     std::string alias;
     ref_include::strategy_enum strategy = ref_include::nest;
     std::string related_docs_field = "";
-    std::string sort_field = "";
-    std::string sort_order = "";
+    std::string sort_by_str = "";
     size_t limit = 0;
     // In case we have nested join.
     std::vector<ref_include_exclude_fields> nested_join_includes = {};
