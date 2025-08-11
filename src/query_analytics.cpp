@@ -517,6 +517,9 @@ void QueryAnalytics::remove_all_rules() {
   query_counter_events.clear();
   query_log_events.clear();
   collection_rules_map.clear();
+  popular_user_collection_prefix_queries.clear();
+  nohits_user_collection_prefix_queries.clear();
+  log_user_collection_prefix_queries.clear();
 }
 
 void QueryAnalytics::dispose() {
