@@ -3,6 +3,7 @@
 #include <app_metrics.h>
 #include <regex>
 #include <analytics_manager.h>
+#include "analytics_manager.h"
 #include <housekeeper.h>
 #include <arpa/inet.h>
 #include "typesense_server_utils.h"
@@ -15,7 +16,6 @@
 #include "core_api_utils.h"
 #include "lru/lru.hpp"
 #include "ratelimit_manager.h"
-#include "event_manager.h"
 #include "http_proxy.h"
 #include "include/stopwords_manager.h"
 #include "conversation_manager.h"
@@ -3143,130 +3143,6 @@ Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string&
     return Option<std::pair<std::string,std::string>>(std::make_pair(api_key, ip));
 }
 
-bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    nlohmann::json req_json;
-
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-
-    auto add_event_op = EventManager::get_instance().add_event(req_json, req->client_ip);
-    if(add_event_op.ok()) {
-        res->set_201(R"({"ok": true})");
-        return true;
-    }
-
-    res->set_400(add_event_op.error());
-    return false;
-}
-
-bool get_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto rules_op = AnalyticsManager::get_instance().list_rules();
-
-    if(!rules_op.ok()) {
-        res->set(rules_op.code(), rules_op.error());
-        return false;
-    }
-
-    res->set_200(rules_op.get().dump());
-    return true;
-}
-
-bool get_analytics_rule(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto rules_op = AnalyticsManager::get_instance().get_rule(req->params["name"]);
-
-    if(!rules_op.ok()) {
-        res->set(rules_op.code(), rules_op.error());
-        return false;
-    }
-
-    res->set_200(rules_op.get().dump());
-    return true;
-}
-
-bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    nlohmann::json req_json;
-
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-
-    auto op = AnalyticsManager::get_instance().create_rule(req_json, false, true);
-
-    if(!op.ok()) {
-        res->set(op.code(), op.error());
-        return false;
-    }
-
-    res->set_201(req_json.dump());
-    return true;
-}
-
-bool put_upsert_analytics_rules(const std::shared_ptr<http_req> &req, const std::shared_ptr<http_res> &res) {
-    nlohmann::json req_json;
-
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-
-    req_json["name"] = req->params["name"];
-    auto op = AnalyticsManager::get_instance().create_rule(req_json, true, true);
-
-    if(!op.ok()) {
-        res->set(op.code(), op.error());
-        return false;
-    }
-
-    res->set_200(req_json.dump());
-    return true;
-}
-
-bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto op = AnalyticsManager::get_instance().remove_rule(req->params["name"]);
-    if(!op.ok()) {
-        res->set(op.code(), op.error());
-        return false;
-    }
-
-    nlohmann::json res_json;
-    res_json["name"] = req->params["name"];
-
-    res->set_200(res_json.dump());
-    return true;
-}
-
-bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    nlohmann::json req_json;
-
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-
-    if(!AnalyticsManager::get_instance().write_to_db(req_json)) {
-        res->set_500(R"({"ok": false})");
-        return false;
-    }
-
-    res->set_200(R"({"ok": true})");
-    return true;
-}
-
 bool post_import_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const char *BATCH_SIZE = "batch_size";
     const char *ID = "id";
@@ -3387,30 +3263,6 @@ bool del_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::sh
     res_json["id"] = id;
     res->set_200(res_json.dump());
 
-    return true;
-}
-
-bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const char* N = "n";
-
-    uint32_t n = 10;
-    if(req->params.count(N) != 0 && !StringUtils::is_uint32_t(req->params[N])) {
-        res->set_400("Parameter `n` must be a positive integer.");
-        return false;
-    }
-
-    if (req->params.count(N)) {
-        n = std::stoi(req->params[N]);
-    }
-
-    auto get_events_op = AnalyticsManager::get_instance().get_events(n);
-
-    if(!get_events_op.ok()) {
-        res->set(get_events_op.code(), get_events_op.error());
-        return false;
-    }
-    nlohmann::json response = get_events_op.get();
-    res->set_200(response.dump());
     return true;
 }
 
@@ -3936,6 +3788,69 @@ bool put_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr
     SynonymIndexManager& manager = SynonymIndexManager::get_instance();
     nlohmann::json req_json;
 
+bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto add_event_op = AnalyticsManager::get_instance().add_external_event(req->client_ip, req_json);
+    if (!add_event_op.ok()) {
+        res->set(add_event_op.code(), add_event_op.error());
+        return false;
+    }
+    res->set_200(nlohmann::json{
+        {"ok", true}
+    }.dump());
+    return true;
+}
+
+bool get_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+
+    if (req->params.count("rule_tag") == 1 && !req->params["rule_tag"].empty()) {
+      const std::string& rule_tag = req->params["rule_tag"];
+      auto list_rules_op = AnalyticsManager::get_instance().list_rules(rule_tag);
+      if (!list_rules_op.ok()) {
+        res->set(list_rules_op.code(), list_rules_op.error());
+        return false;
+      }
+      res->set_200(list_rules_op.get().dump());
+      return true;
+    }
+
+    auto list_rules_op = AnalyticsManager::get_instance().list_rules();
+    if (!list_rules_op.ok()) {
+        res->set(list_rules_op.code(), list_rules_op.error());
+        return false;
+    }
+
+    res->set_200(list_rules_op.get().dump());
+    return true;
+}
+
+bool get_analytics_rule(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if (req->params.count("name") != 1 || req->params["name"].empty()) {
+        res->set_400("Missing required parameter 'name'.");
+        return false;
+    }
+    const std::string& name = req->params["name"];
+
+    auto get_rule_op = AnalyticsManager::get_instance().get_rule(name);
+    if (!get_rule_op.ok()) {
+        res->set(get_rule_op.code(), get_rule_op.error());
+        return false;
+    }
+
+    res->set_200(get_rule_op.get().dump());
+    return true;
+}
+
+bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
     try {
         req_json = nlohmann::json::parse(req->body);
     } catch(const nlohmann::json::parse_error& e) {
@@ -4014,5 +3929,114 @@ bool del_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr
     res_json["name"] = set_name;
 
     res->set_200(res_json.dump());
+    auto create_op = AnalyticsManager::get_instance().process_create_rule_request(req_json, res->is_alive);
+    if (!create_op.ok()) {
+        res->set(create_op.code(), create_op.error());
+        return false;
+    }
+    res->set_200(create_op.get().dump());
+    return true;
+}
+
+bool put_upsert_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if (req->params.count("name") != 1 || req->params["name"].empty()) {
+        res->set_400("Missing required parameter 'name'.");
+        return false;
+    }
+    const std::string& name = req->params["name"];
+    nlohmann::json req_json;
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+    req_json["name"] = name;
+    auto update_op = AnalyticsManager::get_instance().create_rule(req_json, true, true, res->is_alive);
+    if (!update_op.ok()) {
+        res->set_400(update_op.error());
+        return false;
+    }
+    res->set_200(update_op.get().dump());
+    return true;
+}
+
+bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if (req->params.count("name") != 1 || req->params["name"].empty()) {
+        res->set_400("Missing required parameter 'name'.");
+        return false;
+    }
+    const std::string& name = req->params["name"];
+    auto remove_op = AnalyticsManager::get_instance().remove_rule(name);
+    if (!remove_op.ok()) {
+        res->set(remove_op.code(), remove_op.error());
+        return false;
+    }
+    res->set_200(remove_op.get().dump());
+    return true;
+}
+
+bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    if(!AnalyticsManager::get_instance().write_to_db(req_json)) {
+        res->set_500(R"({"ok": false})");
+        return false;
+    }
+
+    res->set_200(R"({"ok": true})");
+    return true;
+}
+
+bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if(req->params.count("user_id") != 1 || req->params["user_id"].empty()) {
+        res->set_400("Missing required parameter 'user_id'.");
+        return false;
+    }
+    const std::string& user_id = req->params["user_id"];
+
+    if(req->params.count("name") != 1 || req->params["name"].empty()) {
+        res->set_400("Missing required parameter 'name'.");
+        return false;
+    }
+    const std::string& name = req->params["name"];
+
+    if(req->params.count("n") != 1 || req->params["n"].empty()) {
+        res->set_400("Missing required parameter 'n'.");
+        return false;
+    }
+    const uint32_t n = std::stoi(req->params["n"]);
+
+    auto get_events_op = AnalyticsManager::get_instance().get_events(user_id, name, n);
+    if(!get_events_op.ok()) {
+        res->set(get_events_op.code(), get_events_op.error());
+        return false;
+    }
+    res->set_200(get_events_op.get().dump());
+    return true;
+}
+
+bool post_analytics_flush(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    AnalyticsManager::get_instance().trigger_flush();
+    res->set_200(R"({"ok": true})");
+    return true;
+}
+
+bool get_analytics_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto status_op = AnalyticsManager::get_instance().get_status();
+    if(!status_op.ok()) {
+        res->set(status_op.code(), status_op.error());
+        return false;
+    }
+    res->set_200(status_op.get().dump());
     return true;
 }

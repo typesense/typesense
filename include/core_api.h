@@ -185,6 +185,10 @@ bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std:
 
 bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool post_analytics_flush(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_analytics_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 //plurals, nouns
 bool post_import_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 

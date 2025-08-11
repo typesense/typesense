@@ -3,8 +3,8 @@
 #include <json.hpp>
 #include <app_metrics.h>
 #include <analytics_manager.h>
-#include <event_manager.h>
 #include "collection_manager.h"
+#include "analytics_manager.h"
 #include "batched_indexer.h"
 #include "logger.h"
 #include "magic_enum.hpp"
@@ -583,18 +583,38 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     }
     delete iter;
 
-    // restore query suggestions configs
+    // restore new analytics configs
     std::vector<std::string> analytics_config_jsons;
     store->scan_fill(AnalyticsManager::ANALYTICS_RULE_PREFIX,
                      std::string(AnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
                      analytics_config_jsons);
 
+    LOG(INFO) << "Loaded " << num_collections << " collection(s).";
+    LOG(INFO) << "Found " << analytics_config_jsons.size() << " analytics config(s).";
     for(const auto& analytics_config_json: analytics_config_jsons) {
         nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
-        AnalyticsManager::get_instance().create_rule(analytics_config, false, false);
+        AnalyticsManager::get_instance().create_rule(analytics_config, false, false, false);
     }
+    LOG(INFO) << "Loaded " << analytics_config_jsons.size() << " analytics config(s).";
 
-    LOG(INFO) << "Loaded " << num_collections << " collection(s).";
+    // restore old analytics configs
+    std::vector<std::string> old_analytics_config_jsons;
+    store->scan_fill(AnalyticsManager::OLD_ANALYTICS_RULE_PREFIX,
+                     std::string(AnalyticsManager::OLD_ANALYTICS_RULE_PREFIX) + "`",
+                     old_analytics_config_jsons);
+    LOG(INFO) << "Found " << old_analytics_config_jsons.size() << " old analytics config(s) on disk.";
+
+    size_t restored_old_analytics_configs = 0;
+    for(const auto& old_analytics_config_json: old_analytics_config_jsons) {
+        nlohmann::json old_analytics_config = nlohmann::json::parse(old_analytics_config_json);
+        auto create_op = AnalyticsManager::get_instance().create_old_rule(old_analytics_config);
+        if(!create_op.ok()) {
+            LOG(ERROR) << "Error while creating old analytics config. " << create_op.error();
+        }
+        restored_old_analytics_configs++;
+    }
+    LOG(INFO) << "Restored " << restored_old_analytics_configs << " old analytics config(s)." << " from " << old_analytics_config_jsons.size() << " old analytics config(s) on disk.";
+    LOG(INFO) << "Removing restored old analytics config(s) from disk.";
 
     loading_pool.shutdown();
 
@@ -1418,17 +1438,26 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     if(Config::get_instance().get_enable_search_analytics()) {
         if(args.enable_analytics && result.contains("found")) {
             std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(args.raw_query);
-
+            query_internal_event_t internal_event = {
+                QueryAnalytics::LOG_TYPE,
+                orig_coll_name,
+                analytics_query,
+                "",
+                req_params["x-typesense-user-id"],
+                args.filter_query,
+                args.analytics_tag
+            };
             if(result["found"].get<size_t>() != 0) {
                 const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
                         result["request_params"]["first_q"].get<std::string>());
-                AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query, expanded_query,
-                                                                true, req_params["x-typesense-user-id"],
-                                                                args.filter_query, args.analytics_tag);
+                internal_event.expanded_q = expanded_query;
+                AnalyticsManager::get_instance().add_internal_event(internal_event);
+                internal_event.type = QueryAnalytics::POPULAR_QUERIES_TYPE;
+                AnalyticsManager::get_instance().add_internal_event(internal_event);
             } else {
-                AnalyticsManager::get_instance().add_nohits_query(orig_coll_name, analytics_query,
-                                                                  true, req_params["x-typesense-user-id"],
-                                                                  args.filter_query, args.analytics_tag);
+                AnalyticsManager::get_instance().add_internal_event(internal_event);
+                internal_event.type = QueryAnalytics::NO_HIT_QUERIES_TYPE;
+                AnalyticsManager::get_instance().add_internal_event(internal_event);
             }
         }
     }
