@@ -685,32 +685,33 @@ Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
     return Option<bool>(true);
 }
 
-Option<bool> AnalyticsManager::remove_rule(const std::string& name) {
+Option<nlohmann::json> AnalyticsManager::remove_rule(const std::string& name) {
     std::unique_lock lock(mutex);
     const bool is_doc_rule = rules_map.find(name) != rules_map.end() && rules_map.find(name)->second == "doc";
     const bool is_query_rule = rules_map.find(name) != rules_map.end() && rules_map.find(name)->second == "query";
     if(!is_doc_rule && !is_query_rule) {
-      return Option<bool>(400, "Rule not found");
+      return Option<nlohmann::json>(400, "Rule not found");
     }
     if(is_doc_rule) {
       auto remove_rule_op = doc_analytics.remove_rule(name);
       if(!remove_rule_op.ok()) {
-        return Option<bool>(400, remove_rule_op.error());
+        return Option<nlohmann::json>(400, remove_rule_op.error());
       }
     } else if(is_query_rule) {
       auto remove_rule_op = query_analytics.remove_rule(name);
       if(!remove_rule_op.ok()) {
-        return Option<bool>(400, remove_rule_op.error());
+        return Option<nlohmann::json>(400, remove_rule_op.error());
       }
     }
     auto rule_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + name;
     bool store_op = store->remove(rule_key);
     if(!store_op) {
-      return Option<bool>(500, "Error while removing the config from disk.");
+      return Option<nlohmann::json>(500, "Error while removing the config from disk.");
     }
     rules_map.erase(name);
-    
-    return Option<bool>(true);
+    auto record = rules.find(name)->second;
+    rules.erase(name);
+    return Option<nlohmann::json>(record);
 }
 
 void AnalyticsManager::remove_all_rules() {

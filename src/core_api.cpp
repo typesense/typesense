@@ -3855,9 +3855,7 @@ bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared
         res->set(remove_op.code(), remove_op.error());
         return false;
     }
-    res->set_200(nlohmann::json{
-        {"success", true}
-    }.dump());
+    res->set_200(remove_op.get().dump());
     return true;
 }
 

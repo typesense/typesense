@@ -333,8 +333,13 @@ describe(Phases.SINGLE_FRESH, () => {
       method: "DELETE",
     });
     expect(res.ok).toBe(true);
-    const data = SuccessResponse.parse(await res.json());
+    const data = AnalyticsRule.safeParse(await res.json());
     expect(data.success).toBe(true);
+    expect(data.data?.name).toBe("product_clicks_temp");
+    expect(data.data?.type).toBe("log");
+    expect(data.data?.collection).toBe("analytics_products");
+    expect(data.data?.event_type).toBe("conversion");
+    expect(data.data?.rule_tag).toBe("tag2");
   });
 
   it("update an analytics rule using /rules", async () => {

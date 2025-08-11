@@ -71,7 +71,7 @@ public:
                                        bool write_to_disk,
                                        bool is_live_req);
     Option<bool> create_old_rule(nlohmann::json& payload);
-    Option<bool> remove_rule(const std::string& name);
+    Option<nlohmann::json> remove_rule(const std::string& name);
     void remove_all_rules();
 
     void resetToggleRateLimit(bool toggle);
