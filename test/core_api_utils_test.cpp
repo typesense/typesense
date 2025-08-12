@@ -8,6 +8,7 @@
 #include "raft_server.h"
 #include "conversation_model_manager.h"
 #include "conversation_manager.h"
+#include "synonym_index_manager.h"
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
@@ -2000,6 +2001,7 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
           "name":"cp2",
           "num_documents":0,
           "symbols_to_index":[],
+          "synonym_sets":[],
           "token_separators":[]
         }
     )"_json;
@@ -2108,6 +2110,11 @@ TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
     if (coll3 == nullptr) {
         coll3 = collectionManager.create_collection("coll3", 1, fields, "points").get();
     }
+
+    SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
+    synonym_index_manager.init_store(store);
+    synonym_index_manager.add_synonym_index("test");
+    coll3->set_synonym_sets({"test"});
 
     for (int i = 0; i < 5; ++i) {
         nlohmann::json synonym_json = R"(
@@ -2266,6 +2273,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
             "name":"collection_meta",
             "num_memory_shards":4,
             "symbols_to_index":[],
+            "synonym_sets":[],
             "token_separators":[]
     })"_json;
 
@@ -2362,6 +2370,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
             "name":"collection_meta",
             "num_memory_shards":4,
             "symbols_to_index":[],
+            "synonym_sets":[],
             "token_separators":[]
     })"_json;
 
@@ -2417,7 +2426,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields` and `metadata` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
         "symbols_to_index":[]
@@ -2425,7 +2434,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields` and `metadata` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
         "name": "collection_meta2",
@@ -2437,7 +2446,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields` and `metadata` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
     })"_json;
@@ -2678,6 +2687,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                 "name":"collection3",
                 "num_documents":0,
                 "symbols_to_index":[],
+                "synonym_sets":[],
                 "token_separators":[]
     })"_json;
 

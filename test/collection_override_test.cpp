@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "synonym_index.h"
+#include "synonym_index_manager.h"
 
 class CollectionOverrideTest : public ::testing::Test {
 protected:
@@ -2645,6 +2647,10 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithSynonyms) {
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        SynonymIndexManager& synonymIndexManager = SynonymIndexManager::get_instance();
+        synonymIndexManager.init_store(store);
+        synonymIndexManager.add_synonym_index("index");
+        coll1->set_synonym_sets({"index"});
     }
 
     nlohmann::json doc1;
@@ -3078,6 +3084,10 @@ TEST_F(CollectionOverrideTest, SynonymsAppliedToOverridenQuery) {
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        SynonymIndexManager& synonymIndexManager = SynonymIndexManager::get_instance();
+        synonymIndexManager.init_store(store);
+        synonymIndexManager.add_synonym_index("index");
+        coll1->set_synonym_sets({"index"});
     }
 
     nlohmann::json doc1;
