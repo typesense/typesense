@@ -3109,7 +3109,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                                       "",
                                       0,
                                       field_order_kv->reference_filter_results,
-                                      const_cast<Collection *>(this), get_seq_id_from_key(seq_id_key),
+                                      get_name(), get_seq_id_from_key(seq_id_key),
                                       ref_include_exclude_fields_vec);
             if (!prune_op.ok()) {
                 return Option<nlohmann::json>(prune_op.code(), prune_op.error());
@@ -3976,7 +3976,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                       "",
                                       0,
                                       kv->reference_filter_results,
-                                      const_cast<Collection*>(coll.get()), get_seq_id_from_key(seq_id_key),
+                                      coll->get_name(), get_seq_id_from_key(seq_id_key),
                                       ref_include_exclude_fields_vec);
             if (!prune_op.ok()) {
                 return prune_op;
@@ -4624,9 +4624,22 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
     return index->do_filtering_with_lock(filter_tree_root, filter_result, name, should_timeout, validate_field_names);
 }
 
-Option<bool> Collection::get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
+Option<bool> Collection::get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
+                                                   std::vector<uint32_t>& result) const {
+    std::shared_lock lock(mutex);
+    return get_related_ids(field_name, seq_id_vec, result);
+}
+
+Option<bool> Collection::get_related_ids(const std::string& ref_field_name, const std::vector<uint32_t>& seq_id_vec,
                                          std::vector<uint32_t>& result) const {
-    return index->get_related_ids_with_lock(ref_field_name, seq_id, result);
+    return index->get_related_ids_with_lock(ref_field_name, seq_id_vec, result);
+}
+
+Option<bool> Collection::get_object_array_related_id_with_lock(const std::string& ref_field_name,
+                                                               const uint32_t& seq_id, const uint32_t& object_index,
+                                                               uint32_t& result) const {
+    std::shared_lock lock(mutex);
+    return get_object_array_related_id(ref_field_name, seq_id, object_index, result);
 }
 
 Option<bool> Collection::get_object_array_related_id(const std::string& ref_field_name,
@@ -5823,7 +5836,7 @@ std::unordered_map<std::string, field> Collection::get_dynamic_fields() {
     return dynamic_fields;
 }
 
-tsl::htrie_map<char, field> Collection::get_schema() {
+tsl::htrie_map<char, field> Collection::get_schema() const {
     std::shared_lock lock(mutex);
     return search_schema;
 };
@@ -6407,7 +6420,8 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
             auto ref_coll_name = f.reference.substr(0, dot_index);
             auto ref_field_name = f.reference.substr(dot_index + 1);
 
-            reference_fields.emplace(f.name, reference_info_t(ref_coll_name, ref_field_name, f.is_async_reference));
+            reference_fields.emplace(f.name, reference_info_t(ref_coll_name, ref_field_name, f.is_async_reference,
+                                                              f.is_array()));
         };
 
         for(const auto& f : addition_fields) {
@@ -6495,23 +6509,12 @@ void Collection::remove_reference_helper_fields(nlohmann::json& document) {
     }
 }
 
-Option<bool> Collection::prune_doc_with_lock(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
-                                             const tsl::htrie_set<char>& exclude_names,
-                                             const std::map<std::string, reference_filter_result_t>& reference_filter_results,
-                                             const uint32_t& seq_id,
-                                             const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
-    std::shared_lock lock(mutex);
-
-    return prune_doc(doc, include_names, exclude_names, "", 0, reference_filter_results, this, seq_id,
-                     ref_include_exclude_fields_vec);
-}
-
 Option<bool> Collection::prune_doc(nlohmann::json& doc,
                                    const tsl::htrie_set<char>& include_names,
                                    const tsl::htrie_set<char>& exclude_names,
                                    const std::string& parent_name, size_t depth,
                                    const std::map<std::string, reference_filter_result_t>& reference_filter_results,
-                                   Collection *const collection, const uint32_t& seq_id,
+                                   const std::string& collection_name, const uint32_t& seq_id,
                                    const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
     nlohmann::json original_doc;
     if (!ref_include_exclude_fields_vec.empty()) {
@@ -6593,8 +6596,8 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
         it++;
     }
 
-    return Join::include_references(doc, seq_id, collection, reference_filter_results, ref_include_exclude_fields_vec,
-                                    original_doc);
+    return Join::include_references(doc, seq_id, collection_name, reference_filter_results,
+                                    ref_include_exclude_fields_vec, original_doc);
 }
 
 Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
@@ -6785,12 +6788,14 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                                        ref_field_name, ref_field);
                     }
 
-                    auto ref_info = reference_info_t{name, field.name, field.is_async_reference, ref_field_name};
+                    auto ref_info = reference_info_t{name, field.name, field.is_async_reference, field.is_array(),
+                                                     ref_field_name};
                     ref_info.referenced_field = ref_field;
                     collectionManager.add_referenced_ins(ref_coll_name, std::move(ref_info));
 
                     reference_fields.emplace(field.name,
-                                             reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference));
+                                             reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference,
+                                                              field.is_array()));
                     if (field.nested) {
                         object_reference_fields.insert(field.name);
                     }
@@ -7234,11 +7239,12 @@ Index* Collection::init_index() {
                                                                ref_field_name, ref_field);
             }
 
-            auto ref_info = reference_info_t{name, field.name, field.is_async_reference, ref_field_name};
+            auto ref_info = reference_info_t{name, field.name, field.is_async_reference, field.is_array(), ref_field_name};
             ref_info.referenced_field = ref_field;
             collectionManager.add_referenced_ins(ref_coll_name, std::move(ref_info));
 
-            reference_fields.emplace(field.name, reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference));
+            reference_fields.emplace(field.name, reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference,
+                                                                  field.is_array()));
             if (field.nested) {
                 object_reference_fields.insert(field.name);
             }
@@ -7941,12 +7947,6 @@ void Collection::update_reference_field(const std::string& field_name, const fie
     }
 
     it->second.referenced_field = ref_field;
-}
-
-Option<bool> Collection::get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
-                                                   std::vector<uint32_t>& result) const {
-    std::shared_lock lock(mutex);
-    return index->get_related_ids_with_lock(field_name, seq_id, result);
 }
 
 Option<uint32_t> Collection::get_sort_index_value_with_lock(const std::string& field_name,
@@ -8750,4 +8750,94 @@ void collection_search_args_t::override_union_global_params(union_global_params_
     per_page = global_params.per_page;
     offset = global_params.offset;
     limit_hits = global_params.limit_hits;
+}
+
+Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_t& seq_id,
+                                              const reference_info_t& ref_info,
+                                              const tsl::htrie_set<char>& ref_include_fields_full,
+                                              const tsl::htrie_set<char>& ref_exclude_fields_full,
+                                              const nlohmann::json& original_doc,
+                                              const ref_include_exclude_fields& ref_include_exclude) const {
+    auto const& field_name = ref_info.field;
+    if (field_name.empty()) {
+        return Option<bool>(true);
+    }
+
+    if (get_object_reference_fields().count(field_name) != 0) {
+        std::vector<std::string> keys;
+        StringUtils::split(field_name, keys, ".");
+        auto const& key = keys[0];
+
+        if (!doc.contains(key)) {
+            if (!original_doc.contains(key)) {
+                auto const& schema = get_schema();
+                auto it = schema.find(field_name);
+                if (it == schema.end() || it->optional) {
+                    return Option<bool>(true);
+                }
+                return Option<bool>(400, "Could not find `" + key +
+                                         "` key in the document to include the referenced document.");
+            }
+
+            // The key is excluded from the doc by the query, inserting empty object(s) so referenced doc can be
+            // included in it.
+            if (original_doc[key].is_array()) {
+                doc[key] = nlohmann::json::array();
+                doc[key].insert(doc[key].begin(), original_doc[key].size(), nlohmann::json::object());
+            } else {
+                doc[key] = nlohmann::json::object();
+            }
+        }
+
+        if (doc[key].is_array()) {
+            auto const& reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+            for (uint32_t i = 0; i < doc[key].size(); i++) {
+                uint32_t ref_doc_id;
+                auto op = get_object_array_related_id_with_lock(reference_helper_field_name, seq_id, i,
+                                                                ref_doc_id);
+                if (!op.ok()) {
+                    if (op.code() == 404) { // field_name is not indexed.
+                        break;
+                    } else { // No reference found for this object.
+                        continue;
+                    }
+                }
+
+                reference_filter_result_t result(1, new uint32_t[1]{ref_doc_id});
+                op = Join::prune_ref_doc(doc[key][i], result,
+                                         ref_include_fields_full, ref_exclude_fields_full,
+                                         false, ref_include_exclude);
+                if (!op.ok()) {
+                    return op;
+                }
+            }
+        } else {
+            std::vector<uint32_t> ids;
+            auto get_references_op = get_related_ids_with_lock(field_name, {seq_id}, ids);
+            if (!get_references_op.ok()) {
+                LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+                return Option<bool>(true);
+            }
+            reference_filter_result_t result(ids.size(), &ids[0]);
+
+            auto op = Join::prune_ref_doc(doc[key], result, ref_include_fields_full, ref_exclude_fields_full,
+                                          ref_info.is_array, ref_include_exclude);
+            result.docs = nullptr;
+            return op;
+        }
+    } else {
+        std::vector<uint32_t> ids;
+        auto get_references_op = get_related_ids_with_lock(field_name, {seq_id}, ids);
+        if (!get_references_op.ok()) {
+            LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+            return Option<bool>(true);
+        }
+        reference_filter_result_t result(ids.size(), &ids[0]);
+        auto op = Join::prune_ref_doc(doc, result, ref_include_fields_full, ref_exclude_fields_full,
+                                      ref_info.is_array, ref_include_exclude);
+        result.docs = nullptr;
+        return op;
+    }
+
+    return Option<bool>(true);
 }
