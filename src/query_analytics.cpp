@@ -130,8 +130,12 @@ Option<bool> QueryAnalytics::add_internal_event(const query_internal_event_t& ev
   std::unique_lock user_lock(user_compaction_mutex);
   const uint64_t now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
               std::chrono::system_clock::now().time_since_epoch()).count();
-
-  const auto& rule_names = collection_rules_map.find(event_data.collection)->second;
+  
+  auto it = collection_rules_map.find(event_data.collection);
+  if(it == collection_rules_map.end()) {
+    return Option<bool>(true);
+  }
+  const auto& rule_names = it->second;
   for(const auto& rule_name : rule_names) {
     const auto& rule = query_rules.find(rule_name)->second;
     if(rule.type == event_data.type && rule.capture_search_requests && event_data.q.size() <= MAX_QUERY_LENGTH) {
