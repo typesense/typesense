@@ -8,8 +8,10 @@
 #include "filter_result_iterator.h"
 
 struct base_reference_info_t {
-    std::string collection;
-    std::string field;
+    std::string collection{};
+    std::string field{};
+
+    base_reference_info_t() = default;
 
     base_reference_info_t(std::string collection, std::string field) :
     collection(std::move(collection)), field(std::move(field)) {}
@@ -24,17 +26,22 @@ struct base_reference_info_t {
 };
 
 struct reference_info_t: base_reference_info_t {
-    bool is_async;
-    std::string referenced_field_name;
+    bool is_async{};
+    bool is_array{};
+    std::string referenced_field_name{};
     struct field referenced_field{};
 
-    reference_info_t(std::string collection, std::string field, bool is_async, std::string referenced_field_name = "") :
-            base_reference_info_t(std::move(collection), std::move(field)), is_async(is_async),
+    reference_info_t() = default;
+
+    reference_info_t(std::string collection, std::string field, bool is_async, bool is_array,
+                     std::string referenced_field_name = "") :
+            base_reference_info_t(std::move(collection), std::move(field)), is_async(is_async), is_array(is_array),
             referenced_field_name(std::move(referenced_field_name)) {}
 
     reference_info_t(const nlohmann::json& json): reference_info_t(json["collection"],
                                                                    json["field"],
                                                                    json["is_async"],
+                                                                   json["is_array"],
                                                                    json["referenced_field_name"]) {
         referenced_field = field::field_from_json(json["referenced_field"]);
     }
@@ -44,6 +51,7 @@ struct reference_info_t: base_reference_info_t {
         json["collection"] = ref_info.collection;
         json["field"] = ref_info.field;
         json["is_async"] = ref_info.is_async;
+        json["is_array"] = ref_info.is_array;
         json["referenced_field_name"] = ref_info.referenced_field_name;
         json["referenced_field"] = field::field_to_json_field(ref_info.referenced_field);
         return json;
@@ -93,7 +101,7 @@ public:
                                       const bool& is_reference_array,
                                       const ref_include_exclude_fields& ref_include_exclude);
 
-    static Option<bool> include_references(nlohmann::json& doc, const uint32_t& seq_id, Collection *const collection,
+    static Option<bool> include_references(nlohmann::json& doc, const uint32_t& seq_id, const std::string& collection_name,
                                            const std::map<std::string, reference_filter_result_t>& reference_filter_results,
                                            const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
                                            const nlohmann::json& original_doc);

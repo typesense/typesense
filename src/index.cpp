@@ -4490,7 +4490,7 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
     std::vector<uint32_t> ref_doc_ids;
     ref_doc_ids.reserve(all_result_ids_len);
 
-    for(auto i = 0; i < all_result_ids_len; ++i) {
+    for(uint32_t i = 0; i < all_result_ids_len; ++i) {
         // Only collecting the references of docs in the final result.
         const auto& is_valid = fit.is_valid(all_result_ids[i]);
         if (is_valid == 0) {
@@ -4556,10 +4556,10 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
 
             auto const& reference_field_name = reference_field_name_op.get();
             auto const& ref_result = fit.reference[joined_coll_having_reference];
-            for (uint32_t j = 0; j < ref_result.count; j++) {
-                joined_collection->get_related_ids_with_lock(reference_field_name, ref_result.docs[j],
-                                                             ref_doc_ids);
-            }
+
+            joined_collection->get_related_ids_with_lock(reference_field_name,
+                                                         std::vector<uint32_t>(ref_result.docs, ref_result.docs + ref_result.count),
+                                                         ref_doc_ids);
         }
     }
 
@@ -8334,10 +8334,68 @@ int64_t Index::reference_string_sort_score(const string &field_name,  const std:
     return score;
 }
 
-Option<bool> Index::get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
-                                    std::vector<uint32_t>& result) const {
+Option<bool> Index::get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
+                                              std::vector<uint32_t>& related_ids) const {
     std::shared_lock lock(mutex);
-    return get_related_ids(field_name, seq_id, result);
+    return get_related_ids(field_name, seq_id_vec, related_ids);
+}
+
+Option<bool> Index::get_related_ids(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
+                                    std::vector<uint32_t>& related_ids) const {
+    auto const& collection_name = get_collection_name();
+    auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+    auto search_schema_it = search_schema.find(reference_helper_field_name);
+    if (search_schema_it == search_schema.end()) {
+        return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" +
+                                 collection_name + "`.");
+    }
+
+    auto sort_index_it = sort_index.find(reference_helper_field_name);
+    auto reference_index_it = reference_index.find(reference_helper_field_name);
+    if (search_schema_it->is_singular()) {
+        if (sort_index_it == sort_index.end()) {
+            return Option<bool>(400, "Could not find `" + reference_helper_field_name +
+                                     "` in the collection `" + collection_name + "`.");
+        }
+    } else if (reference_index_it == reference_index.end()) {
+        return Option<bool>(400, "Could not find `" + reference_helper_field_name +
+                                 "` in the collection `" + collection_name + "`.");
+    }
+
+    related_ids.reserve(seq_id_vec.size());
+    for (size_t i = 0; i < seq_id_vec.size(); i++) {
+        auto const& seq_id = seq_id_vec[i];
+
+        if (search_schema_it->is_singular()) {
+            auto const& ref_index = sort_index_it->second;
+            auto const it = ref_index->find(seq_id);
+            if (it == ref_index->end() || it->second == Join::reference_helper_sentinel_value) {
+                return Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
+                                           std::to_string(seq_id) + "`.");
+            }
+
+            related_ids.push_back(it->second);
+        } else {
+            auto const& ref_index = reference_index_it->second;
+            size_t count = 0;
+            uint32_t* ref_ids = nullptr;
+            ref_index->search(EQUALS, seq_id, &ref_ids, count);
+
+            if (count == 0) {
+                return Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
+                                         std::to_string(seq_id) + "`.");
+            }
+
+            for (size_t j = 0; j < count; j++) {
+                related_ids.push_back(ref_ids[j]);
+            }
+        }
+    }
+
+    gfx::timsort(related_ids.begin(), related_ids.end());
+    related_ids.erase(unique(related_ids.begin(), related_ids.end()), related_ids.end());
+
+    return Option<bool>(true);
 }
 
 Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_t& seq_id,
@@ -8410,15 +8468,20 @@ Option<bool> Index::get_object_array_related_id(const std::string& collection_na
                                                 const uint32_t& seq_id, const uint32_t& object_index,
                                                 uint32_t& result) const {
     std::shared_lock lock(mutex);
-    if (object_array_reference_index.count(field_name) == 0 || object_array_reference_index.at(field_name) == nullptr) {
+
+    auto object_ref_index = object_array_reference_index.find(field_name);
+    if (object_ref_index == object_array_reference_index.end() || object_ref_index->second == nullptr) {
         return Option<bool>(404, "`" + field_name + "` not found in `" + collection_name +
                                     ".object_array_reference_index`");
-    } else if (object_array_reference_index.at(field_name)->count({seq_id, object_index}) == 0) {
+    }
+
+    auto it = object_ref_index->second->find({seq_id, object_index});
+    if (it == object_ref_index->second->end()) {
         return Option<bool>(400, "Key `{" + std::to_string(seq_id) + ", " + std::to_string(object_index) + "}`"
                                     " not found in `" + collection_name + ".object_array_reference_index`");
     }
 
-    result = object_array_reference_index.at(field_name)->at({seq_id, object_index});
+    result = it->second;
     return Option<bool>(true);
 }
 
@@ -8637,23 +8700,12 @@ Option<std::vector<uint32_t>> Index::get_ref_seq_ids_helper(const std::vector<ui
         }
         auto const& field_name = get_reference_field_op.get();
 
-        for (const auto& seq_id: seq_ids_vec) {
-            auto related_ids_op = Option<bool>(true);
-            if (coll_name == get_collection_name_with_lock()) {
-                related_ids_op = get_related_ids(field_name, seq_id, ref_seq_ids);
-            } else {
-                auto prev_coll = cm.get_collection(coll_name);
-                if (prev_coll == nullptr) {
-                    return Option<std::vector<uint32_t>>(400, "Referenced collection `" + coll_name +
-                                                                "` in `sort_by` not found.");
-                }
-                related_ids_op = prev_coll->get_related_ids(field_name, seq_id, ref_seq_ids);
-            }
-            if (!related_ids_op.ok()) {
-                if (related_ids_op.code() == 400) {
-                    return Option<std::vector<uint32_t>>(400, related_ids_op.error());
-                }
-            }
+        auto related_ids_op = (coll_name == get_collection_name_with_lock()) ?
+                                    get_related_ids(field_name, seq_ids_vec, ref_seq_ids) :
+                                    CollectionManager::get_related_ids(coll_name, field_name, seq_ids_vec, ref_seq_ids);
+
+        if (!related_ids_op.ok() && related_ids_op.code() == 400) {
+            return Option<std::vector<uint32_t>>(400, related_ids_op.error());
         }
     }
         // Joined collection has a reference
@@ -8683,26 +8735,19 @@ Option<std::vector<uint32_t>> Index::get_ref_seq_ids_helper(const std::vector<ui
         const auto& reference_field_name = reference_field_name_op.get();
         auto& ref_result = references->at(joined_coll_having_reference);
         const auto& count = ref_result.count;
+        const auto& docs = ref_result.docs;
 
-        for (size_t i = 0; i < count; i++) {
-            const auto& seq_id = ref_result.docs[i];
-
-            auto related_ids_op = joined_collection->get_related_ids(reference_field_name, seq_id, ref_seq_ids);
-            if (!related_ids_op.ok()) {
-                if (related_ids_op.code() == 400) {
-                    return Option<std::vector<uint32_t>>(400, related_ids_op.error());
-                }
+        auto related_ids_op = joined_collection->get_related_ids(reference_field_name,
+                                                                 std::vector<uint32_t>(docs, docs + count),
+                                                                 ref_seq_ids);
+        if (!related_ids_op.ok()) {
+            if (related_ids_op.code() == 400) {
+                return Option<std::vector<uint32_t>>(400, related_ids_op.error());
             }
         }
-    }
+   }
 
     coll_name = ref_coll_name;
-
-    if (ref_seq_ids.size() > 1) {
-        gfx::timsort(ref_seq_ids.begin(), ref_seq_ids.end());
-        ref_seq_ids.erase(std::unique( ref_seq_ids.begin(), ref_seq_ids.end() ), ref_seq_ids.end());
-    }
-
     return Option<std::vector<uint32_t>>(ref_seq_ids);
 }
 
