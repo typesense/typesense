@@ -450,6 +450,24 @@ TEST_F(AnalyticsManagerTest, RuleValidation) {
   auto queries_coll_create_op = collectionManager.create_collection(queries_schema);
   ASSERT_TRUE(queries_coll_create_op.ok());
 
+  nlohmann::json invalid_destination_collection_popular_queries_rule = R"({
+    "name": "counter_products",
+    "type": "counter",
+    "collection": "products",
+    "event_type": "click",
+    "rule_tag": "tag1",
+    "params": {
+      "destination_collection": 1,
+      "counter_field": "popularity",
+      "weight": 1
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_rule(invalid_destination_collection_popular_queries_rule, false, true, true);
+  ASSERT_FALSE(create_op.ok());
+  ASSERT_EQ(create_op.code(), 400);
+  ASSERT_EQ(create_op.error(), "Destination collection should be a string");
+
   nlohmann::json wrong_destination_collection_popular_queries_rule = R"({
     "name": "popular_queries_products",
     "type": "popular_queries",
@@ -463,7 +481,7 @@ TEST_F(AnalyticsManagerTest, RuleValidation) {
     }
   })"_json;
 
-  auto create_op = analyticsManager.create_rule(wrong_destination_collection_popular_queries_rule, false, true, true);
+  create_op = analyticsManager.create_rule(wrong_destination_collection_popular_queries_rule, false, true, true);
   ASSERT_FALSE(create_op.ok());
   ASSERT_EQ(create_op.code(), 400);
   ASSERT_EQ(create_op.error(), "Destination collection does not exist");

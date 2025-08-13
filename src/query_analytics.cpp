@@ -101,8 +101,11 @@ Option<bool> QueryAnalytics::add_event(const std::string& client_ip, const nlohm
     auto& query_counts = counter_event_it->second.query_counts;
     auto it = query_counts.find(query_event);
     // skip count when map has become too large (to prevent abuse)
-    if(it == query_counts.end() && query_counts.size() < counter_event_it->second.limit * 2) {
-      query_counts[query_event] = 1;
+    if (it == query_counts.end()) {
+      if (query_counts.size() < counter_event_it->second.limit * 2) {
+        query_counts.emplace(query_event, 1);
+      }
+      // else drop the event
     } else {
       it->second++;
     }
@@ -412,7 +415,14 @@ void QueryAnalytics::compact_single_user_queries(uint64_t now_ts_us, const std::
       uint64_t diff_micros = (i == prefix_queries.size() - 1) ? (now_ts_us - prefix_queries[i].timestamp) : 
                               (prefix_queries[i + 1].timestamp - prefix_queries[i].timestamp);
       if(diff_micros > QUERY_FINALIZATION_INTERVAL_MICROS || i == prefix_queries.size() - 1) {
-        const auto& rules = collection_rules_map.find(collection)->second;
+        auto rules_it = collection_rules_map.find(collection);
+        // if a rule was removed after prefix events were queued, 
+        // the per-user prefix maps can still contain that collection, but collection_rules_map may no longer have it. 
+        if (rules_it == collection_rules_map.end()) {
+          prefix_queries.clear();
+          break;
+        }
+        const auto& rules = rules_it->second;
         for(const auto& rule : rules) {
           const auto& rule_config = query_rules.find(rule)->second;
           if(rule_config.type == type && rule_config.capture_search_requests) {
