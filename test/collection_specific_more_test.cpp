@@ -3684,5 +3684,4 @@ TEST_F(CollectionSpecificMoreTest, StemmingWithDroppingTokens) {
     ASSERT_EQ(2, search_res["hits"].size());
     ASSERT_EQ("gardening tools", search_res["hits"][0]["document"]["content"].get<std::string>());
     ASSERT_EQ("gardening supply", search_res["hits"][1]["document"]["content"].get<std::string>());
-
 }
