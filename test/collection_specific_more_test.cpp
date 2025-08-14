@@ -3662,3 +3662,27 @@ TEST_F(CollectionSpecificMoreTest, StemmingPhraseSearch) {
     results = coll1->search(R"(" achievements of ")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
     ASSERT_EQ(0, results["hits"].size());
 }
+
+TEST_F(CollectionSpecificMoreTest, StemmingWithDroppingTokens) {
+    nlohmann::json schema = R"({
+             "name": "test",
+             "fields": [ {"name": "content", "type": "string", "stem": true } ]
+          })"_json;
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+
+    auto coll_stem = coll_stem_res.get();
+
+    ASSERT_TRUE(coll_stem->add(R"({"content": "gardening tools"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"content": "gardening supply"})"_json.dump()).ok());
+
+    auto search_res = coll_stem->search("garden tools", {"content"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, search_res["hits"].size());
+    ASSERT_EQ("gardening tools", search_res["hits"][0]["document"]["content"].get<std::string>());
+
+    search_res = coll_stem->search("garden tools", {"content"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(2, search_res["hits"].size());
+    ASSERT_EQ("gardening tools", search_res["hits"][0]["document"]["content"].get<std::string>());
+    ASSERT_EQ("gardening supply", search_res["hits"][1]["document"]["content"].get<std::string>());
+
+}

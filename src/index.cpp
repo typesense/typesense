@@ -3978,6 +3978,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             size_t truncated_len = orig_tokens_size - num_tokens_dropped - 1;
                             for (size_t i = 0; i < orig_tokens_size; i++) {
                                 if(i < truncated_len) {
+                                    if (do_stemming) {
+                                        auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
+                                        orig_tokens[i].value = stemmer->stem(orig_tokens[i].value);
+                                    }
                                     truncated_tokens.emplace_back(orig_tokens[i]);
                                 } else {
                                     dropped_tokens.emplace_back(orig_tokens[i]);
@@ -3989,6 +3993,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             size_t start_index = (num_tokens_dropped + 1);
                             for(size_t i = 0; i < orig_tokens_size; i++) {
                                 if(i >= start_index) {
+                                    if (do_stemming) {
+                                        auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
+                                        orig_tokens[i].value = stemmer->stem(orig_tokens[i].value);
+                                    }
                                     truncated_tokens.emplace_back(orig_tokens[i]);
                                 } else {
                                     dropped_tokens.emplace_back(orig_tokens[i]);
