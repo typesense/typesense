@@ -106,6 +106,8 @@ struct StringUtils {
 
     static void split_to_values(const std::string& vals_str, std::vector<std::string>& filter_values);
 
+    static bool split_ref_include_params(const std::string& params, std::map<std::string, std::string>& result);
+
     // Adapted from: http://stackoverflow.com/a/36000453/131050
     static std::string & trim(std::string & str) {
         // right trim

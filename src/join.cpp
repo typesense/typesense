@@ -981,41 +981,19 @@ Option<bool> parse_nested_exclude(const std::string& exclude_field_exp,
 Option<bool> parse_ref_include_parameters(const std::string& include_field_exp, const std::string& parameters,
                                           ref_include::strategy_enum& strategy_enum, std::string& related_docs_field,
                                           std::string& sort_by_str, size_t& limit) {
-    //parse sort_by param separately if exists
-    std::string parameters_updated = parameters;
-    auto pos = parameters.find("sort_by:(");
-    if(pos != std::string::npos) {
-        pos += std::strlen("sort_by:(");
-        while (pos < parameters.size()) {
-            sort_by_str += parameters[pos];
 
-            ++pos;
-
-            if (parameters[pos] == ')' && (pos == parameters.size() - 1  || parameters[pos+1] == ',')) {
-                break;
-            }
-        }
-
-        //skip to next params
-        if(pos + 2 < parameters.size()) {
-            pos += 2;
-        }
-
-        parameters_updated = parameters.substr(pos);
+    std::map<std::string, std::string> parameters_map;
+    auto splited = StringUtils::split_ref_include_params(parameters, parameters_map);
+    if(!splited) {
+        return Option<bool>(400, "Error parsing `" + parameters + "`");
     }
 
-    std::vector<std::string> parameters_map;
-    StringUtils::split(parameters_updated, parameters_map, ",");
-    for (const auto &item: parameters_map) {
-        std::vector <std::string> parameter_pair;
-        StringUtils::split(item, parameter_pair, ":");
-        if (parameter_pair.size() != 2) {
-            continue;
-        }
+    for (const auto &kv: parameters_map) {
+        auto const& key = kv.first;
+        auto const& val = kv.second;
 
-        auto const& key = StringUtils::trim(parameter_pair[0]);
         if (key == ref_include::strategy_key) {
-            auto const& include_strategy = StringUtils::trim(parameter_pair[1]);
+            auto const& include_strategy = val;
 
             auto string_to_enum_op = ref_include::string_to_enum(include_strategy);
             if (!string_to_enum_op.ok()) {
@@ -1023,9 +1001,11 @@ Option<bool> parse_ref_include_parameters(const std::string& include_field_exp, 
             }
             strategy_enum = string_to_enum_op.get();
         } else if (key == ref_include::related_docs_count) {
-            related_docs_field = StringUtils::trim(parameter_pair[1]);
+            related_docs_field = val;
         } else if (key == ref_include::limit) {
-            limit = std::stoul(StringUtils::trim(parameter_pair[1]));
+            limit = std::stoul(val);
+        } else if (key == ref_include::sort_by) {
+            sort_by_str = val;
         } else {
             return Option<bool>(400, "Unknown reference `include_fields` parameter: `" + key + "`.");
         }
@@ -1047,7 +1027,7 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
 
         index = parenthesis_index + 1;
         auto nested_include_pos = include_field_exp.find('$', parenthesis_index);
-        auto closing_parenthesis_pos = include_field_exp.find(')', parenthesis_index);
+        auto closing_parenthesis_pos = include_field_exp.rfind(')');
         auto colon_pos = include_field_exp.find(':', index);
         size_t comma_pos;
         std::vector<ref_include_exclude_fields> nested_ref_include_exclude_fields_vec;
@@ -1091,6 +1071,7 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
         std::string sort_by_str = "";
         size_t limit = 0;
         if (colon_pos < closing_parenthesis_pos) {
+            colon_pos = ref_fields.find(':');
             auto const& parameters_start = ref_fields.rfind(',', colon_pos);
             std::string parameters;
             if (parameters_start == std::string::npos) {

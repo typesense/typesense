@@ -9342,6 +9342,42 @@ TEST_F(CollectionJoinTest, InitializeRefIncludeExcludeFields) {
     ASSERT_EQ("re.", ref_include_exclude_fields_vec[0].alias);
     ASSERT_EQ(ref_include::merge, ref_include_exclude_fields_vec[0].strategy);
     ASSERT_TRUE(ref_include_exclude_fields_vec[0].nested_join_includes.empty());
+
+    ref_include_exclude_fields_vec.clear();
+
+    filter_query = "$product_variants( $inventory($retailers(location:(33.865,-118.375,100 km))))";
+    include_fields_vec = {"$product_variants(title, $inventory(qty, strategy:merge, sort_by:_eval(qty:>0):asc, limit:2) as inventory, "
+                          "strategy: nest, sort_by:title:desc, limit:1) as variants"};
+    initialize_op = Join::initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                    exclude_fields_vec,
+                                                                    ref_include_exclude_fields_vec);
+    ASSERT_TRUE(initialize_op.ok());
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+    ASSERT_EQ("product_variants", ref_include_exclude_fields_vec[0].collection_name);
+    ASSERT_EQ("title", ref_include_exclude_fields_vec[0].include_fields);
+    ASSERT_EQ("variants", ref_include_exclude_fields_vec[0].alias);
+    ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
+    ASSERT_EQ("title:desc", ref_include_exclude_fields_vec[0].sort_by_str);
+    ASSERT_EQ(1, ref_include_exclude_fields_vec[0].limit);
+
+    nested_include_excludes = ref_include_exclude_fields_vec[0].nested_join_includes;
+    ASSERT_EQ("inventory", nested_include_excludes[0].collection_name);
+    ASSERT_EQ("qty", nested_include_excludes[0].include_fields);
+    ASSERT_EQ("inventory.", nested_include_excludes[0].alias);
+    ASSERT_EQ(ref_include::merge, nested_include_excludes[0].strategy);
+    ASSERT_EQ("_eval(qty:>0):asc", nested_include_excludes[0].sort_by_str);
+    ASSERT_EQ(2, nested_include_excludes[0].limit);
+
+    ref_include_exclude_fields_vec.clear();
+
+    filter_query = "$product_variants( $inventory($retailers(location:(33.865,-118.375,100 km))))";
+    include_fields_vec = {"$product_variants(title, $inventory(qty, strategy:merge, sort_by:qty:desc, limit:2) as inventory, "
+                          "strategy: nest, sort_by:title, limit:1) as variants"};
+    initialize_op = Join::initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                    exclude_fields_vec,
+                                                                    ref_include_exclude_fields_vec);
+    ASSERT_FALSE(initialize_op.ok());
+    ASSERT_EQ(initialize_op.error(), "Error parsing ` strategy: nest, sort_by:title, limit:1`");
 }
 
 TEST_F(CollectionJoinTest, NegateLeftJoinOneToOne) {
@@ -10609,7 +10645,7 @@ TEST_F(JoinIncludeExcludeFieldsTest, IncludeFieldsSortLimit) {
             })"_json,
             R"({
                 "id": "3",
-                "title": "12:01 PM",
+                "title": "Vikings",
                 "author_id": "1",
                 "in_stock": true,
                 "popularity": 3.8
@@ -10711,7 +10747,7 @@ TEST_F(JoinIncludeExcludeFieldsTest, IncludeFieldsSortLimit) {
             {"collection",     "authors"},
             {"q",              "*"},
             {"filter_by",      "$books(id:*)"},
-            {"include_fields", "$books(*, sort_by:(_seq_id:desc)) as books"}
+            {"include_fields", "$books(*, sort_by:_seq_id:desc) as books"}
     };
     now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -10744,7 +10780,7 @@ TEST_F(JoinIncludeExcludeFieldsTest, IncludeFieldsSortLimit) {
             {"collection",     "authors"},
             {"q",              "*"},
             {"filter_by",      "$books(id:*)"},
-            {"include_fields", "$books(*, sort_by:(_seq_id:desc), limit:2) as books"}
+            {"include_fields", "$books(*, sort_by:_seq_id:desc, limit:2) as books"}
     };
     now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -10772,7 +10808,7 @@ TEST_F(JoinIncludeExcludeFieldsTest, IncludeFieldsSortLimit) {
             {"collection",     "authors"},
             {"q",              "*"},
             {"filter_by",      "$books(id:*)"},
-            {"include_fields", "$books(*, sort_by:(_eval(in_stock:true):desc, popularity:desc), strategy:merge) as books"}
+            {"include_fields", "$books(*, sort_by:_eval(in_stock:true):desc, popularity:desc, strategy:merge) as books"}
     };
     now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -10802,7 +10838,7 @@ TEST_F(JoinIncludeExcludeFieldsTest, IncludeFieldsSortLimit) {
             {"collection",     "authors"},
             {"q",              "*"},
             {"filter_by",      "$books(id:*)"},
-            {"include_fields", "$books(*, sort_by:(_eval(in_stock:true):asc, popularity:asc), strategy:merge, limit:1) as books"}
+            {"include_fields", "$books(*, sort_by:_eval(in_stock:true):asc, popularity:asc, strategy:merge, limit:1) as books"}
     };
     now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -10825,4 +10861,218 @@ TEST_F(JoinIncludeExcludeFieldsTest, IncludeFieldsSortLimit) {
 
     ASSERT_EQ(1, res_obj["hits"][1]["document"]["books.popularity"].size());
     ASSERT_EQ(4.6, res_obj["hits"][1]["document"]["books.popularity"][0].get<double>());
+}
+
+TEST_F(CollectionJoinTest, SortLimitByNestedReferences) {
+    nlohmann::json schema_json =
+            R"({
+                "name": "products",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "title": "shampoo"
+            })"_json,
+            R"({
+                "title": "soap"
+            })"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "product_variants",
+                "fields": [
+                    {"name": "title", "type": "string", "sort": true},
+                    {"name": "product_id", "type": "string", "reference": "products.id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "title": "panteen",
+                "product_id": "0"
+            })"_json,
+            R"({
+                "title": "loreal",
+                "product_id": "0"
+            })"_json,
+            R"({
+                "title": "pears",
+                "product_id": "1"
+            })"_json,
+            R"({
+                "title": "lifebuoy",
+                "product_id": "1"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "retailers",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "location", "type": "geopoint"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "title": "retailer 1",
+                "location": [48.872576479306765, 2.332291112241466]
+            })"_json,
+            R"({
+                "title": "retailer 2",
+                "location": [48.888286721920934, 2.342340862419206]
+            })"_json,
+            R"({
+                "title": "retailer 3",
+                "location": [48.87538726829884, 2.296113163780903]
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "inventory",
+                "fields": [
+                    {"name": "qty", "type": "int32"},
+                    {"name": "retailer_id", "type": "string", "reference": "retailers.id"},
+                    {"name": "product_variant_id", "type": "string", "reference": "product_variants.id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "qty": "1",
+                "retailer_id": "0",
+                "product_variant_id": "0"
+            })"_json,
+            R"({
+                "qty": "2",
+                "retailer_id": "0",
+                "product_variant_id": "1"
+            })"_json,
+            R"({
+                "qty": "3",
+                "retailer_id": "0",
+                "product_variant_id": "2"
+            })"_json,
+            R"({
+                "qty": "4",
+                "retailer_id": "0",
+                "product_variant_id": "3"
+            })"_json,
+            R"({
+                "qty": "5",
+                "retailer_id": "1",
+                "product_variant_id": "0"
+            })"_json,
+            R"({
+                "qty": "6",
+                "retailer_id": "1",
+                "product_variant_id": "1"
+            })"_json,
+            R"({
+                "qty": "7",
+                "retailer_id": "1",
+                "product_variant_id": "2"
+            })"_json,
+            R"({
+                "qty": "8",
+                "retailer_id": "1",
+                "product_variant_id": "3"
+            })"_json,
+            R"({
+                "qty": "9",
+                "retailer_id": "2",
+                "product_variant_id": "0"
+            })"_json,
+            R"({
+                "qty": "10",
+                "retailer_id": "2",
+                "product_variant_id": "1"
+            })"_json,
+            R"({
+                "qty": "11",
+                "retailer_id": "2",
+                "product_variant_id": "2"
+            })"_json,
+            R"({
+                "qty": "12",
+                "retailer_id": "2",
+                "product_variant_id": "3"
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    nlohmann::json embedded_params;
+    std::string json_res;
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "products"},
+            {"q", "*"},
+            {"filter_by", "$product_variants($inventory($retailers(location:(48.87538726829884, 2.296113163780903,1 km))))"},
+            {"include_fields", "$product_variants(id,$inventory(qty,sku,$retailers(id,title), sort_by:qty:desc), sort_by:title:desc, limit:1)"}
+    };
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["product_variants"].size());
+
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["product_variants"][0]["id"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["product_variants"][0]["inventory"].size());
+    ASSERT_EQ(11, res_obj["hits"][0]["document"]["product_variants"][0]["inventory"]["qty"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["product_variants"][0]["inventory"]["retailers"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["product_variants"][0]["inventory"]["retailers"]["id"]);
+    ASSERT_EQ("retailer 3", res_obj["hits"][0]["document"]["product_variants"][0]["inventory"]["retailers"]["title"]);
+
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["product_variants"].size());
+
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["product_variants"][0]["id"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["product_variants"][0]["inventory"].size());
+    ASSERT_EQ(9, res_obj["hits"][1]["document"]["product_variants"][0]["inventory"]["qty"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["product_variants"][0]["inventory"]["retailers"].size());
+    ASSERT_EQ("2", res_obj["hits"][1]["document"]["product_variants"][0]["inventory"]["retailers"]["id"]);
+    ASSERT_EQ("retailer 3", res_obj["hits"][1]["document"]["product_variants"][0]["inventory"]["retailers"]["title"]);
 }
