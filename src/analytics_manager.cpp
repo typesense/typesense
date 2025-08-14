@@ -709,8 +709,12 @@ Option<nlohmann::json> AnalyticsManager::remove_rule(const std::string& name) {
       return Option<nlohmann::json>(500, "Error while removing the config from disk.");
     }
     rules_map.erase(name);
-    auto record = rules.find(name)->second;
-    rules.erase(name);
+    auto rit = rules.find(name);
+    if (rit == rules.end()) {
+      return Option<nlohmann::json>(500, "Internal rules registry out of sync");
+    }
+    auto record = rit->second;
+    rules.erase(rit);
     return Option<nlohmann::json>(record);
 }
 

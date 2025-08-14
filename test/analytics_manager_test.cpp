@@ -450,6 +450,24 @@ TEST_F(AnalyticsManagerTest, RuleValidation) {
   auto queries_coll_create_op = collectionManager.create_collection(queries_schema);
   ASSERT_TRUE(queries_coll_create_op.ok());
 
+  nlohmann::json invalid_destination_collection_popular_queries_rule = R"({
+    "name": "counter_products",
+    "type": "counter",
+    "collection": "products",
+    "event_type": "click",
+    "rule_tag": "tag1",
+    "params": {
+      "destination_collection": 1,
+      "counter_field": "popularity",
+      "weight": 1
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_rule(invalid_destination_collection_popular_queries_rule, false, true, true);
+  ASSERT_FALSE(create_op.ok());
+  ASSERT_EQ(create_op.code(), 400);
+  ASSERT_EQ(create_op.error(), "Destination collection should be a string");
+
   nlohmann::json wrong_destination_collection_popular_queries_rule = R"({
     "name": "popular_queries_products",
     "type": "popular_queries",
@@ -463,7 +481,7 @@ TEST_F(AnalyticsManagerTest, RuleValidation) {
     }
   })"_json;
 
-  auto create_op = analyticsManager.create_rule(wrong_destination_collection_popular_queries_rule, false, true, true);
+  create_op = analyticsManager.create_rule(wrong_destination_collection_popular_queries_rule, false, true, true);
   ASSERT_FALSE(create_op.ok());
   ASSERT_EQ(create_op.code(), 400);
   ASSERT_EQ(create_op.error(), "Destination collection does not exist");
@@ -1114,4 +1132,296 @@ TEST_F(AnalyticsManagerTest, DocCounterEvents) {
   ASSERT_EQ(counter.docid_counts.size(), 2);
   ASSERT_EQ(counter.docid_counts.at("1"), 4);
   ASSERT_EQ(counter.docid_counts.at("2"), 2);
+}
+
+TEST_F(AnalyticsManagerTest, SearchWithNoRule) {
+  nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" },
+        {"name": "country", "type": "string", "facet": true },
+        {"name": "popularity", "type": "int32", "optional": true}
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  nlohmann::json doc;
+  doc["company_name"] = "Typesense";
+  doc["num_employees"] = 10;
+  doc["country"] = "US";
+  doc["popularity"] = 10;
+
+  auto add_op = coll->add(doc.dump());
+  ASSERT_TRUE(add_op.ok());
+
+  std::map<std::string, std::string> req_params = {
+    {"q", "type"},
+    {"query_by", "company_name"},
+    {"collection", "products"},
+    {"x-typesense-user-id", "user2"},
+    {"analytics_tag", "tag1"},
+    {"filter_by", "country:US"}
+  };
+  nlohmann::json embedded_params;
+  std::string results_json_str;
+  auto results = CollectionManager::do_search(req_params, embedded_params, results_json_str, 0);
+  ASSERT_TRUE(results.ok());
+}
+
+TEST_F(AnalyticsManagerTest, QueryLogEventsGetInMemory) {
+  nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" },
+        {"name": "country", "type": "string", "facet": true }
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  nlohmann::json log_rule = R"({
+    "name": "log_queries",
+    "type": "log",
+    "collection": "products",
+    "event_type": "query",
+    "rule_tag": "log_queries",
+    "params": {
+      "capture_search_requests": false,
+      "meta_fields": ["filter_by", "analytics_tag"]
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_rule(log_rule, false, true, true);
+  ASSERT_TRUE(create_op.ok());
+
+  auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "log_queries",
+    "data": {
+      "q": "alpha",
+      "user_id": "user2",
+      "analytics_tag": "tag1",
+      "filter_by": "country:US"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "log_queries",
+    "data": {
+      "q": "beta",
+      "user_id": "user2",
+      "analytics_tag": "tag1",
+      "filter_by": "country:CA"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "log_queries",
+    "data": {
+      "q": "gamma",
+      "user_id": "user3",
+      "analytics_tag": "tag2",
+      "filter_by": "country:US"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  auto get_events_op = analyticsManager.get_events("user2", "log_queries", 10);
+  ASSERT_TRUE(get_events_op.ok());
+  const auto& events = get_events_op.get()["events"].get<std::vector<nlohmann::json>>();
+  ASSERT_EQ(events.size(), 2);
+
+  ASSERT_EQ(events[0]["name"], "log_queries");
+  ASSERT_EQ(events[0]["event_type"], "query");
+  ASSERT_EQ(events[0]["collection"], "products");
+  ASSERT_EQ(events[0]["user_id"], "user2");
+  ASSERT_EQ(events[0]["query"], "beta");
+  ASSERT_EQ(events[0]["filter_by"], "country:CA");
+  ASSERT_EQ(events[0]["analytics_tag"], "tag1");
+
+  ASSERT_EQ(events[1]["name"], "log_queries");
+  ASSERT_EQ(events[1]["event_type"], "query");
+  ASSERT_EQ(events[1]["collection"], "products");
+  ASSERT_EQ(events[1]["user_id"], "user2");
+  ASSERT_EQ(events[1]["query"], "alpha");
+  ASSERT_EQ(events[1]["filter_by"], "country:US");
+  ASSERT_EQ(events[1]["analytics_tag"], "tag1");
+}
+
+TEST_F(AnalyticsManagerTest, DocLogEventsGetInMemory) {
+  nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "id", "type": "string" },
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" }
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  nlohmann::json doc;
+  doc["id"] = "1";
+  doc["company_name"] = "Typesense";
+  doc["num_employees"] = 10;
+  ASSERT_TRUE(coll->add(doc.dump()).ok());
+  doc["id"] = "2";
+  doc["num_employees"] = 20;
+  ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+  nlohmann::json log_rule = R"({
+    "name": "doc_click_logs",
+    "type": "log",
+    "collection": "products",
+    "event_type": "click",
+    "rule_tag": "doc_logs"
+  })"_json;
+
+  auto create_op = analyticsManager.create_rule(log_rule, false, true, true);
+  ASSERT_TRUE(create_op.ok());
+
+  auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "doc_click_logs",
+    "data": {
+      "user_id": "user2",
+      "doc_id": "1",
+      "query": "type"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "doc_click_logs",
+    "data": {
+      "user_id": "user2",
+      "doc_ids": ["1", "2"],
+      "query": "typesense"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  // Another user's event should not appear when fetching for user2
+  add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "doc_click_logs",
+    "data": {
+      "user_id": "user3",
+      "doc_id": "2",
+      "query": "typesense"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  auto get_events_op = analyticsManager.get_events("user2", "doc_click_logs", 10);
+  ASSERT_TRUE(get_events_op.ok());
+  const auto& events = get_events_op.get()["events"].get<std::vector<nlohmann::json>>();
+  ASSERT_EQ(events.size(), 2);
+
+  // Reverse chronological order: multi-doc event first
+  ASSERT_EQ(events[0]["name"], "doc_click_logs");
+  ASSERT_EQ(events[0]["event_type"], "click");
+  ASSERT_EQ(events[0]["collection"], "products");
+  ASSERT_EQ(events[0]["user_id"], "user2");
+  ASSERT_EQ(events[0]["query"], "typesense");
+  ASSERT_TRUE(events[0].contains("doc_ids"));
+  ASSERT_EQ(events[0]["doc_ids"].size(), 2);
+
+  ASSERT_EQ(events[1]["name"], "doc_click_logs");
+  ASSERT_EQ(events[1]["event_type"], "click");
+  ASSERT_EQ(events[1]["collection"], "products");
+  ASSERT_EQ(events[1]["user_id"], "user2");
+  ASSERT_EQ(events[1]["query"], "type");
+  ASSERT_TRUE(events[1].contains("doc_id"));
+  ASSERT_EQ(events[1]["doc_id"], "1");
+}
+
+TEST_F(AnalyticsManagerTest, QueryLogEventsWithCaptureGetInMemory) {
+  nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" },
+        {"name": "country", "type": "string", "facet": true }
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  nlohmann::json doc;
+  doc["company_name"] = "Typesense";
+  doc["num_employees"] = 10;
+  doc["country"] = "US";
+  ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+  nlohmann::json log_rule = R"({
+    "name": "log_with_capture",
+    "type": "log",
+    "collection": "products",
+    "event_type": "query",
+    "rule_tag": "log_queries",
+    "params": {
+      "destination_collection": "ignored",
+      "capture_search_requests": true,
+      "meta_fields": ["filter_by", "analytics_tag"]
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_rule(log_rule, false, true, true);
+  ASSERT_TRUE(create_op.ok());
+
+  std::string results_json_str;
+  std::map<std::string, std::string> req_params = {
+    {"q", "type"},
+    {"query_by", "company_name"},
+    {"collection", "products"},
+    {"x-typesense-user-id", "user2"},
+    {"analytics_tag", "tag1"},
+    {"filter_by", "country:US"}
+  };
+  nlohmann::json embedded_params;
+  auto results = CollectionManager::do_search(req_params, embedded_params, results_json_str, 0);
+  ASSERT_TRUE(results.ok());
+  req_params["q"] = "typesen";
+  results = CollectionManager::do_search(req_params, embedded_params, results_json_str, 0);
+  ASSERT_TRUE(results.ok());
+  req_params["q"] = "typesense";
+  results = CollectionManager::do_search(req_params, embedded_params, results_json_str, 0);
+  ASSERT_TRUE(results.ok());
+
+  // Another user
+  req_params["x-typesense-user-id"] = "user3";
+  req_params["analytics_tag"] = "tag2";
+  req_params["q"] = "hello";
+  results = CollectionManager::do_search(req_params, embedded_params, results_json_str, 0);
+  ASSERT_TRUE(results.ok());
+
+  auto future_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count() + uint64_t(QueryAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS) * 2;
+  query_analytics.compact_all_user_queries(future_ts_us);
+
+  auto get_events_op = analyticsManager.get_events("user2", "log_with_capture", 10);
+  ASSERT_TRUE(get_events_op.ok());
+  const auto& events = get_events_op.get()["events"].get<std::vector<nlohmann::json>>();
+  ASSERT_EQ(events.size(), 1);
+  ASSERT_EQ(events[0]["name"], "log_with_capture");
+  ASSERT_EQ(events[0]["event_type"], "query");
+  ASSERT_EQ(events[0]["collection"], "products");
+  ASSERT_EQ(events[0]["user_id"], "user2");
+  ASSERT_EQ(events[0]["query"], "typesense");
+  ASSERT_EQ(events[0]["filter_by"], "country:US");
+  ASSERT_EQ(events[0]["analytics_tag"], "tag1");
 }
