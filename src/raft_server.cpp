@@ -19,8 +19,8 @@ RaftServer::RaftServer(HttpServer* server,
     // Create RaftNodeManager first (no dependencies)
     node_manager = std::make_unique<RaftNodeManager>(config, store, batched_indexer, api_uses_ssl);
 
-    // Create ReplicationState with dependency injection of RaftNodeManager
-    state_machine = std::make_unique<ReplicationState>(
+    // Create RaftStateMachine with dependency injection of RaftNodeManager
+    state_machine = std::make_unique<RaftStateMachine>(
         server, batched_indexer, store, analytics_store,
         thread_pool, message_dispatcher, api_uses_ssl, config,
         num_collections_parallel_load, num_documents_parallel_load,
@@ -86,7 +86,7 @@ void RaftServer::shutdown() {
     LOG(INFO) << "Shutting down RaftServer";
     state_machine->shutdown();
 
-    // Note: RaftNodeManager shutdown is handled by ReplicationState::shutdown()
+    // Note: RaftNodeManager shutdown is handled by RaftStateMachine::shutdown()
     // to maintain proper shutdown order and avoid double-shutdown
 
     LOG(INFO) << "RaftServer shutdown complete";

@@ -304,7 +304,7 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
     std::set<std::string> allowed_keys = {"metadata", "fields"};
 
     // Ensures that only one alter can run per collection.
-    // The actual check for this, happens in `ReplicationState::write` which is called only during live writes.
+    // The actual check for this, happens in `RaftStateMachine::write` which is called only during live writes.
     alter_guard_t alter_guard(req->params["collection"]);
 
     try {
@@ -1220,7 +1220,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         std::vector<std::string> exclude_fields;
         StringUtils::split(req->params["exclude_fields"], exclude_fields, ",");
         bool exclude_conversation_history = std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
-        
+
         auto new_conversation_op = ConversationManager::get_last_n_messages(conversation_history["conversation"], 2);
         if(!new_conversation_op.ok()) {
             res->set_400(new_conversation_op.error());
@@ -2300,7 +2300,7 @@ bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
         res->set_400("Bad JSON.");
         return false;
     }
-    
+
     override_t override;
     Option<bool> parse_op = override_t::parse(req_json, override_id, override, "",
                                               collection->get_symbols_to_index(),
@@ -2309,7 +2309,7 @@ bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
         res->set(parse_op.code(), parse_op.error());
         return false;
     }
-    
+
     Option<uint32_t> add_op = collection->add_override(override);
 
     if(!add_op.ok()) {
@@ -3273,7 +3273,7 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         return false;
     }
 
-    try {        
+    try {
         if(req_json.count("body") != 0 && !req_json["body"].is_string()) {
             res->set_400("Body must be a string.");
             return false;
@@ -3297,7 +3297,7 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     }
 
     auto response = proxy.send(url, method, body, headers);
-    
+
     if(response.status_code != 200) {
         int code = response.status_code;
         res->set_body(code, response.body);
@@ -3428,7 +3428,7 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
 
 bool post_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
-    
+
     if (!req->params.count("name") || !req->params.count("type")) {
         res->set_400("Missing required parameters 'name' and 'type'.");
         return false;
@@ -3451,19 +3451,19 @@ bool post_personalization_model(const std::shared_ptr<http_req>& req, const std:
         res->set(create_op.code(), create_op.error());
         return false;
     }
-    
+
     auto model = create_op.get();
     if (model.contains("model_path")) {
       model.erase("model_path");
     }
     res->set_200(model.dump());
-    
+
     return true;
 }
 
 bool get_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string& model_id = req->params["id"];
-    
+
     auto model_op = PersonalizationModelManager::get_model(model_id);
     if (!model_op.ok()) {
         res->set(model_op.code(), model_op.error());
@@ -3499,7 +3499,7 @@ bool get_personalization_models(const std::shared_ptr<http_req>& req, const std:
 
 bool del_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string& model_id = req->params["id"];
-    
+
     auto delete_op = PersonalizationModelManager::delete_model(model_id);
     if (!delete_op.ok()) {
         res->set(delete_op.code(), delete_op.error());
@@ -3516,7 +3516,7 @@ bool del_personalization_model(const std::shared_ptr<http_req>& req, const std::
 
 bool put_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
-    
+
     if (req->params.count("name") && !req->params["name"].empty()) {
         req_json["name"] = req->params["name"];
     }

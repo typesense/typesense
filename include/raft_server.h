@@ -18,13 +18,13 @@ class Config;
 
 /**
  * RaftServer manages the lifecycle and integration of Raft components.
- * It owns both the ReplicationState (StateMachine) and RaftNodeManager,
+ * It owns both the RaftStateMachine (StateMachine) and RaftNodeManager,
  * eliminating circular dependencies and providing clear separation of concerns.
  */
 class RaftServer {
 private:
     // Owned components
-    std::unique_ptr<ReplicationState> state_machine;
+    std::unique_ptr<RaftStateMachine> state_machine;
     std::unique_ptr<RaftNodeManager> node_manager;
 
 public:

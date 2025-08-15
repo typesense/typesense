@@ -592,7 +592,7 @@ TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
     // without preset parameter, use collections from request body
 
     get_collections_for_auth(req_params, search_body, rpath_multi_search, "", collections, embedded_params_vec);
-    
+
     ASSERT_EQ(2, collections.size());
     ASSERT_EQ("foo1", collections[0].collection);
     ASSERT_EQ("bar1", collections[1].collection);
@@ -604,7 +604,7 @@ TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
 
     req_params["preset"] = "apple";
     get_collections_for_auth(req_params, search_body, rpath_multi_search, "", collections, embedded_params_vec);
-    
+
     ASSERT_EQ(2, collections.size());
     ASSERT_EQ("foo", collections[0].collection);
     ASSERT_EQ("bar", collections[1].collection);
@@ -1496,7 +1496,7 @@ TEST_F(CoreAPIUtilsTest, TestProxy) {
 
 TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
     nlohmann::json body;
-    
+
 
 
     auto req = std::make_shared<http_req>();
@@ -1692,7 +1692,7 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
                                  10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
                                  true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
                                  true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, true, model_id);
-    
+
     ASSERT_TRUE(results_op.ok());
 
     auto id = results_op.get()["conversation"]["id"].get<std::string>();
@@ -1726,7 +1726,7 @@ TEST_F(CoreAPIUtilsTest, SampleGzipIndexTest) {
     req->body.resize(length);
     infile.read(&req->body[0], length);
 
-    auto res = ReplicationState::handle_gzip(req);
+    auto res = raft_http::handle_gzip(req);
     if (!res.error().empty()) {
         LOG(ERROR) << res.error();
         FAIL();
@@ -2727,7 +2727,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
     ASSERT_TRUE(done);
     ASSERT_EQ(1, deletion_state.removed_docs.size());
     ASSERT_EQ(1, deletion_state.removed_ids.size());
-    
+
     ASSERT_EQ("5", deletion_state.removed_docs[0]["id"]);
     ASSERT_EQ("Title 5", deletion_state.removed_docs[0]["title"]);
     ASSERT_EQ(5, deletion_state.removed_docs[0]["points"]);
@@ -2863,14 +2863,14 @@ TEST_F(CoreAPIUtilsTest, RemoveDocumentsWithReturnValues) {
     // Test with both return_doc and return_id
     std::shared_ptr<http_req> req = std::make_shared<http_req>();
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
-    
+
     req->params["collection"] = "coll1";
     req->params["filter_by"] = "points: 5";
     req->params["return_doc"] = "true";
     req->params["return_id"] = "true";
 
     del_remove_documents(req, res);
-    
+
     nlohmann::json res_json = nlohmann::json::parse(res->body);
     ASSERT_EQ(1, res_json["num_deleted"].get<size_t>());
     ASSERT_TRUE(res_json.contains("documents"));
@@ -2893,13 +2893,13 @@ TEST_F(CoreAPIUtilsTest, RemoveDocumentsWithReturnValues) {
 
     req = std::make_shared<http_req>();
     res = std::make_shared<http_res>(nullptr);
-    
+
     req->params["collection"] = "coll1";
     req->params["filter_by"] = "points: 4";
     req->params["return_doc"] = "true";
 
     del_remove_documents(req, res);
-    
+
     res_json = nlohmann::json::parse(res->body);
     ASSERT_EQ(1, res_json["num_deleted"].get<size_t>());
     ASSERT_TRUE(res_json.contains("documents"));
@@ -2920,13 +2920,13 @@ TEST_F(CoreAPIUtilsTest, RemoveDocumentsWithReturnValues) {
 
     req = std::make_shared<http_req>();
     res = std::make_shared<http_res>(nullptr);
-    
+
     req->params["collection"] = "coll1";
     req->params["filter_by"] = "points: 3";
     req->params["return_id"] = "true";
 
     del_remove_documents(req, res);
-    
+
     res_json = nlohmann::json::parse(res->body);
     ASSERT_EQ(1, res_json["num_deleted"].get<size_t>());
     ASSERT_FALSE(res_json.contains("documents"));
@@ -2947,14 +2947,14 @@ TEST_F(CoreAPIUtilsTest, RemoveDocumentsWithReturnValues) {
 
     req = std::make_shared<http_req>();
     res = std::make_shared<http_res>(nullptr);
-    
+
     req->params["collection"] = "coll1";
     req->params["filter_by"] = "points:>= 7";
     req->params["return_doc"] = "true";
     req->params["return_id"] = "true";
 
     del_remove_documents(req, res);
-    
+
     res_json = nlohmann::json::parse(res->body);
     ASSERT_EQ(3, res_json["num_deleted"].get<size_t>());
     ASSERT_TRUE(res_json.contains("documents"));
@@ -2975,12 +2975,12 @@ TEST_F(CoreAPIUtilsTest, RemoveDocumentsWithReturnValues) {
 
     req = std::make_shared<http_req>();
     res = std::make_shared<http_res>(nullptr);
-    
+
     req->params["collection"] = "coll1";
     req->params["filter_by"] = "points: 2";
 
     del_remove_documents(req, res);
-    
+
     res_json = nlohmann::json::parse(res->body);
     ASSERT_EQ(1, res_json["num_deleted"].get<size_t>());
     ASSERT_FALSE(res_json.contains("documents"));
