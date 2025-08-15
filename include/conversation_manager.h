@@ -11,7 +11,7 @@
 #include "sole.hpp"
 #include "collection_manager.h"
 #include "conversation_model_manager.h"
-#include "raft_server.h"
+#include "raft_state_machine.h"
 
 class ConversationManager {
     public:

@@ -39,9 +39,9 @@ int RaftNodeManager::init_node(braft::StateMachine* fsm,
     }
 
     braft::NodeOptions node_options;
-    std::string nodes_config = raft::config::to_nodes_config(peering_endpoint, api_port, nodes);
+    this->nodes_config = raft::config::to_nodes_config(peering_endpoint, api_port, nodes);
 
-    if (node_options.initial_conf.parse_from(nodes_config) != 0) {
+    if (node_options.initial_conf.parse_from(this->nodes_config) != 0) {
         LOG(ERROR) << "Fail to parse configuration `" << nodes << "'";
         return -1;
     }
@@ -97,7 +97,11 @@ bool RaftNodeManager::wait_until_ready(int timeout_ms, const std::atomic<bool>& 
         node->get_status(&status);
 
         // Important: Check configuration size properly
-        bool is_single_node = status.peer_manager.size() == 1;
+        braft::Configuration current_conf;
+        current_conf.parse_from(this->nodes_config);
+        std::vector<braft::PeerId> peers;
+        current_conf.list_peers(&peers);
+        bool is_single_node = peers.size() == 1;
         bool is_leader = node->is_leader();
         bool has_leader = !node->leader_id().is_empty();
         bool ready = is_single_node || is_leader || has_leader;
@@ -262,7 +266,7 @@ void RaftNodeManager::check_leader_health(const braft::NodeStatus& local_status)
                     // We will refrain from changing current status
                     return;
                 }
-                read_caught_up = ((leader_committed - local_status.committed_index) < config->get_healthy_read_lag());
+                read_caught_up = ((leader_committed - local_status.committed_index) < static_cast<int64_t>(config->get_healthy_read_lag()));
             } else {
                 // We will refrain from changing current status
                 LOG(ERROR) << "Error, `committed_index` key not found in /status response from leader.";
@@ -273,6 +277,110 @@ void RaftNodeManager::check_leader_health(const braft::NodeStatus& local_status)
     } else {
         // We will again refrain from changing current status
         LOG(ERROR) << "Error, /status end-point returned bad status code " << status_code;
+    }
+}
+
+std::string RaftNodeManager::get_leader_url() const {
+    std::shared_lock lock(node_mutex);
+
+    if(!node) {
+        LOG(ERROR) << "Could not get leader url as node is not initialized!";
+        return "";
+    }
+
+    if(node->leader_id().is_empty()) {
+        LOG(ERROR) << "Could not get leader url, as node does not have a leader!";
+        return "";
+    }
+
+    const braft::PeerId& leader_addr = node->leader_id();
+    lock.unlock();
+
+    const std::string protocol = api_uses_ssl ? "https" : "http";
+    return raft::config::get_node_url_path(leader_addr, "/", protocol);
+}
+
+butil::Status RaftNodeManager::trigger_vote() {
+    std::shared_lock lock(node_mutex);
+
+    if(node) {
+        return node->vote(election_timeout_ms);
+    }
+
+    return butil::Status(-1, "Node not initialized");
+}
+
+butil::Status RaftNodeManager::reset_peers(const braft::Configuration& new_conf) {
+    std::shared_lock lock(node_mutex);
+
+    if(node) {
+        return node->reset_peers(new_conf);
+    }
+
+    return butil::Status(-1, "Node not initialized");
+}
+
+void RaftNodeManager::get_status(braft::NodeStatus* status) const {
+    std::shared_lock lock(node_mutex);
+
+    if(node) {
+        node->get_status(status);
+    }
+}
+
+braft::PeerId RaftNodeManager::leader_id() const {
+    std::shared_lock lock(node_mutex);
+
+    if(node) {
+        return node->leader_id();
+    }
+
+    return braft::PeerId();
+}
+
+braft::NodeId RaftNodeManager::node_id() const {
+    std::shared_lock lock(node_mutex);
+
+    if(node) {
+        return node->node_id();
+    }
+
+    // Return empty NodeId with default group and peer
+    return braft::NodeId(braft::GroupId(), braft::PeerId());
+}
+
+void RaftNodeManager::refresh_nodes(const std::string& nodes, bool allow_single_node_reset) {
+    std::shared_lock lock(node_mutex);
+
+    if(!node) {
+        LOG(WARNING) << "Node state is not initialized: unable to refresh nodes.";
+        return;
+    }
+
+    braft::Configuration new_conf;
+    if(new_conf.parse_from(nodes) != 0) {
+        LOG(ERROR) << "Failed to parse nodes configuration: " << nodes;
+        return;
+    }
+
+    if(node->is_leader()) {
+        RefreshNodesClosure* refresh_nodes_done = new RefreshNodesClosure;
+        node->change_peers(new_conf, refresh_nodes_done);
+    } else {
+        if(node->leader_id().is_empty()) {
+            // When node is not a leader, does not have a leader and is also a single-node cluster,
+            // we forcefully reset its peers (only if allowed)
+
+            std::vector<braft::PeerId> latest_nodes;
+            new_conf.list_peers(&latest_nodes);
+
+            if(latest_nodes.size() == 1 || allow_single_node_reset) {
+                LOG(WARNING) << "Node with no leader. Resetting peers of size: " << latest_nodes.size();
+                node->reset_peers(new_conf);
+            } else {
+                LOG(WARNING) << "Multi-node with no leader: refusing to reset peers.";
+            }
+        }
     }
 }
 

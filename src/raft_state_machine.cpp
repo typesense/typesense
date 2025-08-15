@@ -339,11 +339,6 @@ void RaftStateMachine::write_to_leader(const std::shared_ptr<http_req>& request,
     });
 }
 
-// Simple getters
-http_message_dispatcher* RaftStateMachine::get_message_dispatcher() const {
-    return message_dispatcher;
-}
-
 // ============================================================================
 // NODE MANAGEMENT DELEGATION (to RaftNodeManager)
 // ============================================================================

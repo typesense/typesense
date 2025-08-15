@@ -8,7 +8,6 @@
 #include <vector>
 
 // Raft Configuration and DNS Resolution Module
-// Extracted from raft_server.cpp for better organization
 
 namespace raft {
     namespace config {

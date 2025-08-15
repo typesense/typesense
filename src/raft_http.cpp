@@ -3,7 +3,6 @@
 #include <logger.h>
 
 // Raft HTTP Request Processing Module
-// Extracted from raft_server.cpp for better organization
 
 namespace raft {
     namespace http {

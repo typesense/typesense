@@ -4,7 +4,7 @@
 #include <memory>
 #include <atomic>
 #include <shared_mutex>
-#include <nlohmann/json.hpp>
+#include "json.hpp"
 #include <braft/raft.h>
 #include <butil/endpoint.h>
 
@@ -33,6 +33,7 @@ private:
     int api_port;
     int election_timeout_ms;
     bool api_uses_ssl;
+    std::string nodes_config; // Store the nodes configuration for single node checks
 
     // Leader tracking
     butil::atomic<int64_t> leader_term;

@@ -8,7 +8,7 @@
 #include <iostream>
 #include <auth_manager.h>
 #include <app_metrics.h>
-#include "raft_server.h"
+#include "raft_state_machine.h"
 #include "logger.h"
 #include "ratelimit_manager.h"
 #include "sole.hpp"
@@ -504,11 +504,11 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
         std::string message = "{ \"message\": \"Not Ready or Lagging\"}";
 
-        if(read_op && !h2o_handler->http_server->get_replication_state()->is_read_caught_up()) {
+        if(read_op && !h2o_handler->http_server->get_raft_state_machine()->is_read_caught_up()) {
             return send_response(req, 503, message);
         }
 
-        else if(write_op && !h2o_handler->http_server->get_replication_state()->is_write_caught_up()) {
+        else if(write_op && !h2o_handler->http_server->get_raft_state_machine()->is_write_caught_up()) {
             return send_response(req, 503, message);
         }
     }
@@ -818,7 +818,7 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
     request->is_write = is_write;
 
     if(is_write) {
-        handler->http_server->get_replication_state()->write(request, response);
+        handler->http_server->get_raft_state_machine()->write(request, response);
         return 0;
     }
 

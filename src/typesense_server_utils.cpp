@@ -6,6 +6,7 @@
 #include <brpc/server.h>
 #include <braft/raft.h>
 #include <raft_state_machine.h>
+#include <raft_config.h>
 #include <fstream>
 #include <execinfo.h>
 #include <http_client.h>
@@ -622,11 +623,11 @@ int run_server(const Config & config, const std::string & version, void (*master
     // first we start the peering service
 
     RaftStateMachine raft_state_machine(server, batch_indexer, &store, analytics_store,
-                           &replication_thread_pool, server->get_message_dispatcher(),
-                           ssl_enabled,
-                           &config,
-                           num_collections_parallel_load,
-                           config.get_num_documents_parallel_load());
+                                        &replication_thread_pool, server->get_message_dispatcher(),
+                                        ssl_enabled,
+                                        &config,
+                                        num_collections_parallel_load,
+                                        config.get_num_documents_parallel_load());
 
     auto conversations_init = ConversationManager::get_instance().init(&raft_state_machine);
 
@@ -663,10 +664,10 @@ int run_server(const Config & config, const std::string & version, void (*master
             HouseKeeper::get_instance().run();
         });
 
-        RemoteEmbedder::init(&raft_server);
+        RemoteEmbedder::init(&raft_state_machine);
 
         std::string path_to_nodes = config.get_nodes();
-        start_raft_server(raft_server, store, state_dir, path_to_nodes,
+        start_raft_server(raft_state_machine, store, state_dir, path_to_nodes,
                           config.get_peering_address(),
                           config.get_peering_port(),
                           config.get_peering_subnet(),

@@ -582,7 +582,7 @@ Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string
     req->async_res_write_callback = async_res_write_callback;
     req->async_res_done_callback = async_res_done_callback;
     auto raft_state_machine = RemoteEmbedder::get_raft_state_machine();
-    if(raft_server && !raft_state_machine->get_leader_url().empty()) {
+    if(raft_state_machine && !raft_state_machine->get_leader_url().empty()) {
         auto proxy_url = raft_state_machine->get_leader_url() + "proxy_sse";
         nlohmann::json proxy_req_body;
         proxy_req_body["method"] = "POST";
@@ -779,7 +779,7 @@ Option<std::string> CFConversationModel::get_answer_stream(const std::string& co
     req->async_res_write_callback = async_res_write_callback;
     req->async_res_done_callback = async_res_done_callback;
     auto raft_state_machine = RemoteEmbedder::get_raft_state_machine();
-    if(raft_server && !raft_state_machine->get_leader_url().empty()) {
+    if(raft_state_machine && !raft_state_machine->get_leader_url().empty()) {
         auto proxy_url = raft_state_machine->get_leader_url() + "proxy_sse";
         nlohmann::json proxy_req_body;
         proxy_req_body["method"] = "POST";
@@ -1197,13 +1197,12 @@ Option<std::string> vLLMConversationModel::get_answer_stream(const std::string& 
     if(model_config.count("api_key") != 0) {
         headers["Authorization"] = "Bearer " + model_config["api_key"].get<std::string>();
     }
-    
 
     req->async_res_set_headers_callback = async_res_set_headers_callback;
     req->async_res_write_callback = async_res_write_callback;
     req->async_res_done_callback = async_res_done_callback;
     auto raft_state_machine = RemoteEmbedder::get_raft_state_machine();
-    if(raft_server && !raft_state_machine->get_leader_url().empty()) {
+    if(raft_state_machine && !raft_state_machine->get_leader_url().empty()) {
         auto proxy_url = raft_state_machine->get_leader_url() + "proxy_sse";
         nlohmann::json proxy_req_body;
         proxy_req_body["method"] = "POST";
@@ -1595,7 +1594,7 @@ Option<std::string> GeminiConversationModel::get_answer_stream(const std::string
     req->async_res_write_callback = async_res_write_callback;
     req->async_res_done_callback = async_res_done_callback;
     auto raft_state_machine = RemoteEmbedder::get_raft_state_machine();
-    if(raft_server && !raft_state_machine->get_leader_url().empty()) {
+    if(raft_state_machine && !raft_state_machine->get_leader_url().empty()) {
         auto proxy_url = raft_state_machine->get_leader_url() + "proxy_sse";
         nlohmann::json proxy_req_body;
         proxy_req_body["method"] = "POST";
@@ -2124,7 +2123,7 @@ Option<std::string> AzureConversationModel::get_answer_stream(const nlohmann::js
     req->async_res_done_callback = async_res_done_callback;
 
     auto raft_state_machine = RemoteEmbedder::get_raft_state_machine();
-    if(raft_server && !raft_state_machine->get_leader_url().empty()) {
+    if(raft_state_machine && !raft_state_machine->get_leader_url().empty()) {
         auto proxy_url = raft_state_machine->get_leader_url() + "proxy_sse";
         nlohmann::json proxy_req_body;
         proxy_req_body["method"] = "POST";

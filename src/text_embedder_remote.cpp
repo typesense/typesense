@@ -16,7 +16,7 @@ long RemoteEmbedder::call_remote_api(const std::string& method, const std::strin
                                      std::map<std::string, std::string>& res_headers,
                                      std::unordered_map<std::string, std::string>& req_headers) {
 
-    if(raft_server == nullptr || raft_server->get_leader_url().empty()) {
+    if(raft_state_machine == nullptr || raft_state_machine->get_leader_url().empty()) {
         // call proxy's internal send() directly
         if(method == "GET" || method == "POST") {
             auto proxy_res = HttpProxy::get_instance().send(url, method, req_body, req_headers);
@@ -28,7 +28,7 @@ long RemoteEmbedder::call_remote_api(const std::string& method, const std::strin
         }
     }
 
-    auto proxy_url = raft_server->get_leader_url() + "proxy";
+    auto proxy_url = raft_state_machine->get_leader_url() + "proxy";
     nlohmann::json proxy_req_body;
     proxy_req_body["method"] = method;
     proxy_req_body["url"] = url;

@@ -6,7 +6,7 @@
 #include <string>
 #include <shared_mutex>
 #include "lru/lru.hpp"
-#include "raft_server.h"
+#include "raft_state_machine.h"
 
 struct external_event_cache_t {
     uint64_t last_update_time;
