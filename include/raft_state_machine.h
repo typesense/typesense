@@ -68,8 +68,9 @@ public:
 };
 
 /**
- * ReplicationState implements the Raft state machine.
- * It coordinates between the Raft node, storage, and HTTP server.
+ * ReplicationState implements the complete Raft state machine.
+ * It handles both application business logic and braft::StateMachine interface.
+ * This combines HTTP processing, database operations, and Raft lifecycle management.
  */
 class ReplicationState : public braft::StateMachine {
 private:
@@ -223,7 +224,7 @@ private:
     friend class OnDemandSnapshotClosure;
     friend class TimedSnapshotClosure;
 
-    // StateMachine interface implementation
+    // braft::StateMachine interface implementation
     void on_apply(braft::Iterator& iter) override;
     void on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) override;
     int on_snapshot_load(braft::SnapshotReader* reader) override;

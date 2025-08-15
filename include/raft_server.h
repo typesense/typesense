@@ -5,7 +5,7 @@
 #include <butil/endpoint.h>
 #include <nlohmann/json.hpp>
 #include "http_data.h"
-#include "raft_state.h"  // Include the state machine
+#include "raft_state_machine.h"
 
 // Forward declarations
 class RaftNodeManager;
