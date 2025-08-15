@@ -68,83 +68,83 @@ public:
     // Complete delegation methods to the state machine
     void write(const std::shared_ptr<http_req>& request,
               const std::shared_ptr<http_res>& response) {
-        if (state_machine) state_machine->write(request, response);
+        state_machine->write(request, response);
     }
 
     void read(const std::shared_ptr<http_res>& response) {
-        if (state_machine) state_machine->read(response);
+        state_machine->read(response);
     }
 
     // Node status and leadership
     bool is_leader() const {
-        return state_machine ? state_machine->is_leader() : false;
+        return state_machine->is_leader();
     }
 
     bool is_alive() const {
-        return state_machine ? state_machine->is_alive() : false;
+        return state_machine->is_alive();
     }
 
     nlohmann::json get_status() const {
-        return state_machine ? state_machine->get_status() : nlohmann::json{};
+        return state_machine->get_status();
     }
 
     std::string get_leader_url() const {
-        return state_machine ? state_machine->get_leader_url() : "";
+        return state_machine->get_leader_url();
     }
 
     // Node management operations
     void refresh_nodes(const std::string& nodes, size_t raft_counter,
                       const std::atomic<bool>& reset_peers_on_error) {
-        if (state_machine) state_machine->refresh_nodes(nodes, raft_counter, reset_peers_on_error);
+        state_machine->refresh_nodes(nodes, raft_counter, reset_peers_on_error);
     }
 
     void refresh_catchup_status(bool log_msg) {
-        if (state_machine) state_machine->refresh_catchup_status(log_msg);
+        state_machine->refresh_catchup_status(log_msg);
     }
 
     bool trigger_vote() {
-        return state_machine ? state_machine->trigger_vote() : false;
+        return state_machine->trigger_vote();
     }
 
     bool reset_peers() {
-        return state_machine ? state_machine->reset_peers() : false;
+        return state_machine->reset_peers();
     }
 
     // Snapshot operations
     void do_snapshot(const std::string& snapshot_path,
                     const std::shared_ptr<http_req>& req,
                     const std::shared_ptr<http_res>& res) {
-        if (state_machine) state_machine->do_snapshot(snapshot_path, req, res);
+        state_machine->do_snapshot(snapshot_path, req, res);
     }
 
     void do_snapshot(const std::string& nodes) {
-        if (state_machine) state_machine->do_snapshot(nodes);
+        state_machine->do_snapshot(nodes);
     }
 
     // State checks
     bool is_read_caught_up() const {
-        return state_machine ? state_machine->is_read_caught_up() : false;
+        return state_machine->is_read_caught_up();
     }
 
     bool is_write_caught_up() const {
-        return state_machine ? state_machine->is_write_caught_up() : false;
+        return state_machine->is_write_caught_up();
     }
 
     uint64_t node_state() const {
-        return state_machine ? state_machine->node_state() : 0;
+        return state_machine->node_state();
     }
 
     // Utility methods
     void persist_applying_index() {
-        if (state_machine) state_machine->persist_applying_index();
+        state_machine->persist_applying_index();
     }
 
     int64_t get_num_queued_writes() {
-        return state_machine ? state_machine->get_num_queued_writes() : 0;
+        return state_machine->get_num_queued_writes();
     }
 
     void decr_pending_writes() {
-        if (state_machine) state_machine->decr_pending_writes();
+        state_machine->decr_pending_writes();
     }
 
     /**

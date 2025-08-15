@@ -83,10 +83,8 @@ int RaftServer::start(const butil::EndPoint& peering_endpoint,
 }
 
 void RaftServer::shutdown() {
-    if (state_machine) {
-        LOG(INFO) << "Shutting down RaftServer";
-        state_machine->shutdown();
-    }
+    LOG(INFO) << "Shutting down RaftServer";
+    state_machine->shutdown();
 
     // Note: RaftNodeManager shutdown is handled by ReplicationState::shutdown()
     // to maintain proper shutdown order and avoid double-shutdown
