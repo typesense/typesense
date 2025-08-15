@@ -15,8 +15,8 @@
 
 // Raft Server - Slim Coordinator
 // This file now coordinates the extracted modules:
-// - raft_config_manager.cpp: DNS & Configuration  
-// - raft_http_handler.cpp: HTTP Processing
+// - raft_config.cpp: DNS & Configuration  
+// - raft_http.cpp: HTTP Processing
 // - raft_lifecycle_manager.cpp: Raft Lifecycle & Snapshots
 // - raft_node_manager.cpp: Node Management & Status
 
@@ -100,8 +100,8 @@ Store* ReplicationState::get_store() {
 }
 
 // NOTE: All large method implementations moved to specialized modules:
-// - DNS & Configuration methods → raft_config_manager.cpp
-// - HTTP Processing methods → raft_http_handler.cpp  
+// - DNS & Configuration methods → raft_config.cpp
+// - HTTP Processing methods → raft_http.cpp  
 // - Lifecycle & Snapshot methods → raft_lifecycle_manager.cpp
 // - Node Management methods → raft_node_manager.cpp
 

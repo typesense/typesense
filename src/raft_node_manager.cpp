@@ -4,7 +4,7 @@
 #include <http_client.h>
 #include "core_api.h"
 
-// Node Management and Status Module
+// Raft Node Management and Status Module
 // Extracted from raft_server.cpp for better organization
 
 void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raft_counter,

@@ -6,7 +6,7 @@
 #include "core_api.h"
 #include <zlib.h>
 
-// HTTP Request Processing Module
+// Raft HTTP Request Processing Module  
 // Extracted from raft_server.cpp for better organization
 
 Option<bool> ReplicationState::handle_gzip(const std::shared_ptr<http_req>& request) {
@@ -230,34 +230,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
     });
 }
 
-std::string ReplicationState::get_node_url_path(const braft::PeerId& peer_id, const std::string& path,
-                                                const std::string& protocol) const {
-    const std::string endpoint_str = butil::endpoint2str(peer_id.addr).c_str();
-    const size_t last_colon = endpoint_str.rfind(':');
-    if (last_colon == std::string::npos) {
-        LOG(ERROR) << "Invalid endpoint format: " << endpoint_str;
-        return "";
-    }
 
-    // For IPv6, the IP part may contain colons and be wrapped in []
-    const std::string ip_part = endpoint_str.substr(0, last_colon);
-
-    std::string url = protocol + "://";
-    url += ip_part;  // IP part (possibly with [] for IPv6)
-    url += ":";
-    url += std::to_string(peer_id.idx);
-
-    // Add path ensuring there's exactly one / between URL parts
-    if(!path.empty()) {
-        if(path[0] == '/') {
-            url += path;
-        } else {
-            url += "/" + path;
-        }
-    }
-
-    return url;
-}
 
 void ReplicationState::read(const std::shared_ptr<http_res>& response) {
     // NOT USED:
