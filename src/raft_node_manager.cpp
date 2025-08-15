@@ -154,6 +154,9 @@ nlohmann::json RaftNodeManager::get_status() const {
         status["state"] = "NOT_READY";
         status["committed_index"] = 0;
         status["queued_writes"] = 0;
+        status["is_leader"] = false;
+        status["read_ready"] = false;
+        status["write_ready"] = false;
         return status;
     }
 
@@ -382,6 +385,21 @@ void RaftNodeManager::refresh_nodes(const std::string& nodes, bool allow_single_
             }
         }
     }
+}
+
+void RaftNodeManager::log_node_status(const braft::NodeStatus& node_status, const std::string& prefix) const {
+    std::string log_prefix = prefix.empty() ? "Node status" : prefix;
+
+    LOG(INFO) << log_prefix
+              << ": state=" << braft::state2str(node_status.state)
+              << ", term=" << node_status.term
+              << ", pending_queue=" << node_status.pending_queue_size
+              << ", last_index=" << node_status.last_index
+              << ", committed=" << node_status.committed_index
+              << ", known_applied=" << node_status.known_applied_index
+              << ", applying=" << node_status.applying_index
+              << ", pending_index=" << node_status.pending_index
+              << ", first_index=" << node_status.first_index;
 }
 
 // Helper closure for refresh_nodes
