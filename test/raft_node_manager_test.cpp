@@ -5,6 +5,9 @@
 #include <thread>
 #include <chrono>
 #include <atomic>
+#include "butil/at_exit.h"
+#include "brpc/server.h"
+#include "braft/raft.h"
 #include "raft_node_manager.h"
 #include "store.h"
 #include "batched_indexer.h"
@@ -19,6 +22,8 @@ public:
 
 class RaftNodeManagerTest : public ::testing::Test {
 protected:
+    std::unique_ptr<butil::AtExitManager> exit_manager;
+    std::unique_ptr<brpc::Server> raft_server;
     Store* store;
     Store* meta_store;
     BatchedIndexer* batched_indexer;
@@ -29,6 +34,12 @@ protected:
     std::atomic<bool> quit;
 
     void SetUp() override {
+        // Initialize braft dependencies first
+        exit_manager = std::make_unique<butil::AtExitManager>();
+
+        // Initialize RPC server for braft
+        raft_server = std::make_unique<brpc::Server>();
+
         // Create test directory
         test_dir = "/tmp/typesense_test/raft_node_manager";
         std::filesystem::remove_all(test_dir);
@@ -60,6 +71,12 @@ protected:
         delete meta_store;
         delete config;
         if (http_server) delete http_server;
+
+        // Stop RPC server if it was started
+        if (raft_server) {
+            raft_server->Stop(0);
+            raft_server->Join();
+        }
 
         // Clean up test directory
         std::filesystem::remove_all(test_dir);
@@ -409,39 +426,50 @@ public:
 TEST_F(RaftNodeManagerTest, SuccessMode_NodeInitializationWithValidStateMachine) {
     auto node_manager = createNodeManager();
     auto state_machine = std::make_unique<MockRaftStateMachine>();
-    
-    // Set up valid endpoint and configuration
+
+    // Set up valid endpoint and configuration - use separate address and port
     butil::EndPoint endpoint;
-    int result = butil::str2endpoint("127.0.0.1:8090", &endpoint);
+    int result = butil::str2endpoint("127.0.0.1", 8090, &endpoint);
     EXPECT_EQ(result, 0);
-    
-    // Create raft directory for this test
-    std::string raft_dir = test_dir + "/raft";
-    std::filesystem::create_directories(raft_dir);
-    
+
+    // Create raft directory structure for this test - ensure full path resolution
+    std::string raft_dir = std::filesystem::absolute(test_dir + "/raft");
+    std::filesystem::create_directories(raft_dir + "/log");
+    std::filesystem::create_directories(raft_dir + "/raft_meta");
+    std::filesystem::create_directories(raft_dir + "/snapshot");
+
+    LOG(INFO) << "Created raft directory structure at: " << raft_dir;
+
     // Initialize node with valid parameters - GOLDEN PATH expects success
     int api_port = 8091;
     int election_timeout_ms = 5000;
     std::string nodes_config = "127.0.0.1:8090:8091";
-    
-    LOG(INFO) << "Initializing raft node - golden path test";
-    
+
+        LOG(INFO) << "Initializing raft node - golden path test";
+
+    // GOLDEN PATH: Set up RPC server for this endpoint
+    int add_service_result = braft::add_service(raft_server.get(), endpoint);
+    EXPECT_EQ(add_service_result, 0);
+
+    int start_result = raft_server->Start(endpoint, nullptr);
+    EXPECT_EQ(start_result, 0);
+
     // GOLDEN PATH: Initialization should succeed
-    int init_result = node_manager->init_node(state_machine.get(), endpoint, api_port, 
+    int init_result = node_manager->init_node(state_machine.get(), endpoint, api_port,
                                              election_timeout_ms, raft_dir, nodes_config);
     EXPECT_EQ(init_result, 0);
-    
+
     // GOLDEN PATH: Node should be initialized and ready
     auto status = node_manager->get_status();
     EXPECT_NE(status["state"], "NOT_READY");
-    
+
     // GOLDEN PATH: Should have valid node ID after initialization
     auto node_id = node_manager->node_id();
     LOG(INFO) << "Node ID: " << node_id.to_string();
-    
+
     // GOLDEN PATH: Should be able to shutdown cleanly
     node_manager->shutdown();
-    
+
     // Clean up raft directory
     std::filesystem::remove_all(raft_dir);
 }
@@ -476,41 +504,41 @@ TEST_F(RaftNodeManagerTest, SuccessMode_StatusReportingWithInitializedNode) {
 TEST_F(RaftNodeManagerTest, SuccessMode_LeaderElectionAndOperations) {
     auto node_manager = createNodeManager();
     auto state_machine = std::make_unique<MockRaftStateMachine>();
-    
+
     // Set up single-node cluster for leader election
     butil::EndPoint endpoint;
-    int result = butil::str2endpoint("127.0.0.1:8094", &endpoint);
+    int result = butil::str2endpoint("127.0.0.1", 8094, &endpoint);
     EXPECT_EQ(result, 0);
-    
+
     std::string raft_dir = test_dir + "/raft_leader";
     std::filesystem::create_directories(raft_dir);
-    
-    // GOLDEN PATH: Initialize single node cluster  
+
+    // GOLDEN PATH: Initialize single node cluster
     int init_result = node_manager->init_node(state_machine.get(), endpoint, 8095,
                                              1000, raft_dir, "127.0.0.1:8094:8095");
     EXPECT_EQ(init_result, 0);
-    
+
     // GOLDEN PATH: Wait for leader election
     std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-    
+
     // GOLDEN PATH: Single node should become leader
     EXPECT_TRUE(node_manager->is_leader());
-    
+
     auto status = node_manager->get_status();
     EXPECT_EQ(status["state"], "LEADER");
-    
+
     // GOLDEN PATH: Leader should be ready for operations
     EXPECT_TRUE(node_manager->is_read_ready());
     EXPECT_TRUE(node_manager->is_write_ready());
-    
+
     // GOLDEN PATH: Vote trigger should work or be no-op for leader
     auto vote_result = node_manager->trigger_vote();
     LOG(INFO) << "Vote trigger result: " << (vote_result.ok() ? "OK" : vote_result.error_str());
-    
+
     // GOLDEN PATH: Should have valid leader ID
     auto leader_id = node_manager->leader_id();
     EXPECT_FALSE(leader_id.is_empty());
-    
+
     node_manager->shutdown();
     std::filesystem::remove_all(raft_dir);
 }
@@ -518,47 +546,47 @@ TEST_F(RaftNodeManagerTest, SuccessMode_LeaderElectionAndOperations) {
 TEST_F(RaftNodeManagerTest, SuccessMode_ClusterMembership) {
     auto node_manager = createNodeManager();
     auto state_machine = std::make_unique<MockRaftStateMachine>();
-    
+
     butil::EndPoint endpoint;
-    int result = butil::str2endpoint("127.0.0.1:8096", &endpoint);
+    int result = butil::str2endpoint("127.0.0.1", 8096, &endpoint);
     EXPECT_EQ(result, 0);
-    
+
     std::string raft_dir = test_dir + "/raft_membership";
     std::filesystem::create_directories(raft_dir);
-    
+
     // GOLDEN PATH: Initialize node successfully
     int init_result = node_manager->init_node(state_machine.get(), endpoint, 8097,
                                              1000, raft_dir, "127.0.0.1:8096:8097");
     EXPECT_EQ(init_result, 0);
-    
+
     // GOLDEN PATH: Wait for node to be ready
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-    
+
     // GOLDEN PATH: Test reset_peers with new configuration
     braft::Configuration new_conf;
     braft::PeerId peer1, peer2;
-    
+
     int parse1 = peer1.parse("127.0.0.1:8096");
     int parse2 = peer2.parse("127.0.0.1:8098");
     EXPECT_EQ(parse1, 0);
     EXPECT_EQ(parse2, 0);
-    
+
     new_conf.add_peer(peer1);
     new_conf.add_peer(peer2);
-    
+
     // GOLDEN PATH: reset_peers operation should succeed
     auto reset_result = node_manager->reset_peers(new_conf);
     EXPECT_TRUE(reset_result.ok());
-    
-    // GOLDEN PATH: Test refresh_nodes operation  
+
+    // GOLDEN PATH: Test refresh_nodes operation
     std::string nodes_config = "127.0.0.1:8096:8097,127.0.0.1:8098:8099";
     node_manager->refresh_nodes(nodes_config, false);
     node_manager->refresh_nodes(nodes_config, true);
-    
+
     // GOLDEN PATH: Node should still be functional after membership changes
     auto status = node_manager->get_status();
     EXPECT_TRUE(status.contains("state"));
-    
+
     node_manager->shutdown();
     std::filesystem::remove_all(raft_dir);
 }

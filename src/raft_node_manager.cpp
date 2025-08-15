@@ -32,12 +32,6 @@ int RaftNodeManager::init_node(braft::StateMachine* fsm,
     this->api_port = api_port;
     this->election_timeout_ms = election_timeout_ms;
 
-    butil::ip_t ip;
-    if (butil::str2ip(butil::endpoint2str(peering_endpoint).c_str(), &ip) < 0) {
-        LOG(ERROR) << "Invalid peering endpoint: " << butil::endpoint2str(peering_endpoint).c_str();
-        return -1;
-    }
-
     braft::NodeOptions node_options;
     this->nodes_config = raft::config::to_nodes_config(peering_endpoint, api_port, nodes);
 
@@ -50,9 +44,9 @@ int RaftNodeManager::init_node(braft::StateMachine* fsm,
     node_options.fsm = fsm;
     node_options.node_owns_fsm = false;
     node_options.snapshot_interval_s = 0; // manual snapshots
-    node_options.log_uri = raft_dir + "/log";
-    node_options.raft_meta_uri = raft_dir + "/raft_meta";
-    node_options.snapshot_uri = raft_dir + "/snapshot";
+    node_options.log_uri = "local://" + raft_dir + "/log";
+    node_options.raft_meta_uri = "local://" + raft_dir + "/raft_meta";
+    node_options.snapshot_uri = "local://" + raft_dir + "/snapshot";
     node_options.disable_cli = false;
 
     std::unique_lock lock(node_mutex);
