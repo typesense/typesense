@@ -1,7 +1,10 @@
 #include "store.h"
 #include "raft_server.h"
 #include <butil/files/file_enumerator.h>
+#include <butil/endpoint.h>
+#include <braft/raft.h>
 #include <thread>
+#include <chrono>
 #include <file_utils.h>
 #include <collection_manager.h>
 #include <conversation_model_manager.h>
@@ -22,8 +25,90 @@ namespace braft {
     DECLARE_int32(raft_rpc_channel_connect_timeout_ms);
 }
 
-// NOTE: The start() method has been moved to the coordinator in raft_server.cpp
-// This file contains other lifecycle methods like save_snapshot, on_snapshot_save, etc.
+// Raft Node Startup and Initialization
+int ReplicationState::start_raft_node(const butil::EndPoint & peering_endpoint, const int api_port,
+                                      int election_timeout_ms, int snapshot_max_byte_count_per_rpc,
+                                      const std::string & raft_dir, const std::string & nodes,
+                                      const std::atomic<bool>& quit_abruptly) {
+    
+    // Full Raft node initialization
+    butil::ip_t ip;
+    if (butil::str2ip(butil::endpoint2str(peering_endpoint).c_str(), &ip) < 0) {
+        LOG(ERROR) << "Invalid peering endpoint: " << butil::endpoint2str(peering_endpoint).c_str();
+        return -1;
+    }
+
+    braft::NodeOptions node_options;
+    if (node_options.initial_conf.parse_from(to_nodes_config(peering_endpoint, api_port, nodes)) != 0) {
+        LOG(ERROR) << "Fail to parse configuration `" << nodes << "'";
+        return -1;
+    }
+
+    node_options.election_timeout_ms = election_timeout_ms;
+    node_options.fsm = this;
+    node_options.node_owns_fsm = false;
+    node_options.snapshot_interval_s = 0; // we will trigger snapshots manually
+    node_options.log_uri = raft_dir + "/log";
+    node_options.raft_meta_uri = raft_dir + "/raft_meta";
+    node_options.snapshot_uri = raft_dir + "/snapshot";
+    node_options.disable_cli = false;
+
+    std::unique_lock lock(node_mutex);
+    node = new braft::Node(braft::GroupId("ReplicationState"), braft::PeerId(peering_endpoint, 0));
+
+    if (node->init(node_options) != 0) {
+        LOG(ERROR) << "Fail to init raft node";
+        delete node;
+        node = nullptr;
+        return -1;
+    }
+    lock.unlock();
+
+    // wait for node to come online
+    const int WAIT_FOR_RAFT_TIMEOUT_MS = 60 * 1000;
+    auto begin_ts = std::chrono::high_resolution_clock::now();
+
+    while(true) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+        auto current_ts = std::chrono::high_resolution_clock::now();
+        auto time_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_ts - begin_ts).count();
+
+        if(time_elapsed > WAIT_FOR_RAFT_TIMEOUT_MS) {
+            LOG(ERROR) << "Raft state not ready even after " << time_elapsed << " ms. Stopping.";
+            return -1;
+        }
+
+        if(quit_abruptly.load()) {
+            LOG(ERROR) << "Server is quitting abruptly.";
+            return -1;
+        }
+
+        bool is_single_node = node_options.initial_conf.size() == 1;
+        ready = is_single_node || node->is_leader();
+        bool leader_or_follower;
+
+        {
+            std::shared_lock node_guard(node_mutex);
+            leader_or_follower = ready || (!node->leader_id().is_empty());
+        }
+
+        if(leader_or_follower) {
+            LOG(INFO) << "Raft node is now ready. Proceeding with DB init. ready=" << ready
+                      << ", single_node=" << is_single_node;
+            break;
+        } else {
+            LOG(INFO) << "Waiting for raft node to come online, time_elapsed=" << time_elapsed << " ms";
+        }
+    }
+
+    // do init only on node ready (i.e. elections are done)
+    if(init_db() != 0) {
+        return -1;
+    }
+
+    return 0;
+}
 
 void* ReplicationState::save_snapshot(void* arg) {
     LOG(INFO) << "save_snapshot called";

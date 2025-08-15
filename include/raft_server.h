@@ -263,6 +263,12 @@ private:
 
     friend class ReplicationClosure;
 
+    // Internal method to start raft node - implementation in raft_lifecycle_manager.cpp
+    int start_raft_node(const butil::EndPoint & peering_endpoint, int api_port,
+                        int election_timeout_ms, int snapshot_max_byte_count_per_rpc,
+                        const std::string & raft_dir, const std::string & nodes,
+                        const std::atomic<bool>& quit_abruptly);
+
     // actual application of writes onto the WAL
     void on_apply(braft::Iterator& iter);
 

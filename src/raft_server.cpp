@@ -66,7 +66,6 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     this->election_timeout_interval_ms = election_timeout_ms;
     this->raft_dir_path = raft_dir;
     this->peering_endpoint = peering_endpoint;
-
     this->read_caught_up = false;
     this->write_caught_up = false;
 
@@ -78,11 +77,15 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     braft::FLAGS_raft_max_byte_count_per_rpc = snapshot_max_byte_count_per_rpc;
     braft::FLAGS_raft_rpc_channel_connect_timeout_ms = 2000;
 
-    // Delegate actual start to lifecycle manager  
-    // NOTE: The actual implementation is in raft_lifecycle_manager.cpp
-    // This is a simplified stub - the full implementation moved to lifecycle manager
-    LOG(INFO) << "Raft coordination layer start completed";
-    return 0;
+    // Delegate actual raft node startup to lifecycle manager
+    int result = start_raft_node(peering_endpoint, api_port, election_timeout_ms, 
+                                snapshot_max_byte_count_per_rpc, raft_dir, nodes, quit_abruptly);
+    
+    if (result == 0) {
+        LOG(INFO) << "Raft coordination layer start completed";
+    }
+    
+    return result;
 }
 
 // Coordination layer delegates to appropriate modules
