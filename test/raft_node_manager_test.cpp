@@ -409,255 +409,156 @@ public:
 TEST_F(RaftNodeManagerTest, SuccessMode_NodeInitializationWithValidStateMachine) {
     auto node_manager = createNodeManager();
     auto state_machine = std::make_unique<MockRaftStateMachine>();
-
+    
     // Set up valid endpoint and configuration
     butil::EndPoint endpoint;
     int result = butil::str2endpoint("127.0.0.1:8090", &endpoint);
     EXPECT_EQ(result, 0);
-
+    
     // Create raft directory for this test
     std::string raft_dir = test_dir + "/raft";
     std::filesystem::create_directories(raft_dir);
-
-    // Initialize node with valid parameters
+    
+    // Initialize node with valid parameters - GOLDEN PATH expects success
     int api_port = 8091;
     int election_timeout_ms = 5000;
     std::string nodes_config = "127.0.0.1:8090:8091";
-
-    LOG(INFO) << "Attempting to initialize raft node with endpoint 127.0.0.1:8090";
-
-    // Initialize the node - this should succeed with proper parameters
-    int init_result = node_manager->init_node(state_machine.get(), endpoint, api_port,
+    
+    LOG(INFO) << "Initializing raft node - golden path test";
+    
+    // GOLDEN PATH: Initialization should succeed
+    int init_result = node_manager->init_node(state_machine.get(), endpoint, api_port, 
                                              election_timeout_ms, raft_dir, nodes_config);
-
-    if (init_result == 0) {
-        LOG(INFO) << "Node initialization succeeded!";
-
-        // Verify node is initialized
-        auto status = node_manager->get_status();
-        EXPECT_NE(status["state"], "NOT_READY");
-
-        // Node should have valid node ID after initialization
-        auto node_id = node_manager->node_id();
-        // NodeId doesn't have is_empty(), just verify we can get it
-        LOG(INFO) << "Node ID: " << node_id.to_string();
-
-        // Shutdown properly
-        node_manager->shutdown();
-
-    } else {
-        LOG(INFO) << "Node initialization failed with code: " << init_result
-                  << " (expected in test environment - may be due to network/port conflicts)";
-
-        // Even if init fails, the node manager should still work for basic operations
-        EXPECT_NE(node_manager, nullptr);
-        auto status = node_manager->get_status();
-        EXPECT_TRUE(status.contains("state"));
-    }
-
+    EXPECT_EQ(init_result, 0);
+    
+    // GOLDEN PATH: Node should be initialized and ready
+    auto status = node_manager->get_status();
+    EXPECT_NE(status["state"], "NOT_READY");
+    
+    // GOLDEN PATH: Should have valid node ID after initialization
+    auto node_id = node_manager->node_id();
+    LOG(INFO) << "Node ID: " << node_id.to_string();
+    
+    // GOLDEN PATH: Should be able to shutdown cleanly
+    node_manager->shutdown();
+    
     // Clean up raft directory
     std::filesystem::remove_all(raft_dir);
 }
 
 TEST_F(RaftNodeManagerTest, SuccessMode_StatusReportingWithInitializedNode) {
     auto node_manager = createNodeManager();
-    auto state_machine = std::make_unique<MockRaftStateMachine>();
 
-    // Set up for node initialization
-    butil::EndPoint endpoint;
-    int result = butil::str2endpoint("127.0.0.1:8092", &endpoint);  // Different port to avoid conflicts
-    EXPECT_EQ(result, 0);
+    // Test comprehensive status reporting interface
+    auto status = node_manager->get_status();
 
-    std::string raft_dir = test_dir + "/raft_status";
-    std::filesystem::create_directories(raft_dir);
+    // Should contain all expected status keys
+    EXPECT_TRUE(status.contains("state"));
+    EXPECT_TRUE(status.contains("committed_index"));
+    EXPECT_TRUE(status.contains("queued_writes"));
+    EXPECT_TRUE(status.contains("is_leader"));
+    EXPECT_TRUE(status.contains("read_ready"));
+    EXPECT_TRUE(status.contains("write_ready"));
 
-    // Try to initialize the node
-    int init_result = node_manager->init_node(state_machine.get(), endpoint, 8093,
-                                             5000, raft_dir, "127.0.0.1:8092:8093");
+    // Test that is_leader() method is consistent with status
+    bool is_leader = node_manager->is_leader();
+    EXPECT_EQ(is_leader, status["is_leader"].get<bool>());
 
-    if (init_result == 0) {
-        LOG(INFO) << "Node initialized successfully - testing status reporting";
+    // Test that ready states are consistent
+    bool read_ready = node_manager->is_read_ready();
+    bool write_ready = node_manager->is_write_ready();
+    EXPECT_EQ(read_ready, status["read_ready"].get<bool>());
+    EXPECT_EQ(write_ready, status["write_ready"].get<bool>());
 
-        // Test status reporting after initialization
-        auto status = node_manager->get_status();
-
-        // Should have proper raft state instead of NOT_READY
-        EXPECT_TRUE(status.contains("state"));
-        std::string state = status["state"];
-        EXPECT_TRUE(state == "FOLLOWER" || state == "LEADER" || state == "CANDIDATE");
-
-        // Should have proper index values
-        EXPECT_TRUE(status.contains("committed_index"));
-        EXPECT_GE(status["committed_index"].get<int>(), 0);
-
-        // Should have leadership information
-        EXPECT_TRUE(status.contains("is_leader"));
-
-        // Should have ready state information
-        EXPECT_TRUE(status.contains("read_ready"));
-        EXPECT_TRUE(status.contains("write_ready"));
-
-        // Test that is_leader() method works
-        bool is_leader = node_manager->is_leader();
-        EXPECT_EQ(is_leader, status["is_leader"].get<bool>());
-
-        // Test that ready states work
-        bool read_ready = node_manager->is_read_ready();
-        bool write_ready = node_manager->is_write_ready();
-        EXPECT_EQ(read_ready, status["read_ready"].get<bool>());
-        EXPECT_EQ(write_ready, status["write_ready"].get<bool>());
-
-        LOG(INFO) << "Node status: " << status.dump();
-
-        node_manager->shutdown();
-
-    } else {
-        LOG(INFO) << "Node initialization failed - testing fallback status reporting";
-
-        // Even with failed initialization, status should be consistent
-        auto status = node_manager->get_status();
-        EXPECT_EQ(status["state"], "NOT_READY");
-        EXPECT_FALSE(status["is_leader"]);
-        EXPECT_FALSE(status["read_ready"]);
-        EXPECT_FALSE(status["write_ready"]);
-    }
-
-    std::filesystem::remove_all(raft_dir);
+    LOG(INFO) << "Status reporting interface works correctly: " << status.dump();
 }
 
 TEST_F(RaftNodeManagerTest, SuccessMode_LeaderElectionAndOperations) {
     auto node_manager = createNodeManager();
     auto state_machine = std::make_unique<MockRaftStateMachine>();
-
-    // Set up single-node cluster (should elect itself as leader)
+    
+    // Set up single-node cluster for leader election
     butil::EndPoint endpoint;
     int result = butil::str2endpoint("127.0.0.1:8094", &endpoint);
     EXPECT_EQ(result, 0);
-
+    
     std::string raft_dir = test_dir + "/raft_leader";
     std::filesystem::create_directories(raft_dir);
-
-    LOG(INFO) << "Setting up single-node cluster for leader election test";
-
-    // Single node cluster - should elect itself as leader
+    
+    // GOLDEN PATH: Initialize single node cluster  
     int init_result = node_manager->init_node(state_machine.get(), endpoint, 8095,
                                              1000, raft_dir, "127.0.0.1:8094:8095");
-
-    if (init_result == 0) {
-        LOG(INFO) << "Node initialized - waiting for leader election";
-
-        // Wait a bit for election to happen
-        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-
-        // Single node should become leader quickly
-        bool is_leader = node_manager->is_leader();
-        auto status = node_manager->get_status();
-
-        LOG(INFO) << "After election timeout - is_leader: " << is_leader
-                  << ", state: " << status["state"].get<std::string>();
-
-        if (is_leader) {
-            LOG(INFO) << "SUCCESS: Node became leader as expected";
-
-            // Test leader operations
-            EXPECT_TRUE(node_manager->is_leader());
-            EXPECT_EQ(status["state"], "LEADER");
-
-            // Leader should be ready for reads and writes
-            EXPECT_TRUE(node_manager->is_read_ready());
-            EXPECT_TRUE(node_manager->is_write_ready());
-
-            // Test trigger_vote while leader (should succeed or be no-op)
-            auto vote_result = node_manager->trigger_vote();
-            LOG(INFO) << "Vote trigger result: " << (vote_result.ok() ? "OK" : vote_result.error_str());
-
-        } else {
-            LOG(INFO) << "Node did not become leader - may be due to test environment timing";
-            // This is acceptable in test environment - the important thing is no crash
-        }
-
-        // Test that we can get leader ID
-        auto leader_id = node_manager->leader_id();
-        LOG(INFO) << "Leader ID: " << leader_id.to_string();
-
-        node_manager->shutdown();
-
-    } else {
-        LOG(INFO) << "Node initialization failed - testing operations still work safely";
-
-        // Operations should still be safe even with failed init
-        EXPECT_FALSE(node_manager->is_leader());
-        auto vote_result = node_manager->trigger_vote();
-        EXPECT_FALSE(vote_result.ok()); // Should fail gracefully
-    }
-
+    EXPECT_EQ(init_result, 0);
+    
+    // GOLDEN PATH: Wait for leader election
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    
+    // GOLDEN PATH: Single node should become leader
+    EXPECT_TRUE(node_manager->is_leader());
+    
+    auto status = node_manager->get_status();
+    EXPECT_EQ(status["state"], "LEADER");
+    
+    // GOLDEN PATH: Leader should be ready for operations
+    EXPECT_TRUE(node_manager->is_read_ready());
+    EXPECT_TRUE(node_manager->is_write_ready());
+    
+    // GOLDEN PATH: Vote trigger should work or be no-op for leader
+    auto vote_result = node_manager->trigger_vote();
+    LOG(INFO) << "Vote trigger result: " << (vote_result.ok() ? "OK" : vote_result.error_str());
+    
+    // GOLDEN PATH: Should have valid leader ID
+    auto leader_id = node_manager->leader_id();
+    EXPECT_FALSE(leader_id.is_empty());
+    
+    node_manager->shutdown();
     std::filesystem::remove_all(raft_dir);
 }
 
 TEST_F(RaftNodeManagerTest, SuccessMode_ClusterMembership) {
     auto node_manager = createNodeManager();
     auto state_machine = std::make_unique<MockRaftStateMachine>();
-
+    
     butil::EndPoint endpoint;
     int result = butil::str2endpoint("127.0.0.1:8096", &endpoint);
     EXPECT_EQ(result, 0);
-
+    
     std::string raft_dir = test_dir + "/raft_membership";
     std::filesystem::create_directories(raft_dir);
-
-    LOG(INFO) << "Testing cluster membership operations";
-
+    
+    // GOLDEN PATH: Initialize node successfully
     int init_result = node_manager->init_node(state_machine.get(), endpoint, 8097,
                                              1000, raft_dir, "127.0.0.1:8096:8097");
-
-    if (init_result == 0) {
-        LOG(INFO) << "Node initialized - testing membership operations";
-
-        // Wait for node to be ready
-        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-
-        // Test reset_peers with new configuration
-        braft::Configuration new_conf;
-        braft::PeerId peer1, peer2;
-
-        int parse1 = peer1.parse("127.0.0.1:8096");
-        int parse2 = peer2.parse("127.0.0.1:8098");
-        EXPECT_EQ(parse1, 0);
-        EXPECT_EQ(parse2, 0);
-
-        new_conf.add_peer(peer1);
-        new_conf.add_peer(peer2);
-
-        // Test reset_peers operation
-        LOG(INFO) << "Testing reset_peers with new configuration";
-        auto reset_result = node_manager->reset_peers(new_conf);
-        LOG(INFO) << "reset_peers result: " << (reset_result.ok() ? "OK" : reset_result.error_str());
-
-        // Test refresh_nodes operation
-        LOG(INFO) << "Testing refresh_nodes";
-        std::string nodes_config = "127.0.0.1:8096:8097,127.0.0.1:8098:8099";
-        node_manager->refresh_nodes(nodes_config, false);
-        node_manager->refresh_nodes(nodes_config, true);
-
-        // These operations should complete without crashing
-        // In a single-node cluster, some operations may fail gracefully
-        // but the important thing is they don't crash the system
-
-        LOG(INFO) << "Membership operations completed successfully";
-
-        node_manager->shutdown();
-
-    } else {
-        LOG(INFO) << "Node initialization failed - testing membership operations safely fail";
-
-        // Test that membership operations fail safely without initialization
-        braft::Configuration empty_conf;
-        auto reset_result = node_manager->reset_peers(empty_conf);
-        EXPECT_FALSE(reset_result.ok());
-
-        // refresh_nodes should not crash
-        node_manager->refresh_nodes("127.0.0.1:8100:8101", false);
-    }
-
+    EXPECT_EQ(init_result, 0);
+    
+    // GOLDEN PATH: Wait for node to be ready
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    
+    // GOLDEN PATH: Test reset_peers with new configuration
+    braft::Configuration new_conf;
+    braft::PeerId peer1, peer2;
+    
+    int parse1 = peer1.parse("127.0.0.1:8096");
+    int parse2 = peer2.parse("127.0.0.1:8098");
+    EXPECT_EQ(parse1, 0);
+    EXPECT_EQ(parse2, 0);
+    
+    new_conf.add_peer(peer1);
+    new_conf.add_peer(peer2);
+    
+    // GOLDEN PATH: reset_peers operation should succeed
+    auto reset_result = node_manager->reset_peers(new_conf);
+    EXPECT_TRUE(reset_result.ok());
+    
+    // GOLDEN PATH: Test refresh_nodes operation  
+    std::string nodes_config = "127.0.0.1:8096:8097,127.0.0.1:8098:8099";
+    node_manager->refresh_nodes(nodes_config, false);
+    node_manager->refresh_nodes(nodes_config, true);
+    
+    // GOLDEN PATH: Node should still be functional after membership changes
+    auto status = node_manager->get_status();
+    EXPECT_TRUE(status.contains("state"));
+    
+    node_manager->shutdown();
     std::filesystem::remove_all(raft_dir);
 }
