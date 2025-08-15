@@ -27,6 +27,13 @@ private:
     std::unique_ptr<ReplicationState> state_machine;
     std::unique_ptr<RaftNodeManager> node_manager;
 
+    /**
+     * Internal access to components (used by HttpServer integration)
+     * These should not be called by external application code
+     */
+    ReplicationState* get_state_machine() { return state_machine.get(); }
+    const ReplicationState* get_state_machine() const { return state_machine.get(); }
+
 public:
     /**
      * Constructor - creates and wires together the Raft components
@@ -63,22 +70,7 @@ public:
      */
     void shutdown();
 
-    // Accessor methods for external components
-    Store* get_store() {
-        return state_machine ? state_machine->get_store() : nullptr;
-    }
 
-    const Config* get_config() const {
-        return state_machine ? state_machine->get_config() : nullptr;
-    }
-
-    BatchedIndexer* get_batched_indexer() {
-        return state_machine ? state_machine->get_batched_indexer() : nullptr;
-    }
-
-    http_message_dispatcher* get_message_dispatcher() const {
-        return state_machine ? state_machine->get_message_dispatcher() : nullptr;
-    }
 
     // Complete delegation methods to the state machine
     void write(const std::shared_ptr<http_req>& request,
@@ -167,8 +159,6 @@ public:
         }
         return server->run(state_machine.get());
     }
-
-private:
 
     // HttpServer needs direct access for integration
     friend class HttpServer;
