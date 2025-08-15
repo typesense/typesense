@@ -6,6 +6,8 @@
 #include <thread>
 #include <chrono>
 #include "butil/at_exit.h"
+#include "brpc/server.h"
+#include "braft/raft.h"
 #include "raft_state_machine.h"
 #include "http_server.h"
 #include "batched_indexer.h"
@@ -24,6 +26,7 @@ public:
 class RaftStateMachineTest : public ::testing::Test {
 protected:
     std::unique_ptr<butil::AtExitManager> exit_manager;
+    std::vector<std::unique_ptr<brpc::Server>> raft_servers; // Multiple servers for different tests
     Store* store;
     Store* analytics_store;
     ThreadPool* thread_pool;
@@ -47,6 +50,10 @@ protected:
         // Initialize components
         store = new Store(test_dir + "/store");
         analytics_store = new Store(test_dir + "/analytics");
+
+        // Initialize CollectionManager - this is crucial for database operations!
+        // Following pattern from other working tests in the codebase
+        CollectionManager::get_instance().init(store, 1.0, "auth_key", quit);
 
         thread_pool = new ThreadPool(4);
 
@@ -80,6 +87,15 @@ protected:
         // message_dispatcher is owned by http_server, don't delete it separately
         delete http_server;
 
+        // Stop all RPC servers
+        for (auto& server : raft_servers) {
+            if (server) {
+                server->Stop(0);
+                server->Join();
+            }
+        }
+        raft_servers.clear();
+
         // Clean up test directory
         std::filesystem::remove_all(test_dir);
     }
@@ -89,6 +105,20 @@ protected:
             http_server, batched_indexer, store, analytics_store,
             thread_pool, message_dispatcher, false, config, 4, 1000
         );
+    }
+
+    brpc::Server* createRaftServer(const butil::EndPoint& endpoint) {
+        auto server = std::make_unique<brpc::Server>();
+        brpc::Server* server_ptr = server.get();
+
+        int add_service_result = braft::add_service(server_ptr, endpoint);
+        EXPECT_EQ(add_service_result, 0);
+
+        int start_result = server->Start(endpoint, nullptr);
+        EXPECT_EQ(start_result, 0);
+
+        raft_servers.push_back(std::move(server));
+        return server_ptr;
     }
 };
 
@@ -267,14 +297,22 @@ TEST_F(RaftStateMachineTest, SuccessMode_FullStartupAndShutdown) {
     std::string nodes_config = "127.0.0.1:9000:9001";
     std::atomic<bool> quit_abruptly{false};
 
-    // Create raft directory
-    std::filesystem::create_directories(raft_dir);
+    // Create raft directory with proper structure
+    std::filesystem::create_directories(raft_dir + "/log");
+    std::filesystem::create_directories(raft_dir + "/raft_meta");
+    std::filesystem::create_directories(raft_dir + "/snapshot");
+
+    // GOLDEN PATH: Set up RPC server for this endpoint
+    createRaftServer(peering_endpoint);
 
     // GOLDEN PATH: RaftStateMachine should start successfully
     int start_result = raft_state_machine->start(peering_endpoint, api_port, election_timeout_ms,
                                                 snapshot_max_byte_count_per_rpc, raft_dir,
                                                 nodes_config, quit_abruptly);
     EXPECT_EQ(start_result, 0);
+
+    // GOLDEN PATH: Refresh status to ensure ready flags are updated
+    raft_state_machine->refresh_catchup_status(true);
 
     // GOLDEN PATH: State machine should be alive and ready
     EXPECT_TRUE(raft_state_machine->is_alive());
@@ -285,7 +323,10 @@ TEST_F(RaftStateMachineTest, SuccessMode_FullStartupAndShutdown) {
     std::string state = status["state"];
     EXPECT_TRUE(state == "LEADER" || state == "FOLLOWER" || state == "CANDIDATE");
 
-    // GOLDEN PATH: If leader, should be ready for operations
+    // GOLDEN PATH: Refresh status to ensure read/write ready flags are updated
+    raft_state_machine->refresh_catchup_status(true);
+
+    // GOLDEN PATH: Should be ready for operations
     EXPECT_TRUE(raft_state_machine->is_read_caught_up());
     EXPECT_TRUE(raft_state_machine->is_write_caught_up());
 
@@ -309,8 +350,13 @@ TEST_F(RaftStateMachineTest, SuccessMode_WriteRequestWithLeader) {
     EXPECT_EQ(result, 0);
 
     std::string raft_dir = test_dir + "/raft_write";
-    std::filesystem::create_directories(raft_dir);
+    std::filesystem::create_directories(raft_dir + "/log");
+    std::filesystem::create_directories(raft_dir + "/raft_meta");
+    std::filesystem::create_directories(raft_dir + "/snapshot");
     std::atomic<bool> quit_abruptly{false};
+
+    // GOLDEN PATH: Set up RPC server for this endpoint
+    createRaftServer(peering_endpoint);
 
     // GOLDEN PATH: Start raft cluster successfully
     int start_result = raft_state_machine->start(peering_endpoint, 9003, 1000,
@@ -323,6 +369,9 @@ TEST_F(RaftStateMachineTest, SuccessMode_WriteRequestWithLeader) {
 
     // GOLDEN PATH: Node should become leader
     EXPECT_TRUE(raft_state_machine->is_leader());
+
+    // GOLDEN PATH: Refresh status to ensure read/write ready flags are updated
+    raft_state_machine->refresh_catchup_status(true);
 
     // GOLDEN PATH: Should be ready for operations
     EXPECT_TRUE(raft_state_machine->is_read_caught_up());
@@ -383,8 +432,13 @@ TEST_F(RaftStateMachineTest, SuccessMode_SnapshotOperations) {
     EXPECT_EQ(result, 0);
 
     std::string raft_dir = test_dir + "/raft_snapshot";
-    std::filesystem::create_directories(raft_dir);
+    std::filesystem::create_directories(raft_dir + "/log");
+    std::filesystem::create_directories(raft_dir + "/raft_meta");
+    std::filesystem::create_directories(raft_dir + "/snapshot");
     std::atomic<bool> quit_abruptly{false};
+
+    // GOLDEN PATH: Set up RPC server for this endpoint
+    createRaftServer(peering_endpoint);
 
     // GOLDEN PATH: Start raft cluster successfully
     int start_result = raft_state_machine->start(peering_endpoint, 9005, 1000,
@@ -394,6 +448,9 @@ TEST_F(RaftStateMachineTest, SuccessMode_SnapshotOperations) {
 
     // GOLDEN PATH: Wait for startup to complete
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+
+    // GOLDEN PATH: Refresh status to ensure ready flags are updated
+    raft_state_machine->refresh_catchup_status(true);
 
     // GOLDEN PATH: State machine should be alive and functional
     EXPECT_TRUE(raft_state_machine->is_alive());
@@ -419,8 +476,13 @@ TEST_F(RaftStateMachineTest, SuccessMode_LeaderElectionAndFailover) {
     EXPECT_EQ(result, 0);
 
     std::string raft_dir = test_dir + "/raft_election";
-    std::filesystem::create_directories(raft_dir);
+    std::filesystem::create_directories(raft_dir + "/log");
+    std::filesystem::create_directories(raft_dir + "/raft_meta");
+    std::filesystem::create_directories(raft_dir + "/snapshot");
     std::atomic<bool> quit_abruptly{false};
+
+    // GOLDEN PATH: Set up RPC server for this endpoint
+    createRaftServer(peering_endpoint);
 
     // GOLDEN PATH: Start cluster successfully
     int start_result = raft_state_machine->start(peering_endpoint, 9007, 800,
@@ -436,6 +498,9 @@ TEST_F(RaftStateMachineTest, SuccessMode_LeaderElectionAndFailover) {
 
     auto status = raft_state_machine->get_status();
     EXPECT_EQ(status["state"], "LEADER");
+
+    // GOLDEN PATH: Refresh status to ensure read/write ready flags are updated
+    raft_state_machine->refresh_catchup_status(true);
 
     // GOLDEN PATH: Leader should be ready for operations
     EXPECT_TRUE(raft_state_machine->is_read_caught_up());
@@ -462,8 +527,13 @@ TEST_F(RaftStateMachineTest, SuccessMode_ClusterMembershipChanges) {
     EXPECT_EQ(result, 0);
 
     std::string raft_dir = test_dir + "/raft_membership";
-    std::filesystem::create_directories(raft_dir);
+    std::filesystem::create_directories(raft_dir + "/log");
+    std::filesystem::create_directories(raft_dir + "/raft_meta");
+    std::filesystem::create_directories(raft_dir + "/snapshot");
     std::atomic<bool> quit_abruptly{false};
+
+    // GOLDEN PATH: Set up RPC server for this endpoint
+    createRaftServer(peering_endpoint);
 
     // GOLDEN PATH: Start cluster successfully
     int start_result = raft_state_machine->start(peering_endpoint, 9009, 1000,

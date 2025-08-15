@@ -50,7 +50,7 @@ int RaftNodeManager::init_node(braft::StateMachine* fsm,
     node_options.disable_cli = false;
 
     std::unique_lock lock(node_mutex);
-    node = new braft::Node(braft::GroupId("RaftStateMachine"), braft::PeerId(peering_endpoint, 0));
+    node = new braft::Node(braft::GroupId("RaftStateMachine"), braft::PeerId(peering_endpoint, api_port));
 
     if (node->init(node_options) != 0) {
         LOG(ERROR) << "Fail to init raft node";

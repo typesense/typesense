@@ -23,7 +23,7 @@ public:
 class RaftNodeManagerTest : public ::testing::Test {
 protected:
     std::unique_ptr<butil::AtExitManager> exit_manager;
-    std::unique_ptr<brpc::Server> raft_server;
+    std::vector<std::unique_ptr<brpc::Server>> raft_servers; // Multiple servers for different tests
     Store* store;
     Store* meta_store;
     BatchedIndexer* batched_indexer;
@@ -36,9 +36,6 @@ protected:
     void SetUp() override {
         // Initialize braft dependencies first
         exit_manager = std::make_unique<butil::AtExitManager>();
-
-        // Initialize RPC server for braft
-        raft_server = std::make_unique<brpc::Server>();
 
         // Create test directory
         test_dir = "/tmp/typesense_test/raft_node_manager";
@@ -72,11 +69,14 @@ protected:
         delete config;
         if (http_server) delete http_server;
 
-        // Stop RPC server if it was started
-        if (raft_server) {
-            raft_server->Stop(0);
-            raft_server->Join();
+        // Stop all RPC servers
+        for (auto& server : raft_servers) {
+            if (server) {
+                server->Stop(0);
+                server->Join();
+            }
         }
+        raft_servers.clear();
 
         // Clean up test directory
         std::filesystem::remove_all(test_dir);
@@ -84,6 +84,20 @@ protected:
 
     std::unique_ptr<RaftNodeManager> createNodeManager(bool api_uses_ssl = false) {
         return std::make_unique<RaftNodeManager>(config, store, batched_indexer, api_uses_ssl);
+    }
+
+    brpc::Server* createRaftServer(const butil::EndPoint& endpoint) {
+        auto server = std::make_unique<brpc::Server>();
+        brpc::Server* server_ptr = server.get();
+
+        int add_service_result = braft::add_service(server_ptr, endpoint);
+        EXPECT_EQ(add_service_result, 0);
+
+        int start_result = server->Start(endpoint, nullptr);
+        EXPECT_EQ(start_result, 0);
+
+        raft_servers.push_back(std::move(server));
+        return server_ptr;
     }
 };
 
@@ -445,14 +459,10 @@ TEST_F(RaftNodeManagerTest, SuccessMode_NodeInitializationWithValidStateMachine)
     int election_timeout_ms = 5000;
     std::string nodes_config = "127.0.0.1:8090:8091";
 
-        LOG(INFO) << "Initializing raft node - golden path test";
+    LOG(INFO) << "Initializing raft node - golden path test";
 
     // GOLDEN PATH: Set up RPC server for this endpoint
-    int add_service_result = braft::add_service(raft_server.get(), endpoint);
-    EXPECT_EQ(add_service_result, 0);
-
-    int start_result = raft_server->Start(endpoint, nullptr);
-    EXPECT_EQ(start_result, 0);
+    createRaftServer(endpoint);
 
     // GOLDEN PATH: Initialization should succeed
     int init_result = node_manager->init_node(state_machine.get(), endpoint, api_port,
@@ -511,7 +521,12 @@ TEST_F(RaftNodeManagerTest, SuccessMode_LeaderElectionAndOperations) {
     EXPECT_EQ(result, 0);
 
     std::string raft_dir = test_dir + "/raft_leader";
-    std::filesystem::create_directories(raft_dir);
+    std::filesystem::create_directories(raft_dir + "/log");
+    std::filesystem::create_directories(raft_dir + "/raft_meta");
+    std::filesystem::create_directories(raft_dir + "/snapshot");
+
+    // GOLDEN PATH: Set up RPC server for this endpoint
+    createRaftServer(endpoint);
 
     // GOLDEN PATH: Initialize single node cluster
     int init_result = node_manager->init_node(state_machine.get(), endpoint, 8095,
@@ -526,6 +541,9 @@ TEST_F(RaftNodeManagerTest, SuccessMode_LeaderElectionAndOperations) {
 
     auto status = node_manager->get_status();
     EXPECT_EQ(status["state"], "LEADER");
+
+    // GOLDEN PATH: Refresh status to ensure read/write ready flags are updated
+    node_manager->refresh_catchup_status(true);
 
     // GOLDEN PATH: Leader should be ready for operations
     EXPECT_TRUE(node_manager->is_read_ready());
@@ -552,7 +570,12 @@ TEST_F(RaftNodeManagerTest, SuccessMode_ClusterMembership) {
     EXPECT_EQ(result, 0);
 
     std::string raft_dir = test_dir + "/raft_membership";
-    std::filesystem::create_directories(raft_dir);
+    std::filesystem::create_directories(raft_dir + "/log");
+    std::filesystem::create_directories(raft_dir + "/raft_meta");
+    std::filesystem::create_directories(raft_dir + "/snapshot");
+
+    // GOLDEN PATH: Set up RPC server for this endpoint
+    createRaftServer(endpoint);
 
     // GOLDEN PATH: Initialize node successfully
     int init_result = node_manager->init_node(state_machine.get(), endpoint, 8097,
