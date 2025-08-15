@@ -7,7 +7,8 @@
 /**
  * Namespace for HTTP-related utilities
  */
-namespace raft_http {
+namespace raft {
+    namespace http {
 
     /**
      * Handle gzip compression/decompression for incoming requests.
@@ -18,4 +19,5 @@ namespace raft_http {
      */
     Option<bool> handle_gzip(const std::shared_ptr<http_req>& request);
 
-}
+    } // namespace http
+} // namespace raft

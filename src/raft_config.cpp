@@ -10,7 +10,8 @@
 // Raft Configuration and DNS Resolution Module
 // Extracted from raft_server.cpp for better organization
 
-namespace raft_config {
+namespace raft {
+    namespace config {
 
 std::string hostname2ipstr(const std::string& hostname) {
     if(hostname.size() > 64) {
@@ -137,4 +138,5 @@ std::string get_node_url_path(const braft::PeerId& peer_id,
     return url;
 }
 
-}
+    } // namespace config
+} // namespace raft

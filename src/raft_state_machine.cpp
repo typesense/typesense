@@ -209,7 +209,7 @@ void RaftStateMachine::write(const std::shared_ptr<http_req>& request, const std
     // Gzip Processing: Check if it's first gzip chunk or is gzip stream initialized
     if(((request->body.size() > 2) &&
         (31 == (int)request->body[0] && -117 == (int)request->body[1])) || request->zstream_initialized) {
-        auto res = raft_http::handle_gzip(request);
+        auto res = raft::http::handle_gzip(request);
 
         if(!res.ok()) {
             response->set_422(res.error());
@@ -282,7 +282,7 @@ void RaftStateMachine::write_to_leader(const std::shared_ptr<http_req>& request,
     auto raw_req = request->_req;
     const std::string& path = std::string(raw_req->path.base, raw_req->path.len);
     const std::string& scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
-    const std::string url = raft_config::get_node_url_path(leader_id, path, scheme);
+    const std::string url = raft::config::get_node_url_path(leader_id, path, scheme);
 
     // Forward request to leader asynchronously
     thread_pool->enqueue([request, response, server, path, url, this]() {
@@ -382,9 +382,9 @@ bool RaftStateMachine::reset_peers() {
         return false;
     }
 
-    const std::string& nodes_config = raft_config::to_nodes_config(peering_endpoint,
-                                                                  config->get_api_port(),
-                                                                  refreshed_nodes_op.get());
+    const std::string& nodes_config = raft::config::to_nodes_config(peering_endpoint,
+                                                                    config->get_api_port(),
+                                                                    refreshed_nodes_op.get());
 
     if(nodes_config.empty()) {
         LOG(WARNING) << "No nodes resolved from peer configuration.";
@@ -475,7 +475,7 @@ void RaftStateMachine::do_snapshot(const std::string& nodes) {
             }
 
             const std::string protocol = api_uses_ssl ? "https" : "http";
-            std::string url = raft_config::get_node_url_path(peer, "/health", protocol);
+            std::string url = raft::config::get_node_url_path(peer, "/health", protocol);
             std::string api_res;
             std::map<std::string, std::string> res_headers;
             long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 5*1000, true);
@@ -678,7 +678,7 @@ void RaftStateMachine::do_dummy_write() {
     }
 
     const std::string protocol = api_uses_ssl ? "https" : "http";
-    std::string url = raft_config::get_node_url_path(leader_id, "/health", protocol);
+    std::string url = raft::config::get_node_url_path(leader_id, "/health", protocol);
 
     std::string api_res;
     std::map<std::string, std::string> res_headers;

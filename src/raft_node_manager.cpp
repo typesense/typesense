@@ -39,7 +39,7 @@ int RaftNodeManager::init_node(braft::StateMachine* fsm,
     }
 
     braft::NodeOptions node_options;
-    std::string nodes_config = raft_config::to_nodes_config(peering_endpoint, api_port, nodes);
+    std::string nodes_config = raft::config::to_nodes_config(peering_endpoint, api_port, nodes);
 
     if (node_options.initial_conf.parse_from(nodes_config) != 0) {
         LOG(ERROR) << "Fail to parse configuration `" << nodes << "'";
@@ -246,7 +246,7 @@ void RaftNodeManager::check_leader_health(const braft::NodeStatus& local_status)
     lock.unlock();
 
     const std::string protocol = api_uses_ssl ? "https" : "http";
-    std::string url = raft_config::get_node_url_path(leader_addr, "/status", protocol);
+    std::string url = raft::config::get_node_url_path(leader_addr, "/status", protocol);
 
     std::string api_res;
     std::map<std::string, std::string> res_headers;

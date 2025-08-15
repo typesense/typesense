@@ -1726,7 +1726,7 @@ TEST_F(CoreAPIUtilsTest, SampleGzipIndexTest) {
     req->body.resize(length);
     infile.read(&req->body[0], length);
 
-    auto res = raft_http::handle_gzip(req);
+    auto res = raft::http::handle_gzip(req);
     if (!res.error().empty()) {
         LOG(ERROR) << res.error();
         FAIL();

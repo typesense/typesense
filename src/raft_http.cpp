@@ -5,7 +5,8 @@
 // Raft HTTP Request Processing Module
 // Extracted from raft_server.cpp for better organization
 
-namespace raft_http {
+namespace raft {
+    namespace http {
 
 Option<bool> handle_gzip(const std::shared_ptr<http_req>& request) {
     if (!request->zstream_initialized) {
@@ -55,4 +56,5 @@ Option<bool> handle_gzip(const std::shared_ptr<http_req>& request) {
     return Option<bool>(true);
 }
 
-} // namespace raft_http
+    } // namespace http
+} // namespace raft

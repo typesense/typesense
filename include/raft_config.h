@@ -7,7 +7,8 @@
 /**
  * Namespace for Raft configuration and DNS utilities
  */
-namespace raft_config {
+namespace raft {
+    namespace config {
 
     /**
      * Resolves a hostname to an IP string.
@@ -52,4 +53,5 @@ namespace raft_config {
     std::string get_node_url_path(const braft::PeerId& peer_id,
                                   const std::string& path,
                                   const std::string& protocol);
-}
+    } // namespace config
+} // namespace raft
