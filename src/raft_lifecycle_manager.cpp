@@ -1,20 +1,18 @@
-#include "store.h"
 #include "raft_server.h"
+#include "raft_config.h"
+#include "store.h"
 #include <butil/files/file_enumerator.h>
-#include <butil/endpoint.h>
-#include <braft/raft.h>
-#include <thread>
-#include <chrono>
+#include <butil/files/file_path.h>
 #include <file_utils.h>
 #include <collection_manager.h>
 #include <conversation_model_manager.h>
 #include "rocksdb/utilities/checkpoint.h"
-#include "thread_local_vars.h"
 #include "core_api.h"
 #include "personalization_model_manager.h"
+#include <logger.h>
 
 // Raft Lifecycle and Snapshot Management Module
-// Extracted from raft_server.cpp for better organization
+// This file implements the braft::StateMachine interface methods for ReplicationState
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -25,86 +23,46 @@ namespace braft {
     DECLARE_int32(raft_rpc_channel_connect_timeout_ms);
 }
 
-// Raft Node Startup and Initialization
-int ReplicationState::start_raft_node(const butil::EndPoint & peering_endpoint, const int api_port,
-                                      int election_timeout_ms, int snapshot_max_byte_count_per_rpc,
-                                      const std::string & raft_dir, const std::string & nodes,
-                                      const std::atomic<bool>& quit_abruptly) {
-    
-    // Full Raft node initialization
-    butil::ip_t ip;
-    if (butil::str2ip(butil::endpoint2str(peering_endpoint).c_str(), &ip) < 0) {
-        LOG(ERROR) << "Invalid peering endpoint: " << butil::endpoint2str(peering_endpoint).c_str();
-        return -1;
+// Initialize database after node is ready
+int ReplicationState::init_db() {
+    LOG(INFO) << "Loading collections from disk...";
+
+    Option<bool> init_op = CollectionManager::get_instance().load(
+        num_collections_parallel_load, num_documents_parallel_load
+    );
+
+    if(!init_op.ok()) {
+        LOG(ERROR) << "Failed to load collections: " << init_op.error();
+        return 1;
     }
 
-    braft::NodeOptions node_options;
-    if (node_options.initial_conf.parse_from(to_nodes_config(peering_endpoint, api_port, nodes)) != 0) {
-        LOG(ERROR) << "Fail to parse configuration `" << nodes << "'";
-        return -1;
+    LOG(INFO) << "Finished loading collections from disk";
+
+    // Initialize conversation models
+    auto conversation_models_init = ConversationModelManager::init(store);
+    if(!conversation_models_init.ok()) {
+        LOG(INFO) << "Failed to initialize conversation model manager: " << conversation_models_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << conversation_models_init.get() << " conversation model(s)";
     }
 
-    node_options.election_timeout_ms = election_timeout_ms;
-    node_options.fsm = this;
-    node_options.node_owns_fsm = false;
-    node_options.snapshot_interval_s = 0; // we will trigger snapshots manually
-    node_options.log_uri = raft_dir + "/log";
-    node_options.raft_meta_uri = raft_dir + "/raft_meta";
-    node_options.snapshot_uri = raft_dir + "/snapshot";
-    node_options.disable_cli = false;
-
-    std::unique_lock lock(node_mutex);
-    node = new braft::Node(braft::GroupId("ReplicationState"), braft::PeerId(peering_endpoint, 0));
-
-    if (node->init(node_options) != 0) {
-        LOG(ERROR) << "Fail to init raft node";
-        delete node;
-        node = nullptr;
-        return -1;
-    }
-    lock.unlock();
-
-    // wait for node to come online
-    const int WAIT_FOR_RAFT_TIMEOUT_MS = 60 * 1000;
-    auto begin_ts = std::chrono::high_resolution_clock::now();
-
-    while(true) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
-        auto current_ts = std::chrono::high_resolution_clock::now();
-        auto time_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_ts - begin_ts).count();
-
-        if(time_elapsed > WAIT_FOR_RAFT_TIMEOUT_MS) {
-            LOG(ERROR) << "Raft state not ready even after " << time_elapsed << " ms. Stopping.";
-            return -1;
-        }
-
-        if(quit_abruptly.load()) {
-            LOG(ERROR) << "Server is quitting abruptly.";
-            return -1;
-        }
-
-        bool is_single_node = node_options.initial_conf.size() == 1;
-        ready = is_single_node || node->is_leader();
-        bool leader_or_follower;
-
-        {
-            std::shared_lock node_guard(node_mutex);
-            leader_or_follower = ready || (!node->leader_id().is_empty());
-        }
-
-        if(leader_or_follower) {
-            LOG(INFO) << "Raft node is now ready. Proceeding with DB init. ready=" << ready
-                      << ", single_node=" << is_single_node;
-            break;
-        } else {
-            LOG(INFO) << "Waiting for raft node to come online, time_elapsed=" << time_elapsed << " ms";
+    // Initialize batched indexer state
+    if(batched_indexer) {
+        LOG(INFO) << "Initializing batched indexer from snapshot state...";
+        std::string batched_indexer_state_str;
+        StoreStatus s = store->get(BATCHED_INDEXER_STATE_KEY, batched_indexer_state_str);
+        if(s == FOUND) {
+            nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
+            batched_indexer->load_state(batch_indexer_state);
         }
     }
 
-    // do init only on node ready (i.e. elections are done)
-    if(init_db() != 0) {
-        return -1;
+    // Initialize personalization models
+    auto personalization_models_init = PersonalizationModelManager::init(store);
+    if(!personalization_models_init.ok()) {
+        LOG(INFO) << "Failed to initialize personalization model manager: " << personalization_models_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << personalization_models_init.get() << " personalization model(s)";
     }
 
     return 0;
@@ -218,73 +176,66 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
     bthread_start_urgent(&tid, NULL, save_snapshot, arg);
 }
 
-int ReplicationState::init_db() {
-    LOG(INFO) << "Loading collections from disk...";
+// Apply committed entries to the state machine
+void ReplicationState::on_apply(braft::Iterator& iter) {
+    // NOTE: this is executed on a different thread and runs concurrent to http thread
+    for(; iter.valid(); iter.next()) {
+        // Guard invokes done->Run() asynchronously to avoid blocking
+        braft::AsyncClosureGuard closure_guard(iter.done());
 
-    Option<bool> init_op = CollectionManager::get_instance().load(
-        num_collections_parallel_load, num_documents_parallel_load
-    );
+        const std::shared_ptr<http_req>& request_generated = iter.done() ?
+            dynamic_cast<ReplicationClosure*>(iter.done())->get_request() :
+            std::make_shared<http_req>();
 
-    if(init_op.ok()) {
-        LOG(INFO) << "Finished loading collections from disk.";
-    } else {
-        LOG(ERROR)<< "Typesense failed to start. " << "Could not load collections from disk: " << init_op.error();
-        return 1;
-    }
+        const std::shared_ptr<http_res>& response_generated = iter.done() ?
+            dynamic_cast<ReplicationClosure*>(iter.done())->get_response() :
+            std::make_shared<http_res>(nullptr);
 
-    // important to init conversation models only after all collections have been loaded
-    auto conversation_models_init = ConversationModelManager::init(store);
-    if(!conversation_models_init.ok()) {
-        LOG(INFO) << "Failed to initialize conversation model manager: " << conversation_models_init.error();
-    } else {
-        LOG(INFO) << "Loaded " << conversation_models_init.get() << " conversation model(s).";
-    }
+        if(!iter.done()) {
+            // Log entry - deserialize request
+            request_generated->load_from_json(iter.data().to_string());
+        }
 
-    if(batched_indexer != nullptr) {
-        LOG(INFO) << "Initializing batched indexer from snapshot state...";
-        std::string batched_indexer_state_str;
-        StoreStatus s = store->get(BATCHED_INDEXER_STATE_KEY, batched_indexer_state_str);
-        if(s == FOUND) {
-            nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
-            batched_indexer->load_state(batch_indexer_state);
+        request_generated->log_index = iter.index();
+
+        // Queue for batch processing to avoid blocking Raft thread
+        batched_indexer->enqueue(request_generated, response_generated);
+
+        if(iter.done()) {
+            pending_writes--;
         }
     }
-
-    auto personalization_models_init = PersonalizationModelManager::init(store);
-    if(!personalization_models_init.ok()) {
-        LOG(INFO) << "Failed to initialize personalization model manager: " << personalization_models_init.error();
-    } else {
-        LOG(INFO) << "Loaded " << personalization_models_init.get() << " personalization model(s).";
-    }
-
-    return 0;
 }
 
+// Load a snapshot to restore state machine
 int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
-    std::shared_lock lock(node_mutex);
-    CHECK(!node || !node->is_leader()) << "Leader is not supposed to load snapshot";
-    lock.unlock();
+    // Critical safety check - leader should NEVER load a snapshot
+    CHECK(!node_manager || !node_manager->is_leader())
+        << "Leader is not supposed to load snapshot";
 
     LOG(INFO) << "on_snapshot_load";
 
-    // ensures that reads and writes are rejected, as `store->reload()` unique locks the DB handle
-    read_caught_up = false;
-    write_caught_up = false;
+    // Ensure reads/writes are rejected during reload, as `store->reload()` unique locks the DB handle
+    if(node_manager) {
+        // This will set read_caught_up and write_caught_up to false internally
+        node_manager->refresh_catchup_status(false);
+    }
 
-    // Load snapshot from leader, replacing the running StateMachine
+    // Load analytics snapshot from leader, replacing the running StateMachine
     std::string analytics_snapshot_path = reader->get_path();
     analytics_snapshot_path.append(std::string("/") + analytics_db_snapshot_name);
 
     if(analytics_store && directory_exists(analytics_snapshot_path)) {
         // analytics db snapshot could be missing (older version or disabled earlier)
         int reload_store = analytics_store->reload(true, analytics_snapshot_path,
-                                                   Config::get_instance().get_analytics_db_ttl());
-        if (reload_store != 0) {
-            LOG(ERROR) << "Failed to reload analytics db snapshot.";
+                                                   config->get_analytics_db_ttl());
+        if(reload_store != 0) {
+            LOG(ERROR) << "Failed to reload analytics db snapshot";
             return reload_store;
         }
     }
 
+    // Load main DB snapshot
     std::string db_snapshot_path = reader->get_path();
     db_snapshot_path.append(std::string("/") + db_snapshot_name);
 
@@ -293,41 +244,94 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
         return reload_store;
     }
 
-    bool init_db_status = init_db();
-
-    return init_db_status;
+    // Reinitialize database from loaded snapshot
+    return init_db();
 }
 
-void ReplicationState::on_apply(braft::Iterator& iter) {
-    // NOTE: this is executed on a different thread and runs concurrent to http thread
-    // A batch of tasks are committed, which must be processed through
-    // |iter|
-    for (; iter.valid(); iter.next()) {
-        // Guard invokes replication_arg->done->Run() asynchronously to avoid the callback blocking the main thread
-        braft::AsyncClosureGuard closure_guard(iter.done());
+// Snapshot closure implementations
 
-        const std::shared_ptr<http_req>& request_generated = iter.done() ?
-                         dynamic_cast<ReplicationClosure*>(iter.done())->get_request() : std::make_shared<http_req>();
+OnDemandSnapshotClosure::OnDemandSnapshotClosure(ReplicationState* replication_state,
+                                                 const std::shared_ptr<http_req>& req,
+                                                 const std::shared_ptr<http_res>& res,
+                                                 const std::string& ext_snapshot_path,
+                                                 const std::string& state_dir_path)
+    : replication_state(replication_state), req(req), res(res),
+      ext_snapshot_path(ext_snapshot_path), state_dir_path(state_dir_path) {}
 
-        const std::shared_ptr<http_res>& response_generated = iter.done() ?
-                dynamic_cast<ReplicationClosure*>(iter.done())->get_response() : std::make_shared<http_res>(nullptr);
+void OnDemandSnapshotClosure::Run() {
+    // Auto delete this after Done()
+    std::unique_ptr<OnDemandSnapshotClosure> self_guard(this);
 
-        if(!iter.done()) {
-            // indicates log serialized request
-            request_generated->load_from_json(iter.data().to_string());
+    bool ext_snapshot_succeeded = false;
+
+    // Copy snapshot to external path if requested
+    if(!ext_snapshot_path.empty()) {
+        const butil::FilePath& dest_state_dir = butil::FilePath(ext_snapshot_path + "/state");
+
+        if(!butil::DirectoryExists(dest_state_dir)) {
+            butil::CreateDirectory(dest_state_dir, true);
         }
 
-        request_generated->log_index = iter.index();
+        const butil::FilePath& src_snapshot_dir = butil::FilePath(state_dir_path + "/snapshot");
+        const butil::FilePath& src_meta_dir = butil::FilePath(state_dir_path + "/meta");
 
-        // To avoid blocking the serial Raft write thread persist the log entry in local storage.
-        // Actual operations will be done in collection-sharded batch indexing threads.
+        bool snapshot_copied = butil::CopyDirectory(src_snapshot_dir, dest_state_dir, true);
+        bool meta_copied = butil::CopyDirectory(src_meta_dir, dest_state_dir, true);
 
-        batched_indexer->enqueue(request_generated, response_generated);
-
-        if(iter.done()) {
-            pending_writes--;
-        }
+        ext_snapshot_succeeded = snapshot_copied && meta_copied;
     }
+
+    // Clear external snapshot path and mark complete
+    // Order is important, because the atomic boolean guards write to the path
+    replication_state->set_ext_snapshot_path("");
+    replication_state->set_snapshot_in_progress(false);
+
+    req->last_chunk_aggregate = true;
+    res->final = true;
+
+    nlohmann::json response;
+    uint32_t status_code;
+
+    if(!status().ok()) {
+        // in case of internal raft error
+        LOG(ERROR) << "On demand snapshot failed, error: " << status().error_str() << ", code: " << status().error_code();
+        status_code = 500;
+        response["success"] = false;
+        response["error"] = status().error_str();
+    } else if(!ext_snapshot_succeeded && !ext_snapshot_path.empty()) {
+        LOG(ERROR) << "On demand snapshot failed, error: copy failed.";
+        status_code = 500;
+        response["success"] = false;
+        response["error"] = "Copy failed.";
+    } else {
+        LOG(INFO) << "On demand snapshot succeeded!";
+        status_code = 201;
+        response["success"] = true;
+    }
+
+    res->status_code = status_code;
+    res->body = response.dump();
+
+    auto req_res = new async_req_res_t(req, res, true);
+    replication_state->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+
+    // Wait for response to be sent
+    res->wait();
+}
+
+TimedSnapshotClosure::TimedSnapshotClosure(ReplicationState* replication_state)
+    : replication_state(replication_state) {}
+
+void TimedSnapshotClosure::Run() {
+    std::unique_ptr<TimedSnapshotClosure> self_guard(this);
+
+    if(status().ok()) {
+        LOG(INFO) << "Timed snapshot succeeded";
+    } else {
+        LOG(ERROR) << "Timed snapshot failed: " << status().error_str();
+    }
+
+    replication_state->set_snapshot_in_progress(false);
 }
 
 void ReplicationState::shutdown() {
@@ -342,33 +346,28 @@ void ReplicationState::shutdown() {
     }
 
     LOG(INFO) << "Replication state shutdown, store sequence: " << store->get_latest_seq_number();
-    std::unique_lock lock(node_mutex);
 
-    if (node) {
-        LOG(INFO) << "node->shutdown";
-        node->shutdown(nullptr);
-
-        // Blocking this thread until the node is eventually down.
-        LOG(INFO) << "node->join";
-        node->join();
-        delete node;
-        node = nullptr;
+    // Note: RaftNodeManager shutdown is now handled by RaftCoordinator
+    // to maintain proper shutdown order and avoid circular dependencies
+    if (node_manager) {
+        node_manager->shutdown();
     }
 }
 
 void ReplicationState::do_dummy_write() {
-    std::shared_lock lock(node_mutex);
-
-    if(!node || node->leader_id().is_empty()) {
-        LOG(ERROR) << "Could not do a dummy write, as node does not have a leader";
-        return ;
+    if(!node_manager) {
+        LOG(ERROR) << "Could not do a dummy write, as node manager is not initialized";
+        return;
     }
 
-    const std::string & leader_addr = node->leader_id().to_string();
-    lock.unlock();
+    braft::PeerId leader_id = node_manager->leader_id();
+    if(leader_id.is_empty()) {
+        LOG(ERROR) << "Could not do a dummy write, as node does not have a leader";
+        return;
+    }
 
     const std::string protocol = api_uses_ssl ? "https" : "http";
-    std::string url = get_node_url_path(leader_addr, "/health", protocol);
+    std::string url = raft_config::get_node_url_path(leader_id, "/health", protocol);
 
     std::string api_res;
     std::map<std::string, std::string> res_headers;
@@ -376,3 +375,4 @@ void ReplicationState::do_dummy_write() {
 
     LOG(INFO) << "Dummy write to " << url << ", status = " << status_code << ", response = " << api_res;
 }
+

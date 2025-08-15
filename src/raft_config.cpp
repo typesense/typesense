@@ -1,15 +1,18 @@
-#include "store.h"
-#include "raft_server.h"
+#include "raft_config.h"
 #include <string_utils.h>
 #include <logger.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <cstring>
+#include <vector>
 
 // Raft Configuration and DNS Resolution Module
 // Extracted from raft_server.cpp for better organization
 
-std::string ReplicationState::hostname2ipstr(const std::string& hostname) {
+namespace raft_config {
+
+std::string hostname2ipstr(const std::string& hostname) {
     if(hostname.size() > 64) {
         LOG(ERROR) << "Host name is too long (must be < 64 characters): " << hostname;
         return "";
@@ -56,7 +59,7 @@ std::string ReplicationState::hostname2ipstr(const std::string& hostname) {
     return resolved_ip;
 }
 
-std::string ReplicationState::resolve_node_hosts(const std::string& nodes_config) {
+std::string resolve_node_hosts(const std::string& nodes_config) {
     std::vector<std::string> final_nodes_vec;
     std::vector<std::string> node_strings;
     StringUtils::split(nodes_config, node_strings, ",");
@@ -94,9 +97,8 @@ std::string ReplicationState::resolve_node_hosts(const std::string& nodes_config
     return final_nodes_config;
 }
 
-// can return empty string if DNS resolution fails on all nodes
-std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_endpoint, const int api_port,
-                                              const std::string& nodes_config) {
+std::string to_nodes_config(const butil::EndPoint& peering_endpoint, const int api_port,
+                            const std::string& nodes_config) {
     if(nodes_config.empty()) {
         // endpoint2str gives us "<ip>:<peering_port>", we just need to add ":<api_port>"
         return std::string(butil::endpoint2str(peering_endpoint).c_str()) + ":" + std::to_string(api_port);
@@ -105,8 +107,9 @@ std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_end
     }
 }
 
-std::string ReplicationState::get_node_url_path(const braft::PeerId& peer_id, const std::string& path,
-                                                const std::string& protocol) const {
+std::string get_node_url_path(const braft::PeerId& peer_id,
+                              const std::string& path,
+                              const std::string& protocol) {
     const std::string endpoint_str = butil::endpoint2str(peer_id.addr).c_str();
     const size_t last_colon = endpoint_str.rfind(':');
     if (last_colon == std::string::npos) {
@@ -132,4 +135,6 @@ std::string ReplicationState::get_node_url_path(const braft::PeerId& peer_id, co
     }
 
     return url;
+}
+
 }

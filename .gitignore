@@ -19,3 +19,6 @@ typesense-data
 .secrets
 /dist
 *.tar.gz
+.cursor
+/new_code/*
+/new_classy_code/*
