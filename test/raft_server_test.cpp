@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <string>
+#include <arpa/inet.h>
 #include "raft_config.h"
 
 namespace {
