@@ -229,8 +229,8 @@ int HttpServer::create_listener() {
     return 0;
 }
 
-int HttpServer::run(RaftServer* raft_server) {
-    this->raft_server = raft_server;
+int HttpServer::run(RaftStateMachine* raft_state_machine) {
+    this->raft_state_machine = raft_state_machine;
 
     metrics_refresh_timer = h2o_custom_timer_t(this);
     h2o_timer_init(&metrics_refresh_timer.timer, on_metrics_refresh_timeout);
@@ -1086,12 +1086,12 @@ http_message_dispatcher* HttpServer::get_message_dispatcher() const {
     return message_dispatcher;
 }
 
-RaftServer* HttpServer::get_raft_server() const {
-    return raft_server;
+RaftStateMachine* HttpServer::get_raft_state_machine() const {
+    return raft_state_machine;
 }
 
 bool HttpServer::is_alive() const {
-    return raft_server->is_alive();
+    return raft_state_machine->is_alive();
 }
 
 bool HttpServer::get_route(uint64_t hash, route_path** found_rpath) {
@@ -1106,11 +1106,11 @@ bool HttpServer::get_route(uint64_t hash, route_path** found_rpath) {
 }
 
 uint64_t HttpServer::node_state() const {
-    return raft_server->node_state();
+    return raft_state_machine->node_state();
 }
 
 nlohmann::json HttpServer::node_status() {
-    return raft_server->get_status();
+    return raft_state_machine->get_status();
 }
 
 bool HttpServer::on_stream_response_message(void *data) {
@@ -1172,15 +1172,15 @@ bool HttpServer::has_exited() const {
 }
 
 void HttpServer::do_snapshot(const std::string& snapshot_path, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    return raft_server->do_snapshot(snapshot_path, req, res);
+    return raft_state_machine->do_snapshot(snapshot_path, req, res);
 }
 
 bool HttpServer::trigger_vote() {
-    return raft_server->trigger_vote();
+    return raft_state_machine->trigger_vote();
 }
 
 bool HttpServer::reset_peers() {
-    return raft_server->reset_peers();
+    return raft_state_machine->reset_peers();
 }
 
 ThreadPool* HttpServer::get_thread_pool() const {
@@ -1241,15 +1241,15 @@ bool HttpServer::initialize_ssl_ctx(const char *cert_file, const char *key_file,
 }
 
 void HttpServer::persist_applying_index() {
-    return raft_server->persist_applying_index();
+    return raft_state_machine->persist_applying_index();
 }
 
 int64_t HttpServer::get_num_queued_writes() {
-    return raft_server->get_num_queued_writes();
+    return raft_state_machine->get_num_queued_writes();
 }
 
 bool HttpServer::is_leader() const {
-    return raft_server->is_leader();
+    return raft_state_machine->is_leader();
 }
 
 ThreadPool* HttpServer::get_meta_thread_pool() const {
@@ -1257,5 +1257,5 @@ ThreadPool* HttpServer::get_meta_thread_pool() const {
 }
 
 void HttpServer::decr_pending_writes() {
-    return raft_server->decr_pending_writes();
+    return raft_state_machine->decr_pending_writes();
 }

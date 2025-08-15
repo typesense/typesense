@@ -78,8 +78,8 @@ private:
     static constexpr const char* analytics_db_snapshot_name = "analytics_db_snapshot";
     static constexpr const char* BATCHED_INDEXER_STATE_KEY = "$BI";
 
-    // Node management (dependency injected)
-    RaftNodeManager* node_manager;
+    // Node management (owned)
+    std::unique_ptr<RaftNodeManager> node_manager;
 
     // Core components
     HttpServer* server;
@@ -134,16 +134,18 @@ public:
                     bool api_uses_ssl,
                     const Config* config,
                     size_t num_collections_parallel_load,
-                    size_t num_documents_parallel_load,
-                    RaftNodeManager* node_manager);
+                    size_t num_documents_parallel_load);
 
     /**
-     * Initialize the state machine configuration (called by RaftServer)
+     * Start the entire Raft system
      */
-    int initialize(const butil::EndPoint& peering_endpoint,
-                  int api_port,
-                  int election_timeout_ms,
-                  const std::string& raft_dir);
+    int start(const butil::EndPoint& peering_endpoint,
+             int api_port,
+             int election_timeout_ms,
+             int snapshot_max_byte_count_per_rpc,
+             const std::string& raft_dir,
+             const std::string& nodes,
+             const std::atomic<bool>& quit_abruptly);
 
     /**
      * Process write requests through Raft
@@ -157,9 +159,16 @@ public:
     void read(const std::shared_ptr<http_res>& response);
 
     /**
-     * Shutdown the state machine and node
+     * Shutdown the entire Raft system
      */
     void shutdown();
+
+    /**
+     * Integration method for HttpServer - handles server lifecycle
+     */
+    int run_http_server(HttpServer* server) {
+        return server->run(this);
+    }
 
     /**
      * Initialize database after node is ready

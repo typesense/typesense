@@ -32,7 +32,7 @@ class ConversationManager {
         Option<bool> check_conversation_exists(const std::string& conversation_id, Collection* collection);
         Option<std::unordered_set<std::string>> get_conversation_ids();
         static constexpr size_t MAX_TOKENS = 3000;
-        Option<bool> init(RaftServer* raft_server);
+        Option<bool> init(RaftStateMachine* raft_state_machine);
         void clear_expired_conversations();
         void run();
         void stop();
@@ -48,7 +48,7 @@ class ConversationManager {
         ConversationManager() {}
         std::mutex conversations_mutex;
 
-        RaftServer* raft_server;
+        RaftStateMachine* raft_state_machine;
         size_t TTL_OFFSET = 0;
 
         std::atomic<bool> quit = false;

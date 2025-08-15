@@ -5,7 +5,7 @@
 #include <core_api.h>
 #include <analytics_manager.h>
 #include "core_api_utils.h"
-#include "raft_server.h"
+#include "raft_http.h"
 #include "conversation_model_manager.h"
 #include "conversation_manager.h"
 

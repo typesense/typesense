@@ -45,12 +45,10 @@ namespace braft {
 // ============================================================================
 
 RaftStateMachine::RaftStateMachine(HttpServer* server, BatchedIndexer* batched_indexer,
-                                 Store *store, Store* analytics_store, ThreadPool* thread_pool,
-                                 http_message_dispatcher *message_dispatcher,
-                                 bool api_uses_ssl, const Config* config,
-                                 size_t num_collections_parallel_load, size_t num_documents_parallel_load,
-                                 RaftNodeManager* node_manager):
-        node_manager(node_manager),
+                                   Store *store, Store* analytics_store, ThreadPool* thread_pool,
+                                   http_message_dispatcher *message_dispatcher,
+                                   bool api_uses_ssl, const Config* config,
+                                   size_t num_collections_parallel_load, size_t num_documents_parallel_load):
         server(server), batched_indexer(batched_indexer),
         store(store), analytics_store(analytics_store),
         thread_pool(thread_pool), message_dispatcher(message_dispatcher), api_uses_ssl(api_uses_ssl),
@@ -60,22 +58,53 @@ RaftStateMachine::RaftStateMachine(HttpServer* server, BatchedIndexer* batched_i
         ready(false), shutting_down(false), pending_writes(0), snapshot_in_progress(false),
         last_snapshot_ts(std::time(nullptr)), snapshot_interval_s(config->get_snapshot_interval_seconds()) {
 
-    LOG(INFO) << "RaftStateMachine initialized with injected RaftNodeManager";
+    node_manager = std::make_unique<RaftNodeManager>(config, store, batched_indexer, api_uses_ssl);
+
+    LOG(INFO) << "RaftStateMachine initialized";
 }
 
-int RaftStateMachine::initialize(const butil::EndPoint& peering_endpoint,
-                                int api_port,
-                                int election_timeout_ms,
-                                const std::string& raft_dir) {
+int RaftStateMachine::start(const butil::EndPoint& peering_endpoint,
+                            int api_port,
+                            int election_timeout_ms,
+                            int snapshot_max_byte_count_per_rpc,
+                            const std::string& raft_dir,
+                            const std::string& nodes,
+                            const std::atomic<bool>& quit_abruptly) {
 
-    LOG(INFO) << "Initializing RaftStateMachine configuration";
+    LOG(INFO) << "Starting RaftStateMachine";
+
+    // Configure braft flags
+    braft::FLAGS_raft_do_snapshot_min_index_gap = 1;
+    braft::FLAGS_raft_max_parallel_append_entries_rpc_num = 1;
+    braft::FLAGS_raft_enable_append_entries_cache = false;
+    braft::FLAGS_raft_max_append_entries_cache_size = 8;
+    braft::FLAGS_raft_max_byte_count_per_rpc = snapshot_max_byte_count_per_rpc;
+    braft::FLAGS_raft_rpc_channel_connect_timeout_ms = 2000;
 
     // Set state machine configuration
     this->election_timeout_interval_ms = election_timeout_ms;
     this->raft_dir_path = raft_dir;
     this->peering_endpoint = peering_endpoint;
 
-    LOG(INFO) << "RaftStateMachine configuration initialized";
+    // Initialize the raft node through node manager, wiring it to this state machine
+    int result = node_manager->init_node(this, peering_endpoint,
+                                         api_port, election_timeout_ms, raft_dir, nodes);
+    if (result != 0) {
+        return result;
+    }
+
+    // Wait for node to be ready
+    const int WAIT_FOR_RAFT_TIMEOUT_MS = 60 * 1000;
+    if (!node_manager->wait_until_ready(WAIT_FOR_RAFT_TIMEOUT_MS, quit_abruptly)) {
+        return -1;
+    }
+
+    // Initialize database after node is ready
+    if (init_db() != 0) {
+        return -1;
+    }
+
+    LOG(INFO) << "RaftStateMachine started successfully";
     return 0;
 }
 
@@ -628,10 +657,9 @@ void RaftStateMachine::shutdown() {
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
 
-    LOG(INFO) << "Replication state shutdown, store sequence: " << store->get_latest_seq_number();
+    LOG(INFO) << "RaftStateMachine shutdown, store sequence: " << store->get_latest_seq_number();
 
-    // Note: RaftNodeManager shutdown is now handled by RaftServer
-    // to maintain proper shutdown order and avoid circular dependencies
+    // Shutdown the RaftNodeManager
     if (node_manager) {
         node_manager->shutdown();
     }

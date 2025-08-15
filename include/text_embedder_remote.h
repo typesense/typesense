@@ -4,7 +4,7 @@
 #include <string>
 #include <mutex>
 #include "http_client.h"
-#include "raft_server.h"
+#include "raft_state_machine.h"
 #include "option.h"
 #include "lru/lru.hpp"
 
@@ -15,7 +15,7 @@ struct embedding_res_t {
     int status_code;
     bool success;
 
-    embedding_res_t() : success(false) {} 
+    embedding_res_t() : success(false) {}
 
     embedding_res_t(const std::vector<float>& embedding) : embedding(embedding), success(true) {}
 
@@ -48,7 +48,7 @@ struct embedding_res_t {
 class RemoteEmbedder {
     protected:
         static Option<bool> validate_string_properties(const nlohmann::json& model_config, const std::vector<std::string>& properties);
-        static inline RaftServer* raft_server = nullptr;
+        static inline RaftStateMachine* raft_state_machine = nullptr;
         std::shared_mutex mutex;
     public:
         static inline LRU::Cache<std::string, embedding_res_t> cache = LRU::Cache<std::string, embedding_res_t>(100);
@@ -60,13 +60,13 @@ class RemoteEmbedder {
         virtual std::vector<embedding_res_t> embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
                                                          const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) = 0;
         static const std::string get_model_key(const nlohmann::json& model_config);
-        static void init(RaftServer* rs) {
-            raft_server = rs;
+        static void init(RaftStateMachine* rs) {
+            raft_state_machine = rs;
         }
         virtual ~RemoteEmbedder() = default;
         virtual bool update_api_key(const std::string& api_key) = 0;
-        static RaftServer* get_raft_server() {
-            return raft_server;
+        static RaftStateMachine* get_raft_state_machine() {
+            return raft_state_machine;
         }
 };
 

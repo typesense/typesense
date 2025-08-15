@@ -581,9 +581,9 @@ Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string
     req->async_res_set_headers_callback = async_res_set_headers_callback;
     req->async_res_write_callback = async_res_write_callback;
     req->async_res_done_callback = async_res_done_callback;
-    auto raft_server = RemoteEmbedder::get_raft_server();
-    if(raft_server && !raft_server->get_leader_url().empty()) {
-        auto proxy_url = raft_server->get_leader_url() + "proxy_sse";
+    auto raft_state_machine = RemoteEmbedder::get_raft_state_machine();
+    if(raft_server && !raft_state_machine->get_leader_url().empty()) {
+        auto proxy_url = raft_state_machine->get_leader_url() + "proxy_sse";
         nlohmann::json proxy_req_body;
         proxy_req_body["method"] = "POST";
         proxy_req_body["url"] = openai_url + openai_path;
@@ -778,9 +778,9 @@ Option<std::string> CFConversationModel::get_answer_stream(const std::string& co
     req->async_res_set_headers_callback = async_res_set_headers_callback;
     req->async_res_write_callback = async_res_write_callback;
     req->async_res_done_callback = async_res_done_callback;
-    auto raft_server = RemoteEmbedder::get_raft_server();
-    if(raft_server && !raft_server->get_leader_url().empty()) {
-        auto proxy_url = raft_server->get_leader_url() + "proxy_sse";
+    auto raft_state_machine = RemoteEmbedder::get_raft_state_machine();
+    if(raft_server && !raft_state_machine->get_leader_url().empty()) {
+        auto proxy_url = raft_state_machine->get_leader_url() + "proxy_sse";
         nlohmann::json proxy_req_body;
         proxy_req_body["method"] = "POST";
         proxy_req_body["url"] = url;
@@ -1202,9 +1202,9 @@ Option<std::string> vLLMConversationModel::get_answer_stream(const std::string& 
     req->async_res_set_headers_callback = async_res_set_headers_callback;
     req->async_res_write_callback = async_res_write_callback;
     req->async_res_done_callback = async_res_done_callback;
-    auto raft_server = RemoteEmbedder::get_raft_server();
-    if(raft_server && !raft_server->get_leader_url().empty()) {
-        auto proxy_url = raft_server->get_leader_url() + "proxy_sse";
+    auto raft_state_machine = RemoteEmbedder::get_raft_state_machine();
+    if(raft_server && !raft_state_machine->get_leader_url().empty()) {
+        auto proxy_url = raft_state_machine->get_leader_url() + "proxy_sse";
         nlohmann::json proxy_req_body;
         proxy_req_body["method"] = "POST";
         proxy_req_body["url"] = get_chat_completion_url(vllm_url);
@@ -1594,9 +1594,9 @@ Option<std::string> GeminiConversationModel::get_answer_stream(const std::string
     req->async_res_set_headers_callback = async_res_set_headers_callback;
     req->async_res_write_callback = async_res_write_callback;
     req->async_res_done_callback = async_res_done_callback;
-    auto raft_server = RemoteEmbedder::get_raft_server();
-    if(raft_server && !raft_server->get_leader_url().empty()) {
-        auto proxy_url = raft_server->get_leader_url() + "proxy_sse";
+    auto raft_state_machine = RemoteEmbedder::get_raft_state_machine();
+    if(raft_server && !raft_state_machine->get_leader_url().empty()) {
+        auto proxy_url = raft_state_machine->get_leader_url() + "proxy_sse";
         nlohmann::json proxy_req_body;
         proxy_req_body["method"] = "POST";
         proxy_req_body["url"] = url;
@@ -2123,9 +2123,9 @@ Option<std::string> AzureConversationModel::get_answer_stream(const nlohmann::js
     req->async_res_write_callback = async_res_write_callback;
     req->async_res_done_callback = async_res_done_callback;
 
-    auto raft_server = RemoteEmbedder::get_raft_server();
-    if(raft_server && !raft_server->get_leader_url().empty()) {
-        auto proxy_url = raft_server->get_leader_url() + "proxy_sse";
+    auto raft_state_machine = RemoteEmbedder::get_raft_state_machine();
+    if(raft_server && !raft_state_machine->get_leader_url().empty()) {
+        auto proxy_url = raft_state_machine->get_leader_url() + "proxy_sse";
         nlohmann::json proxy_req_body;
         proxy_req_body["method"] = "POST";
         proxy_req_body["url"] = azure_url;

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include <string>
-#include "raft_server.h"
+#include "raft_config.h"
 
 namespace {
     bool matches_either_ip_version(const std::string& result,

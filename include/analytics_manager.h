@@ -57,8 +57,8 @@ public:
     AnalyticsManager(AnalyticsManager const&) = delete;
     void operator=(AnalyticsManager const&) = delete;
 
-    void persist_db_events(RaftServer *raft_server, uint64_t prev_persistence_s, bool triggered);
-    void persist_analytics_db_events(RaftServer *raft_server, uint64_t prev_persistence_s, bool triggered);
+    void persist_db_events(RaftStateMachine *raft_state_machine, uint64_t prev_persistence_s, bool triggered);
+    void persist_analytics_db_events(RaftStateMachine *raft_state_machine, uint64_t prev_persistence_s, bool triggered);
 
     Option<bool> add_external_event(const std::string& client_ip, const nlohmann::json& event_data);
     Option<bool> add_internal_event(const query_internal_event_t& event_data);
@@ -77,7 +77,7 @@ public:
     void resetToggleRateLimit(bool toggle);
     bool write_to_db(const nlohmann::json& payload);
 
-    void run(RaftServer* raft_server);
+    void run(RaftStateMachine* raft_state_machine);
     void init(Store* store, Store* analytics_store, uint32_t analytics_minute_rate_limit);
     Option<nlohmann::json> process_create_rule_request(nlohmann::json& payload, bool is_live_req);
     Option<nlohmann::json> get_status();

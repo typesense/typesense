@@ -8,17 +8,17 @@
 
 #define EVENTS_RATE_LIMIT_SEC 60
 
-void AnalyticsManager::persist_db_events(RaftServer *raft_server, uint64_t prev_persistence_s, bool triggered) {
+void AnalyticsManager::persist_db_events(RaftStateMachine *raft_state_machine, uint64_t prev_persistence_s, bool triggered) {
     LOG(INFO) << "Persisting db events" << (triggered ? " (triggered)" : "");
     const uint64_t now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
               std::chrono::system_clock::now().time_since_epoch()).count();
 
     auto update_counter_events = [&](const std::string& import_payload, const std::string& collection, const std::string& operation) {
-        if (raft_server == nullptr) {
+        if (raft_state_machine == nullptr) {
             return;
         }
 
-        std::string leader_url = raft_server->get_leader_url();
+        std::string leader_url = raft_state_machine->get_leader_url();
         if (!leader_url.empty()) {
             const std::string &base_url = leader_url + "collections/" + collection;
             std::string res;
@@ -37,11 +37,11 @@ void AnalyticsManager::persist_db_events(RaftServer *raft_server, uint64_t prev_
     };
 
     auto limit_to_top_k = [&](const std::string& collection, const uint32_t limit) {
-      if (raft_server == nullptr) {
+      if (raft_state_machine == nullptr) {
           return;
       }
 
-      std::string leader_url = raft_server->get_leader_url();
+      std::string leader_url = raft_state_machine->get_leader_url();
       if (!leader_url.empty()) {
         const std::string& base_url = leader_url + "collections/" + collection;
         const std::string top_k_param = "count:" + std::to_string(limit);
@@ -102,7 +102,7 @@ void AnalyticsManager::persist_db_events(RaftServer *raft_server, uint64_t prev_
     }
 }
 
-void AnalyticsManager::persist_analytics_db_events(RaftServer *raft_server, uint64_t prev_persistence_s, bool triggred) {
+void AnalyticsManager::persist_analytics_db_events(RaftStateMachine *raft_state_machine, uint64_t prev_persistence_s, bool triggred) {
     LOG(INFO) << "Persisting analytics db events" << (triggred ? " (triggered)" : "");
     std::unique_lock lock(mutex);
     std::vector<std::string> payloads;
@@ -140,12 +140,11 @@ void AnalyticsManager::persist_analytics_db_events(RaftServer *raft_server, uint
     }
 
     auto send_http_response = [&](const std::string& import_payload) {
-        if(raft_server == nullptr) {
+        if(raft_state_machine == nullptr) {
             return;
         }
-        
 
-        std::string leader_url = raft_server->get_leader_url();
+        std::string leader_url = raft_state_machine->get_leader_url();
         if(!leader_url.empty()) {
             const std::string& base_url = leader_url + "analytics/";
             std::string res;
@@ -789,7 +788,7 @@ Option<nlohmann::json> AnalyticsManager::get_status() {
     return Option<nlohmann::json>(status);
 }
 
-void AnalyticsManager::run(RaftServer* raft_server) {
+void AnalyticsManager::run(RaftStateMachine* raft_state_machine) {
     uint64_t prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
               std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -822,9 +821,9 @@ void AnalyticsManager::run(RaftServer* raft_server) {
 
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
-        
-        persist_analytics_db_events(raft_server, prev_persistence_s, trigered_flush);
-        persist_db_events(raft_server, prev_persistence_s, trigered_flush);
+
+        persist_analytics_db_events(raft_state_machine, prev_persistence_s, trigered_flush);
+        persist_db_events(raft_state_machine, prev_persistence_s, trigered_flush);
     }
 
     dispose();
