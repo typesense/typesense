@@ -27,13 +27,6 @@ private:
     std::unique_ptr<ReplicationState> state_machine;
     std::unique_ptr<RaftNodeManager> node_manager;
 
-    /**
-     * Internal access to components (used by HttpServer integration)
-     * These should not be called by external application code
-     */
-    ReplicationState* get_state_machine() { return state_machine.get(); }
-    const ReplicationState* get_state_machine() const { return state_machine.get(); }
-
 public:
     /**
      * Constructor - creates and wires together the Raft components
@@ -150,16 +143,16 @@ public:
         return state_machine ? state_machine->get_num_queued_writes() : 0;
     }
 
+    void decr_pending_writes() {
+        if (state_machine) state_machine->decr_pending_writes();
+    }
+
     /**
      * Integration method for HttpServer - handles server lifecycle
      */
     int run_http_server(HttpServer* server) {
-        if (!state_machine) {
-            return -1;
-        }
-        return server->run(state_machine.get());
+        return server->run(this);
     }
 
-    // HttpServer needs direct access for integration
-    friend class HttpServer;
+
 };

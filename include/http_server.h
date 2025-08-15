@@ -16,7 +16,7 @@ extern "C" {
 #include "option.h"
 #include "threadpool.h"
 
-class ReplicationState;
+class RaftServer;
 class HttpServer;
 
 struct h2o_custom_req_handler_t {
@@ -134,7 +134,7 @@ private:
 
     http_message_dispatcher* message_dispatcher;
 
-    ReplicationState* replication_state;
+    RaftServer* raft_server;
 
     std::atomic<bool> exit_loop;
 
@@ -214,7 +214,7 @@ public:
 
     http_message_dispatcher* get_message_dispatcher() const;
 
-    ReplicationState* get_replication_state() const;
+    RaftServer* get_raft_server() const;
 
     bool is_alive() const;
 
@@ -249,7 +249,7 @@ public:
 
     bool get_route(uint64_t hash, route_path** found_rpath);
 
-    int run(ReplicationState* replication_state);
+    int run(RaftServer* raft_server);
 
     void stop();
 
