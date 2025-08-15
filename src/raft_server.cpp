@@ -16,7 +16,6 @@
 // Raft Server - Slim Coordinator
 // This file now coordinates the extracted modules:
 // - raft_config_manager.cpp: DNS & Configuration  
-// - raft_safety_validator.cpp: TLA+ Safety
 // - raft_http_handler.cpp: HTTP Processing
 // - raft_lifecycle_manager.cpp: Raft Lifecycle & Snapshots
 // - raft_node_manager.cpp: Node Management & Status
@@ -50,9 +49,7 @@ ReplicationState::ReplicationState(HttpServer* server, BatchedIndexer* batched_i
         num_documents_parallel_load(num_documents_parallel_load),
         read_caught_up(false), write_caught_up(false),
         ready(false), shutting_down(false), pending_writes(0), snapshot_in_progress(false),
-        last_snapshot_ts(std::time(nullptr)), snapshot_interval_s(config->get_snapshot_interval_seconds()),
-        // Additional state needed for coordination
-        immediate_refresh_requested(false) {
+        last_snapshot_ts(std::time(nullptr)), snapshot_interval_s(config->get_snapshot_interval_seconds()) {
     
     LOG(INFO) << "ReplicationState coordinator initialized";
 }
@@ -104,7 +101,6 @@ Store* ReplicationState::get_store() {
 // - HTTP Processing methods → raft_http_handler.cpp  
 // - Lifecycle & Snapshot methods → raft_lifecycle_manager.cpp
 // - Node Management methods → raft_node_manager.cpp
-// - Safety Validation methods → raft_safety_validator.cpp
 
 // The main coordinator maintains only essential coordination logic
 // All method implementations have been moved to the appropriate module files
