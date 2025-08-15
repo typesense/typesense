@@ -18,6 +18,13 @@
 class Store;
 class ReplicationState;
 
+// Configuration structure for DNS-native operations  
+// TODO: Implement comprehensive node configuration parsing
+struct NodeConfiguration {
+    std::vector<std::string> nodes;
+    // Additional configuration fields will be added as needed
+};
+
 // Implements the callback for the state machine
 class ReplicationClosure : public braft::Closure {
 private:
@@ -149,6 +156,9 @@ private:
     uint64_t last_snapshot_ts;              // when last snapshot ran
 
     butil::EndPoint peering_endpoint;
+    
+    // Coordination state for DNS-native operations
+    std::atomic<bool> immediate_refresh_requested;
 
 public:
 
@@ -258,6 +268,18 @@ public:
     static Option<bool> handle_gzip(const std::shared_ptr<http_req>& request);
 
     void decr_pending_writes();
+
+    // TLA+ Safety Validator Methods
+    // TODO: Verify with TLA+ - implement comprehensive safety validation patterns
+    bool config_is_safe() const;
+    bool has_term_quorum_check() const;
+    bool has_config_quorum_check() const;
+    bool are_previous_ops_committed_in_current_config() const;
+    bool validate_new_config_quorum(const NodeConfiguration& new_config) const;
+    void handle_peer_failure(const braft::PeerId& failed_peer_id);
+    bool add_node_safe(const std::string& node_to_add);
+    bool remove_node_safe(const std::string& node_to_remove);
+    void trigger_immediate_config_refresh();
 
 private:
 
