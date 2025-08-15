@@ -347,7 +347,7 @@ void ReplicationState::shutdown() {
 
     LOG(INFO) << "Replication state shutdown, store sequence: " << store->get_latest_seq_number();
 
-    // Note: RaftNodeManager shutdown is now handled by RaftCoordinator
+    // Note: RaftNodeManager shutdown is now handled by RaftServer
     // to maintain proper shutdown order and avoid circular dependencies
     if (node_manager) {
         node_manager->shutdown();
