@@ -354,7 +354,7 @@ butil::EndPoint get_internal_endpoint(const std::string& subnet_cidr, uint32_t p
     return loopback;
 }
 
-int start_raft_server(ReplicationState& replication_state, Store& store,
+int start_raft_server(RaftServer& raft_server, Store& store,
                       const std::string& state_dir, const std::string& path_to_nodes,
                       const std::string& peering_address, uint32_t peering_port, const std::string& peering_subnet,
                       uint32_t api_port, int snapshot_interval_seconds, int snapshot_max_byte_count_per_rpc,
@@ -407,8 +407,8 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
 
     size_t election_timeout_ms = 5000;
 
-    if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, state_dir,
-                                nodes_config_op.get(), quit_raft_service) != 0) {
+    if (raft_server.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, state_dir,
+                           nodes_config_op.get(), quit_raft_service) != 0) {
         LOG(ERROR) << "Failed to start peering state";
         exit(-1);
     }
@@ -426,14 +426,14 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
             if(!refreshed_nodes_op.ok()) {
                 LOG(WARNING) << "Error while refreshing peer configuration: " << refreshed_nodes_op.error();
             } else {
-                const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
-                                                                                    refreshed_nodes_op.get());
+                const std::string& nodes_config = raft_config::to_nodes_config(peering_endpoint, api_port,
+                                                                               refreshed_nodes_op.get());
                 if(nodes_config.empty()) {
                     LOG(WARNING) << "No nodes resolved from peer configuration.";
                 } else {
-                    replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
+                    raft_server.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
                     if(raft_counter % 60 == 0) {
-                        replication_state.do_snapshot(nodes_config);
+                        raft_server.do_snapshot(nodes_config);
                     }
                 }
             }
@@ -442,7 +442,7 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
         if(raft_counter % 3 == 0) {
             // update node catch up status periodically, take care of logging too verbosely
             bool log_msg = (raft_counter % 9 == 0);
-            replication_state.refresh_catchup_status(log_msg);
+            raft_server.refresh_catchup_status(log_msg);
         }
 
         raft_counter++;
@@ -452,7 +452,7 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
     LOG(INFO) << "Typesense peering service is going to quit.";
 
     // Stop application before server
-    replication_state.shutdown();
+    raft_server.shutdown();
 
     LOG(INFO) << "raft_server.stop()";
     raft_server.Stop(0);
@@ -621,14 +621,14 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     // first we start the peering service
 
-    ReplicationState replication_state(server, batch_indexer, &store, analytics_store,
-                                       &replication_thread_pool, server->get_message_dispatcher(),
-                                       ssl_enabled,
-                                       &config,
-                                       num_collections_parallel_load,
-                                       config.get_num_documents_parallel_load());
+    RaftServer raft_server(server, batch_indexer, &store, analytics_store,
+                           &replication_thread_pool, server->get_message_dispatcher(),
+                           ssl_enabled,
+                           &config,
+                           num_collections_parallel_load,
+                           config.get_num_documents_parallel_load());
 
-    auto conversations_init = ConversationManager::get_instance().init(&replication_state);
+    auto conversations_init = ConversationManager::get_instance().init(&raft_server);
 
     if(!conversations_init.ok()) {
         LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
@@ -642,15 +642,15 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Loaded " << natural_language_search_init.get() << " natural language search model(s).";
     }
 
-    std::thread raft_thread([&replication_state, &store, &config, &state_dir,
+    std::thread raft_thread([&raft_server, &store, &config, &state_dir,
                              &app_thread_pool, &server_thread_pool, &replication_thread_pool, batch_indexer]() {
 
         std::thread batch_indexing_thread([batch_indexer]() {
             batch_indexer->run();
         });
 
-        std::thread analytics_sink_thread([&replication_state]() {
-            AnalyticsManager::get_instance().run(&replication_state);
+        std::thread analytics_sink_thread([&raft_server]() {
+            AnalyticsManager::get_instance().run(&raft_server);
         });
 
         std::thread conversation_garbage_collector_thread([]() {
@@ -663,10 +663,10 @@ int run_server(const Config & config, const std::string & version, void (*master
             HouseKeeper::get_instance().run();
         });
 
-        RemoteEmbedder::init(&replication_state);
+        RemoteEmbedder::init(&raft_server);
 
         std::string path_to_nodes = config.get_nodes();
-        start_raft_server(replication_state, store, state_dir, path_to_nodes,
+        start_raft_server(raft_server, store, state_dir, path_to_nodes,
                           config.get_peering_address(),
                           config.get_peering_port(),
                           config.get_peering_subnet(),
@@ -714,7 +714,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     LOG(INFO) << "Starting API service...";
 
     master_server_routes();
-    int ret_code = server->run(&replication_state);
+    int ret_code = raft_server.run_http_server(server);
 
     // we are out of the event loop here
 

@@ -8,7 +8,7 @@
 
 #define EVENTS_RATE_LIMIT_SEC 60
 
-void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s, bool triggered) {
+void AnalyticsManager::persist_db_events(RaftServer *raft_server, uint64_t prev_persistence_s, bool triggered) {
     LOG(INFO) << "Persisting db events" << (triggered ? " (triggered)" : "");
     const uint64_t now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
               std::chrono::system_clock::now().time_since_epoch()).count();
@@ -102,7 +102,7 @@ void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t
     }
 }
 
-void AnalyticsManager::persist_analytics_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s, bool triggred) {
+void AnalyticsManager::persist_analytics_db_events(RaftServer *raft_server, uint64_t prev_persistence_s, bool triggred) {
     LOG(INFO) << "Persisting analytics db events" << (triggred ? " (triggered)" : "");
     std::unique_lock lock(mutex);
     std::vector<std::string> payloads;
@@ -789,7 +789,7 @@ Option<nlohmann::json> AnalyticsManager::get_status() {
     return Option<nlohmann::json>(status);
 }
 
-void AnalyticsManager::run(ReplicationState* raft_server) {
+void AnalyticsManager::run(RaftServer* raft_server) {
     uint64_t prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
               std::chrono::system_clock::now().time_since_epoch()).count();
 

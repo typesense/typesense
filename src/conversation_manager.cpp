@@ -236,7 +236,7 @@ Option<nlohmann::json> ConversationManager::delete_conversation(const std::strin
     return delete_conversation_unsafe(conversation_id, model_id);
 } 
 
-Option<bool> ConversationManager::init(ReplicationState* raft_server) {
+Option<bool> ConversationManager::init(RaftServer* raft_server) {
 
     if(raft_server == nullptr) {
         return Option<bool>(400, "Raft server is null");
