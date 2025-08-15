@@ -51,12 +51,14 @@ RaftStateMachine::RaftStateMachine(HttpServer* server, BatchedIndexer* batched_i
                                    size_t num_collections_parallel_load, size_t num_documents_parallel_load):
         server(server), batched_indexer(batched_indexer),
         store(store), analytics_store(analytics_store),
-        thread_pool(thread_pool), message_dispatcher(message_dispatcher), api_uses_ssl(api_uses_ssl),
+        thread_pool(thread_pool), message_dispatcher(message_dispatcher),
+        api_uses_ssl(api_uses_ssl),
         config(config),
         num_collections_parallel_load(num_collections_parallel_load),
         num_documents_parallel_load(num_documents_parallel_load),
         ready(false), shutting_down(false), pending_writes(0), snapshot_in_progress(false),
-        last_snapshot_ts(std::time(nullptr)), snapshot_interval_s(config->get_snapshot_interval_seconds()) {
+        snapshot_interval_s(config->get_snapshot_interval_seconds()),
+        last_snapshot_ts(std::time(nullptr)) {
 
     node_manager = std::make_unique<RaftNodeManager>(config, store, batched_indexer, api_uses_ssl);
 
