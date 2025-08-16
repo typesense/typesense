@@ -191,6 +191,9 @@ TEST_F(RaftStateMachineTest, IsAlive) {
                                                 "127.0.0.1:9002:9003", quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
+    // Refresh status to ensure ready flags are updated
+    raft_state_machine->refresh_catchup_status(true);
+
     // Should be alive after starting
     EXPECT_TRUE(raft_state_machine->is_alive());
 
