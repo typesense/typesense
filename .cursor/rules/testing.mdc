@@ -1,0 +1,97 @@
+---
+description: How to build and test
+globs:
+alwaysApply: false
+---
+
+# Build & Test
+
+This project has 3 test sets:
+
+- Unit tests located in <project_root>/test
+- API tests located in <project_root>/api_tests
+- Benchmarks located in <project_root>/benchmark
+
+## Unit Tests
+
+### Install unit test dependencies
+
+See `<project_root>/.github/workflows/tests.yml` for dependencies. Look for `- name: Install dependencies`
+
+### Setup artifacts for unit tests
+
+```sh
+if [ ! -f ./test/resources/models.tar.gz ] || [ $(find ./test/resources/models.tar.gz -mtime +30 2>/dev/null | wc -l) -gt 0 ]; then
+    curl https://dl.typesense.org/ci/tyrec/tyrec-1-models.tar.gz > ./test/resources/models.tar.gz
+fi
+```
+
+(ignore mtime check if user asks specifically to refresh artifacts)
+
+### Build core server binary
+
+```sh
+bazel build //:typesense-server
+```
+
+### Build/run tests
+
+All unit tests:
+
+```sh
+bazel test //:typesense-test --cache_test_results=no --test_output=all --test_timeout=900
+```
+
+Run a specific unit test:
+
+```sh
+bazel test //:typesense-test --cache_test_results=no --test_output=all --test_timeout=30 --test_filter="*RaftServer*"
+```
+
+## API Tests
+
+### Install API test dependencies
+
+Refer to `<project_root>/.github/workflows/tests.yml` for dependencies. Look for `api-tests:`
+
+Install bun (https://bun.com/docs/installation)
+
+### Download API test artifacts
+
+```sh
+mkdir -p ./artifacts
+curl https://dl.typesense.org/ci/typesense/v29-snapshot-1.tar.gz > ./artifacts/v29-snapshot.tar.gz
+tar -xzf ./artifacts/v29-snapshot.tar.gz -C ./artifacts/
+```
+
+### Build API tests
+
+```sh
+cd api_tests
+bun install
+bun link
+```
+
+### Run API tests
+
+Build core server binary as per Unit Tests section above, then find it with:
+
+```sh
+bazel cquery --output=files //:typesense-server
+```
+
+and set env vars:
+
+```pseudocode
+TYPESENSE_BINARY_PATH: <according to bazel cquery>
+TYPESENSE_DATA_DIR: <project_root>/tmp/test
+```
+
+then run:
+
+```sh
+./api_tests/typesense-api-tests --no-secrets
+```
+
+## Benchmarks
+
