@@ -8,9 +8,11 @@ alwaysApply: false
 
 This project has 3 test sets:
 
-- Unit tests located in <project_root>/test
-- API tests located in <project_root>/api_tests
-- Benchmarks located in <project_root>/benchmark
+1. Unit tests located in <project_root>/test
+2. API tests located in <project_root>/api_tests
+3. Benchmarks located in <project_root>/benchmark
+
+If a user asks to test the project without more specific instructions, this typically means "run the unit tests, then the API tests." The benchmarks are optional; include them only if being thorough.
 
 ## Unit Tests
 
@@ -58,18 +60,18 @@ Install bun (https://bun.com/docs/installation)
 
 ### Download API test artifacts
 
+Refer to `<project_root>/.github/workflows/tests.yml` API artifacts version and replace `XX` (or cmd) below.
+
 ```sh
-mkdir -p ./artifacts
-curl https://dl.typesense.org/ci/typesense/v29-snapshot-1.tar.gz > ./artifacts/v29-snapshot.tar.gz
-tar -xzf ./artifacts/v29-snapshot.tar.gz -C ./artifacts/
+mkdir -p ./tmp/artifacts
+curl https://dl.typesense.org/ci/typesense/vXX-snapshot-1.tar.gz > ./tmp/artifacts/vXX-snapshot.tar.gz
+tar -xzf ./tmp/artifacts/vXX-snapshot.tar.gz -C ./tmp/artifacts/
 ```
 
 ### Build API tests
 
 ```sh
-cd api_tests
-bun install
-bun link
+cd api_tests && bun install && bun link
 ```
 
 ### Run API tests
@@ -94,4 +96,3 @@ then run:
 ```
 
 ## Benchmarks
-
