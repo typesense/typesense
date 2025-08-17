@@ -5,7 +5,7 @@
 #include <brpc/controller.h>
 #include <brpc/server.h>
 #include <braft/raft.h>
-#include <raft_state_machine.h>
+#include <raft_server.h>
 #include <raft_config.h>
 #include <fstream>
 #include <execinfo.h>
@@ -355,7 +355,7 @@ butil::EndPoint get_internal_endpoint(const std::string& subnet_cidr, uint32_t p
     return loopback;
 }
 
-int start_raft_server(RaftStateMachine& raft_state_machine, Store& store,
+int start_raft_server(RaftServer& raft_server, Store& store,
                       const std::string& state_dir, const std::string& path_to_nodes,
                       const std::string& peering_address, uint32_t peering_port, const std::string& peering_subnet,
                       uint32_t api_port, int snapshot_interval_seconds, int snapshot_max_byte_count_per_rpc,
@@ -394,27 +394,27 @@ int start_raft_server(RaftStateMachine& raft_state_machine, Store& store,
     }
 
     // start peering server
-    brpc::Server raft_server;
+    brpc::Server peering_server;
 
-    if (braft::add_service(&raft_server, peering_endpoint) != 0) {
+    if (braft::add_service(&peering_server, peering_endpoint) != 0) {
         LOG(ERROR) << "Failed to add peering service";
         exit(-1);
     }
 
-    if (raft_server.Start(peering_endpoint, nullptr) != 0) {
+    if (peering_server.Start(peering_endpoint, nullptr) != 0) {
         LOG(ERROR) << "Failed to start peering service";
         exit(-1);
     }
 
     size_t election_timeout_ms = 5000;
 
-    if (raft_state_machine.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, state_dir,
-                                 nodes_config_op.get(), quit_raft_service) != 0) {
+    if (peering_server.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, state_dir,
+                             nodes_config_op.get(), quit_raft_service) != 0) {
         LOG(ERROR) << "Failed to start peering state";
         exit(-1);
     }
 
-    LOG(INFO) << "Typesense peering service is running on " << raft_server.listen_address();
+    LOG(INFO) << "Typesense peering service is running on " << peering_server.listen_address();
     LOG(INFO) << "Snapshot interval configured as: " << snapshot_interval_seconds << "s";
     LOG(INFO) << "Snapshot max byte count configured as: " << snapshot_max_byte_count_per_rpc;
 
@@ -432,9 +432,9 @@ int start_raft_server(RaftStateMachine& raft_state_machine, Store& store,
                 if(nodes_config.empty()) {
                     LOG(WARNING) << "No nodes resolved from peer configuration.";
                 } else {
-                    raft_state_machine.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
+                    peering_server.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
                     if(raft_counter % 60 == 0) {
-                        raft_state_machine.do_snapshot(nodes_config);
+                        peering_server.do_snapshot(nodes_config);
                     }
                 }
             }
@@ -443,7 +443,7 @@ int start_raft_server(RaftStateMachine& raft_state_machine, Store& store,
         if(raft_counter % 3 == 0) {
             // update node catch up status periodically, take care of logging too verbosely
             bool log_msg = (raft_counter % 9 == 0);
-            raft_state_machine.refresh_catchup_status(log_msg);
+            peering_server.refresh_catchup_status(log_msg);
         }
 
         raft_counter++;
@@ -453,13 +453,13 @@ int start_raft_server(RaftStateMachine& raft_state_machine, Store& store,
     LOG(INFO) << "Typesense peering service is going to quit.";
 
     // Stop application before server
-    raft_state_machine.shutdown();
+    peering_server.shutdown();
 
-    LOG(INFO) << "raft_server.stop()";
-    raft_server.Stop(0);
+    LOG(INFO) << "peering_server.stop()";
+    peering_server.Stop(0);
 
-    LOG(INFO) << "raft_server.join()";
-    raft_server.Join();
+    LOG(INFO) << "peering_server.join()";
+    peering_server.Join();
 
     LOG(INFO) << "Typesense peering service has quit.";
 
@@ -622,14 +622,14 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     // first we start the peering service
 
-    RaftStateMachine raft_state_machine(server, batch_indexer, &store, analytics_store,
-                                        &replication_thread_pool, server->get_message_dispatcher(),
-                                        ssl_enabled,
-                                        &config,
-                                        num_collections_parallel_load,
-                                        config.get_num_documents_parallel_load());
+    RaftServer raft_server(server, batch_indexer, &store, analytics_store,
+                           &replication_thread_pool, server->get_message_dispatcher(),
+                           ssl_enabled,
+                           &config,
+                           num_collections_parallel_load,
+                           config.get_num_documents_parallel_load());
 
-    auto conversations_init = ConversationManager::get_instance().init(&raft_state_machine);
+    auto conversations_init = ConversationManager::get_instance().init(&raft_server);
 
     if(!conversations_init.ok()) {
         LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
@@ -643,15 +643,15 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Loaded " << natural_language_search_init.get() << " natural language search model(s).";
     }
 
-    std::thread raft_thread([&raft_state_machine, &store, &config, &state_dir,
+    std::thread raft_thread([&raft_server, &store, &config, &state_dir,
                              &app_thread_pool, &server_thread_pool, &replication_thread_pool, batch_indexer]() {
 
         std::thread batch_indexing_thread([batch_indexer]() {
             batch_indexer->run();
         });
 
-        std::thread analytics_sink_thread([&raft_state_machine]() {
-            AnalyticsManager::get_instance().run(&raft_state_machine);
+        std::thread analytics_sink_thread([&raft_server]() {
+            AnalyticsManager::get_instance().run(&raft_server);
         });
 
         std::thread conversation_garbage_collector_thread([]() {
@@ -664,10 +664,10 @@ int run_server(const Config & config, const std::string & version, void (*master
             HouseKeeper::get_instance().run();
         });
 
-        RemoteEmbedder::init(&raft_state_machine);
+        RemoteEmbedder::init(&raft_server);
 
         std::string path_to_nodes = config.get_nodes();
-        start_raft_server(raft_state_machine, store, state_dir, path_to_nodes,
+        start_raft_server(raft_server, store, state_dir, path_to_nodes,
                           config.get_peering_address(),
                           config.get_peering_port(),
                           config.get_peering_subnet(),
@@ -715,7 +715,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     LOG(INFO) << "Starting API service...";
 
     master_server_routes();
-    int ret_code = raft_state_machine.run_http_server(server);
+    int ret_code = raft_server.run_http_server(server);
 
     // we are out of the event loop here
 

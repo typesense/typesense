@@ -8,7 +8,7 @@
 #include <iostream>
 #include <auth_manager.h>
 #include <app_metrics.h>
-#include "raft_state_machine.h"
+#include "raft_server.h"
 #include "logger.h"
 #include "ratelimit_manager.h"
 #include "sole.hpp"
@@ -229,8 +229,8 @@ int HttpServer::create_listener() {
     return 0;
 }
 
-int HttpServer::run(RaftStateMachine* raft_state_machine) {
-    this->raft_state_machine = raft_state_machine;
+int HttpServer::run(RaftServer* raft_server) {
+    this->raft_server = raft_server;
 
     metrics_refresh_timer = h2o_custom_timer_t(this);
     h2o_timer_init(&metrics_refresh_timer.timer, on_metrics_refresh_timeout);
@@ -504,11 +504,11 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
         std::string message = "{ \"message\": \"Not Ready or Lagging\"}";
 
-        if(read_op && !h2o_handler->http_server->get_raft_state_machine()->is_read_caught_up()) {
+        if(read_op && !h2o_handler->http_server->get_raft_server()->is_read_caught_up()) {
             return send_response(req, 503, message);
         }
 
-        else if(write_op && !h2o_handler->http_server->get_raft_state_machine()->is_write_caught_up()) {
+        else if(write_op && !h2o_handler->http_server->get_raft_server()->is_write_caught_up()) {
             return send_response(req, 503, message);
         }
     }
@@ -818,7 +818,7 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
     request->is_write = is_write;
 
     if(is_write) {
-        handler->http_server->get_raft_state_machine()->write(request, response);
+        handler->http_server->get_raft_server()->write(request, response);
         return 0;
     }
 
@@ -1086,12 +1086,12 @@ http_message_dispatcher* HttpServer::get_message_dispatcher() const {
     return message_dispatcher;
 }
 
-RaftStateMachine* HttpServer::get_raft_state_machine() const {
-    return raft_state_machine;
+RaftServer* HttpServer::get_raft_server() const {
+    return raft_server;
 }
 
 bool HttpServer::is_alive() const {
-    return raft_state_machine->is_alive();
+    return raft_server->is_alive();
 }
 
 bool HttpServer::get_route(uint64_t hash, route_path** found_rpath) {
@@ -1106,11 +1106,11 @@ bool HttpServer::get_route(uint64_t hash, route_path** found_rpath) {
 }
 
 uint64_t HttpServer::node_state() const {
-    return raft_state_machine->node_state();
+    return raft_server->node_state();
 }
 
 nlohmann::json HttpServer::node_status() {
-    return raft_state_machine->get_status();
+    return raft_server->get_status();
 }
 
 bool HttpServer::on_stream_response_message(void *data) {
@@ -1172,15 +1172,15 @@ bool HttpServer::has_exited() const {
 }
 
 void HttpServer::do_snapshot(const std::string& snapshot_path, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    return raft_state_machine->do_snapshot(snapshot_path, req, res);
+    return raft_server->do_snapshot(snapshot_path, req, res);
 }
 
 bool HttpServer::trigger_vote() {
-    return raft_state_machine->trigger_vote();
+    return raft_server->trigger_vote();
 }
 
 bool HttpServer::reset_peers() {
-    return raft_state_machine->reset_peers();
+    return raft_server->reset_peers();
 }
 
 ThreadPool* HttpServer::get_thread_pool() const {
@@ -1241,15 +1241,15 @@ bool HttpServer::initialize_ssl_ctx(const char *cert_file, const char *key_file,
 }
 
 void HttpServer::persist_applying_index() {
-    return raft_state_machine->persist_applying_index();
+    return raft_server->persist_applying_index();
 }
 
 int64_t HttpServer::get_num_queued_writes() {
-    return raft_state_machine->get_num_queued_writes();
+    return raft_server->get_num_queued_writes();
 }
 
 bool HttpServer::is_leader() const {
-    return raft_state_machine->is_leader();
+    return raft_server->is_leader();
 }
 
 ThreadPool* HttpServer::get_meta_thread_pool() const {
@@ -1257,5 +1257,5 @@ ThreadPool* HttpServer::get_meta_thread_pool() const {
 }
 
 void HttpServer::decr_pending_writes() {
-    return raft_state_machine->decr_pending_writes();
+    return raft_server->decr_pending_writes();
 }

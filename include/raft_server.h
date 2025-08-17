@@ -43,14 +43,14 @@ public:
 // Snapshot closures
 class OnDemandSnapshotClosure : public braft::Closure {
 private:
-    class RaftStateMachine* replication_state;
+    class RaftServer* replication_state;
     const std::shared_ptr<http_req> req;
     const std::shared_ptr<http_res> res;
     const std::string ext_snapshot_path;
     const std::string state_dir_path;
 
 public:
-    OnDemandSnapshotClosure(RaftStateMachine* replication_state,
+    OnDemandSnapshotClosure(RaftServer* replication_state,
                            const std::shared_ptr<http_req>& req,
                            const std::shared_ptr<http_res>& res,
                            const std::string& ext_snapshot_path,
@@ -60,19 +60,19 @@ public:
 
 class TimedSnapshotClosure : public braft::Closure {
 private:
-    class RaftStateMachine* replication_state;
+    class RaftServer* replication_state;
 
 public:
-    explicit TimedSnapshotClosure(RaftStateMachine* replication_state);
+    explicit TimedSnapshotClosure(RaftServer* replication_state);
     void Run();
 };
 
 /**
- * RaftStateMachine implements the complete Raft state machine.
+ * RaftServer implements the complete Raft state machine.
  * It handles both application business logic and braft::StateMachine interface.
  * This combines HTTP processing, database operations, and Raft lifecycle management.
  */
-class RaftStateMachine : public braft::StateMachine {
+class RaftServer : public braft::StateMachine {
 private:
     static constexpr const char* db_snapshot_name = "db_snapshot";
     static constexpr const char* analytics_db_snapshot_name = "analytics_db_snapshot";
@@ -125,7 +125,7 @@ public:
     static constexpr const char* meta_dir_name = "meta";
     static constexpr const char* snapshot_dir_name = "snapshot";
 
-    RaftStateMachine(HttpServer* server,
+    RaftServer(HttpServer* server,
                     BatchedIndexer* batched_indexer,
                     Store* store,
                     Store* analytics_store,
@@ -277,7 +277,7 @@ private:
 
     // Snapshot helper
     struct SnapshotArg {
-        RaftStateMachine* replication_state;
+        RaftServer* replication_state;
         braft::SnapshotWriter* writer;
         std::string state_dir_path;
         std::string db_snapshot_path;

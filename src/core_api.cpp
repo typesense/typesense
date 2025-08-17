@@ -304,7 +304,7 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
     std::set<std::string> allowed_keys = {"metadata", "fields"};
 
     // Ensures that only one alter can run per collection.
-    // The actual check for this, happens in `RaftStateMachine::write` which is called only during live writes.
+    // The actual check for this, happens in `RaftServer::write` which is called only during live writes.
     alter_guard_t alter_guard(req->params["collection"]);
 
     try {

@@ -54,7 +54,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
         body += message_json.dump(-1) + "\n";
     }
 
-    if(!raft_state_machine) {
+    if(!raft_server) {
         auto req = std::make_shared<http_req>();
         auto resp = std::make_shared<http_res>(nullptr);
 
@@ -71,7 +71,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
     }
 
 
-    std::string leader_url = raft_state_machine->get_leader_url();
+    std::string leader_url = raft_server->get_leader_url();
 
     if(!leader_url.empty()) {
         std::string base_url = leader_url + "collections/" + collection->get_name();
@@ -190,7 +190,7 @@ Option<nlohmann::json> ConversationManager::delete_conversation_unsafe(const std
         return Option<nlohmann::json>(conversation_exists.code(), conversation_exists.error());
     }
 
-    if(!raft_state_machine) {
+    if(!raft_server) {
         auto req = std::make_shared<http_req>();
         auto resp = std::make_shared<http_res>(nullptr);
 
@@ -207,7 +207,7 @@ Option<nlohmann::json> ConversationManager::delete_conversation_unsafe(const std
         return Option<nlohmann::json>(res_json);
     }
 
-    auto leader_url = raft_state_machine->get_leader_url();
+    auto leader_url = raft_server->get_leader_url();
 
     if(leader_url.empty()) {
         return Option<nlohmann::json>(500, "Leader URL is empty");
@@ -236,13 +236,13 @@ Option<nlohmann::json> ConversationManager::delete_conversation(const std::strin
     return delete_conversation_unsafe(conversation_id, model_id);
 } 
 
-Option<bool> ConversationManager::init(RaftStateMachine* raft_state_machine) {
+Option<bool> ConversationManager::init(RaftServer* raft_server) {
 
-    if(raft_state_machine == nullptr) {
+    if(raft_server == nullptr) {
         return Option<bool>(400, "Raft server is null");
     }
 
-    this->raft_state_machine = raft_state_machine;
+    this->raft_server = raft_server;
 
     return Option<bool>(true);
 }   
@@ -250,7 +250,7 @@ Option<bool> ConversationManager::init(RaftStateMachine* raft_state_machine) {
 void ConversationManager::clear_expired_conversations() {
     std::unique_lock lock(conversations_mutex);
     // Only leader can delete expired conversations
-    if(raft_state_machine && !raft_state_machine->is_leader()) {
+    if(raft_server && !raft_server->is_leader()) {
         return;
     }
 
@@ -270,11 +270,11 @@ void ConversationManager::clear_expired_conversations() {
         auto history_collection = model["history_collection"].get<std::string>();
         auto ttl = model["ttl"].get<uint64_t>();
         std::string filter_by_str = "timestamp:<" + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() - ttl + TTL_OFFSET) + "&&model_id:=" + model["id"].get<std::string>();
-        if(raft_state_machine) {
+        if(raft_server) {
 
             std::string res;
             std::map<std::string, std::string> res_headers;
-            std::string url  = raft_state_machine->get_leader_url() + "collections/" + history_collection + "/documents?filter_by=" + filter_by_str;
+            std::string url  = raft_server->get_leader_url() + "collections/" + history_collection + "/documents?filter_by=" + filter_by_str;
             auto res_code = HttpClient::get_instance().delete_response(url, res, res_headers, 10*1000, true);
 
             if(res_code != 200) {
