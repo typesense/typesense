@@ -144,6 +144,7 @@ export class TypesenseProcessManager {
   }
 
   async electLeader() {
+    console.log("🗳️ Electing leader on node 1 (port 5108)...");
     const res = await fetch(`http://localhost:5108/operations/vote`, {
       method: "POST",
       headers: {
@@ -151,7 +152,11 @@ export class TypesenseProcessManager {
         "X-TYPESENSE-API-KEY": "xyz",
       },
     });
-    if (!res.ok) throw new Error(`Elect leader failed: ${res.statusText}`);
+    if (!res.ok) {
+      console.log(`❌ Leader election failed with status: ${res.status} ${res.statusText}`);
+      throw new Error(`Elect leader failed: ${res.statusText}`);
+    }
+    console.log("✅ Leader elected successfully");
   }
 
   async createSnapshot(port: number) {
@@ -170,14 +175,26 @@ export class TypesenseProcessManager {
 
   private async waitForHealth(port: number, timeout = 20000) {
     const start = Date.now();
+    console.log(`⏳ Waiting for node on port ${port} to become healthy...`);
+
     while (Date.now() - start < timeout) {
       try {
-        const res = await fetch(`http://localhost:${port}/health`);
-        if (res.ok) return;
-      } catch {}
+        const res = await fetch(`http://localhost:${port}/health`, {
+          signal: AbortSignal.timeout(5000)
+        });
+        if (res.ok) {
+          console.log(`✅ Node on port ${port} is healthy`);
+          return;
+        }
+      } catch (err) {
+        // Log connection errors only if it's been more than 5 seconds (initial startup)
+        if (Date.now() - start > 5000) {
+          console.log(`🔄 Still waiting for port ${port}, elapsed: ${Math.round((Date.now() - start) / 1000)}s`);
+        }
+      }
       await new Promise((r) => setTimeout(r, 250));
     }
-    throw new Error(`Timed out waiting for /health on port ${port}`);
+    throw new Error(`Timed out waiting for /health on port ${port} after ${timeout}ms`);
   }
 
   async shutdown() {
