@@ -1,0 +1,359 @@
+---
+description: TypeScript/JavaScript coding style and conventions
+globs:
+  - "**/*.ts"
+  - "**/*.js"
+  - "**/*.mts"
+  - "**/*.mjs"
+---
+
+# TypeScript Style Guide
+
+## How to Use
+Apply these guidelines to new code. For existing files, generally match the current file's style, but it's ok to gradually adopt these guidelines for larger edits without changing unrelated code.
+
+## Summary
+The Typesense TypeScript codebase follows modern ECMAScript standards with strict type safety and functional programming patterns. The architecture uses a mix of error handling approaches: Result types (`neverthrow`) in testing and benchmarking code, traditional `try/catch` in API tests, and `Option<T>` patterns inherited from the C++ codebase. Zod schemas are used for runtime validation in benchmark tooling. The codebase emphasizes immutability, extensive use of async/await patterns, proper resource management with lifecycle hooks, and leverages TypeScript's advanced type system features throughout.
+
+## File Organization
+
+### Extensions & Purpose
+- `.ts` - Standard TypeScript files
+- `.mts` - ES modules with TypeScript
+- `.js`/`.mjs` - Only when TypeScript not applicable
+- **Directory naming**: `kebab-case` (e.g., `typesense-process/`)
+- **File naming**: Single-word files use simple names (e.g., `error.ts`, `logger.ts`), multi-word files use `kebab-case` (e.g., `package-info.ts`, `typesense-process.ts`)
+
+### Import Structure (Order Matters!)
+```typescript
+// 1. Node.js built-in modules (use node: prefix)
+import { rmSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+
+// 2. Third-party packages
+import { z } from "zod";
+import { env } from "bun";
+import { ResultAsync } from "neverthrow";
+
+// 3. Internal modules (use path aliases @/)
+import type { ErrorWithMessage } from "@/error";
+import { toErrorWithMessage } from "@/error";
+import { TypesenseProcessManager } from "@/typesense-process";
+```
+
+## Naming Conventions
+
+### Variables/Functions
+- **camelCase** throughout
+- Verbs for functions, nouns for variables
+- Boolean variables prefixed with `is`, `has`, `should`
+
+```typescript
+const typesenseManager = new TypesenseProcessManager();
+const baseDir = env.TYPESENSE_DATA_DIR;
+let serverProcess: ServerProcess | null = null;
+const isReady = true;
+const hasConnection = false;
+
+async function startTypesenseServer(): Promise<ServerConfig> { }
+function getErrorMessage(error: unknown): string { }
+```
+
+### Types/Interfaces/Classes
+- **PascalCase** for all
+- **NO "I" prefix** for interfaces
+- Descriptive generic parameters (not just T)
+- Enum values match their purpose format
+
+```typescript
+class TypesenseProcessManager { }
+
+interface ServerInstance {  // Not IServerInstance
+  process: Bun.Subprocess;
+  name: string;
+  port: number;
+}
+
+type ErrorWithMessage = {
+  message: string;
+};
+
+enum ProcessState {
+  Starting = "starting",  // lowercase string values
+  Running = "running",
+  Stopped = "stopped"
+}
+
+// Descriptive generics
+interface Result<TData, TError = Error> { }
+function processData<TInput extends Record<string, unknown>>(
+  data: TInput
+): Promise<ProcessedData<TInput>> { }
+```
+
+### Constants
+- **SCREAMING_SNAKE_CASE** for module-level constants
+- **camelCase** for object properties
+- Use `as const` for literal types
+
+```typescript
+const MAX_RETRY_ATTEMPTS = 3;
+const DEFAULT_TIMEOUT_MS = 30000;
+
+const serverConfig = {
+  maxConnections: 100,      // camelCase properties
+  retryInterval: 5000,
+  enableAnalytics: true,
+} as const;  // Makes it readonly with literal types
+```
+
+## Critical Patterns
+
+### Result Pattern (neverthrow)
+**Used in testing and benchmark directories, not universally across codebase**
+```typescript
+import { Result, ok, err, ResultAsync } from "neverthrow";
+
+async function loadConfig(path: string): Promise<Result<Config, ConfigError>> {
+  try {
+    const content = await readFile(path);
+    const config = parseConfig(content);
+    return ok(config);
+  } catch (error) {
+    return err(new ConfigError(`Failed to load config: ${error.message}`));
+  }
+}
+
+// Usage - always check isOk() first
+const configResult = await loadConfig("./config.json");
+if (configResult.isOk()) {
+  console.log("Config loaded:", configResult.value);
+} else {
+  console.error("Config error:", configResult.error.message);
+}
+
+// Chaining operations
+const result = await loadConfig("./config.json")
+  .map(config => transformConfig(config))
+  .mapErr(error => new CustomError(error))
+  .andThen(config => validateConfig(config));
+```
+
+### Zod Runtime Validation
+**Used primarily in benchmark tooling for configuration validation**
+```typescript
+import { z } from "zod";
+
+const ServerConfigSchema = z.object({
+  name: z.string().min(1),
+  port: z.number().int().positive(),
+  enableAnalytics: z.boolean().default(false),
+  features: z.array(z.string()).optional(),
+});
+
+// Infer TypeScript type from schema
+type ServerConfig = z.infer<typeof ServerConfigSchema>;
+
+function validateConfig(data: unknown): ServerConfig {
+  return ServerConfigSchema.parse(data);  // Throws on invalid
+}
+
+// Safe parsing (preferred in benchmark tooling)
+const result = ServerConfigSchema.safeParse(data);
+if (result.success) {
+  // result.data is typed
+} else {
+  // result.error has validation errors
+}
+```
+
+### Environment Configuration
+**Type-safe env vars with validation (used in benchmark tooling)**
+```typescript
+import { createEnv } from "@t3-oss/env-core";
+
+const env = createEnv({
+  server: {
+    DATABASE_URL: z.string().url(),
+    PORT: z.number().default(3000),
+    NODE_ENV: z.enum(["development", "production", "test"]),
+  },
+  client: {
+    API_BASE_URL: z.string().url(),
+  },
+  runtimeEnv: process.env,
+  skipValidation: process.env.NODE_ENV === "test",
+});
+
+// Usage - fully typed
+const port = env.PORT;  // number
+```
+
+### Error Type Guards
+```typescript
+interface ErrorWithMessage {
+  message: string;
+}
+
+function isErrorWithMessage(error: unknown): error is ErrorWithMessage {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as Record<string, unknown>).message === "string"
+  );
+}
+
+function toErrorWithMessage(error: unknown): ErrorWithMessage {
+  if (isErrorWithMessage(error)) return error;
+  if (typeof error === "string") return new Error(error);
+  return new Error(JSON.stringify(error));
+}
+```
+
+### Function Parameter Objects
+**For functions with many options**
+```typescript
+interface StartServerOptions {
+  port?: number;
+  enableCors?: boolean;
+  maxConnections?: number;
+}
+
+async function startServer({
+  port = 3000,
+  enableCors = true,
+  maxConnections = 100
+}: StartServerOptions = {}): Promise<void> {
+  // Note the = {} default for entire object
+}
+```
+
+## Type Annotations
+
+### Function Return Types
+**ALWAYS provide explicit return types**
+```typescript
+// Good - explicit return type
+async function fetchData(): Promise<Data[]> { }
+function calculate(x: number): number { }
+
+// Bad - relying on inference
+async function fetchData() { }  // Don't do this
+```
+
+### Type vs Interface
+```typescript
+// Interface - for object shapes that might be extended
+interface ServerConfig {
+  readonly name: string;  // Use readonly for immutability
+  readonly port: number;
+  timeout?: number;
+}
+
+// Type - for unions, intersections, computed
+type ProcessState = "starting" | "running" | "stopped";
+type ServerInstance = ServerConfig & { process: Subprocess };
+type KeysOf<T> = keyof T;
+```
+
+## Async/Resource Management
+
+### Error Handling Patterns
+The codebase uses different error handling approaches depending on the module:
+
+**Traditional try/catch (common in API tests):**
+```typescript
+async function processMultipleItems(items: Item[]): Promise<ProcessedItem[]> {
+  try {
+    // Concurrent operations with Promise.all
+    const results = await Promise.all(
+      items.map(item => processItem(item))
+    );
+    return results;
+  } catch (error) {
+    throw new ProcessingError(`Failed: ${error.message}`);
+  }
+}
+```
+
+**neverthrow Result pattern (used in tests/benchmark directories):**
+```typescript
+import { ResultAsync, ok, err } from "neverthrow";
+
+async function loadConfig(path: string): Promise<Result<Config, ConfigError>> {
+  try {
+    const content = await readFile(path);
+    return ok(parseConfig(content));
+  } catch (error) {
+    return err(new ConfigError(`Failed: ${error.message}`));
+  }
+}
+```
+
+### Lifecycle Management
+```typescript
+class ResourceManager {
+  private resources: Resource[] = [];
+
+  async initialize(): Promise<void> {
+    // Setup signal handlers for cleanup
+    process.on("SIGTERM", () => this.cleanup());
+    process.on("SIGINT", () => this.cleanup());
+  }
+
+  async cleanup(): Promise<void> {
+    // Parallel cleanup
+    await Promise.all(
+      this.resources.map(resource => resource.dispose())
+    );
+  }
+}
+```
+
+## Module Patterns
+
+### Named Exports (Preferred)
+```typescript
+// Good - named exports
+export class ProcessManager { }
+export function startServer() { }
+export type { ServerConfig };  // Type-only export
+
+// Usage
+import { ProcessManager, startServer, type ServerConfig } from "./server";
+```
+
+### Avoid Default Exports
+Default exports make refactoring harder and have poor IDE support.
+
+## Best Practices
+
+### Critical Rules
+1. **Strict mode**: Always use strict TypeScript config
+2. **No `any`**: Use `unknown` with type guards instead
+3. **Immutability**: `const` over `let`, `readonly` properties
+4. **Type-only imports**: Use `import type` when possible
+5. **Error boundaries**: Handle Promise rejections properly
+6. **Resource cleanup**: Always implement cleanup in lifecycle hooks
+
+### Performance
+- Use `satisfies` operator for type-safe literals without widening
+- Lazy evaluation for expensive computations
+- Type predicates over type assertions
+- `as const` for precise literal types
+
+### Modern Features Used
+- Optional chaining `?.`
+- Nullish coalescing `??`
+- Template literal types
+- Conditional types
+- Mapped types
+- Utility types (Partial, Required, Pick, Omit, etc.)
+
+### Code Quality
+- ESLint with strict rules
+- Prettier for formatting
+- TSDoc comments for public APIs
+- Self-documenting code with clear names
+- Small, focused functions (single responsibility)
