@@ -153,6 +153,9 @@ TEST_F(RaftServerTest, Start) {
                                                  nodes_config, quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
+    // Allow brief time for node to complete initialization
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
     // For single-node clusters, manually refresh catchup status (simulates periodic refresh in main server loop)
     raft_server->refresh_catchup_status(false);
 
@@ -188,6 +191,9 @@ TEST_F(RaftServerTest, IsAlive) {
                                                  128 * 1024, raft_dir,
                                                  "127.0.0.1:9002:9003", quit_abruptly);
     EXPECT_EQ(start_result, 0);
+
+    // Allow brief time for node to complete initialization
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // For single-node clusters, manually refresh catchup status (simulates periodic refresh in main server loop)
     raft_server->refresh_catchup_status(false);
@@ -466,8 +472,6 @@ TEST_F(RaftServerTest, Write) {
     raft_server->shutdown();
     std::filesystem::remove_all(raft_dir);
 }
-
-
 
 TEST_F(RaftServerTest, InitDb) {
     auto raft_server = createRaftServer();
