@@ -440,6 +440,18 @@ void RaftStateMachine::do_snapshot(const std::string& snapshot_path, const std::
         OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res, snapshot_path,
                                                                                 raft_dir_path);
         ext_snapshot_path = snapshot_path;
+
+        if(!node_manager) {
+            // Handle the case where node_manager becomes null after initial check
+            req->last_chunk_aggregate = true;
+            res->final = true;
+            res->set_500("Node manager is not initialized.");
+            auto req_res = new async_req_res_t(req, res, true);
+            get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+            delete snapshot_closure;
+            return;
+        }
+
         node_manager->snapshot(snapshot_closure);
     });
 }
