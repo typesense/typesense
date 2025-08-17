@@ -176,11 +176,11 @@ export class TypesenseProcessManager {
   private async waitForHealth(port: number, timeout = 20000) {
     const start = Date.now();
     console.log(`⏳ Waiting for node on port ${port} to become healthy...`);
-    
+
     while (Date.now() - start < timeout) {
       try {
-        const res = await fetch(`http://localhost:${port}/health`, { 
-          signal: AbortSignal.timeout(5000) 
+        const res = await fetch(`http://localhost:${port}/health`, {
+          signal: AbortSignal.timeout(5000)
         });
         if (res.ok) {
           console.log(`✅ Node on port ${port} is healthy`);
