@@ -408,8 +408,8 @@ int start_raft_server(RaftServer& raft_server, Store& store,
 
     size_t election_timeout_ms = 5000;
 
-    if (peering_server.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, state_dir,
-                             nodes_config_op.get(), quit_raft_service) != 0) {
+    if (raft_server.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, state_dir,
+                          nodes_config_op.get(), quit_raft_service) != 0) {
         LOG(ERROR) << "Failed to start peering state";
         exit(-1);
     }
@@ -432,9 +432,9 @@ int start_raft_server(RaftServer& raft_server, Store& store,
                 if(nodes_config.empty()) {
                     LOG(WARNING) << "No nodes resolved from peer configuration.";
                 } else {
-                    peering_server.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
+                    raft_server.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
                     if(raft_counter % 60 == 0) {
-                        peering_server.do_snapshot(nodes_config);
+                        raft_server.do_snapshot(nodes_config);
                     }
                 }
             }
@@ -443,7 +443,7 @@ int start_raft_server(RaftServer& raft_server, Store& store,
         if(raft_counter % 3 == 0) {
             // update node catch up status periodically, take care of logging too verbosely
             bool log_msg = (raft_counter % 9 == 0);
-            peering_server.refresh_catchup_status(log_msg);
+            raft_server.refresh_catchup_status(log_msg);
         }
 
         raft_counter++;
@@ -453,7 +453,7 @@ int start_raft_server(RaftServer& raft_server, Store& store,
     LOG(INFO) << "Typesense peering service is going to quit.";
 
     // Stop application before server
-    peering_server.shutdown();
+    raft_server.shutdown();
 
     LOG(INFO) << "peering_server.stop()";
     peering_server.Stop(0);
@@ -715,7 +715,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     LOG(INFO) << "Starting API service...";
 
     master_server_routes();
-    int ret_code = raft_server.run_http_server(server);
+    int ret_code = server->run(&raft_server);
 
     // we are out of the event loop here
 
