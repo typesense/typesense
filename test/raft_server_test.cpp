@@ -151,8 +151,8 @@ TEST_F(RaftStateMachineTest, Start) {
 
     // RaftStateMachine should start successfully
     int start_result = raft_state_machine->start(peering_endpoint, api_port, election_timeout_ms,
-                                                snapshot_max_byte_count_per_rpc, raft_dir,
-                                                nodes_config, quit_abruptly);
+                                                 snapshot_max_byte_count_per_rpc, raft_dir,
+                                                 nodes_config, quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
     // Refresh status to ensure ready flags are updated
@@ -187,8 +187,8 @@ TEST_F(RaftStateMachineTest, IsAlive) {
     createRaftServer(peering_endpoint);
 
     int start_result = raft_state_machine->start(peering_endpoint, 9003, 1000,
-                                                128 * 1024, raft_dir,
-                                                "127.0.0.1:9002:9003", quit_abruptly);
+                                                 128 * 1024, raft_dir,
+                                                 "127.0.0.1:9002:9003", quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
     // Refresh status to ensure ready flags are updated
@@ -224,8 +224,8 @@ TEST_F(RaftStateMachineTest, IsLeader) {
     createRaftServer(peering_endpoint);
 
     int start_result = raft_state_machine->start(peering_endpoint, 9005, 800,
-                                                128 * 1024, raft_dir,
-                                                "127.0.0.1:9004:9005", quit_abruptly);
+                                                 128 * 1024, raft_dir,
+                                                 "127.0.0.1:9004:9005", quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
     // Wait for leader election to complete
@@ -264,8 +264,8 @@ TEST_F(RaftStateMachineTest, ReadWriteCaughtUp) {
     createRaftServer(peering_endpoint);
 
     int start_result = raft_state_machine->start(peering_endpoint, 9007, 1000,
-                                                128 * 1024, raft_dir,
-                                                "127.0.0.1:9006:9007", quit_abruptly);
+                                                 128 * 1024, raft_dir,
+                                                 "127.0.0.1:9006:9007", quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
     // Wait for leader election
@@ -306,8 +306,8 @@ TEST_F(RaftStateMachineTest, GetStatus) {
     createRaftServer(peering_endpoint);
 
     int start_result = raft_state_machine->start(peering_endpoint, 9009, 1000,
-                                                128 * 1024, raft_dir,
-                                                "127.0.0.1:9008:9009", quit_abruptly);
+                                                 128 * 1024, raft_dir,
+                                                 "127.0.0.1:9008:9009", quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
     // Wait for startup to complete
@@ -359,8 +359,8 @@ TEST_F(RaftStateMachineTest, GetLeaderUrl) {
     createRaftServer(peering_endpoint);
 
     int start_result = raft_state_machine->start(peering_endpoint, 9011, 1000,
-                                                128 * 1024, raft_dir,
-                                                "127.0.0.1:9010:9011", quit_abruptly);
+                                                 128 * 1024, raft_dir,
+                                                 "127.0.0.1:9010:9011", quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
     // Wait for leader election
@@ -398,8 +398,8 @@ TEST_F(RaftStateMachineTest, HasLeaderTerm) {
     createRaftServer(peering_endpoint);
 
     int start_result = raft_state_machine->start(peering_endpoint, 9013, 1000,
-                                                128 * 1024, raft_dir,
-                                                "127.0.0.1:9012:9013", quit_abruptly);
+                                                 128 * 1024, raft_dir,
+                                                 "127.0.0.1:9012:9013", quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
     // Wait for leader election
@@ -436,8 +436,8 @@ TEST_F(RaftStateMachineTest, Write) {
     createRaftServer(peering_endpoint);
 
     int start_result = raft_state_machine->start(peering_endpoint, 9015, 1000,
-                                                128 * 1024, raft_dir,
-                                                "127.0.0.1:9014:9015", quit_abruptly);
+                                                 128 * 1024, raft_dir,
+                                                 "127.0.0.1:9014:9015", quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
     // Wait for leader election
@@ -531,8 +531,8 @@ TEST_F(RaftStateMachineTest, TriggerVote) {
     createRaftServer(peering_endpoint);
 
     int start_result = raft_state_machine->start(peering_endpoint, 9017, 800,
-                                                128 * 1024, raft_dir,
-                                                "127.0.0.1:9016:9017", quit_abruptly);
+                                                 128 * 1024, raft_dir,
+                                                 "127.0.0.1:9016:9017", quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
     // Wait for leader election
@@ -570,8 +570,8 @@ TEST_F(RaftStateMachineTest, ResetPeers) {
     createRaftServer(peering_endpoint);
 
     int start_result = raft_state_machine->start(peering_endpoint, 9019, 1000,
-                                                128 * 1024, raft_dir,
-                                                "127.0.0.1:9018:9019", quit_abruptly);
+                                                 128 * 1024, raft_dir,
+                                                 "127.0.0.1:9018:9019", quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
     // Wait for node to be ready
@@ -609,8 +609,8 @@ TEST_F(RaftStateMachineTest, RefreshNodes) {
     createRaftServer(peering_endpoint);
 
     int start_result = raft_state_machine->start(peering_endpoint, 9021, 1000,
-                                                128 * 1024, raft_dir,
-                                                "127.0.0.1:9020:9021", quit_abruptly);
+                                                 128 * 1024, raft_dir,
+                                                 "127.0.0.1:9020:9021", quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
     // Wait for cluster to be ready
@@ -662,8 +662,8 @@ TEST_F(RaftStateMachineTest, RefreshCatchupStatus) {
     createRaftServer(peering_endpoint);
 
     int start_result = raft_state_machine->start(peering_endpoint, 9025, 1000,
-                                                128 * 1024, raft_dir,
-                                                "127.0.0.1:9024:9025", quit_abruptly);
+                                                 128 * 1024, raft_dir,
+                                                 "127.0.0.1:9024:9025", quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
     // Test refresh methods (should not crash)
