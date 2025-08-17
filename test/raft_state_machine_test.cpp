@@ -155,9 +155,6 @@ TEST_F(RaftStateMachineTest, Start) {
                                                  nodes_config, quit_abruptly);
     EXPECT_EQ(start_result, 0);
 
-    // Refresh status to ensure ready flags are updated
-    raft_state_machine->refresh_catchup_status(true);
-
     // State machine should be alive and ready
     EXPECT_TRUE(raft_state_machine->is_alive());
 
@@ -190,9 +187,6 @@ TEST_F(RaftStateMachineTest, IsAlive) {
                                                  128 * 1024, raft_dir,
                                                  "127.0.0.1:9002:9003", quit_abruptly);
     EXPECT_EQ(start_result, 0);
-
-    // Refresh status to ensure ready flags are updated
-    raft_state_machine->refresh_catchup_status(true);
 
     // Should be alive after starting
     EXPECT_TRUE(raft_state_machine->is_alive());
@@ -270,9 +264,6 @@ TEST_F(RaftStateMachineTest, ReadWriteCaughtUp) {
 
     // Wait for leader election
     std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-
-    // Refresh status to ensure ready flags are updated
-    raft_state_machine->refresh_catchup_status(true);
 
     // Should be ready for operations
     EXPECT_TRUE(raft_state_machine->is_read_caught_up());
@@ -445,9 +436,6 @@ TEST_F(RaftStateMachineTest, Write) {
 
     // Node should become leader
     EXPECT_TRUE(raft_state_machine->is_leader());
-
-    // Refresh status to ensure ready flags are updated
-    raft_state_machine->refresh_catchup_status(true);
 
     // Should be ready for operations
     EXPECT_TRUE(raft_state_machine->is_read_caught_up());

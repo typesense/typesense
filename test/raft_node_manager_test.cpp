@@ -465,9 +465,6 @@ TEST_F(RaftNodeManagerTest, ReadWriteReadyStates) {
     // Wait for leader election
     std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
-    // Refresh status to ensure ready flags are updated
-    node_manager->refresh_catchup_status(true);
-
     // Leader should be ready for operations
     EXPECT_TRUE(node_manager->is_read_ready());
     EXPECT_TRUE(node_manager->is_write_ready());
