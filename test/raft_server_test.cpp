@@ -114,6 +114,81 @@ protected:
         raft_servers.push_back(std::move(server));
         return server_ptr;
     }
+
+    struct MultiNodeSetup {
+        std::vector<std::unique_ptr<RaftServer>> raft_servers;
+        std::vector<butil::EndPoint> peering_endpoints;
+        std::vector<int> api_ports;
+        std::vector<std::string> raft_dirs;
+        std::string nodes_config;
+        std::vector<std::unique_ptr<std::atomic<bool>>> quit_flags;
+
+        // Make explicitly movable and non-copyable
+        MultiNodeSetup(const MultiNodeSetup&) = delete;
+        MultiNodeSetup& operator=(const MultiNodeSetup&) = delete;
+        MultiNodeSetup(MultiNodeSetup&&) = default;
+        MultiNodeSetup& operator=(MultiNodeSetup&&) = default;
+
+        MultiNodeSetup(int num_nodes = 3) {
+            raft_servers.reserve(num_nodes);
+            peering_endpoints.reserve(num_nodes);
+            api_ports.reserve(num_nodes);
+            raft_dirs.reserve(num_nodes);
+            quit_flags.reserve(num_nodes);
+
+            // Initialize vectors with actual elements
+            for (int i = 0; i < num_nodes; i++) {
+                raft_servers.push_back(nullptr);  // Will be filled later
+                peering_endpoints.emplace_back();
+                api_ports.push_back(0);
+                raft_dirs.emplace_back();
+                quit_flags.push_back(std::make_unique<std::atomic<bool>>(false));
+            }
+
+            // Build nodes config string: "IP:PEER_PORT:API_PORT,..."
+            std::vector<std::string> node_configs;
+            for (int i = 0; i < num_nodes; i++) {
+                api_ports[i] = 9200 + i * 2;  // 9200, 9202, 9204
+                int peer_port = 9201 + i * 2;  // 9201, 9203, 9205
+                
+                int result = butil::str2endpoint("127.0.0.1", peer_port, &peering_endpoints[i]);
+                EXPECT_EQ(result, 0);
+
+                node_configs.push_back("127.0.0.1:" + std::to_string(peer_port) + ":" + std::to_string(api_ports[i]));
+                raft_dirs[i] = "/tmp/typesense_test/raft_server/multinode_" + std::to_string(i);
+                
+                // Create directories
+                std::filesystem::create_directories(raft_dirs[i] + "/log");
+                std::filesystem::create_directories(raft_dirs[i] + "/raft_meta");
+                std::filesystem::create_directories(raft_dirs[i] + "/snapshot");
+            }
+            
+            nodes_config = StringUtils::join(node_configs, ",");
+        }
+
+        ~MultiNodeSetup() {
+            // Cleanup directories
+            for (const auto& dir : raft_dirs) {
+                std::filesystem::remove_all(dir);
+            }
+        }
+    };
+
+    MultiNodeSetup createMultiNodeSetup(RaftServerTest* test_instance, int num_nodes = 3) {
+        MultiNodeSetup setup(num_nodes);
+
+        // Create RPC servers for each node
+        for (int i = 0; i < num_nodes; i++) {
+            test_instance->createRpcServer(setup.peering_endpoints[i]);
+        }
+
+        // Create RaftServer instances
+        for (int i = 0; i < num_nodes; i++) {
+            setup.raft_servers[i] = test_instance->createRaftServer();
+        }
+
+        return setup;
+    }
 };
 
 TEST_F(RaftServerTest, Constructor) {
@@ -124,7 +199,7 @@ TEST_F(RaftServerTest, Constructor) {
     EXPECT_EQ(raft_server->get_message_dispatcher(), message_dispatcher);
 }
 
-TEST_F(RaftServerTest, Start) {
+TEST_F(RaftServerTest, StartSingleNode) {
     auto raft_server = createRaftServer();
 
     // Set up raft startup parameters
@@ -172,7 +247,7 @@ TEST_F(RaftServerTest, Start) {
     std::filesystem::remove_all(raft_dir);
 }
 
-TEST_F(RaftServerTest, IsAlive) {
+TEST_F(RaftServerTest, IsAliveSingleNode) {
     auto raft_server = createRaftServer();
 
     butil::EndPoint peering_endpoint;
@@ -252,7 +327,7 @@ TEST_F(RaftServerTest, IsLeaderWithoutStarting) {
     EXPECT_FALSE(raft_server->is_leader());
 }
 
-TEST_F(RaftServerTest, ReadWriteCaughtUp) {
+TEST_F(RaftServerTest, ReadWriteCaughtUpSingleNode) {
     auto raft_server = createRaftServer();
 
     butil::EndPoint peering_endpoint;
@@ -418,7 +493,7 @@ TEST_F(RaftServerTest, HasLeaderTermWithoutStarting) {
     EXPECT_FALSE(has_leader);
 }
 
-TEST_F(RaftServerTest, Write) {
+TEST_F(RaftServerTest, WriteSingleNode) {
     auto raft_server = createRaftServer();
 
     butil::EndPoint peering_endpoint;
@@ -660,4 +735,256 @@ TEST_F(RaftServerTest, RefreshCatchupStatusWithoutStarting) {
     // Should return false for readiness flags without starting
     EXPECT_FALSE(raft_server->is_read_caught_up());
     EXPECT_FALSE(raft_server->is_write_caught_up());
+}
+
+// ==================== MULTI-NODE TESTS ====================
+
+TEST_F(RaftServerTest, StartMultiNode) {
+    auto setup = createMultiNodeSetup(this, 3);
+
+    // Start all nodes
+    for (int i = 0; i < 3; i++) {
+        int start_result = setup.raft_servers[i]->start(
+            setup.peering_endpoints[i], setup.api_ports[i], 5000,
+            128 * 1024, setup.raft_dirs[i], setup.nodes_config, *setup.quit_flags[i]);
+        EXPECT_EQ(start_result, 0);
+    }
+
+    // Allow initial startup time
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+    // Manually trigger leader election (similar to API tests calling /operations/vote)
+    bool vote_triggered = setup.raft_servers[0]->trigger_vote();
+    EXPECT_TRUE(vote_triggered);
+
+    // Wait for leader election with progressive delays (like API tests)
+    std::vector<int> delay_intervals = {100, 1000, 2000, 3000, 4000};
+    bool leader_elected = false;
+
+    for (int delay : delay_intervals) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+
+        // Refresh catchup status for all nodes
+        for (int i = 0; i < 3; i++) {
+            setup.raft_servers[i]->refresh_catchup_status(false);
+        }
+
+        // Check if a leader has been elected
+        int leader_count = 0;
+        for (int i = 0; i < 3; i++) {
+            if (setup.raft_servers[i]->is_leader()) {
+                leader_count++;
+            }
+        }
+
+        if (leader_count == 1) {
+            leader_elected = true;
+            break;
+        }
+    }
+
+    EXPECT_TRUE(leader_elected);
+
+    // Final verification: exactly one leader, others followers
+    int leader_count = 0;
+    int follower_count = 0;
+    for (int i = 0; i < 3; i++) {
+        if (setup.raft_servers[i]->is_leader()) {
+            leader_count++;
+        } else {
+            follower_count++;
+        }
+    }
+
+    EXPECT_EQ(leader_count, 1);
+    EXPECT_EQ(follower_count, 2);
+
+    // All nodes should be alive after leader election
+    for (int i = 0; i < 3; i++) {
+        EXPECT_TRUE(setup.raft_servers[i]->is_alive());
+    }
+
+    // Shutdown all nodes
+    for (int i = 0; i < 3; i++) {
+        setup.raft_servers[i]->shutdown();
+    }
+}
+
+TEST_F(RaftServerTest, LeaderElectionMultiNode) {
+    auto setup = createMultiNodeSetup(this, 3);
+
+    // Start all nodes
+    for (int i = 0; i < 3; i++) {
+        int start_result = setup.raft_servers[i]->start(
+            setup.peering_endpoints[i], setup.api_ports[i], 2000,
+            128 * 1024, setup.raft_dirs[i], setup.nodes_config, *setup.quit_flags[i]);
+        EXPECT_EQ(start_result, 0);
+    }
+
+    // Allow initial startup time
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+    // Manually trigger leader election
+    bool vote_triggered = setup.raft_servers[0]->trigger_vote();
+    EXPECT_TRUE(vote_triggered);
+
+    // Wait for leader election to complete
+    std::vector<int> delay_intervals = {100, 1000, 2000, 3000};
+    int leader_index = -1;
+
+    for (int delay : delay_intervals) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+
+        // Refresh catchup status for all nodes
+        for (int i = 0; i < 3; i++) {
+            setup.raft_servers[i]->refresh_catchup_status(false);
+        }
+
+        // Find the leader
+        leader_index = -1;
+        for (int i = 0; i < 3; i++) {
+            if (setup.raft_servers[i]->is_leader()) {
+                EXPECT_EQ(leader_index, -1); // Only one leader should exist
+                leader_index = i;
+            }
+        }
+
+        if (leader_index != -1) {
+            break; // Leader found
+        }
+    }
+
+    EXPECT_NE(leader_index, -1); // A leader should exist
+
+    // Leader should have leader term
+    EXPECT_TRUE(setup.raft_servers[leader_index]->has_leader_term());
+
+    // Followers should also see the leader
+    for (int i = 0; i < 3; i++) {
+        if (i != leader_index) {
+            EXPECT_FALSE(setup.raft_servers[i]->is_leader());
+            EXPECT_TRUE(setup.raft_servers[i]->has_leader_term()); // Should know about leader
+        }
+    }
+
+    // Shutdown all nodes
+    for (int i = 0; i < 3; i++) {
+        setup.raft_servers[i]->shutdown();
+    }
+}
+
+TEST_F(RaftServerTest, ReadWriteCaughtUpMultiNode) {
+    auto setup = createMultiNodeSetup(this, 3);
+
+    // Start all nodes
+    for (int i = 0; i < 3; i++) {
+        int start_result = setup.raft_servers[i]->start(
+            setup.peering_endpoints[i], setup.api_ports[i], 3000,
+            128 * 1024, setup.raft_dirs[i], setup.nodes_config, *setup.quit_flags[i]);
+        EXPECT_EQ(start_result, 0);
+    }
+
+    // Allow initial startup time
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+    // Manually trigger leader election
+    bool vote_triggered = setup.raft_servers[0]->trigger_vote();
+    EXPECT_TRUE(vote_triggered);
+
+    // Wait for leader election and synchronization
+    std::vector<int> delay_intervals = {100, 1000, 2000, 3000, 4000};
+
+    for (int delay : delay_intervals) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+
+        // Refresh catchup status for all nodes
+        for (int i = 0; i < 3; i++) {
+            setup.raft_servers[i]->refresh_catchup_status(false);
+        }
+
+        // Check if all nodes are caught up
+        bool all_caught_up = true;
+        for (int i = 0; i < 3; i++) {
+            if (!setup.raft_servers[i]->is_read_caught_up() || !setup.raft_servers[i]->is_write_caught_up()) {
+                all_caught_up = false;
+                break;
+            }
+        }
+
+        if (all_caught_up) {
+            break; // All nodes caught up
+        }
+    }
+
+    // All nodes should be caught up after initial sync
+    for (int i = 0; i < 3; i++) {
+        EXPECT_TRUE(setup.raft_servers[i]->is_read_caught_up());
+        EXPECT_TRUE(setup.raft_servers[i]->is_write_caught_up());
+    }
+
+    // Shutdown all nodes
+    for (int i = 0; i < 3; i++) {
+        setup.raft_servers[i]->shutdown();
+    }
+}
+
+TEST_F(RaftServerTest, RefreshNodesMultiNode) {
+    auto setup = createMultiNodeSetup(this, 2); // Start with 2 nodes
+
+    // Start initial 2 nodes
+    for (int i = 0; i < 2; i++) {
+        int start_result = setup.raft_servers[i]->start(
+            setup.peering_endpoints[i], setup.api_ports[i], 3000,
+            128 * 1024, setup.raft_dirs[i], setup.nodes_config, *setup.quit_flags[i]);
+        EXPECT_EQ(start_result, 0);
+    }
+
+    // Allow initial startup time
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+    // Manually trigger leader election
+    bool vote_triggered = setup.raft_servers[0]->trigger_vote();
+    EXPECT_TRUE(vote_triggered);
+
+    // Wait for leader election
+    std::vector<int> delay_intervals = {100, 1000, 2000};
+    int leader_index = -1;
+
+    for (int delay : delay_intervals) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+
+        // Refresh catchup status
+        for (int i = 0; i < 2; i++) {
+            setup.raft_servers[i]->refresh_catchup_status(false);
+        }
+
+        // Find the leader
+        leader_index = -1;
+        for (int i = 0; i < 2; i++) {
+            if (setup.raft_servers[i]->is_leader()) {
+                leader_index = i;
+                break;
+            }
+        }
+
+        if (leader_index != -1) {
+            break; // Leader found
+        }
+    }
+    EXPECT_NE(leader_index, -1);
+
+    // Test adding a third node via refresh_nodes
+    std::string new_nodes_config = setup.nodes_config + ",127.0.0.1:9207:9206";
+    std::atomic<bool> reset_peers{false};
+
+    // Only leader should successfully refresh nodes
+    setup.raft_servers[leader_index]->refresh_nodes(new_nodes_config, 0, reset_peers);
+
+    // Allow time for the configuration change
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+
+    // Shutdown all nodes
+    for (int i = 0; i < 2; i++) {
+        setup.raft_servers[i]->shutdown();
+    }
 }
