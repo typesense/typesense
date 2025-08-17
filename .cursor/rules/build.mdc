@@ -14,6 +14,9 @@ This project has 3 test sets:
 
 **Default test command**: Run unit tests, then API tests. Benchmarks are optional unless being thorough.
 
+## Environment Instructions
+- On Windows use WSL (not Powershell)
+
 ## Unit Tests
 
 ### Setup
@@ -125,8 +128,8 @@ fi
 cp ../bazel-bin/typesense-server ./binaries/$LOCAL_BINARY
 
 # Download official binary release for comparison
-# Check https://typesense.org/downloads for latest binary version
-REMOTE_VERSION="X.Y" # Replace with actual version
+# Get latest version dynamically (curl not web search)
+REMOTE_VERSION=$(curl -s https://api.github.com/repos/typesense/typesense/releases/latest | grep '"tag_name"' | cut -d'"' -f4 | sed 's/v//')
 curl -O https://dl.typesense.org/releases/$REMOTE_VERSION/typesense-server-$REMOTE_VERSION-linux-amd64.tar.gz
 tar -xzf typesense-server-$REMOTE_VERSION-linux-amd64.tar.gz
 mv typesense-server ./binaries/typesense-server-v$REMOTE_VERSION
@@ -153,6 +156,7 @@ node dist/index.js benchmark \
 - Binary naming: `typesense-server-<commit>[-<hash>]` for local, `typesense-server-v<version>` for official
 - Servers use ports 8108, 7108, 9108 for multi-node testing
 - When benchmarking specific commits: for isolation, use `git clone` to ./benchmark/data/repo/<branch/tag/identifier>, then `cd` there for checkout/build. In this case, **NEVER** use `git checkout` or modify files in the main repository.
+- On WSL, pnpm EACCES errors can occur due to rename on Windows filesystem. Try install in a loop: `while true; do pnpm install && break; done`. Read https://github.com/pnpm/pnpm/issues/6155; issue may be related to TGitCache.exe on system.
 
 ### Integration Tests (for benchmark development only)
 ```bash
