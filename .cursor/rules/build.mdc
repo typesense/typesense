@@ -91,7 +91,7 @@ TYPESENSE_BINARY_PATH="<bazel cquery path above>" TYPESENSE_DATA_DIR="./data" bu
 ### Fixing Broken API Tests
 - **Root cause location**: Always in C++ files (/src and /include) - fix the bug there
 - **Test file modifications**:
-    - ✅ ALLOWED: Add console.log(), improve error messages
+    - ✅ ALLOWED: Add console.log(), improve error messages (try/catch must re-raise error)
     - ❌ FORBIDDEN: Add awaits, delays, retries, or change test logic to pass
 
 ### Troubleshooting
