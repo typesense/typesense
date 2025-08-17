@@ -16,25 +16,25 @@ This project has 3 test sets:
 
 ## Unit Tests
 
-### Unit Tests Setup & Build
+### Setup
 ```bash
 # Install dependencies - ALWAYS check .github/workflows/tests.yml
 # Look for "- name: Install dependencies" section
-# also do "sudo update-alternatives" as per tests.yml
+# Also do "sudo update-alternatives" as per tests.yml
 
 # Get test artifacts (skip mtime check if user asks to refresh)
 if [ ! -f ./test/resources/models.tar.gz ] || [ $(find ./test/resources/models.tar.gz -mtime +30 2>/dev/null | wc -l) -gt 0 ]; then
     curl https://dl.typesense.org/ci/tyrec/tyrec-1-models.tar.gz > ./test/resources/models.tar.gz
 fi
 
-# Build server binary (optional, running tests directly will build)
+# Build server binary (optional - tests will build if needed)
 bazel build //:typesense-server
 
 # Alternative: use convenience script
 # ./ci_build_v2.sh
 ```
 
-### Run Unit Tests
+### Run Tests
 ```bash
 # All unit tests
 bazel test //:typesense-test --cache_test_results=no --test_output=all --test_timeout=900
@@ -43,19 +43,20 @@ bazel test //:typesense-test --cache_test_results=no --test_output=all --test_ti
 bazel test //:typesense-test --cache_test_results=no --test_output=all --test_timeout=30 --test_filter="*RaftServer*"
 ```
 
-### Unit Tests Troubleshooting
+### Troubleshooting
 ```bash
-# Ensure "sudo update alternatives" as per .github/workflows/tests.yml
+# Ensure "sudo update-alternatives" as per .github/workflows/tests.yml
 
-# Try explictly setting ccache tmp and/or cache dir
-mkdir -p /tmp/ccache-tmp && chmod 777 /tmp/ccache-tmp && ccache --set-config=temporary_dir=/tmp/ccache-tmp
+# If ccache issues, try setting temp dir
+mkdir -p /tmp/ccache-tmp && chmod 777 /tmp/ccache-tmp
+ccache --set-config=temporary_dir=/tmp/ccache-tmp
 ```
 
 ## API Tests
-- Read /api_tests/README.md first.
-- Only use bun to run API test (NOT npm)
 
-### API Tests Setup & Build
+**Prerequisites**: Read `/api_tests/README.md` first. Only use bun (NOT npm).
+
+### Setup
 ```bash
 # Install bun OUTSIDE of snap confinement (critical!)
 # https://bun.sh/docs/installation
@@ -67,74 +68,64 @@ mkdir -p ./artifacts
 curl https://dl.typesense.org/ci/typesense/vXX-snapshot-1.tar.gz > ./artifacts/vXX-snapshot.tar.gz
 tar -xzf ./artifacts/vXX-snapshot.tar.gz -C ./artifacts/
 
-# First build core server (see Unit Tests section)
+# Build server and API tests
 bazel build //:typesense-server
-
-# Build API tests
 cd api_tests && bun install && bun link
 ```
 
-### Run API Tests
+### Run
 ```bash
-# First build core server (see Unit Tests section)
-# Then find binary path:
+# Get binary path
 bazel cquery --output=files //:typesense-server
 
-# Run with binary path from above
-cd api_tests && TYPESENSE_BINARY_PATH="<bazel cquery path above>" TYPESENSE_DATA_DIR="./data" bun run src/cli.ts --no-secrets
+# Run tests
+cd api_tests
+TYPESENSE_BINARY_PATH="<bazel cquery path above>" TYPESENSE_DATA_DIR="./data" bun run src/cli.ts --no-secrets
 
-# If env var OPEN_AI_API_KEY is set, ask user if they'd like to run without --no-secrets
+# If OPEN_AI_API_KEY is set, ask user if they'd like to run without --no-secrets
 ```
 
-### API Tests Troubleshooting
-- You must be using bun.
-- API tests **GLIBC errors** → bun installed in snap confinement (reinstall outside snap)
-- **Do not attempt Node.js** as alternative for bun
+### Troubleshooting
+- **GLIBC errors** = bun installed in snap confinement (reinstall outside snap)
+- **Do not use Node.js** - it won't work with API tests
 
 ## Benchmarks
-- Read /benchmark/README.md first.
-- Only use pnpm for benchmarks (NOT bun or npm)
 
-### Benchmark Setup & Build
+**Prerequisites**: Read `/benchmark/README.md` first. Only use pnpm (NOT bun or npm).
+
+### Setup
 ```bash
 # Install pnpm
 curl -fsSL https://get.pnpm.io/install.sh | sh -
 source ~/.bashrc
 
-# First build core server (see Unit Tests section)
+# Build server
 bazel build //:typesense-server
 
-# Navigate to benchmark directory and install dependencies
+# Setup benchmark environment
 cd benchmark
 pnpm install
 pnpm build
+mkdir -p ./binaries ./data
 
-# Create directories for binaries and test data
-mkdir -p ./binaries
-mkdir -p ./data
-
-# Get current git state (without modifying repo, do not perform git actions)
+# Prepare local binary (DO NOT modify git repo)
 CURRENT_COMMIT=$(git rev-parse --short=7 HEAD)
 LOCAL_MODS=$(git status --porcelain | wc -l)
 
-# Build and save current local binary with proper naming
 if [ $LOCAL_MODS -gt 0 ]; then
-    # Local modifications detected - add binary hash suffix (industry standard)
+    # Add hash suffix for modified builds
     BINARY_HASH=$(md5sum ../bazel-bin/typesense-server | cut -c1-4)
     LOCAL_COMMIT="$CURRENT_COMMIT-$BINARY_HASH"
     LOCAL_BINARY="typesense-server-$LOCAL_COMMIT"
-    echo "Local modifications detected, using: $LOCAL_BINARY"
 else
     LOCAL_COMMIT=$CURRENT_COMMIT
     LOCAL_BINARY="typesense-server-$LOCAL_COMMIT"
 fi
 cp ../bazel-bin/typesense-server ./binaries/$LOCAL_BINARY
 
-# Download official release binary for comparison
-# Check https://typesense.org/downloads for latest version on location (look for Linux > Binary)
-# IF needed, https://github.com/typesense/typesense/releases for released tag info.
-REMOTE_VERSION = <X.Y>
-echo "Downloading official v$REMOTE_VERSION release..."
+# Download official binary release for comparison
+# Check https://typesense.org/downloads for latest binary version
+REMOTE_VERSION="X.Y" # Replace with actual version
 curl -O https://dl.typesense.org/releases/$REMOTE_VERSION/typesense-server-$REMOTE_VERSION-linux-amd64.tar.gz
 tar -xzf typesense-server-$REMOTE_VERSION-linux-amd64.tar.gz
 mv typesense-server ./binaries/typesense-server-v$REMOTE_VERSION
@@ -143,43 +134,34 @@ rm typesense-server-$REMOTE_VERSION-linux-amd64.tar.gz typesense-server.md5.txt
 
 ### Run Benchmarks
 ```bash
-# Run benchmark comparing local vs official release
-# Use the binaries and LOCAL_COMMIT/LOCAL_BINARY/REMOTE_VERSION from setup step above
+cd benchmark
 
-# Run benchmark with proper working-directory, binaries, and commit hashes
-#  automatically downloads 1M song dataset (344MB MusicBrainz data) for realistic performance testing
-cd benchmark # if not in ./benchmark dir
+# Compare local vs official (uses MusicBrainz 1M song dataset)
 node dist/index.js benchmark \
   --working-directory "$(pwd)/data" \
-  --binaries "$(pwd)/binaries/$LOCAL_BINARY" "$(pwd)/binaries/typesense-server-v$REMOTE_VERSION$" \
-  --commitHashes $LOCAL_COMMIT v$REMOTE_VERSION \
+  --binaries "$(pwd)/binaries/$LOCAL_BINARY" "$(pwd)/binaries/typesense-server-v$REMOTE_VERSION" \
+  --commitHashes "$LOCAL_COMMIT" "v$REMOTE_VERSION" \
   --duration 30s --batch-size 1000 --verbose
 ```
 
-### Integration Tests
+### Benchmark Notes
+- Use `node dist/index.js benchmark` (`ts-cli` and `typesense-benchmark` `are equivalent)
+- Always set `--working-directory`
+- CLI requires at least 2 binaries for comparison
+- Use version tags (e.g., `v29.0`) for official releases in `--commitHashes`
+- Binary naming: `typesense-server-<commit>[-<hash>]` for local, `typesense-server-v<version>` for official
+- Servers use ports 8108, 7108, 9108 for multi-node testing
+- When benchmarking specific commits: for isolation, use `git clone` to ./benchmark/data/repo/<branch/tag/identifier>, then `cd` there for checkout/build. In this case, **NEVER** use `git checkout` or modify files in the main repository.
+
+### Integration Tests (for benchmark development only)
 ```bash
-# Run the benchmark integration test suite (not needed to run, unless user is actually modifying/developing the .benchmark/src/files)
-export TYPESENSE_BINARY="../bazel-out/k8-fastbuild/bin/typesense-server"
+# Only needed if modifying benchmark source code itself
+export TYPESENSE_BINARY="../bazel-bin/typesense-server"
 export TYPESENSE_WORKING_DIRECTORY="/tmp/typesense-benchmark"
 pnpm test
 ```
 
-### Benchmarks Troubleshooting
-- You must be using pnpm (not bun or npm)
-- Use `node dist/index.js benchmark` (`ts-cli` and `typesense-benchmark` `commands are equivalent)
-- Benchmark CLI requires at least 2 binaries for comparison
-- `--commitHashes` arg is required; use version numbers (v29.0) for official releases
-- Use absolute paths for `--working-directory` to avoid path resolution issues
-- **DO NOT modify git repo** - detect local state without checking out branches
-- Binaries organized in `/benchmark/binaries/` with naming: `typesense-server-<commit or tag>[-<local modificaton hash>]
-- Local modifications get binary hash suffix (e.g., `c817bf8-47f4`) - industry standard
-- Official releases use version as commit hash (e.g., `v29.0`)
-- Test data must be in `/benchmark/data/data.json` (required by benchmark system)
-- Download official binaries from: `https://dl.typesense.org/releases/<X.Y>/typesense-server-<X.Y>-linux-amd64.tar.gz`. Check https://typesense.org/downloads and https://github.com/typesense/typesense/releases for latest released tag.
-- Servers start on ports 8108, 7108, 9108 for multi-node testing
-- Wait for "Request Code was 201" before benchmark collection is ready
-
-## Release Dist
+## Release Build
 ```bash
 bazel build //:typesense-server --dist_dir ./dist
 ```
