@@ -150,19 +150,19 @@ protected:
             for (int i = 0; i < num_nodes; i++) {
                 api_ports[i] = 9200 + i * 2;  // 9200, 9202, 9204
                 int peer_port = 9201 + i * 2;  // 9201, 9203, 9205
-                
+
                 int result = butil::str2endpoint("127.0.0.1", peer_port, &peering_endpoints[i]);
                 EXPECT_EQ(result, 0);
 
                 node_configs.push_back("127.0.0.1:" + std::to_string(peer_port) + ":" + std::to_string(api_ports[i]));
                 raft_dirs[i] = "/tmp/typesense_test/raft_server/multinode_" + std::to_string(i);
-                
+
                 // Create directories
                 std::filesystem::create_directories(raft_dirs[i] + "/log");
                 std::filesystem::create_directories(raft_dirs[i] + "/raft_meta");
                 std::filesystem::create_directories(raft_dirs[i] + "/snapshot");
             }
-            
+
             nodes_config = StringUtils::join(node_configs, ",");
         }
 
@@ -739,7 +739,7 @@ TEST_F(RaftServerTest, RefreshCatchupStatusWithoutStarting) {
 
 // ==================== MULTI-NODE TESTS ====================
 
-TEST_F(RaftServerTest, StartMultiNode) {
+TEST_F(RaftServerTest, StartMultiNodeWithForcedVote) {
     auto setup = createMultiNodeSetup(this, 3);
 
     // Start all nodes
@@ -810,7 +810,71 @@ TEST_F(RaftServerTest, StartMultiNode) {
     }
 }
 
-TEST_F(RaftServerTest, LeaderElectionMultiNode) {
+TEST_F(RaftServerTest, StartMultiNodeAfterTimeout) {
+    auto setup = createMultiNodeSetup(this, 3);
+
+    // Start all nodes
+    for (int i = 0; i < 3; i++) {
+        int start_result = setup.raft_servers[i]->start(
+            setup.peering_endpoints[i], setup.api_ports[i], 2000, // Shorter timeout for faster natural election
+            128 * 1024, setup.raft_dirs[i], setup.nodes_config, *setup.quit_flags[i]);
+        EXPECT_EQ(start_result, 0);
+    }
+
+    // Wait for natural leader election (no manual trigger_vote)
+    std::vector<int> delay_intervals = {1000, 2000, 3000, 4000, 5000}; // Longer delays for natural election
+    bool leader_elected = false;
+
+    for (int delay : delay_intervals) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+
+        // Refresh catchup status for all nodes
+        for (int i = 0; i < 3; i++) {
+            setup.raft_servers[i]->refresh_catchup_status(false);
+        }
+
+        // Check if a leader has been elected naturally
+        int leader_count = 0;
+        for (int i = 0; i < 3; i++) {
+            if (setup.raft_servers[i]->is_leader()) {
+                leader_count++;
+            }
+        }
+
+        if (leader_count == 1) {
+            leader_elected = true;
+            break;
+        }
+    }
+
+    EXPECT_TRUE(leader_elected);
+
+    // Final verification: exactly one leader, others followers
+    int leader_count = 0;
+    int follower_count = 0;
+    for (int i = 0; i < 3; i++) {
+        if (setup.raft_servers[i]->is_leader()) {
+            leader_count++;
+        } else {
+            follower_count++;
+        }
+    }
+
+    EXPECT_EQ(leader_count, 1);
+    EXPECT_EQ(follower_count, 2);
+
+    // All nodes should be alive after leader election
+    for (int i = 0; i < 3; i++) {
+        EXPECT_TRUE(setup.raft_servers[i]->is_alive());
+    }
+
+    // Shutdown all nodes
+    for (int i = 0; i < 3; i++) {
+        setup.raft_servers[i]->shutdown();
+    }
+}
+
+TEST_F(RaftServerTest, LeaderElectionMultiNodeWithForcedVote) {
     auto setup = createMultiNodeSetup(this, 3);
 
     // Start all nodes
@@ -859,13 +923,91 @@ TEST_F(RaftServerTest, LeaderElectionMultiNode) {
     // Leader should have leader term
     EXPECT_TRUE(setup.raft_servers[leader_index]->has_leader_term());
 
-    // Followers should not be leaders, but should see the leader
+    // Followers should not be leaders
     for (int i = 0; i < 3; i++) {
         if (i != leader_index) {
             EXPECT_FALSE(setup.raft_servers[i]->is_leader());
-            // Note: In fast-changing test environments, followers may temporarily lose track of leader_term
-            // This is normal behavior and doesn't indicate a problem with the RaftServer implementation
-            // EXPECT_TRUE(setup.raft_servers[i]->has_leader_term()); // Should know about leader
+        }
+    }
+
+    // Give additional time for followers to fully recognize leader
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    for (int i = 0; i < 3; i++) {
+        setup.raft_servers[i]->refresh_catchup_status(false);
+    }
+
+    // Now followers should know about leader term
+    for (int i = 0; i < 3; i++) {
+        if (i != leader_index) {
+            EXPECT_TRUE(setup.raft_servers[i]->has_leader_term()); // Should know about leader
+        }
+    }
+
+    // Shutdown all nodes
+    for (int i = 0; i < 3; i++) {
+        setup.raft_servers[i]->shutdown();
+    }
+}
+
+TEST_F(RaftServerTest, LeaderElectionMultiNodeAfterTimeout) {
+    auto setup = createMultiNodeSetup(this, 3);
+
+    // Start all nodes with shorter timeout for faster natural election
+    for (int i = 0; i < 3; i++) {
+        int start_result = setup.raft_servers[i]->start(
+            setup.peering_endpoints[i], setup.api_ports[i], 2000,
+            128 * 1024, setup.raft_dirs[i], setup.nodes_config, *setup.quit_flags[i]);
+        EXPECT_EQ(start_result, 0);
+    }
+
+    // Wait for natural leader election to complete (no manual trigger_vote)
+    std::vector<int> delay_intervals = {2500, 3000, 4000}; // Wait for election timeout to naturally trigger
+    int leader_index = -1;
+
+    for (int delay : delay_intervals) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+
+        // Refresh catchup status for all nodes
+        for (int i = 0; i < 3; i++) {
+            setup.raft_servers[i]->refresh_catchup_status(false);
+        }
+
+        // Find the leader
+        leader_index = -1;
+        for (int i = 0; i < 3; i++) {
+            if (setup.raft_servers[i]->is_leader()) {
+                EXPECT_EQ(leader_index, -1); // Only one leader should exist
+                leader_index = i;
+            }
+        }
+
+        if (leader_index != -1) {
+            break; // Leader found via natural election
+        }
+    }
+
+    EXPECT_NE(leader_index, -1); // A leader should exist
+
+    // Leader should have leader term
+    EXPECT_TRUE(setup.raft_servers[leader_index]->has_leader_term());
+
+    // Followers should not be leaders
+    for (int i = 0; i < 3; i++) {
+        if (i != leader_index) {
+            EXPECT_FALSE(setup.raft_servers[i]->is_leader());
+        }
+    }
+
+    // Give additional time for followers to fully recognize leader
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    for (int i = 0; i < 3; i++) {
+        setup.raft_servers[i]->refresh_catchup_status(false);
+    }
+
+    // Now followers should know about leader term
+    for (int i = 0; i < 3; i++) {
+        if (i != leader_index) {
+            EXPECT_TRUE(setup.raft_servers[i]->has_leader_term()); // Should know about leader
         }
     }
 
