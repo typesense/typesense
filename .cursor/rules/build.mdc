@@ -95,7 +95,8 @@ TYPESENSE_BINARY_PATH="<bazel cquery path above>" TYPESENSE_DATA_DIR="./data" bu
 
 ### Setup
 ```bash
-# Install pnpm
+# Install pnpm if needed
+pnpm --version
 curl -fsSL https://get.pnpm.io/install.sh | sh -
 source ~/.bashrc
 
