@@ -88,6 +88,12 @@ TYPESENSE_BINARY_PATH="<bazel cquery path above>" TYPESENSE_DATA_DIR="./data" bu
 # If OPEN_AI_API_KEY is set, ask user if they'd like to run without --no-secrets
 ```
 
+### Fixing Broken API Tests
+- **Root cause location**: Always in C++ files (/src and /include) - fix the bug there
+- **Test file modifications**:
+    - ✅ ALLOWED: Add console.log(), improve error messages
+    - ❌ FORBIDDEN: Add awaits, delays, retries, or change test logic to pass
+
 ### Troubleshooting
 - **GLIBC errors** = bun installed in snap confinement (reinstall outside snap)
 - **Do not use Node.js** - it won't work with API tests
@@ -157,6 +163,12 @@ node dist/index.js benchmark \
 - Servers use ports 8108, 7108, 9108 for multi-node testing
 - When benchmarking specific commits: for isolation, use `git clone` to ./benchmark/data/repo/<branch/tag/identifier>, then `cd` there for checkout/build. In this case, **NEVER** use `git checkout` or modify files in the main repository.
 - On WSL, pnpm EACCES errors can occur due to rename on Windows filesystem. Try install in a loop: `while true; do pnpm install && break; done`. Read https://github.com/pnpm/pnpm/issues/6155; issue may be related to TGitCache.exe on system.
+
+### Fixing Broken Benchmarks
+- **Root cause location**: Always in C++ files (/src and /include) - fix the performance or functional issue there
+- **Benchmark script file modifications**:
+    - ✅ ALLOWED: Add console.log(), improve metrics output, clarify timing measurements
+    - ❌ FORBIDDEN: Change performance thresholds, modify dataset size, add retries, alter benchmark logic to pass
 
 ### Integration Tests (for benchmark development only)
 ```bash
