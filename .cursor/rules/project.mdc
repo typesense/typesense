@@ -1,0 +1,84 @@
+---
+description: Typesense project overview, architecture/API patterns, C++ module map, documentation/resources
+globs:
+alwaysApply: true
+---
+
+# Typesense Development Context
+
+## Architecture Constraints
+- **Core**: C++ with ART (Adaptive Radix Tree) index in-memory, RocksDB persistence
+- **API**: RESTful JSON only, direct AJAX consumption
+- **Clustering**: Single-master + read replicas, automatic failover
+
+## Development Principles
+1. **Performance first**: Read-optimized, sub-50ms p99 for <1M docs
+2. **Typo-tolerance always**: Fuzzy matching without speed penalties
+3. **Zero-config defaults**: 80% use cases work without configuration
+4. **Availability > consistency**: Partial results better than errors
+
+## API Patterns
+```
+GET /collections/{name}/documents/search?q=...
+POST /collections/{name}/documents
+POST /collections/{name}/documents/import (JSONL batch)
+POST /multi_search (federated search)
+```
+Response: `{results: [...], found: N, search_time_ms: T}`
+Maintain API stability
+
+## Core C++ Modules
+
+### /src Core Files
+- `collection.cpp` - Document storage, search, indexing operations
+- `collection_manager.cpp` - Collection lifecycle management
+- `http_server.cpp` - REST API server implementation
+- `tokenizer.cpp` - Text tokenization and normalization
+- `art.cpp` - Adaptive Radix Tree index implementation
+- `posting.cpp` - Posting list management for inverted index
+- `topster.cpp` - Top-K result tracking
+- `match_score.cpp` - Relevance scoring algorithms
+- `vector_query_ops.cpp` - Vector/semantic search operations
+- `batched_indexer.cpp` - Batch document indexing
+- `auth_manager.cpp` - API key management and authentication
+- `field.cpp` - Field type handling and validation
+- `store.cpp` - RocksDB storage layer interface
+- `raft_server.cpp` - Distributed consensus (Raft protocol)
+- `conversation_model.cpp` - RAG/conversational search
+- `embedder_manager.cpp` - ML model embedding management
+
+### /include Headers
+- `tsapi.h` - Public API definitions
+- `index.h` - Index structures and operations
+- `collection.h` - Collection class definitions
+- `field.h` - Field type definitions
+- `filter.h` - Filtering logic
+- `store.h` - Storage interface definitions
+- `raft_server.h` - Clustering/replication headers
+
+## Key Features & Implementation
+- **Vector search**: Built-in embeddings via `vector_query`
+- **RAG/Conversational**: First-class built-in, not plugins
+- **Geo search**: S2 geometry library patterns
+- **JOINs**: Maintain denormalized performance
+- **Multi-tenancy**: Scoped API keys inherit permissions
+
+## Anti-patterns to Avoid
+- ❌ Elasticsearch patterns (no analyzers, mapping types)
+- ❌ JVM dependencies
+- ❌ General database features
+- ❌ External service requirements for core features
+- ❌ Configuration without smart defaults
+- ❌ Breaking existing API contracts
+
+## Documentation
+1. `./DESIGN.md` for architecture decisions
+2. `./TODO.md` for planned features (~~ = done)
+
+## Live Resources (curl for latest)
+- **Docs**: https://typesense.org/docs/
+- **API docs** https://typesense.org/docs/latest/api/
+- **Roadmap**: https://github.com/orgs/typesense/projects/1
+- **Releases**: https://github.com/typesense/typesense/releases
+- **Reference Implementations**: https://github.com/orgs/typesense/repositories?q=showcase
+- **Issues**: https://github.com/typesense/typesense/issues
