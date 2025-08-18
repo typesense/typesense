@@ -37,6 +37,7 @@ private:
     RaftServerManager& operator=(RaftServerManager&&) = delete;
 
     // Helper functions
+    void shutdown_peering_server(brpc::Server& peering_server);
     bool is_private_ipv4(uint32_t ip);
     bool is_private_ipv6(const struct in6_addr* addr);
     bool ipv6_prefix_match(const struct in6_addr* addr1, const struct in6_addr* addr2, uint32_t prefix_len);

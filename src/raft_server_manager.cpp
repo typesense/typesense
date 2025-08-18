@@ -55,16 +55,16 @@ int RaftServerManager::start_raft_server(ReplicationState& replication_state, St
     }
 
     // start peering server
-    brpc::Server raft_server;
+    brpc::Server peering_server;
 
-    if (braft::add_service(&raft_server, peering_endpoint) != 0) {
+    if (braft::add_service(&peering_server, peering_endpoint) != 0) {
         LOG(ERROR) << "Failed to add peering service";
-        return -1;  // Return error instead of exit
+        exit(-1); // TODO: Return error instead of exit
     }
 
-    if (raft_server.Start(peering_endpoint, nullptr) != 0) {
+    if (peering_server.Start(peering_endpoint, nullptr) != 0) {
         LOG(ERROR) << "Failed to start peering service";
-        return -1;  // Return error instead of exit
+        exit(-1); // TODO: Return error instead of exit
     }
 
     size_t election_timeout_ms = 5000;
@@ -72,13 +72,10 @@ int RaftServerManager::start_raft_server(ReplicationState& replication_state, St
     if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, state_dir,
                                 nodes_config_op.get(), quit_raft_service) != 0) {
         LOG(ERROR) << "Failed to start peering state";
-        // Clean up the server before returning
-        raft_server.Stop(0);
-        raft_server.Join();
-        return -1;  // Return error instead of exit
+        exit(-1); // TODO: shutdown_peering_server and return error instead of exit
     }
 
-    LOG(INFO) << "Typesense peering service is running on " << raft_server.listen_address();
+    LOG(INFO) << "Typesense peering service is running on " << peering_server.listen_address();
     LOG(INFO) << "Snapshot interval configured as: " << snapshot_interval_seconds << "s";
     LOG(INFO) << "Snapshot max byte count configured as: " << snapshot_max_byte_count_per_rpc;
 
@@ -115,19 +112,19 @@ int RaftServerManager::start_raft_server(ReplicationState& replication_state, St
     }
 
     LOG(INFO) << "Typesense peering service is going to quit.";
-
-    // Stop application before server
+    // Stop replication_state before peering_server
     replication_state.shutdown();
-
-    LOG(INFO) << "raft_server.stop()";
-    raft_server.Stop(0);
-
-    LOG(INFO) << "raft_server.join()";
-    raft_server.Join();
-
+    shutdown_peering_server(peering_server);
     LOG(INFO) << "Typesense peering service has quit.";
 
     return 0;
+}
+
+void RaftServerManager::shutdown_peering_server(brpc::Server& peering_server) {
+    LOG(INFO) << "peering_server.stop()";
+    peering_server.Stop(0);
+    LOG(INFO) << "peering_server.join()";
+    peering_server.Join();
 }
 
 bool RaftServerManager::is_private_ipv4(uint32_t ip) {

@@ -380,20 +380,20 @@ int run_server(const Config & config, const std::string & version, void (*master
 
         RemoteEmbedder::init(&replication_state);
 
+        // RaftServerManager is the core "run loop" of the application. It will either:
+        // 1. return(-1) if failure occurs before starting the raft server
+        // 2. Do a hard exit(-1) if it cannot start the raft server
+        // 3. return(0) for graceful shutdown (e.g. SIGINT received)
         RaftServerManager& raft_manager = RaftServerManager::get_instance();
         std::string path_to_nodes = config.get_nodes();
-        int raft_result = raft_manager.start_raft_server(replication_state, store, state_dir, path_to_nodes,
-                                                         config.get_peering_address(),
-                                                         config.get_peering_port(),
-                                                         config.get_peering_subnet(),
-                                                         config.get_api_port(),
-                                                         config.get_snapshot_interval_seconds(),
-                                                         config.get_snapshot_max_byte_count_per_rpc(),
-                                                         config.get_reset_peers_on_error());
-        if (raft_result != 0) {
-            LOG(ERROR) << "Raft server failed to start, terminating process";
-            exit(-1);
-        }
+        raft_manager.start_raft_server(replication_state, store, state_dir, path_to_nodes,
+                                       config.get_peering_address(),
+                                       config.get_peering_port(),
+                                       config.get_peering_subnet(),
+                                       config.get_api_port(),
+                                       config.get_snapshot_interval_seconds(),
+                                       config.get_snapshot_max_byte_count_per_rpc(),
+                                       config.get_reset_peers_on_error());
 
         LOG(INFO) << "Shutting down batch indexer...";
         batch_indexer->stop();
