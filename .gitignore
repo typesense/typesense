@@ -18,4 +18,5 @@ typesense-data
 /onnxruntime-prefix
 .secrets
 /dist
+/tmp
 *.tar.gz
