@@ -579,18 +579,19 @@ size_t Index::batch_memory_index(Index *index,
                                  const std::string& fallback_field_type,
                                  const std::vector<char>& token_separators,
                                  const std::vector<char>& symbols_to_index,
-                                 const bool do_validation, const size_t remote_embedding_batch_size,
+                                 const bool do_validation,
+                                 std::unordered_set<std::string>& found_fields,
+                                 const size_t remote_embedding_batch_size,
                                  const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
                                  const bool generate_embeddings,
                                  const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
-                                 const std::string& collection_name,
-                                 const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
+                                 const std::string& collection_name) {
     const size_t concurrency = Config::get_instance().get_max_indexing_concurrency();
     const size_t num_threads = std::min(concurrency, iter_batch.size());
     const size_t window_size = (num_threads == 0) ? 0 :
                                (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
     const auto& indexable_schema = use_addition_fields ? addition_fields : actual_search_schema;
-    
+
     size_t num_indexed = 0;
     size_t num_processed = 0;
     std::mutex m_process;
@@ -630,8 +631,6 @@ size_t Index::batch_memory_index(Index *index,
         cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
     }
 
-    std::unordered_set<std::string> found_fields;
-
     for(size_t i = 0; i < iter_batch.size(); i++) {
         auto& index_rec = iter_batch[i];
 
@@ -667,14 +666,8 @@ size_t Index::batch_memory_index(Index *index,
 
             const field& f = (field_name == "id") ?
                              field("id", field_types::STRING, false) : indexable_schema.at(field_name);
-            std::set<reference_pair_t> async_references;
-            auto it = async_referenced_ins.find(field_name);
-            if (it != async_referenced_ins.end()) {
-                async_references = it->second;
-            }
-
             try {
-                index->index_field_in_memory(collection_name, f, iter_batch, async_references);
+                index->index_field_in_memory(collection_name, f, iter_batch);
             } catch(std::exception& e) {
                 LOG(ERROR) << "Unhandled Typesense error: " << e.what();
                 for(auto& record: iter_batch) {
@@ -697,8 +690,7 @@ size_t Index::batch_memory_index(Index *index,
 }
 
 void Index::index_field_in_memory(const std::string& collection_name, const field& afield,
-                                  std::vector<index_record>& iter_batch,
-                                  const std::set<reference_pair_t>& async_referenced_ins) {
+                                  std::vector<index_record>& iter_batch) {
     // indexes a given field of all documents in the batch
 
     if(afield.name == "id") {
@@ -712,10 +704,6 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
                 std::unique_lock lock(seq_ids_mutex);
                 seq_ids->upsert(record.seq_id);
             }
-        }
-
-        if (!async_referenced_ins.empty()) {
-            update_async_references(collection_name, afield, iter_batch, async_referenced_ins);
         }
         return;
     }
@@ -1195,15 +1183,10 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
             }
         }
     }
-
-    if (!async_referenced_ins.empty()) {
-        update_async_references(collection_name, afield, iter_batch, async_referenced_ins);
-    }
 }
 
-void Index::update_async_references(const std::string& collection_name, const field& afield,
-                                    std::vector<index_record>& iter_batch,
-                                    const std::set<reference_pair_t>& async_referenced_ins) {
+void Index::update_async_references(const std::string& collection_name, std::vector<index_record>& iter_batch,
+                                    const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
     for (auto& record: iter_batch) {
         if (!record.indexed.ok() || record.is_update) {
             continue;
@@ -1213,65 +1196,47 @@ void Index::update_async_references(const std::string& collection_name, const fi
         auto const& seq_id = record.seq_id;
 
         for (const auto& pair: async_referenced_ins) {
-            auto const& reference_collection_name = pair.collection;
-            auto const& reference_field_name = pair.field;
-
-            auto& cm = CollectionManager::get_instance();
-            auto ref_coll = cm.get_collection(reference_collection_name);
-            if (ref_coll == nullptr) {
-                record.index_failure(400, "Collection `" + reference_collection_name + "` with async_reference to the"
-                                           " collection `" += collection_name + "` not found.");
+            const auto& referenced_field = pair.first;
+            if (document.count(referenced_field) != 1) {
                 continue;
             }
+            for (const auto& ref_info: pair.second) {
+                auto const& referencing_collection_name = ref_info.collection;
+                auto const& referencing_field_name = ref_info.field;
 
-            auto const& ref_fields = ref_coll->get_reference_fields();
-            auto const ref_field_it = ref_fields.find(reference_field_name);
-            if (ref_field_it == ref_fields.end()) {
-                record.index_failure(400, "Field `" + reference_field_name + "` not found in the ref schema of `" +=
-                                            reference_collection_name + "` having async_reference to `" += collection_name +
-                                            "` collection.");
-                continue;
-            }
+                auto& cm = CollectionManager::get_instance();
+                auto referencing_coll = cm.get_collection(referencing_collection_name);
+                if (referencing_coll == nullptr) {
+                    record.index_failure(400, "Collection `" + referencing_collection_name + "` with async_reference to the"
+                                                                                             " collection `" += collection_name + "` not found.");
+                    continue;
+                }
 
-            if (ref_field_it->second.collection != collection_name) {
-                record.index_failure(400, "`" + reference_collection_name + "." += reference_field_name +
-                                              "` does not have a reference to `" += collection_name + "` collection.");
-                continue;
-            }
+                // After collecting the value(s) present in the field referenced by the other collection(ref_coll), we will add
+                // this document's seq_id as a reference where the value(s) match.
+                std::string ref_filter_value;
+                std::set<std::string> values;
+                if (document.at(referenced_field).is_array()) {
+                    ref_filter_value = "[";
 
-            auto const& ref_schema = ref_coll->get_schema();
-            if (ref_schema.count(reference_field_name) == 0) {
-                record.index_failure(400, "Field `" + reference_field_name + "` not found in the schema of `" +=
-                                            reference_collection_name + "` having async_reference to `" +=
-                                            collection_name + "` collection.");
-                continue;
-            }
-
-            auto const& field_name = ref_field_it->second.field;
-            if (field_name != "id" && search_schema.count(field_name) == 0) {
-                record.index_failure(400, "Field `" + field_name + "`, referenced by `" += reference_collection_name +
-                                            "." += reference_field_name + "`, not found in `" += collection_name +
-                                            "` collection.");
-                continue;
-            }
-
-            auto const& optional = field_name != "id" && search_schema.at(field_name).optional;
-            auto is_required = !is_update && !optional;
-            if (is_required && document.count(field_name) != 1) {
-                record.index_failure(400, "Missing the required field `" + field_name + "` in the document.");
-                continue;
-            } else if (document.count(field_name) != 1) {
-                continue;
-            }
-
-            // After collecting the value(s) present in the field referenced by the other collection(ref_coll), we will add
-            // this document's seq_id as a reference where the value(s) match.
-            std::string ref_filter_value;
-            std::set<std::string> values;
-            if (document.at(field_name).is_array()) {
-                ref_filter_value = "[";
-
-                for (auto const& value: document[field_name]) {
+                    for (auto const& value: document[referenced_field]) {
+                        if (value.is_number_integer()) {
+                            auto const& v = std::to_string(value.get<int64_t>());
+                            ref_filter_value += v;
+                            values.insert(v);
+                        } else if (value.is_string()) {
+                            auto const& v = value.get<std::string>();
+                            ref_filter_value += v;
+                            values.insert(v);
+                        } else {
+                            record.index_failure(400, "Field `" + referenced_field + "` must only have string/int32/int64 values.");
+                            continue;
+                        }
+                        ref_filter_value += ",";
+                    }
+                    ref_filter_value[ref_filter_value.size() - 1] = ']';
+                } else {
+                    auto const& value = document[referenced_field];
                     if (value.is_number_integer()) {
                         auto const& v = std::to_string(value.get<int64_t>());
                         ref_filter_value += v;
@@ -1281,39 +1246,23 @@ void Index::update_async_references(const std::string& collection_name, const fi
                         ref_filter_value += v;
                         values.insert(v);
                     } else {
-                        record.index_failure(400, "Field `" + field_name + "` must only have string/int32/int64 values.");
+                        record.index_failure(400, "Field `" + referenced_field + "` must only have string/int32/int64 values.");
                         continue;
                     }
-                    ref_filter_value += ",";
                 }
-                ref_filter_value[ref_filter_value.size() - 1] = ']';
-            } else {
-                auto const& value = document[field_name];
-                if (value.is_number_integer()) {
-                    auto const& v = std::to_string(value.get<int64_t>());
-                    ref_filter_value += v;
-                    values.insert(v);
-                } else if (value.is_string()) {
-                    auto const& v = value.get<std::string>();
-                    ref_filter_value += v;
-                    values.insert(v);
-                } else {
-                    record.index_failure(400, "Field `" + field_name + "` must only have string/int32/int64 values.");
+
+                if (values.empty()) {
                     continue;
                 }
-            }
 
-            if (values.empty()) {
-                continue;
-            }
-
-            auto const ref_filter = reference_field_name + ":= " += ref_filter_value;
-            auto update_op = ref_coll->update_async_references_with_lock(collection_name, ref_filter, values, seq_id,
-                                                                         reference_field_name);
-            if (!update_op.ok()) {
-                record.index_failure(400, "Error while updating async reference field `" + reference_field_name +
-                                         "` of collection `" += reference_collection_name + "`: " += update_op.error());
-                break;
+                auto const ref_filter = referencing_field_name + ":= " += ref_filter_value;
+                auto update_op = referencing_coll->update_async_references_with_lock(collection_name, ref_filter, values, seq_id,
+                                                                                     referencing_field_name);
+                if (!update_op.ok()) {
+                    record.index_failure(400, "Error while updating async reference field `" + referencing_field_name +
+                                              "` of collection `" += referencing_collection_name + "`: " += update_op.error());
+                    break;
+                }
             }
         }
     }
@@ -4591,6 +4540,9 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
                 }
             }
         }
+
+        gfx::timsort(ref_doc_ids.begin(), ref_doc_ids.end());
+        ref_doc_ids.erase(unique(ref_doc_ids.begin(), ref_doc_ids.end()), ref_doc_ids.end());
         fit.reset();
     } else if (doc_has_reference) {
         auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(collection_name);
@@ -4602,9 +4554,8 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
             return;
         }
 
-        for (uint32_t i = 0; i < all_result_ids_len; i++) {
-            get_related_ids(reference_field_name, all_result_ids[i], ref_doc_ids);
-        }
+        get_related_ids(reference_field_name, std::vector<uint32_t>(all_result_ids, all_result_ids + all_result_ids_len),
+                        ref_doc_ids);
     } else if (joined_coll_has_reference) {
         auto& cm = CollectionManager::get_instance();
         auto joined_collection = cm.get_collection(joined_coll_having_reference);
@@ -4621,17 +4572,13 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
         for (uint32_t i = 0; i < all_result_ids_len; i++) {
             if (fit.is_valid(all_result_ids[i]) == 1) {
                 auto const& ref_result = fit.reference[joined_coll_having_reference];
-                for (uint32_t j = 0; j < ref_result.count; j++) {
-                    joined_collection->get_related_ids_with_lock(reference_field_name, ref_result.docs[j],
-                                                                 ref_doc_ids);
-                }
+                joined_collection->get_related_ids_with_lock(reference_field_name,
+                                                             std::vector<uint32_t>(ref_result.docs, ref_result.docs + ref_result.count),
+                                                             ref_doc_ids);
             }
         }
         fit.reset();
     }
-
-    gfx::timsort(ref_doc_ids.begin(), ref_doc_ids.end());
-    ref_doc_ids.erase(unique(ref_doc_ids.begin(), ref_doc_ids.end()), ref_doc_ids.end());
 
     auto& result = reference_facet_ids[ref_collection_name];
     result.count = ref_doc_ids.size();
@@ -8358,10 +8305,68 @@ int64_t Index::reference_string_sort_score(const string &field_name,  const std:
     return score;
 }
 
-Option<bool> Index::get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
-                                    std::vector<uint32_t>& result) const {
+Option<bool> Index::get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
+                                              std::vector<uint32_t>& related_ids) const {
     std::shared_lock lock(mutex);
-    return get_related_ids(field_name, seq_id, result);
+    return get_related_ids(field_name, seq_id_vec, related_ids);
+}
+
+Option<bool> Index::get_related_ids(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
+                                    std::vector<uint32_t>& related_ids) const {
+    auto const& collection_name = get_collection_name();
+    auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+    auto search_schema_it = search_schema.find(reference_helper_field_name);
+    if (search_schema_it == search_schema.end()) {
+        return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" +
+                                 collection_name + "`.");
+    }
+
+    auto sort_index_it = sort_index.find(reference_helper_field_name);
+    auto reference_index_it = reference_index.find(reference_helper_field_name);
+    if (search_schema_it->is_singular()) {
+        if (sort_index_it == sort_index.end()) {
+            return Option<bool>(400, "Could not find `" + reference_helper_field_name +
+                                     "` in the collection `" + collection_name + "`.");
+        }
+    } else if (reference_index_it == reference_index.end()) {
+        return Option<bool>(400, "Could not find `" + reference_helper_field_name +
+                                 "` in the collection `" + collection_name + "`.");
+    }
+
+    related_ids.reserve(seq_id_vec.size());
+    for (size_t i = 0; i < seq_id_vec.size(); i++) {
+        auto const& seq_id = seq_id_vec[i];
+
+        if (search_schema_it->is_singular()) {
+            auto const& ref_index = sort_index_it->second;
+            auto const it = ref_index->find(seq_id);
+            if (it == ref_index->end() || it->second == Index::reference_helper_sentinel_value) {
+                return Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
+                                           std::to_string(seq_id) + "`.");
+            }
+
+            related_ids.push_back(it->second);
+        } else {
+            auto const& ref_index = reference_index_it->second;
+            size_t count = 0;
+            uint32_t* ref_ids = nullptr;
+            ref_index->search(EQUALS, seq_id, &ref_ids, count);
+
+            if (count == 0) {
+                return Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
+                                         std::to_string(seq_id) + "`.");
+            }
+
+            for (size_t j = 0; j < count; j++) {
+                related_ids.push_back(ref_ids[j]);
+            }
+        }
+    }
+
+    gfx::timsort(related_ids.begin(), related_ids.end());
+    related_ids.erase(unique(related_ids.begin(), related_ids.end()), related_ids.end());
+
+    return Option<bool>(true);
 }
 
 Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_t& seq_id,
@@ -8418,15 +8423,20 @@ Option<bool> Index::get_object_array_related_id(const std::string& collection_na
                                                 const uint32_t& seq_id, const uint32_t& object_index,
                                                 uint32_t& result) const {
     std::shared_lock lock(mutex);
-    if (object_array_reference_index.count(field_name) == 0 || object_array_reference_index.at(field_name) == nullptr) {
+
+    auto object_ref_index = object_array_reference_index.find(field_name);
+    if (object_ref_index == object_array_reference_index.end() || object_ref_index->second == nullptr) {
         return Option<bool>(404, "`" + field_name + "` not found in `" + collection_name +
                                     ".object_array_reference_index`");
-    } else if (object_array_reference_index.at(field_name)->count({seq_id, object_index}) == 0) {
+    }
+
+    auto it = object_ref_index->second->find({seq_id, object_index});
+    if (it == object_ref_index->second->end()) {
         return Option<bool>(400, "Key `{" + std::to_string(seq_id) + ", " + std::to_string(object_index) + "}`"
                                     " not found in `" + collection_name + ".object_array_reference_index`");
     }
 
-    result = object_array_reference_index.at(field_name)->at({seq_id, object_index});
+    result = it->second;
     return Option<bool>(true);
 }
 
@@ -8645,23 +8655,12 @@ Option<std::vector<uint32_t>> Index::get_ref_seq_ids_helper(const std::vector<ui
         }
         auto const& field_name = get_reference_field_op.get();
 
-        for (const auto& seq_id: seq_ids_vec) {
-            auto related_ids_op = Option<bool>(true);
-            if (coll_name == get_collection_name_with_lock()) {
-                related_ids_op = get_related_ids(field_name, seq_id, ref_seq_ids);
-            } else {
-                auto prev_coll = cm.get_collection(coll_name);
-                if (prev_coll == nullptr) {
-                    return Option<std::vector<uint32_t>>(400, "Referenced collection `" + coll_name +
-                                                                "` in `sort_by` not found.");
-                }
-                related_ids_op = prev_coll->get_related_ids(field_name, seq_id, ref_seq_ids);
-            }
-            if (!related_ids_op.ok()) {
-                if (related_ids_op.code() == 400) {
-                    return Option<std::vector<uint32_t>>(400, related_ids_op.error());
-                }
-            }
+        auto related_ids_op = (coll_name == get_collection_name_with_lock()) ?
+                                    get_related_ids(field_name, seq_ids_vec, ref_seq_ids) :
+                                    CollectionManager::get_related_ids(coll_name, field_name, seq_ids_vec, ref_seq_ids);
+
+        if (!related_ids_op.ok() && related_ids_op.code() == 400) {
+            return Option<std::vector<uint32_t>>(400, related_ids_op.error());
         }
     }
         // Joined collection has a reference
@@ -8691,26 +8690,19 @@ Option<std::vector<uint32_t>> Index::get_ref_seq_ids_helper(const std::vector<ui
         const auto& reference_field_name = reference_field_name_op.get();
         auto& ref_result = references->at(joined_coll_having_reference);
         const auto& count = ref_result.count;
+        const auto& docs = ref_result.docs;
 
-        for (size_t i = 0; i < count; i++) {
-            const auto& seq_id = ref_result.docs[i];
-
-            auto related_ids_op = joined_collection->get_related_ids(reference_field_name, seq_id, ref_seq_ids);
-            if (!related_ids_op.ok()) {
-                if (related_ids_op.code() == 400) {
-                    return Option<std::vector<uint32_t>>(400, related_ids_op.error());
-                }
+        auto related_ids_op = joined_collection->get_related_ids(reference_field_name,
+                                                                 std::vector<uint32_t>(docs, docs + count),
+                                                                 ref_seq_ids);
+        if (!related_ids_op.ok()) {
+            if (related_ids_op.code() == 400) {
+                return Option<std::vector<uint32_t>>(400, related_ids_op.error());
             }
         }
-    }
+   }
 
     coll_name = ref_coll_name;
-
-    if (ref_seq_ids.size() > 1) {
-        gfx::timsort(ref_seq_ids.begin(), ref_seq_ids.end());
-        ref_seq_ids.erase(std::unique( ref_seq_ids.begin(), ref_seq_ids.end() ), ref_seq_ids.end());
-    }
-
     return Option<std::vector<uint32_t>>(ref_seq_ids);
 }
 
