@@ -16,7 +16,7 @@
 // TODO: Make this a variable; this is a code smell
 extern std::atomic<bool> quit_raft_service;
 
-int start_raft_server(ReplicationState& replication_state, Store& store,
+int RaftServerManager::start_raft_server(ReplicationState& replication_state, Store& store,
                       const std::string& state_dir, const std::string& path_to_nodes,
                       const std::string& peering_address, uint32_t peering_port, const std::string& peering_subnet,
                       uint32_t api_port, int snapshot_interval_seconds, int snapshot_max_byte_count_per_rpc,
@@ -127,7 +127,7 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
     return 0;
 }
 
-bool is_private_ipv4(uint32_t ip) {
+bool RaftServerManager::is_private_ipv4(uint32_t ip) {
     uint8_t b1, b2;
     b1 = (uint8_t) (ip >> 24);
     b2 = (uint8_t) ((ip >> 16) & 0x0ff);
@@ -150,14 +150,12 @@ bool is_private_ipv4(uint32_t ip) {
     return false;
 }
 
-// Returns true if IPv6 address is in private range (RFC4193/RFC4291)
-bool is_private_ipv6(const struct in6_addr* addr) {
+bool RaftServerManager::is_private_ipv6(const struct in6_addr* addr) {
     // Check for fc00::/7 - Unique Local Address
     return (addr->s6_addr[0] & 0xfe) == 0xfc;
 }
 
-// Compare first n bits of IPv6 addresses for subnet matching
-bool ipv6_prefix_match(const struct in6_addr* addr1, const struct in6_addr* addr2, uint32_t prefix_len) {
+bool RaftServerManager::ipv6_prefix_match(const struct in6_addr* addr1, const struct in6_addr* addr2, uint32_t prefix_len) {
     const uint8_t* a1 = addr1->s6_addr;
     const uint8_t* a2 = addr2->s6_addr;
 
@@ -178,7 +176,7 @@ bool ipv6_prefix_match(const struct in6_addr* addr1, const struct in6_addr* addr
     return true;
 }
 
-butil::EndPoint get_internal_endpoint(const std::string& subnet_cidr, uint32_t peering_port) {
+butil::EndPoint RaftServerManager::get_internal_endpoint(const std::string& subnet_cidr, uint32_t peering_port) {
     struct ifaddrs *ifap;
     getifaddrs(&ifap);
 

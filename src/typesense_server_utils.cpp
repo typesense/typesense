@@ -380,15 +380,16 @@ int run_server(const Config & config, const std::string & version, void (*master
 
         RemoteEmbedder::init(&replication_state);
 
+        RaftServerManager& raft_manager = RaftServerManager::get_instance();
         std::string path_to_nodes = config.get_nodes();
-        start_raft_server(replication_state, store, state_dir, path_to_nodes,
-                          config.get_peering_address(),
-                          config.get_peering_port(),
-                          config.get_peering_subnet(),
-                          config.get_api_port(),
-                          config.get_snapshot_interval_seconds(),
-                          config.get_snapshot_max_byte_count_per_rpc(),
-                          config.get_reset_peers_on_error());
+        raft_manager.start_raft_server(replication_state, store, state_dir, path_to_nodes,
+                                       config.get_peering_address(),
+                                       config.get_peering_port(),
+                                       config.get_peering_subnet(),
+                                       config.get_api_port(),
+                                       config.get_snapshot_interval_seconds(),
+                                       config.get_snapshot_max_byte_count_per_rpc(),
+                                       config.get_reset_peers_on_error());
 
         LOG(INFO) << "Shutting down batch indexer...";
         batch_indexer->stop();
