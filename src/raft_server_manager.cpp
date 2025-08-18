@@ -1,15 +1,15 @@
 #include "raft_server_manager.h"
-#include "raft_server.h"
-#include "store.h"
-#include "logger.h"
-#include "config.h"
-#include "string_utils.h"
 #include <braft/raft.h>
 #include <brpc/server.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <ifaddrs.h>
+#include "raft_server.h"
+#include "store.h"
+#include "logger.h"
+#include "config.h"
+#include "string_utils.h"
 
 // Global from typesense_server_utils.cpp
 // TODO: Make this an arg to start_raft_server called "signal_quit"; extern globals are a code smell
