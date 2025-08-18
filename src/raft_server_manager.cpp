@@ -13,7 +13,7 @@
 #include <ifaddrs.h>
 
 // Global from typesense_server_utils.cpp
-// TODO: Make this a variable; this is a code smell
+// TODO: Make this an arg to start_raft_server called "signal_quit"; extern globals are a code smell
 extern std::atomic<bool> quit_raft_service;
 
 int RaftServerManager::start_raft_server(ReplicationState& replication_state, Store& store,
