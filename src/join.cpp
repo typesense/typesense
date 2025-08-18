@@ -472,8 +472,23 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
         doc[ref_include_exclude.related_docs_field] = references.count;
     }
 
-    for (uint32_t i = 0; i < references.count; i++) {
-        auto ref_doc_seq_id = references.docs[i];
+    std::vector<uint32_t> doc_ids(references.docs, references.docs + references.count);
+    size_t updated_count = references.count;
+
+    if(!ref_include_exclude.sort_by_str.empty() && references.count > 1) {
+        if(ref_include_exclude.limit > 0 && ref_include_exclude.limit < updated_count) {
+            updated_count = ref_include_exclude.limit;
+        }
+
+        auto op = ref_collection->process_ref_include_fields_sort(ref_include_exclude.sort_by_str, updated_count, doc_ids);
+
+        if(!op.ok()) {
+            return Option<bool>(op.code(), error_prefix + op.error());
+        }
+    }
+
+    for (uint32_t i = 0; i < updated_count; i++) {
+        auto ref_doc_seq_id = doc_ids[i];
 
         nlohmann::json ref_doc;
         std::string key;
@@ -964,28 +979,52 @@ Option<bool> parse_nested_exclude(const std::string& exclude_field_exp,
 }
 
 Option<bool> parse_ref_include_parameters(const std::string& include_field_exp, const std::string& parameters,
-                                          ref_include::strategy_enum& strategy_enum, std::string& related_docs_field) {
-    std::vector<std::string> parameters_map;
-    StringUtils::split(parameters, parameters_map, ",");
-    for (const auto &item: parameters_map) {
-        std::vector<std::string> parameter_pair;
-        StringUtils::split(item, parameter_pair, ":");
-        if (parameter_pair.size() != 2) {
-            continue;
+                                          ref_include::strategy_enum& strategy_enum, std::string& related_docs_field,
+                                          std::string& sort_by_str, size_t& limit) {
+
+    std::vector<std::string> tokens, kv_tokens;
+    StringUtils::split(parameters, tokens, ",");
+
+    for(const auto& tok : tokens) {
+        kv_tokens.clear();
+        StringUtils::split(tok, kv_tokens, ":");
+
+        if (kv_tokens.size() < 2) {
+            return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + tok);
         }
-        auto const& key = StringUtils::trim(parameter_pair[0]);
-        if (key == ref_include::strategy_key) {
-            auto const& include_strategy = StringUtils::trim(parameter_pair[1]);
+
+        if (kv_tokens[0] == ref_include::strategy_key) {
+            auto const& include_strategy = kv_tokens[1];
 
             auto string_to_enum_op = ref_include::string_to_enum(include_strategy);
             if (!string_to_enum_op.ok()) {
                 return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + string_to_enum_op.error());
             }
             strategy_enum = string_to_enum_op.get();
-        } else if (key == ref_include::related_docs_count) {
-            related_docs_field = StringUtils::trim(parameter_pair[1]);
+        } else if (kv_tokens[0] == ref_include::related_docs_count) {
+            related_docs_field = kv_tokens[1];
+        } else if(kv_tokens[0] == ref_include::limit) {
+            limit = std::stoul(kv_tokens[1]);
+        } else if(kv_tokens[0] == ref_include::sort_by) {
+            if(kv_tokens.size() < 3) { //sort_by will have atleast 3 parts
+                return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + tok);
+            }
+
+            std::string val = kv_tokens[1];
+            for(auto i = 2; i < kv_tokens.size(); ++i) { //add and merge rest of parts
+                val += std::string(":") + kv_tokens[i];
+            }
+
+            sort_by_str = val;
         } else {
-            return Option<bool>(400, "Unknown reference `include_fields` parameter: `" + key + "`.");
+            //if none of above then most likely a sort_by field
+            //if not valid sort_by field then it will be validated and discarded later
+            if(!sort_by_str.empty()) {
+                auto str = kv_tokens[0] + ":" + kv_tokens[1];
+                sort_by_str += (std::string(", ") + str);
+            } else {
+                return Option<bool>(400, "Unknown reference `include_fields` parameter: `" + kv_tokens[0] + "`.");
+            }
         }
     }
 
@@ -1005,7 +1044,7 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
 
         index = parenthesis_index + 1;
         auto nested_include_pos = include_field_exp.find('$', parenthesis_index);
-        auto closing_parenthesis_pos = include_field_exp.find(')', parenthesis_index);
+        auto closing_parenthesis_pos = include_field_exp.rfind(')');
         auto colon_pos = include_field_exp.find(':', index);
         size_t comma_pos;
         std::vector<ref_include_exclude_fields> nested_ref_include_exclude_fields_vec;
@@ -1046,7 +1085,10 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
         // ... $inventory(qty, strategy:merge) as inventory
         auto strategy_enum = ref_include::nest;
         std::string related_docs_field;
+        std::string sort_by_str = "";
+        size_t limit = 0;
         if (colon_pos < closing_parenthesis_pos) {
+            colon_pos = ref_fields.find(':');
             auto const& parameters_start = ref_fields.rfind(',', colon_pos);
             std::string parameters;
             if (parameters_start == std::string::npos) {
@@ -1057,7 +1099,8 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
                 ref_fields = ref_fields.substr(0, parameters_start);
             }
 
-            auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum, related_docs_field);
+            auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum, related_docs_field,
+                                                                sort_by_str, limit);
             if (!parse_params_op.ok()) {
                 return parse_params_op;
             }
@@ -1077,7 +1120,8 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
         ref_alias = !ref_alias.empty() ? (StringUtils::trim(ref_alias) + (nest_ref_doc ? "" : ".")) : "";
 
         ref_include_exclude_fields_vec.emplace_back(ref_include_exclude_fields{ref_collection_name, ref_fields, "",
-                                                                               ref_alias, strategy_enum, related_docs_field});
+                                                                               ref_alias, strategy_enum, related_docs_field,
+                                                                               sort_by_str, limit});
         ref_include_exclude_fields_vec.back().nested_join_includes = std::move(nested_ref_include_exclude_fields_vec);
 
         // Referenced collection in filter_by is already mentioned in include_fields.
@@ -1135,6 +1179,8 @@ Option<bool> Join::initialize_ref_include_exclude_fields_vec(const std::string& 
 
         auto strategy_enum = ref_include::nest;
         std::string related_docs_field;
+        std::string sort_by_str = "";
+        size_t limit = 0;
         auto colon_pos = ref_fields.find(':');
         if (colon_pos != std::string::npos) {
             auto const& parameters_start = ref_fields.rfind(',', colon_pos);
@@ -1147,7 +1193,8 @@ Option<bool> Join::initialize_ref_include_exclude_fields_vec(const std::string& 
                 ref_fields = ref_fields.substr(0, parameters_start);
             }
 
-            auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum, related_docs_field);
+            auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum, related_docs_field,
+                                                                sort_by_str, limit);
             if (!parse_params_op.ok()) {
                 return parse_params_op;
             }
@@ -1164,7 +1211,8 @@ Option<bool> Join::initialize_ref_include_exclude_fields_vec(const std::string& 
         auto const& nest_ref_doc = strategy_enum == ref_include::nest || strategy_enum == ref_include::nest_array;
         auto ref_alias = !alias.empty() ? (StringUtils::trim(alias) + (nest_ref_doc ? "" : ".")) : "";
         ref_include_exclude_fields_vec.emplace_back(ref_include_exclude_fields{ref_collection_name, ref_fields, "",
-                                                                               ref_alias, strategy_enum, related_docs_field});
+                                                                               ref_alias, strategy_enum, related_docs_field,
+                                                                               sort_by_str, limit});
 
         // Referenced collection in filter_by is already mentioned in include_fields.
         if (ref_include_coll_names != nullptr) {
