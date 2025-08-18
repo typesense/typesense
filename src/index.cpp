@@ -3119,7 +3119,6 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                 if(rule_parts.size() != processed_tokens.size()) {
                     //for dynamic filter, we do exact match
                     //if query and rule tokens count is not matching then not to do processing
-                    sort_by_clause.clear();
                     continue;
                 }
             }
