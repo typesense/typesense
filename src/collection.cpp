@@ -7619,6 +7619,25 @@ Option<bool> Collection::process_facet_return_parent(std::vector<std::string>& f
     return Option<bool>(true);
 }
 
+Option<bool> Collection::process_ref_include_fields_sort(const std::string& sort_by_str, size_t limit, std::vector<uint32_t>& doc_ids) {
+    std::vector<sort_by> sort_fields;
+    auto result = CollectionManager::parse_sort_by_str(sort_by_str, sort_fields);
+    if(!result) {
+        return Option<bool>(400, "`sort_by` param for `include_fields` is malformed.");
+    }
+
+    std::vector<sort_by> sort_fields_std;
+    auto sort_validation_op = validate_and_standardize_sort_fields_with_lock(sort_fields, sort_fields_std, false, false, "", false, 0,
+                                                                                       0, true, false, false, 0);
+
+    if (!sort_validation_op.ok()) {
+        return Option<bool>(sort_validation_op.code(), "Error validating sort_fields in referenced collection `" + name + "`: " +
+                                                       sort_validation_op.error());
+    }
+
+    return index->process_ref_include_fields_sort(sort_fields_std, limit, doc_ids);
+}
+
 Option<bool> Collection::compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
                                                const uint32_t facet_query_num_typos,
                                                uint32_t* all_result_ids, const size_t& all_result_ids_len,
