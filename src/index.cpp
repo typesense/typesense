@@ -3105,6 +3105,8 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
 
             std::vector<std::string> rule_parts;
             std::vector<std::string> processed_tokens;
+            bool match_found = false;
+
             if(override->rule.dynamic_query) {
                 StringUtils::split(override->rule.normalized_query, rule_parts, " ");
                 processed_tokens = query_tokens;
@@ -3113,12 +3115,20 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
 
                 // tokenize filter_by string from search query
                 tokenize_filter_str(filter_tree_root->filter_query, processed_tokens);
+
+                if(rule_parts.size() != processed_tokens.size()) {
+                    //for dynamic filter, we do exact match
+                    //if query and rule tokens count is not matching then not to do processing
+                    sort_by_clause.clear();
+                    continue;
+                }
             }
 
             bool exact_rule_match = override->rule.match == override_t::MATCH_EXACT;
             std::string filter_by_clause = override->filter_by;
 
             std::set<std::string> absorbed_tokens;
+            sort_by_clause = override->sort_by;
             bool resolved_override = resolve_override(rule_parts, exact_rule_match, processed_tokens,
                                                       token_order, absorbed_tokens, filter_by_clause,
                                                       sort_by_clause,
@@ -3158,6 +3168,8 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                 if (override->stop_processing) {
                     return;
                 }
+
+                match_found = true;
             } else {
                 //reset the curated sort if override is not matched
                 sort_by_clause.clear();
