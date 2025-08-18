@@ -12,7 +12,7 @@ This project has 3 test sets:
 2. TypeScript API tests in `/api_tests`
 3. TypeScript Benchmarks in `/benchmark`
 
-**Default test command**: Run unit tests, then API tests. Benchmarks are optional unless being thorough.
+**Default test command**: Run "Unit Tests" → on 100% pass → run "API Tests". Skip benchmarks unless thorough. Execute "Run" steps directly; only do "Setup" if environment clearly not configured (e.g., missing commands).
 
 ## Environment Instructions
 - On Windows use WSL (not Powershell)
@@ -37,7 +37,7 @@ bazel build //:typesense-server
 # ./ci_build_v2.sh
 ```
 
-### Run Tests
+### Run
 ```bash
 # All unit tests
 bazel test //:typesense-test --cache_test_results=no --test_output=all --test_timeout=900
@@ -142,7 +142,7 @@ mv typesense-server ./binaries/typesense-server-v$REMOTE_VERSION
 rm typesense-server-$REMOTE_VERSION-linux-amd64.tar.gz typesense-server.md5.txt
 ```
 
-### Run Benchmarks
+### Run
 ```bash
 cd benchmark
 

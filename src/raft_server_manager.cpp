@@ -59,12 +59,12 @@ int RaftServerManager::start_raft_server(ReplicationState& replication_state, St
 
     if (braft::add_service(&raft_server, peering_endpoint) != 0) {
         LOG(ERROR) << "Failed to add peering service";
-        exit(-1);
+        return -1;  // Return error instead of exit
     }
 
     if (raft_server.Start(peering_endpoint, nullptr) != 0) {
         LOG(ERROR) << "Failed to start peering service";
-        exit(-1);
+        return -1;  // Return error instead of exit
     }
 
     size_t election_timeout_ms = 5000;
@@ -72,7 +72,10 @@ int RaftServerManager::start_raft_server(ReplicationState& replication_state, St
     if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, state_dir,
                                 nodes_config_op.get(), quit_raft_service) != 0) {
         LOG(ERROR) << "Failed to start peering state";
-        exit(-1);
+        // Clean up the server before returning
+        raft_server.Stop(0);
+        raft_server.Join();
+        return -1;  // Return error instead of exit
     }
 
     LOG(INFO) << "Typesense peering service is running on " << raft_server.listen_address();
