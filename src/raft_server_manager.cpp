@@ -4,7 +4,6 @@
 #include "logger.h"
 #include "config.h"
 #include "string_utils.h"
-
 #include <braft/raft.h>
 #include <brpc/server.h>
 #include <unistd.h>
