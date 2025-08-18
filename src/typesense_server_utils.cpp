@@ -9,7 +9,6 @@
 #include <fstream>
 #include <execinfo.h>
 #include <http_client.h>
-
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <ifaddrs.h>
@@ -18,7 +17,6 @@
 #include "analytics_manager.h"
 #include "housekeeper.h"
 #include "raft_server_manager.h"
-
 #include "core_api.h"
 #include "ratelimit_manager.h"
 #include "embedder_manager.h"
