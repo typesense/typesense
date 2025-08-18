@@ -1,5 +1,5 @@
 #include "raft_server_manager.h"
-#include "replication_state.h"
+#include "raft_server.h"
 #include "store.h"
 #include "logger.h"
 #include "config.h"
