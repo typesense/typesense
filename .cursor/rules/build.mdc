@@ -39,11 +39,9 @@ bazel build //:typesense-server
 
 ### Run
 ```bash
-# All unit tests
+# All unit tests - 900 sec timeout
 bazel test //:typesense-test --cache_test_results=no --test_output=all --test_timeout=900
-
-# Specific test filter
-bazel test //:typesense-test --cache_test_results=no --test_output=all --test_timeout=30 --test_filter="*RaftServer*"
+# --test_filter arg to run subset (use 300 sec timeout)
 ```
 
 ### Troubleshooting
