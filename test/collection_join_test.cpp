@@ -9377,7 +9377,8 @@ TEST_F(CollectionJoinTest, InitializeRefIncludeExcludeFields) {
                                                                     exclude_fields_vec,
                                                                     ref_include_exclude_fields_vec);
     ASSERT_FALSE(initialize_op.ok());
-    ASSERT_EQ(initialize_op.error(), "Error parsing ` strategy: nest, sort_by:title, limit:1`");
+    ASSERT_EQ(initialize_op.error(), "Error parsing `$product_variants(title, $inventory(qty, strategy:merge, sort_by:qty:desc, limit:2) "
+                                     "as inventory, strategy: nest, sort_by:title, limit:1) as variants`: sort_by:title");
 }
 
 TEST_F(CollectionJoinTest, NegateLeftJoinOneToOne) {

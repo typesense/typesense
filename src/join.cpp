@@ -982,32 +982,49 @@ Option<bool> parse_ref_include_parameters(const std::string& include_field_exp, 
                                           ref_include::strategy_enum& strategy_enum, std::string& related_docs_field,
                                           std::string& sort_by_str, size_t& limit) {
 
-    std::map<std::string, std::string> parameters_map;
-    auto splited = StringUtils::split_ref_include_params(parameters, parameters_map);
-    if(!splited) {
-        return Option<bool>(400, "Error parsing `" + parameters + "`");
-    }
+    std::vector<std::string> tokens, kv_tokens;
+    StringUtils::split(parameters, tokens, ",");
 
-    for (const auto &kv: parameters_map) {
-        auto const& key = kv.first;
-        auto const& val = kv.second;
+    for(const auto& tok : tokens) {
+        kv_tokens.clear();
+        StringUtils::split(tok, kv_tokens, ":");
 
-        if (key == ref_include::strategy_key) {
-            auto const& include_strategy = val;
+        if (kv_tokens.size() < 2) {
+            return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + tok);
+        }
+
+        if (kv_tokens[0] == ref_include::strategy_key) {
+            auto const& include_strategy = kv_tokens[1];
 
             auto string_to_enum_op = ref_include::string_to_enum(include_strategy);
             if (!string_to_enum_op.ok()) {
                 return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + string_to_enum_op.error());
             }
             strategy_enum = string_to_enum_op.get();
-        } else if (key == ref_include::related_docs_count) {
-            related_docs_field = val;
-        } else if (key == ref_include::limit) {
-            limit = std::stoul(val);
-        } else if (key == ref_include::sort_by) {
+        } else if (kv_tokens[0] == ref_include::related_docs_count) {
+            related_docs_field = kv_tokens[1];
+        } else if(kv_tokens[0] == ref_include::limit) {
+            limit = std::stoul(kv_tokens[1]);
+        } else if(kv_tokens[0] == ref_include::sort_by) {
+            if(kv_tokens.size() < 3) { //sort_by will have atleast 3 parts
+                return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + tok);
+            }
+
+            std::string val = kv_tokens[1];
+            for(auto i = 2; i < kv_tokens.size(); ++i) { //add and merge rest of parts
+                val += std::string(":") + kv_tokens[i];
+            }
+
             sort_by_str = val;
         } else {
-            return Option<bool>(400, "Unknown reference `include_fields` parameter: `" + key + "`.");
+            //if none of above then most likely a sort_by field
+            //if not valid sort_by field then it will be validated and discarded later
+            if(!sort_by_str.empty()) {
+                auto str = kv_tokens[0] + ":" + kv_tokens[1];
+                sort_by_str += (std::string(", ") + str);
+            } else {
+                return Option<bool>(400, "Unknown reference `include_fields` parameter: `" + kv_tokens[0] + "`.");
+            }
         }
     }
 
