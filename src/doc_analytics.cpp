@@ -159,8 +159,8 @@ Option<nlohmann::json> DocAnalytics::create_rule(nlohmann::json& payload, bool u
         }
         if (
             payload["params"].contains("destination_collection") &&
-            !payload["params"]["destination_collection"].is_string() &&
-            payload["params"]["destination_collection"].get<std::string>().empty()
+            (!payload["params"]["destination_collection"].is_string() ||
+            payload["params"]["destination_collection"].get<std::string>().empty())
           ) {
             return Option<nlohmann::json>(400, "Destination collection should be a string");
         }

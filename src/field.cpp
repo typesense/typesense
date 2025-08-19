@@ -106,6 +106,10 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                                  "`name`, `type`, `optional` and `facet` properties.");
     }
 
+    if(field_json.at(fields::name).get<std::string>().empty()) {
+        return Option<bool>(400, "Field name cannot be empty.");
+    }
+
     if(!field_json.at("store").is_boolean()) {
         return Option<bool>(400, std::string("The `store` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));

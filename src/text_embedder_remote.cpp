@@ -113,7 +113,7 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(model_name);
     req_body["model"] = model_name_without_namespace;
 
-    if(has_custom_dims) {
+    if(has_custom_dims && model_name != "openai/text-embedding-ada-002") {
         req_body["dimensions"] = num_dims;
     }
 
@@ -173,7 +173,7 @@ embedding_res_t OpenAIEmbedder::embed_query(const std::string url, const std::st
     std::string res;
     nlohmann::json req_body;
     req_body["input"] = std::vector<std::string>{text};
-    if(has_custom_dims) {
+    if(has_custom_dims && model_name != "openai/text-embedding-ada-002") {
         req_body["dimensions"] = num_dims;
     }
     // remove "openai/" prefix
@@ -224,7 +224,7 @@ std::vector<embedding_res_t> OpenAIEmbedder::embed_documents(const std::string u
     nlohmann::json req_body;
     std::unordered_map<std::string, std::string> headers;
     req_body["input"] = inputs;
-    if(has_custom_dims) {
+    if(has_custom_dims && model_name != "openai/text-embedding-ada-002") {
         req_body["dimensions"] = num_dims;
     }
     if(embedder_type == OpenAIEmbedderType::OPENAI) {

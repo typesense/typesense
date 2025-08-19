@@ -1214,6 +1214,8 @@ public:
                                      bool is_group_by_first_pass,
                                      std::set<uint32_t>& group_by_missing_value_ids,
                                      Collection const *const collection) const;
+
+    Option<bool> process_ref_include_fields_sort(std::vector<sort_by>& sort_fields_std, size_t limit, std::vector<uint32_t>& doc_ids);
 };
 
 template<class T>

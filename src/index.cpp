@@ -2922,7 +2922,7 @@ bool Index::static_filter_query_eval(const override_t* override,
         if (filter_op.ok()) {
             if (filter_tree_root == nullptr) {
                 filter_tree_root.reset(new_filter_tree_root);
-            } else {
+            } else if(!override->filter_by.empty()) {
                 auto root = new filter_node_t(AND, filter_tree_root.release(), new_filter_tree_root);
                 filter_tree_root.reset(root);
             }
@@ -3107,6 +3107,8 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
 
             std::vector<std::string> rule_parts;
             std::vector<std::string> processed_tokens;
+            bool match_found = false;
+
             if(override->rule.dynamic_query) {
                 StringUtils::split(override->rule.normalized_query, rule_parts, " ");
                 processed_tokens = query_tokens;
@@ -3115,12 +3117,19 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
 
                 // tokenize filter_by string from search query
                 tokenize_filter_str(filter_tree_root->filter_query, processed_tokens);
+
+                if(rule_parts.size() != processed_tokens.size()) {
+                    //for dynamic filter, we do exact match
+                    //if query and rule tokens count is not matching then not to do processing
+                    continue;
+                }
             }
 
             bool exact_rule_match = override->rule.match == override_t::MATCH_EXACT;
             std::string filter_by_clause = override->filter_by;
 
             std::set<std::string> absorbed_tokens;
+            sort_by_clause = override->sort_by;
             bool resolved_override = resolve_override(rule_parts, exact_rule_match, processed_tokens,
                                                       token_order, absorbed_tokens, filter_by_clause,
                                                       sort_by_clause,
@@ -3160,6 +3169,8 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                 if (override->stop_processing) {
                     return;
                 }
+
+                match_found = true;
             } else {
                 //reset the curated sort if override is not matched
                 sort_by_clause.clear();
@@ -3987,6 +3998,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             size_t truncated_len = orig_tokens_size - num_tokens_dropped - 1;
                             for (size_t i = 0; i < orig_tokens_size; i++) {
                                 if(i < truncated_len) {
+                                    if (do_stemming) {
+                                        auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
+                                        orig_tokens[i].value = stemmer->stem(orig_tokens[i].value);
+                                    }
                                     truncated_tokens.emplace_back(orig_tokens[i]);
                                 } else {
                                     dropped_tokens.emplace_back(orig_tokens[i]);
@@ -3998,6 +4013,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             size_t start_index = (num_tokens_dropped + 1);
                             for(size_t i = 0; i < orig_tokens_size; i++) {
                                 if(i >= start_index) {
+                                    if (do_stemming) {
+                                        auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
+                                        orig_tokens[i].value = stemmer->stem(orig_tokens[i].value);
+                                    }
                                     truncated_tokens.emplace_back(orig_tokens[i]);
                                 } else {
                                     dropped_tokens.emplace_back(orig_tokens[i]);
@@ -8967,6 +8986,46 @@ void Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV
             result_kvs.push_back({kv});
         }
     }
+}
+
+Option<bool> Index::process_ref_include_fields_sort(std::vector<sort_by>& sort_fields_std, size_t limit, std::vector<uint32_t>& doc_ids) {
+
+    int sort_order[3];  // 1 or -1 based on DESC or ASC respectively
+    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values;
+    std::vector<size_t> geopoint_indices;
+    auto populate_op = populate_sort_mapping_with_lock(sort_order, geopoint_indices, sort_fields_std, field_values, true);
+    if (!populate_op.ok()) {
+        return populate_op;
+    }
+
+    std::vector<uint32_t> eval_filter_indexes;
+    std::map<basic_string<char>, reference_filter_result_t> references;
+    Topster<KV> topster(limit);
+
+    for(const auto& seq_id : doc_ids) {
+        int64_t scores[3] = {0};
+        int64_t match_score_index = -1;
+
+        auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
+                                                          geopoint_indices, seq_id, references, eval_filter_indexes,
+                                                          0, scores, match_score_index, 0);
+        if (!compute_sort_scores_op.ok()) {
+            return compute_sort_scores_op;
+        }
+
+        KV kv(0, seq_id, seq_id, match_score_index, scores, std::move(references));
+        topster.add(&kv);
+    }
+
+    topster.sort();
+
+    doc_ids.clear();
+    for(uint32_t t = 0; t < topster.size; t++) {
+        KV* kv = topster.getKV(t);
+        doc_ids.push_back(kv->key);
+    }
+
+    return Option<bool>(true);
 }
 
 GeoPolygonIndex* Index::get_geopolygon_index(const std::string &field_name) const {
