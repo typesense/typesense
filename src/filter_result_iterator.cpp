@@ -531,7 +531,7 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
     // Since we do OR between filter values, the lowest seq_id id from all is selected.
     uint32_t lowest_id = UINT32_MAX;
 
-    if (filter_node->filter_exp.comparators[0] == EQUALS || filter_node->filter_exp.comparators[0] == NOT_EQUALS || filter_node->filter_exp.comparators[0] == CONTAINS_PHRASE) {
+    if (filter_node && !filter_node->filter_exp.comparators.empty() && (filter_node->filter_exp.comparators[0] == EQUALS || filter_node->filter_exp.comparators[0] == NOT_EQUALS || filter_node->filter_exp.comparators[0] == CONTAINS_PHRASE)) {
         bool match_found = false;
         switch (posting_list_iterators.size()) {
             case 1:
