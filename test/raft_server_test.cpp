@@ -1116,8 +1116,8 @@ TEST_F(RaftServerTest, RefreshNodesMultiNode) {
 
 namespace {
     bool matches_either_ip_version(const std::string& result,
-                                 const std::string& ipv4_version,
-                                 const std::string& ipv6_version) {
+                                   const std::string& ipv4_version,
+                                   const std::string& ipv6_version) {
         return result == ipv4_version || result == ipv6_version;
     }
 
