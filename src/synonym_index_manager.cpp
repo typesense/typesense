@@ -63,6 +63,9 @@ Option<bool> SynonymIndexManager::remove_synonym_index(const std::string& index_
 
 nlohmann::json build_synonym_with_id(const nlohmann::json& syn, const std::string& set_name, uint32_t index) {
     nlohmann::json syn_json = syn;
+    if(syn_json.contains("id")) {
+        return syn_json;
+    }
     syn_json["id"] = set_name + std::string("-") + std::to_string(index);
     return syn_json;
 }
