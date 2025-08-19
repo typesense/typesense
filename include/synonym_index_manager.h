@@ -25,6 +25,8 @@ class SynonymIndexManager {
         Option<SynonymIndex*> get_synonym_index(const std::string& index_name);
 
         Option<bool> remove_synonym_index(const std::string& index_name);
+        // Delete existing set and upsert all synonyms in one go, assigning ids as <set-name>-<index>
+        Option<SynonymIndex*> upsert_synonym_set(const std::string& index_name, const nlohmann::json& synonyms_array);
 
         static Option<bool> validate_synonym_index(const nlohmann::json& paylaod);
 

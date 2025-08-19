@@ -43,11 +43,6 @@ void master_server_routes() {
     server->put("/collections/:collection/overrides/:id", put_override);
     server->del("/collections/:collection/overrides/:id", del_override);
 
-    server->get("/collections/:collection/synonyms", get_synonyms);
-    server->get("/collections/:collection/synonyms/:id", get_synonym);
-    server->put("/collections/:collection/synonyms/:id", put_synonym);
-    server->del("/collections/:collection/synonyms/:id", del_synonym);
-
     // collection management
     server->post("/collections", post_create_collection);
     server->patch("/collections/:collection", patch_update_collection);

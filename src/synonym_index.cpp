@@ -208,10 +208,6 @@ std::string SynonymIndex::get_synonym_key(const std::string & index_name, const 
 }
 
 Option<bool> synonym_t::parse(const nlohmann::json& synonym_json, synonym_t& syn) {
-    if(synonym_json.count("id") == 0) {
-        return Option<bool>(400, "Missing `id` field.");
-    }
-
     if(synonym_json.count("synonyms") == 0) {
         return Option<bool>(400, "Could not find an array of `synonyms`");
     }
@@ -294,7 +290,12 @@ Option<bool> synonym_t::parse(const nlohmann::json& synonym_json, synonym_t& syn
         syn.synonyms.push_back(tokens);
     }
 
-    syn.id = synonym_json["id"];
+    if(synonym_json.count("id") == 0) {
+        syn.id = "";
+    } else {
+        syn.id = synonym_json["id"];
+    }
+
     return Option<bool>(true);
 }
 

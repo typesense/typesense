@@ -95,16 +95,6 @@ bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
 
 bool del_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-// Synonyms
-
-bool get_synonyms(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
-bool get_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
-bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
-bool del_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
 // Keys
 
 bool get_keys(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

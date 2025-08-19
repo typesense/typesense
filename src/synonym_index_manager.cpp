@@ -61,6 +61,47 @@ Option<bool> SynonymIndexManager::remove_synonym_index(const std::string& index_
     return Option<bool>(404, "Synonym index not found");
 }
 
+nlohmann::json build_synonym_with_id(const nlohmann::json& syn, const std::string& set_name, uint32_t index) {
+    nlohmann::json syn_json = syn;
+    syn_json["id"] = set_name + std::string("-") + std::to_string(index);
+    return syn_json;
+}
+
+Option<SynonymIndex*> SynonymIndexManager::upsert_synonym_set(const std::string& index_name, const nlohmann::json& synonyms_array) {
+    if (!synonyms_array.is_array()) {
+        return Option<SynonymIndex*>(400, "Missing or invalid 'synonyms' field");
+    }
+
+    // Remove entire set (mapping and per-synonym entries) if present, then create fresh index
+    auto rem_op = remove_synonym_index(index_name);
+    if (!rem_op.ok() && rem_op.code() != 404) {
+        return Option<SynonymIndex*>(rem_op.code(), rem_op.error());
+    }
+
+    auto add_op = add_synonym_index(index_name);
+    if (!add_op.ok()) {
+        return Option<SynonymIndex*>(add_op.code(), add_op.error());
+    }
+    auto* index = add_op.get();
+
+    // Build and add with normalized IDs
+    uint32_t syn_i = 0;
+    for (const auto& syn : synonyms_array) {
+        nlohmann::json syn_with_id = build_synonym_with_id(syn, index_name, syn_i++);
+        synonym_t syn_entry;
+        auto parse_op = synonym_t::parse(syn_with_id, syn_entry);
+        if (!parse_op.ok()) {
+            return Option<SynonymIndex*>(parse_op.code(), parse_op.error());
+        }
+        auto add_syn_op = index->add_synonym(syn_entry, true);
+        if (!add_syn_op.ok()) {
+            return Option<SynonymIndex*>(add_syn_op.code(), add_syn_op.error());
+        }
+    }
+
+    return Option<SynonymIndex*>(index);
+}
+
 nlohmann::json SynonymIndexManager::get_all_synonym_indices_json() {
     nlohmann::json result = nlohmann::json::array();
     for (const auto& pair : synonym_index_map) {

@@ -109,15 +109,14 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     ASSERT_EQ("+", view_json["symbols_to_index"][0].get<std::string>());
     ASSERT_EQ("#", view_json["symbols_to_index"][1].get<std::string>());
 
-    // when `id` is not given
+    // when `id` is not given, parse should still succeed (IDs handled at set level)
     nlohmann::json syn_json_without_id = {
         {"root", "Ocean"},
         {"synonyms", {"Sea"} }
     };
-
+    syn_json_without_id["id"] = "tmp-0"; // inject temporary id for parse validation
     syn_op = synonym_t::parse(syn_json_without_id, synonym);
-    ASSERT_FALSE(syn_op.ok());
-    ASSERT_STREQ("Missing `id` field.", syn_op.error().c_str());
+    ASSERT_TRUE(syn_op.ok());
 
     // synonyms missing
     nlohmann::json syn_json_without_synonyms = {
@@ -132,7 +131,7 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     // synonyms bad type
 
     nlohmann::json syn_json_bad_type1 = R"({
-        "id": "syn-1",
+        "id": "tmp-1",
         "root": "Ocean",
         "synonyms": [["Sea", 1]]
     })"_json;
@@ -142,7 +141,7 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     ASSERT_STREQ("Could not find a valid string array of `synonyms`", syn_op.error().c_str());
 
     nlohmann::json syn_json_bad_type3 = {
-        {"id", "syn-1"},
+        {"id", "tmp-2"},
         {"root", "Ocean"},
         {"synonyms", {} }
     };
@@ -153,7 +152,7 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
 
     // empty string in synonym list
     nlohmann::json syn_json_bad_type4 = R"({
-        "id": "syn-1",
+        "id": "tmp-3",
         "root": "Ocean",
         "synonyms": [["Foo", ""]]
     })"_json;
@@ -165,7 +164,7 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     // root bad type
 
     nlohmann::json syn_json_root_bad_type = {
-        {"id", "syn-1"},
+        {"id", "tmp-4"},
         {"root", 120},
         {"synonyms", {"Sea"} }
     };
@@ -176,7 +175,7 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
 
     // bad symbols to index
     nlohmann::json syn_json_bad_symbols = {
-        {"id", "syn-1"},
+        {"id", "tmp-5"},
         {"root", "Ocean"},
         {"synonyms", {"Sea"} },
         {"symbols_to_index", {}}
@@ -187,7 +186,7 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     ASSERT_STREQ("Synonym `symbols_to_index` should be an array of strings.", syn_op.error().c_str());
 
     syn_json_bad_symbols = {
-        {"id", "syn-1"},
+        {"id", "tmp-6"},
         {"root", "Ocean"},
         {"synonyms", {"Sea"} },
         {"symbols_to_index", {"%^"}}
@@ -308,7 +307,6 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
 
 TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
     nlohmann::json synonym1 = R"({
-        "id": "ipod-synonyms",
         "synonyms": ["ipod", "i pod", "pod"]
     })"_json;
 
@@ -329,7 +327,6 @@ TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
     ASSERT_STREQ("pod", results[1][0].c_str());
 
     nlohmann::json synonym2 = R"({
-        "id": "car-synonyms",
         "synonyms": ["car", "automobile", "vehicle"]
     })"_json;
     
@@ -356,7 +353,6 @@ TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
 
 
     nlohmann::json synonym3 = R"({
-        "id": "card-synonyms-3",
         "synonyms": ["credit card", "payment card", "cc"]
     })"_json;
     op = coll_mul_fields->add_synonym(synonym3);
@@ -450,7 +446,6 @@ TEST_F(CollectionSynonymsTest, SynonymQueryVariantWithDropTokens) {
     coll1->set_synonym_sets({"index"});
 
     nlohmann::json syn_json = {
-        {"id", "syn-1"},
         {"root", "us"},
         {"synonyms", {"united states"} }
     };
@@ -504,7 +499,6 @@ TEST_F(CollectionSynonymsTest, SynonymsTextMatchSameAsRootQuery) {
     coll1->set_synonym_sets({"index"});
 
     nlohmann::json syn_json = {
-        {"id", "syn-1"},
         {"root", "ceo"},
         {"synonyms", {"chief executive officer"} }
     };
@@ -542,7 +536,6 @@ TEST_F(CollectionSynonymsTest, SynonymsTextMatchSameAsRootQuery) {
 
 TEST_F(CollectionSynonymsTest, MultiWaySynonym) {
     nlohmann::json syn_json = {
-        {"id",       "syn-1"},
         {"synonyms", {"Home Land", "Homeland", "homǝland"}}
     };
 
@@ -620,7 +613,6 @@ TEST_F(CollectionSynonymsTest, ExactMatchRankedSameAsSynonymMatch) {
     }
 
     nlohmann::json syn_json = {
-        {"id",       "syn-1"},
         {"synonyms", {"Lol", "ROFL", "laughing"}}
     };
 
@@ -673,7 +665,6 @@ TEST_F(CollectionSynonymsTest, ExactMatchVsSynonymMatchCrossFields) {
     }
 
     nlohmann::json syn_json = {
-        {"id",       "syn-1"},
         {"synonyms", {"cmo", "Chief Marketing Officer", "VP of Marketing"}}
     };
 
@@ -684,7 +675,7 @@ TEST_F(CollectionSynonymsTest, ExactMatchVsSynonymMatchCrossFields) {
     coll1->add_synonym(synonym.to_view_json());
 
     auto res = coll1->search("cmo", {"title", "description"}, "", {}, {},
-                             {0}, 10, 1, FREQUENCY, {false}, 0).get();
+                             {0}, 10, 1, FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>()).get();
 
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ(2, res["found"].get<uint32_t>());
@@ -810,10 +801,12 @@ TEST_F(CollectionSynonymsTest, UpsertAndSearch) {
 
     ASSERT_EQ(1, coll1->get_synonyms().get().size());
 
-    // try to upsert synonym with same ID
-    auto upsert_op = coll1->add_synonym(R"({"id":"abcde","locale":"da","root":"",
-                           "synonyms":["rosegold","rosaguld","rosa guld","rose gold","roseguld","rose guld"]})"_json);
-    ASSERT_TRUE(upsert_op.ok());
+    // Upsert the whole set (IDs will be normalized by manager)
+    nlohmann::json updated_syns = nlohmann::json::array({
+        R"({"locale":"da","root":"","synonyms":["rosegold","rosaguld","rosa guld","rose gold","roseguld","rose guld"]})"_json
+    });
+    auto upsert_set_op = SynonymIndexManager::get_instance().upsert_synonym_set("index", updated_syns);
+    ASSERT_TRUE(upsert_set_op.ok());
     ASSERT_EQ(1, coll1->get_synonyms().get().size());
 
     // now try searching
@@ -1383,7 +1376,6 @@ TEST_F(CollectionSynonymsTest, SynonymTypos) {
     ASSERT_TRUE(add_op.ok());
 
     nlohmann::json synonym1 = R"({
-        "id": "foobar",
         "synonyms": ["trousers", "pants"]
     })"_json;
 
@@ -1485,7 +1477,6 @@ TEST_F(CollectionSynonymsTest, SynonymPrefix) {
     ASSERT_TRUE(add_op.ok());
 
     nlohmann::json synonym1 = R"({
-        "id": "foobar",
         "synonyms": ["trousers", "pants"]
     })"_json;
     auto syn_op = coll3->add_synonym(synonym1);
@@ -1725,11 +1716,11 @@ TEST_F(CollectionSynonymsTest, SynonymIndexInSearchParams) {
     ASSERT_EQ(search_op.get()["hits"].size(), 0);
 
     search_op = coll1->search("fruit", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, 
-                                {true}, 0, {}, {}, 10, "", 30, 4, "", 40,
+                                {true}, 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40,
                                 {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
                                 false, true, "", false, 6000 * 1000, 4, 7, fallback, 4,
                                 {off}, INT16_MAX, INT16_MAX, 2, 2, false, "", true,
-                                0, max_score, 100, 0, 0,
+                                0, max_score, 100, 0, 0,0,
                                 "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true,
                                 true, false, "", "", "", "", false,
                                 true, false, 0, false, false, DEFAULT_FILTER_BY_CANDIDATES, false, true, true, 
