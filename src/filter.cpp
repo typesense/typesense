@@ -703,26 +703,32 @@ Option<bool> toFilter(const std::string& expression,
 
         	filter_exp = {field_name, {}, {}};
 
-			bool has_phrase = false;
-        	for(const auto& val : filter_values) {
-            	if (val.length() > 1 && val.front() == '"' && val.back() == '"') {
-                	has_phrase = true;
-                	break;
+			if (filter_values.empty()) {
+            	if (apply_not_equals) {
+                	filter_exp.is_ignored_filter = true;
             	}
-        	}
-
-			NUM_COMPARATOR default_comparator = has_phrase ? EQUALS : str_comparator;
-
-        	for(const auto& val : filter_values) {
-            	if (val.length() > 1 && val.front() == '"' && val.back() == '"') {
-                	std::string phrase_val = val.substr(1, val.length() - 2);
-                	filter_exp.values.push_back(phrase_val);
-                	filter_exp.comparators.push_back(CONTAINS_PHRASE);
-            	} else {
-                	filter_exp.values.push_back(val);
-                	filter_exp.comparators.push_back(default_comparator);
+        	} else {
+            	bool has_phrase = false;
+            	for(const auto& val : filter_values) {
+                	if (val.length() > 1 && val.front() == '"' && val.back() == '"') {
+                    	has_phrase = true;
+                    	break;
+                	}
             	}
-        	}
+
+            	NUM_COMPARATOR default_comparator = has_phrase ? EQUALS : str_comparator;
+
+            	for(const auto& val : filter_values) {
+                	if (val.length() > 1 && val.front() == '"' && val.back() == '"') {
+                    	std::string phrase_val = val.substr(1, val.length() - 2);
+                    	filter_exp.values.push_back(phrase_val);
+                    	filter_exp.comparators.push_back(CONTAINS_PHRASE);
+                	} else {
+                    	filter_exp.values.push_back(val);
+                    	filter_exp.comparators.push_back(default_comparator);
+                	}
+            	}
+       		}
         } else {
             filter_exp = {field_name, {value_part}, {str_comparator}};
         }
