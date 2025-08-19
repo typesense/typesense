@@ -891,10 +891,6 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
         filter_sort_overrides.push_back(&override);
     }
 
-    if((override.rule.dynamic_filter || override.rule.dynamic_query) && !override.sort_by.empty()) {
-        curated_sort_by = override.sort_by;
-    }
-
     if((wildcard_tag_matched || tags_matched) && override.rule.query.empty() && override.rule.filter_by.empty()) {
         // allowed
     } else {
