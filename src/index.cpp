@@ -2920,7 +2920,7 @@ bool Index::static_filter_query_eval(const override_t* override,
         if (filter_op.ok()) {
             if (filter_tree_root == nullptr) {
                 filter_tree_root.reset(new_filter_tree_root);
-            } else {
+            } else if(!override->filter_by.empty()) {
                 auto root = new filter_node_t(AND, filter_tree_root.release(), new_filter_tree_root);
                 filter_tree_root.reset(root);
             }
