@@ -703,7 +703,11 @@ Option<bool> toFilter(const std::string& expression,
 
         	filter_exp = {field_name, {}, {}};
 
-			if (!filter_values.empty()) {
+			if (filter_values.empty()) {
+            	if (apply_not_equals) {
+                	filter_exp.is_ignored_filter = true;
+            	}
+            } else {
             	bool has_phrase = false;
             	for(const auto& val : filter_values) {
                 	if (val.length() > 1 && val.front() == '"' && val.back() == '"') {
