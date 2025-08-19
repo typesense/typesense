@@ -5138,3 +5138,88 @@ TEST_F(CollectionOverrideTest, CurationWithGroupBy) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionOverrideTest, DynamicFilterMatchingMultipleRules) {
+    nlohmann::json schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "category", "type": "string"},
+            {"name": "region", "type": "string"},
+            {"name": "popularity", "type": "int32", "sort": true}
+     ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    // Add test documents
+    nlohmann::json doc1 = R"({"id":"1","title":"USB-C Charger","category":"Electronics","region":"act","popularity":50})"_json;
+    nlohmann::json doc2 = R"({"id":"2","title":"Office Stapler","category":"Office","region":"act","popularity":30})"_json;
+    nlohmann::json doc3 = R"({"id":"3","title":"Notebook","category":"Office","region":"nsw","popularity":70})"_json;
+    nlohmann::json doc4 = R"( {"id":"4","title":"Bluetooth Speaker","category":"Electronics","region":"act","popularity":90})"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+
+    //without any override
+    auto results = coll1->search("*", {}, "region:=act`", {}, {}, {0}).get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ("4", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+
+    //now add overrides
+    nlohmann::json override_json = R"({
+       "id": "001-electronics",
+       "rule": { "filter_by": "region:={region} && category:=`Electronics`" },
+       "includes": [{"id": "1", "position": 1}],
+       "sort_by": "popularity:desc",
+       "stop_processing": true
+    })"_json;
+
+    override_t override_rule, override_rule2;
+    auto parse_op = override_t::parse(override_json, "001-electronics", override_rule);
+    ASSERT_TRUE(parse_op.ok());
+    coll1->add_override(override_rule);
+
+    nlohmann::json override_json2 = R"({
+       "id": "002-electronics-or-office",
+       "rule": { "filter_by": "region:={region} && (category:=`Electronics` || category:= `Office`) " },
+       "includes": [{"id": "2", "position": 1}],
+       "sort_by": "popularity:desc",
+       "stop_processing": true
+    })"_json;
+
+    parse_op = override_t::parse(override_json2, "002-electronics-or-office", override_rule2);
+    ASSERT_TRUE(parse_op.ok());
+    coll1->add_override(override_rule2);
+
+    // should match with override2 only even though override1 can be matched with filter_query
+    results = coll1->search("*", {}, "region:=act && (category:=`Electronics` || category:=`Office`) ", {}, {}, {0}).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ(true, results["hits"][0]["curated"].get<bool>());
+
+    //this should match with override1 only
+    results = coll1->search("*", {}, "region:=act && category:=`Electronics`", {}, {}, {0}).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(true, results["hits"][0]["curated"].get<bool>());
+
+    //should not match any override even though subset of both overrides
+    results = coll1->search("*", {}, "region:=act`", {}, {}, {0}).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ("4", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+}
