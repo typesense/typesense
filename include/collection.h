@@ -1031,6 +1031,8 @@ public:
 
     Option<bool> process_facet_return_parent(std::vector<std::string>& facet_return_parent) const;
 
+    Option<bool> process_ref_include_fields_sort(const std::string& sort_by_str, size_t limit, std::vector<uint32_t>& doc_ids);
+
     // Override operations
 
     Option<uint32_t> add_override(const override_t & override, bool write_to_store = true);
