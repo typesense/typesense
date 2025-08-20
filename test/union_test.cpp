@@ -1302,3 +1302,56 @@ TEST_F(UnionTest, HybridSearchHasVectorDistance) {
     ASSERT_TRUE(json_res["hits"][0].contains("vector_distance"));
     ASSERT_TRUE(json_res["hits"][1].contains("vector_distance"));
 }
+
+TEST_F(UnionTest, RemoveDuplicatesWithUnion) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    nlohmann::json doc = R"({"name": "anti dandruff shampoo" })"_json;
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    doc = R"({"name": "sliky hair shampoo" })"_json;
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    req_params = {{"remove_duplicates", "true"}};
+    auto embedded_params = std::vector<nlohmann::json>(4, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "coll1",
+                        "q": "shampoo",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "dandruff",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "silky",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "hair",
+                        "query_by": "name"
+                    }
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts, true);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(5, json_res["found"].get<size_t>());
+    ASSERT_EQ(2, json_res["hits"].size());
+    ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", json_res["hits"][1]["document"]["id"]);
+}

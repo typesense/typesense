@@ -2996,3 +2996,67 @@ TEST_F(CoreAPIUtilsTest, CurlVersionSupportsOnlyHTTP1) {
     ASSERT_FALSE(HttpServer::curl_only_http1(R"(curl/7.81.0 (x86_64-pc-linux-gnu)"));
     ASSERT_FALSE(HttpServer::curl_only_http1(R"(curl/100.81.28 (x86_64-pc-linux-gnu)"));
 }
+
+TEST_F(CoreAPIUtilsTest, UnionRemoveDuplicates) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    nlohmann::json doc = R"({"name": "anti dandruff shampoo" })"_json;
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    doc = R"({"name": "sliky hair shampoo" })"_json;
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json  searches = R"([
+                    {
+                        "collection": "coll1",
+                        "q": "shampoo",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "dandruff",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "silky",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "hair",
+                        "query_by": "name"
+                    }
+                ])"_json;
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json body;
+
+    body["union"] = true;
+    body["remove_duplicates"] = true;
+    body["searches"] = searches;
+
+    req->body = body.dump();
+    nlohmann::json embedded_params;
+    req->embedded_params_vec = std::vector<nlohmann::json>(4, embedded_params);
+
+    post_multi_search(req, res);
+    nlohmann::json response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(5, response["found"]);
+    ASSERT_EQ(2, response["hits"].size());
+    ASSERT_EQ("1", response["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", response["hits"][1]["document"]["id"]);
+}

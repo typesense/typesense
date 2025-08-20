@@ -1510,7 +1510,7 @@ void remove_global_params(std::map<std::string, std::string>& req_params) {
 
 Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req_params,
                                          std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
-                                         nlohmann::json& response, uint64_t start_ts) {
+                                         nlohmann::json& response, uint64_t start_ts, bool remove_duplicates) {
     union_global_params_t union_params(req_params);
     if (!union_params.init_op.ok()) {
         const auto& op = union_params.init_op;
@@ -1591,7 +1591,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
 
     std::vector<long> searchTimeMillis;
 
-    auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, union_params, response);
+    auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, union_params, response, remove_duplicates);
 
     for (const auto& time: searchTimeMillis) {
         update_app_metrics(time);
