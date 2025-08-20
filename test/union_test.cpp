@@ -1350,7 +1350,7 @@ TEST_F(UnionTest, RemoveDuplicatesWithUnion) {
 
     auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts, true);
     ASSERT_TRUE(search_op.ok());
-    ASSERT_EQ(5, json_res["found"].get<size_t>());
+    ASSERT_EQ(2, json_res["found"].get<size_t>());
     ASSERT_EQ(2, json_res["hits"].size());
     ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]);
     ASSERT_EQ("0", json_res["hits"][1]["document"]["id"]);

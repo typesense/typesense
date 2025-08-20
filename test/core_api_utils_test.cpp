@@ -3055,7 +3055,7 @@ TEST_F(CoreAPIUtilsTest, UnionRemoveDuplicates) {
 
     post_multi_search(req, res);
     nlohmann::json response = nlohmann::json::parse(res->body);
-    ASSERT_EQ(5, response["found"]);
+    ASSERT_EQ(2, response["found"]);
     ASSERT_EQ(2, response["hits"].size());
     ASSERT_EQ("1", response["hits"][0]["document"]["id"]);
     ASSERT_EQ("0", response["hits"][1]["document"]["id"]);

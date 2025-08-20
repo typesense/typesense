@@ -3801,13 +3801,19 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
         for (auto& kvs: search_param->raw_result_kvs) {
             Union_KV kv(*kvs[0], search_index, collection_ids[search_index], remove_duplicates);
-            union_topster->add(&kv);
+            auto ret = union_topster->add(&kv);
+            if(remove_duplicates && ret == 0) { //duplicate doc
+                total--;
+            }
         }
 
         //populate overrides
         for(auto& kvs : search_param->override_result_kvs) {
             Union_KV kv(*kvs[0], search_index, collection_ids[search_index], remove_duplicates);
-            overrides_topster->add(&kv);
+            auto ret = overrides_topster->add(&kv);
+            if(remove_duplicates && ret == 0) { //duplicate doc
+                total--;
+            }
         }
     }
 
