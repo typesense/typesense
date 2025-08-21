@@ -3207,7 +3207,7 @@ bool post_conversation_model(const std::shared_ptr<http_req>& req, const std::sh
 
     Collection::hide_credential(model_json, "api_key");
 
-    res->set_200(model_json.dump());
+    res->set_201(model_json.dump());
     return true;
 }
 
