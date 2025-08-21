@@ -3598,7 +3598,7 @@ Option<bool> Collection::run_search_with_lock(search_args* search_params) const 
 
 Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                   std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,
-                                  const union_global_params_t& union_params, nlohmann::json& result) {
+                                  const union_global_params_t& union_params, nlohmann::json& result, bool remove_duplicates) {
     if (searches.size() != collection_ids.size()) {
         return Option<bool>(400, "Expected `collection_ids` and `searches` size to be equal.");
     }
@@ -3790,25 +3790,29 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     std::vector<std::vector<Union_KV*>> override_result_kvs;
 
     auto union_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
-                                                        Union_KV::is_greater, Union_KV::is_smaller>>(
-                                                            std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
+            Union_KV::is_greater, Union_KV::is_smaller>>(std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
     auto overrides_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
-            Union_KV::is_greater, Union_KV::is_smaller>>(
-            std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
+            Union_KV::is_greater, Union_KV::is_smaller>>(std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto& search_param = search_params_guards[search_index];
 
         for (auto& kvs: search_param->raw_result_kvs) {
-            Union_KV kv(*kvs[0], search_index);
-            union_topster->add(&kv);
+            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], remove_duplicates);
+            auto ret = union_topster->add(&kv);
+            if(remove_duplicates && ret == 0) { //duplicate doc
+                total--;
+            }
         }
 
         //populate overrides
         for(auto& kvs : search_param->override_result_kvs) {
-            Union_KV kv(*kvs[0], search_index);
-            overrides_topster->add(&kv);
+            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], remove_duplicates);
+            auto ret = overrides_topster->add(&kv);
+            if(remove_duplicates && ret == 0) { //duplicate doc
+                total--;
+            }
         }
     }
 
