@@ -6,7 +6,8 @@ import { join } from "path";
 
 describe(Phases.NO_PHASE, () => {
   it("validate analytics rules", async () => {
-    const manager = new TypesenseProcessManager(join(process.cwd(), "./artifacts/v29-snapshot"));
+    let manager: TypesenseProcessManager;
+    manager = new TypesenseProcessManager(join(process.cwd(), "./artifacts/v29-snapshot"));
     try {
       await manager.startSingleNode("", 8109, 8106, "v29-snapshot-server");
       const res = await fetchSingleNode("/analytics/rules", { method: "GET" }, 8109);
@@ -153,6 +154,7 @@ describe(Phases.NO_PHASE, () => {
           type: "nohits_queries",
         }
       ];
+
       for (const rule of expected_rules) {
         expect(data.find((r: any) => r.name === rule.name)).toBeDefined();
         expect(data.find((r: any) => r.name === rule.name).params).toEqual(rule.params);
@@ -164,5 +166,21 @@ describe(Phases.NO_PHASE, () => {
     } finally {
       await manager.shutdown();
     }
+  });
+
+  it("validate synonyms", async () => {
+    let manager: TypesenseProcessManager;
+    manager = new TypesenseProcessManager(join(process.cwd(), "./artifacts/v29-snapshot"));
+    await manager.startSingleNode("", 8109, 8106, "v29-snapshot-server");
+    const res = await fetchSingleNode("/synonym_sets", { method: "GET" }, 8109);
+    const data: any = await res.json();
+    expect(data.length).toEqual(1);
+    expect(data[0].name).toEqual("products_synonyms_index");
+    expect(data[0].items[0].id).toEqual("coat-synonyms");
+    expect(data[0].items[0].synonyms).toEqual(["blazer", "coat", "jacket"]);
+    expect(data[0].items[1].id).toEqual("smart-phone-synonyms");
+    expect(data[0].items[1].synonyms).toEqual(["iphone", "android"]);
+    expect(data[0].items[1].root).toEqual("smart phone");
+    await manager.shutdown();
   });
 });

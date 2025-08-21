@@ -2101,20 +2101,9 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
 }
 
 TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
-    Collection *coll3;
-
-    std::vector<field> fields = {field("title", field_types::STRING, false),
-                                 field("points", field_types::INT32, false)};
-
-    coll3 = collectionManager.get_collection("coll3").get();
-    if (coll3 == nullptr) {
-        coll3 = collectionManager.create_collection("coll3", 1, fields, "points").get();
-    }
-
     SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
     synonym_index_manager.init_store(store);
     synonym_index_manager.add_synonym_index("test");
-    coll3->set_synonym_sets({"test"});
 
     for (int i = 0; i < 5; ++i) {
         nlohmann::json synonym_json = R"(
@@ -2125,26 +2114,25 @@ TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
 
         synonym_json["id"] = synonym_json["id"].get<std::string>() + std::to_string(i + 1);
 
-        coll3->add_synonym(synonym_json);
+        synonym_index_manager.upsert_synonym_item("test", synonym_json);
     }
 
     auto req = std::make_shared<http_req>();
     auto resp = std::make_shared<http_res>(nullptr);
 
-    req->params["collection"] = "coll3";
+    req->params["name"] = "test";
     req->params["offset"] = "0";
     req->params["limit"] = "1";
 
-    get_synonyms(req, resp);
+    get_synonym_set_items(req, resp);
 
-    nlohmann::json expected_json = R"({
-        "synonyms":[
+    nlohmann::json expected_json = R"([
                     {
                         "id":"foobar1",
                         "root":"",
                         "synonyms":["blazer","suit"]
-                    }]
-    })"_json;
+                    }
+    ])"_json;
 
     ASSERT_EQ(expected_json.dump(), resp->body);
 

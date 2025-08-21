@@ -30,6 +30,12 @@ class SynonymIndexManager {
 
         nlohmann::json get_all_synonym_indices_json();
 
+        Option<nlohmann::json> upsert_synonym_set(const std::string& name, const nlohmann::json& items_array);
+        Option<nlohmann::json> list_synonym_items(const std::string& name, uint32_t limit, uint32_t offset);
+        Option<nlohmann::json> get_synonym_item(const std::string& name, const std::string& id);
+        Option<bool> upsert_synonym_item(const std::string& name, const nlohmann::json& syn_json);
+        Option<bool> delete_synonym_item(const std::string& name, const std::string& id);
+
         static std::string get_synonym_index_key(const std::string& index_name) {
             return SYNONYM_INDEX_KEY + std::string("_") + index_name;
         }

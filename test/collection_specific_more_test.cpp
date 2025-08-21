@@ -3134,12 +3134,12 @@ TEST_F(CollectionSpecificMoreTest, TestStemmingWithSynonym) {
     
     nlohmann::json synonym_json = R"(
         {
-            "id": "",
+            "id": "id-1",
             "synonyms": ["making", "foobar"]
         }
     )"_json;
     LOG(INFO) << "Adding synonym...";
-    auto synonym_op = coll_stem->add_synonym(synonym_json);
+    auto synonym_op = manager.upsert_synonym_item("index", synonym_json);
     LOG(INFO) << "Synonym added...";
     ASSERT_TRUE(synonym_op.ok());
 

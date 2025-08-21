@@ -516,10 +516,10 @@ bool synonym_node_t::cleanup(synonym_node_t* node, synonym_node_t* parent) {
 
 nlohmann::json SynonymIndex::to_view_json() const {
     nlohmann::json obj;
-    obj["synonyms"] = nlohmann::json::array();
+    obj["items"] = nlohmann::json::array();
     for (const auto& [index, synonym] : synonym_definitions) {
-        obj["synonyms"].push_back(synonym.to_view_json());
+        obj["items"].push_back(synonym.to_view_json());
     }
-
+    obj["name"] = name;
     return obj;
 }

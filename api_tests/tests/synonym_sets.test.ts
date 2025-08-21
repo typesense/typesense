@@ -11,16 +11,14 @@ const SynonymObject = z.object({
   symbols_to_index: z.array(z.string()).optional(),
 });
 
+const SynonymSetListItemResponse = z.array(SynonymObject);
+
 const SynonymSetResponse = z.object({
-  synonyms: z.array(SynonymObject),
-});
-
-const SynonymSetListEntry = z.object({
   name: z.string(),
-  synonyms: z.array(SynonymObject),
+  items: z.array(SynonymObject),
 });
 
-const SynonymSetListResponse = z.array(SynonymSetListEntry);
+const SynonymSetListResponse = z.array(SynonymSetResponse);
 
 const SynonymSetDeleteResponse = z.object({
   name: z.string(),
@@ -78,13 +76,13 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(res.ok).toBe(true);
     res = await fetchSingleNode("/synonym_sets/products-core", {
       method: "PUT",
-      body: JSON.stringify({ synonyms: initialSynonyms }),
+      body: JSON.stringify({ items: initialSynonyms }),
     });
     expect(res.ok).toBe(true);
     const syn = SynonymSetResponse.safeParse(await res.json());
     expect(syn.success).toBe(true);
-    expect(syn.data?.synonyms.length).toBe(3);
-    const ids = syn.data?.synonyms.map((s) => s.id);
+    expect(syn.data?.items.length).toBe(3);
+    const ids = syn.data?.items.map((s) => s.id);
     expect(ids).toContain("syn-tv");
     expect(ids).toContain("syn-usa");
     expect(ids).toContain("syn-laptop");
@@ -99,12 +97,46 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(setNames).toContain("products-core");
   });
 
+  it("list synonym items in a set", async () => {
+    const res = await fetchSingleNode("/synonym_sets/products-core/items?limit=10&offset=0", { method: "GET" });
+    expect(res.ok).toBe(true);
+    const list = SynonymSetListItemResponse.safeParse(await res.json());
+    expect(list.success).toBe(true);
+    const ids = list.data?.map((s) => s.id);
+    expect(ids).toContain("syn-tv");
+  });
+
+  it("get a synonym item by id", async () => {
+    const res = await fetchSingleNode("/synonym_sets/products-core/items/syn-tv", { method: "GET" });
+    expect(res.ok).toBe(true);
+    const item = SynonymObject.safeParse(await res.json());
+    expect(item.success).toBe(true);
+    expect(item.data?.id).toBe("syn-tv");
+  });
+
+  it("upsert and delete a synonym item", async () => {
+    let res = await fetchSingleNode("/synonym_sets/products-core/items/syn-extra", {
+      method: "PUT",
+      body: JSON.stringify({ root: "extra", synonyms: ["bonus"] }),
+    });
+    expect(res.ok).toBe(true);
+
+    res = await fetchSingleNode("/synonym_sets/products-core/items/syn-extra", { method: "GET" });
+    expect(res.ok).toBe(true);
+    const item = SynonymObject.safeParse(await res.json());
+    expect(item.success).toBe(true);
+    expect(item.data?.id).toBe("syn-extra");
+
+    res = await fetchSingleNode("/synonym_sets/products-core/items/syn-extra", { method: "DELETE" });
+    expect(res.ok).toBe(true);
+  });
+
   it("get a synonym set", async () => {
     const res = await fetchSingleNode("/synonym_sets/products-core", { method: "GET" });
     expect(res.ok).toBe(true);
     const syn = SynonymSetResponse.safeParse(await res.json());
     expect(syn.success).toBe(true);
-    expect(syn.data?.synonyms.length).toBe(3);
+    expect(syn.data?.items.length).toBe(3);
   });
 
   it("create a collection with synonym_sets", async () => {
@@ -146,12 +178,12 @@ describe(Phases.SINGLE_FRESH, () => {
   it("update synonym set contents", async () => {
     const res = await fetchSingleNode("/synonym_sets/products-core", {
       method: "PUT",
-      body: JSON.stringify({ synonyms: updatedSynonyms }),
+      body: JSON.stringify({ items: updatedSynonyms }),
     });
     expect(res.ok).toBe(true);
     const syn = SynonymSetResponse.safeParse(await res.json());
     expect(syn.success).toBe(true);
-    const updatedIds = syn.data?.synonyms.map((s) => s.id);
+    const updatedIds = syn.data?.items.map((s) => s.id);
     expect(updatedIds).toContain("syn-phone");
     expect(updatedIds).toContain("syn-monitor");
   });
@@ -159,7 +191,7 @@ describe(Phases.SINGLE_FRESH, () => {
   it("delete a temporary synonym set", async () => {
     let res = await fetchSingleNode("/synonym_sets/products-temp", {
       method: "PUT",
-      body: JSON.stringify({ synonyms: [{ id: "syn-temp", root: "temp", synonyms: ["temporary"] }] }),
+      body: JSON.stringify({ items: [{ id: "syn-temp", root: "temp", synonyms: ["temporary"] }] }),
     });
     expect(res.ok).toBe(true);
 
@@ -177,7 +209,7 @@ describe(Phases.SINGLE_RESTARTED, () => {
     expect(res.ok).toBe(true);
     let syn = SynonymSetResponse.safeParse(await res.json());
     expect(syn.success).toBe(true);
-    const ids = syn.data?.synonyms.map((s) => s.id);
+    const ids = syn.data?.items.map((s) => s.id);
     expect(ids).toContain("syn-phone");
     expect(ids).toContain("syn-monitor");
 
@@ -221,7 +253,7 @@ describe(Phases.MULTI_FRESH, () => {
 
     res = await fetchMultiNode(1, "/synonym_sets/products-core-2", {
       method: "PUT",
-      body: JSON.stringify({ synonyms: [{ id: "syn-x", root: "x", synonyms: ["ex"] }] }),
+      body: JSON.stringify({ items: [{ id: "syn-x", root: "x", synonyms: ["ex"] }] }),
     });
     expect(res.ok).toBe(true);
     let syn = SynonymSetResponse.safeParse(await res.json());
@@ -229,7 +261,7 @@ describe(Phases.MULTI_FRESH, () => {
 
     res = await fetchMultiNode(1, "/synonym_sets/products-core", {
       method: "PUT",
-      body: JSON.stringify({ synonyms: [{ id: "syn-y", root: "y", synonyms: ["ey"] }] }),
+      body: JSON.stringify({ items: [{ id: "syn-y", root: "y", synonyms: ["ey"] }] }),
     });
     expect(res.ok).toBe(true);
     syn = SynonymSetResponse.safeParse(await res.json());

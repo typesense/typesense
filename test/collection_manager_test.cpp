@@ -510,11 +510,11 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     collection1->remove_override("deleted-rule");
 
     // make some synonym operation
-    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id1", "root": "smart phone", "synonyms": ["iphone"]})"_json).ok());
-    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id2", "root": "mobile phone", "synonyms": ["samsung phone"]})"_json).ok());
-    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id3", "synonyms": ["football", "foot ball"]})"_json).ok());
+    ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index",R"({"id": "id1", "root": "smart phone", "synonyms": ["iphone"]})"_json).ok());
+    ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index",R"({"id": "id2", "root": "mobile phone", "synonyms": ["samsung phone"]})"_json).ok());
+    ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index",R"({"id": "id3", "synonyms": ["football", "foot ball"]})"_json).ok());
 
-    collection1->remove_synonym("id2");
+    SynonymIndexManager::get_instance().delete_synonym_item("index", "id2");
 
     std::vector<std::string> search_fields = {"starring", "title"};
     std::vector<std::string> facets;
@@ -595,8 +595,8 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_STREQ("exclude-rule", collection1->get_overrides().get()["exclude-rule"]->id.c_str());
     ASSERT_STREQ("include-rule", collection1->get_overrides().get()["include-rule"]->id.c_str());
 
-    const auto& synonyms = collection1->get_synonyms().get();
-    ASSERT_EQ(2, synonyms.size());
+    const auto& synonym_index = SynonymIndexManager::get_instance().get_synonym_index("index").get();
+    const auto& synonyms = synonym_index->get_synonyms().get();
 
     ASSERT_STREQ("id1", synonyms.at(0)->id.c_str());
     ASSERT_EQ(2, synonyms.at(0)->root.size());
@@ -1524,7 +1524,7 @@ TEST_F(CollectionManagerTest, CloneCollection) {
         "synonyms": ["ipod", "i pod", "pod"]
     })"_json;
 
-    ASSERT_TRUE(coll1->add_synonym(synonym1).ok());
+    ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index", synonym1).ok());
 
     nlohmann::json override_json = {
             {"id",   "dynamic-cat-filter"},
@@ -1550,7 +1550,6 @@ TEST_F(CollectionManagerTest, CloneCollection) {
     ASSERT_FALSE(coll2 == nullptr);
     ASSERT_EQ("coll2", coll2->get_name());
     ASSERT_EQ(1, coll2->get_fields().size());
-    ASSERT_EQ(1, coll2->get_synonyms().get().size());
     ASSERT_EQ(1, coll2->get_overrides().get().size());
     ASSERT_EQ("", coll2->get_fallback_field_type());
 

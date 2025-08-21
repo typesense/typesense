@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "synonym_index_manager.h"
 
 class CollectionSpecificTest : public ::testing::Test {
 protected:
@@ -23,6 +24,12 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
+
+        SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
+        synonym_index_manager.init_store(store);
+
+        SynonymIndex synonym_index1(store, "index");
+        synonym_index_manager.add_synonym_index("index", std::move(synonym_index1));
     }
 
     virtual void SetUp() {
@@ -653,7 +660,7 @@ TEST_F(CollectionSpecificTest, CreateManyCollectionsAndDeleteOneOfThem) {
     }
 }
 
-TEST_F(CollectionSpecificTest, DeleteOverridesAndSynonymsOnDiskDuringCollDrop) {
+TEST_F(CollectionSpecificTest, DeleteOverridesOnDiskDuringCollDropAndSynonymsShouldBeSaved) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
@@ -686,7 +693,7 @@ TEST_F(CollectionSpecificTest, DeleteOverridesAndSynonymsOnDiskDuringCollDrop) {
     coll1->add_override(override);
 
     // add synonym
-    coll1->add_synonym(R"({"id": "ipod-synonyms", "synonyms": ["ipod", "i pod", "pod"]})"_json);
+    SynonymIndexManager::get_instance().upsert_synonym_item("index", R"({"id": "ipod-synonyms", "synonyms": ["ipod", "i pod", "pod"]})"_json);
 
     collectionManager.drop_collection("coll1");
 
@@ -696,10 +703,14 @@ TEST_F(CollectionSpecificTest, DeleteOverridesAndSynonymsOnDiskDuringCollDrop) {
                      stored_values);
     ASSERT_TRUE(stored_values.empty());
 
-    // synonyms should also have been deleted from the store
+    // synonyms should not be deleted from the store
     store->scan_fill(SynonymIndex::COLLECTION_SYNONYM_PREFIX, std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "`",
                      stored_values);
-    ASSERT_TRUE(stored_values.empty());
+    ASSERT_FALSE(stored_values.empty());
+
+    auto get_op = SynonymIndexManager::get_instance().get_synonym_index("index");
+    ASSERT_TRUE(get_op.ok());
+    ASSERT_EQ(1, get_op.get()->get_synonyms().get().size());
 }
 
 TEST_F(CollectionSpecificTest, SingleCharMatchFullFieldHighlight) {

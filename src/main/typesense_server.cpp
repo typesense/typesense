@@ -43,11 +43,6 @@ void master_server_routes() {
     server->put("/collections/:collection/overrides/:id", put_override);
     server->del("/collections/:collection/overrides/:id", del_override);
 
-    server->get("/collections/:collection/synonyms", get_synonyms);
-    server->get("/collections/:collection/synonyms/:id", get_synonym);
-    server->put("/collections/:collection/synonyms/:id", put_synonym);
-    server->del("/collections/:collection/synonyms/:id", del_synonym);
-
     // collection management
     server->post("/collections", post_create_collection);
     server->patch("/collections/:collection", patch_update_collection);
@@ -75,10 +70,15 @@ void master_server_routes() {
     server->put("/stopwords/:name", put_upsert_stopword);
     server->del("/stopwords/:name", del_stopword);
 
+    // synonym sets
     server->get("/synonym_sets", get_synonym_sets);
     server->get("/synonym_sets/:name", get_synonym_set);
     server->put("/synonym_sets/:name", put_synonym_set);
     server->del("/synonym_sets/:name", del_synonym_set);
+    server->get("/synonym_sets/:name/items", get_synonym_set_items);
+    server->get("/synonym_sets/:name/items/:id", get_synonym_set_item);
+    server->put("/synonym_sets/:name/items/:id", put_synonym_set_item);
+    server->del("/synonym_sets/:name/items/:id", del_synonym_set_item);
 
     // new analytics
     server->get("/analytics/rules", get_analytics_rules);
