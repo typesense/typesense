@@ -8,6 +8,7 @@
 #include "raft_server.h"
 #include "conversation_model_manager.h"
 #include "conversation_manager.h"
+#include "synonym_index_manager.h"
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
@@ -2000,6 +2001,7 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
           "name":"cp2",
           "num_documents":0,
           "symbols_to_index":[],
+          "synonym_sets":[],
           "token_separators":[]
         }
     )"_json;
@@ -2099,15 +2101,9 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
 }
 
 TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
-    Collection *coll3;
-
-    std::vector<field> fields = {field("title", field_types::STRING, false),
-                                 field("points", field_types::INT32, false)};
-
-    coll3 = collectionManager.get_collection("coll3").get();
-    if (coll3 == nullptr) {
-        coll3 = collectionManager.create_collection("coll3", 1, fields, "points").get();
-    }
+    SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
+    synonym_index_manager.init_store(store);
+    synonym_index_manager.add_synonym_index("test");
 
     for (int i = 0; i < 5; ++i) {
         nlohmann::json synonym_json = R"(
@@ -2118,26 +2114,25 @@ TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
 
         synonym_json["id"] = synonym_json["id"].get<std::string>() + std::to_string(i + 1);
 
-        coll3->add_synonym(synonym_json);
+        synonym_index_manager.upsert_synonym_item("test", synonym_json);
     }
 
     auto req = std::make_shared<http_req>();
     auto resp = std::make_shared<http_res>(nullptr);
 
-    req->params["collection"] = "coll3";
+    req->params["name"] = "test";
     req->params["offset"] = "0";
     req->params["limit"] = "1";
 
-    get_synonyms(req, resp);
+    get_synonym_set_items(req, resp);
 
-    nlohmann::json expected_json = R"({
-        "synonyms":[
+    nlohmann::json expected_json = R"([
                     {
                         "id":"foobar1",
                         "root":"",
                         "synonyms":["blazer","suit"]
-                    }]
-    })"_json;
+                    }
+    ])"_json;
 
     ASSERT_EQ(expected_json.dump(), resp->body);
 
@@ -2266,6 +2261,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
             "name":"collection_meta",
             "num_memory_shards":4,
             "symbols_to_index":[],
+            "synonym_sets":[],
             "token_separators":[]
     })"_json;
 
@@ -2362,6 +2358,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
             "name":"collection_meta",
             "num_memory_shards":4,
             "symbols_to_index":[],
+            "synonym_sets":[],
             "token_separators":[]
     })"_json;
 
@@ -2417,7 +2414,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields` and `metadata` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
         "symbols_to_index":[]
@@ -2425,7 +2422,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields` and `metadata` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
         "name": "collection_meta2",
@@ -2437,7 +2434,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields` and `metadata` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
     })"_json;
@@ -2678,6 +2675,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                 "name":"collection3",
                 "num_documents":0,
                 "symbols_to_index":[],
+                "synonym_sets":[],
                 "token_separators":[]
     })"_json;
 

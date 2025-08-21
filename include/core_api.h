@@ -75,6 +75,24 @@ bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared
 
 bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+// Synonym Sets
+
+bool get_synonym_sets(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool put_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_synonym_set_items(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_synonym_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool put_synonym_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_synonym_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Overrides
 
 bool get_overrides(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
@@ -84,16 +102,6 @@ bool get_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
 bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool del_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
-// Synonyms
-
-bool get_synonyms(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
-bool get_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
-bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
-bool del_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Keys
 

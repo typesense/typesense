@@ -129,7 +129,7 @@ public:
                                           const std::vector<std::string>& symbols_to_index = {},
                                           const std::vector<std::string>& token_separators = {},
                                           const bool enable_nested_fields = false, std::shared_ptr<VQModel> model = nullptr,
-                                          const nlohmann::json& metadata = {});
+                                          const nlohmann::json& metadata = {}, const std::vector<std::string>& synonym_sets = {});
 
     std::shared_ptr<Collection> get_collection(const std::string & collection_name) const;
 
@@ -200,6 +200,8 @@ public:
     bool is_valid_api_key_collection(const std::vector<std::string>& api_key_collections, std::shared_ptr<Collection> coll) const;
 
     Option<bool> update_collection_metadata(const std::string& collection, const nlohmann::json& metadata);
+
+    Option<bool> update_collection_synonym_sets(const std::string& collection, const std::vector<std::string>& synonym_sets);
 
     Option<nlohmann::json> get_collection_alter_status() const;
 

@@ -6,6 +6,8 @@
 #include "analytics_manager.h"
 #include "string_utils.h"
 #include "collection.h"
+#include "synonym_index.h"
+#include "synonym_index_manager.h"
 #include "query_analytics.h"
 
 class CollectionManagerTest : public ::testing::Test {
@@ -32,6 +34,12 @@ protected:
 
         analyticsManager.init(store, analytic_store, 5);
 
+        SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
+        synonym_index_manager.init_store(store);
+
+        SynonymIndex synonym_index1(store, "index");
+        synonym_index_manager.add_synonym_index("index", std::move(synonym_index1));
+
         schema = R"({
             "name": "collection1",
             "enable_nested_fields": true,
@@ -49,7 +57,8 @@ protected:
             ],
             "default_sorting_field": "points",
             "symbols_to_index":["+"],
-            "token_separators":["-"]
+            "token_separators":["-"],
+            "synonym_sets": ["index"]
         })"_json;
 
         sort_fields = { sort_by("points", "DESC") };
@@ -115,7 +124,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     store->get(Collection::get_next_seq_id_key("collection1"), next_seq_id);
     store->get(CollectionManager::NEXT_COLLECTION_ID_KEY, next_collection_id);
 
-    ASSERT_EQ(3, num_keys);
+    ASSERT_EQ(4, num_keys);
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
 
@@ -304,6 +313,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
           "symbols_to_index":[
             "+"
           ],
+          "synonym_sets": ["index"],
           "token_separators":[
             "-"
           ]
@@ -500,11 +510,11 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     collection1->remove_override("deleted-rule");
 
     // make some synonym operation
-    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id1", "root": "smart phone", "synonyms": ["iphone"]})"_json).ok());
-    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id2", "root": "mobile phone", "synonyms": ["samsung phone"]})"_json).ok());
-    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id3", "synonyms": ["football", "foot ball"]})"_json).ok());
+    ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index",R"({"id": "id1", "root": "smart phone", "synonyms": ["iphone"]})"_json).ok());
+    ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index",R"({"id": "id2", "root": "mobile phone", "synonyms": ["samsung phone"]})"_json).ok());
+    ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index",R"({"id": "id3", "synonyms": ["football", "foot ball"]})"_json).ok());
 
-    collection1->remove_synonym("id2");
+    SynonymIndexManager::get_instance().delete_synonym_item("index", "id2");
 
     std::vector<std::string> search_fields = {"starring", "title"};
     std::vector<std::string> facets;
@@ -585,16 +595,16 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_STREQ("exclude-rule", collection1->get_overrides().get()["exclude-rule"]->id.c_str());
     ASSERT_STREQ("include-rule", collection1->get_overrides().get()["include-rule"]->id.c_str());
 
-    const auto& synonyms = collection1->get_synonyms().get();
-    ASSERT_EQ(2, synonyms.size());
+    const auto& synonym_index = SynonymIndexManager::get_instance().get_synonym_index("index").get();
+    const auto& synonyms = synonym_index->get_synonyms().get();
 
     ASSERT_STREQ("id1", synonyms.at(0)->id.c_str());
     ASSERT_EQ(2, synonyms.at(0)->root.size());
     ASSERT_EQ(1, synonyms.at(0)->synonyms.size());
 
-    ASSERT_STREQ("id3", synonyms.at(1)->id.c_str());
-    ASSERT_EQ(0, synonyms.at(1)->root.size());
-    ASSERT_EQ(2, synonyms.at(1)->synonyms.size());
+    ASSERT_STREQ("id3", synonyms.at(2)->id.c_str());
+    ASSERT_EQ(0, synonyms.at(2)->root.size());
+    ASSERT_EQ(2, synonyms.at(2)->synonyms.size());
 
     std::vector<char> expected_symbols = {'+'};
     std::vector<char> expected_separators = {'-'};
@@ -1066,6 +1076,9 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
 
     collectionManager.drop_collection("collection1");
 
+    SynonymIndexManager& synonymIndexManager = SynonymIndexManager::get_instance();
+    synonymIndexManager.remove_synonym_index("index");
+
     rocksdb::Iterator* it = store->get_iterator();
     size_t num_keys = 0;
 
@@ -1498,6 +1511,7 @@ TEST_F(CollectionManagerTest, CloneCollection) {
             {"name": "title", "type": "string"}
         ],
         "symbols_to_index":["+"],
+        "synonym_sets": ["index"],
         "token_separators":["-", "?"]
     })"_json;
 
@@ -1510,7 +1524,7 @@ TEST_F(CollectionManagerTest, CloneCollection) {
         "synonyms": ["ipod", "i pod", "pod"]
     })"_json;
 
-    ASSERT_TRUE(coll1->add_synonym(synonym1).ok());
+    ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index", synonym1).ok());
 
     nlohmann::json override_json = {
             {"id",   "dynamic-cat-filter"},
@@ -1536,7 +1550,6 @@ TEST_F(CollectionManagerTest, CloneCollection) {
     ASSERT_FALSE(coll2 == nullptr);
     ASSERT_EQ("coll2", coll2->get_name());
     ASSERT_EQ(1, coll2->get_fields().size());
-    ASSERT_EQ(1, coll2->get_synonyms().get().size());
     ASSERT_EQ(1, coll2->get_overrides().get().size());
     ASSERT_EQ("", coll2->get_fallback_field_type());
 
@@ -1741,6 +1754,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
             "name":"collection_meta",
             "num_memory_shards":4,
             "symbols_to_index":[],
+            "synonym_sets":[],
             "token_separators":[]
     })"_json;
 

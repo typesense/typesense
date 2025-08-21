@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "synonym_index.h"
+#include "synonym_index_manager.h"
 
 class CollectionOverrideTest : public ::testing::Test {
 protected:
@@ -2645,6 +2647,10 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithSynonyms) {
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        SynonymIndexManager& synonymIndexManager = SynonymIndexManager::get_instance();
+        synonymIndexManager.init_store(store);
+        synonymIndexManager.add_synonym_index("index");
+        coll1->set_synonym_sets({"index"});
     }
 
     nlohmann::json doc1;
@@ -2672,9 +2678,9 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithSynonyms) {
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
     ASSERT_TRUE(coll1->add(doc3.dump()).ok());
 
-    coll1->add_synonym(R"({"id": "sneakers-shoes", "root": "sneakers", "synonyms": ["shoes"]})"_json);
-    coll1->add_synonym(R"({"id": "boots-shoes", "root": "boots", "synonyms": ["shoes"]})"_json);
-    coll1->add_synonym(R"({"id": "exciting-amazing", "root": "exciting", "synonyms": ["amazing"]})"_json);
+    SynonymIndexManager::get_instance().upsert_synonym_item("index",R"({"id": "sneakers-shoes", "root": "sneakers", "synonyms": ["shoes"]})"_json);
+    SynonymIndexManager::get_instance().upsert_synonym_item("index",R"({"id": "boots-shoes", "root": "boots", "synonyms": ["shoes"]})"_json);
+    SynonymIndexManager::get_instance().upsert_synonym_item("index",R"({"id": "exciting-amazing", "root": "exciting", "synonyms": ["amazing"]})"_json);
 
     std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
 
@@ -2846,7 +2852,7 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
     ASSERT_EQ(0, results["hits"].size());
 
     // with synonym for expensive: should NOT match as synonyms are resolved after override substitution
-    coll1->add_synonym(R"({"id": "costly-expensive", "root": "costly", "synonyms": ["expensive"]})"_json);
+    SynonymIndexManager::get_instance().upsert_synonym_item("index", R"({"id": "costly-expensive", "root": "costly", "synonyms": ["expensive"]})"_json);
 
     results = coll1->search("costly", {"name"}, "",
                             {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
@@ -3078,6 +3084,10 @@ TEST_F(CollectionOverrideTest, SynonymsAppliedToOverridenQuery) {
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        SynonymIndexManager& synonymIndexManager = SynonymIndexManager::get_instance();
+        synonymIndexManager.init_store(store);
+        synonymIndexManager.add_synonym_index("index");
+        coll1->set_synonym_sets({"index"});
     }
 
     nlohmann::json doc1;
@@ -3122,7 +3132,7 @@ TEST_F(CollectionOverrideTest, SynonymsAppliedToOverridenQuery) {
 
     coll1->add_override(override_contains);
 
-    coll1->add_synonym(R"({"id": "", "root": "shoes", "synonyms": ["sneakers"]})"_json);
+    SynonymIndexManager::get_instance().upsert_synonym_item("index", R"({"id": "", "root": "shoes", "synonyms": ["sneakers"]})"_json);
 
     auto results = coll1->search("expensive shoes", {"name"}, "",
                                  {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
