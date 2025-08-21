@@ -969,10 +969,17 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     const char* UNION_RESULT = "union";
+    const char* UNION_REMOVE_DUPLICATES = "remove_duplicates";
     auto is_union = false;
+    auto union_remove_duplicates = true;
     auto it = req_json.find(UNION_RESULT);
     if (it != req_json.end() && it.value().is_boolean()) {
         is_union = it.value();
+    }
+
+    it = req_json.find(UNION_REMOVE_DUPLICATES);
+    if(it != req_json.end() && it.value().is_boolean()) {
+        union_remove_duplicates = it.value();
     }
 
     bool conversation = orig_req_params["conversation"] == "true" && !is_union;
@@ -1045,7 +1052,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
     if (is_union) {
         Option<bool> union_op = CollectionManager::do_union(req->params, req->embedded_params_vec, searches,
-                                                            response, req->conn_ts);
+                                                            response, req->conn_ts, union_remove_duplicates);
         if(!union_op.ok() && union_op.code() == 408) {
             res->set(union_op.code(), union_op.error());
             req->overloaded = true;

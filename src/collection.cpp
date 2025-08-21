@@ -894,10 +894,6 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
         filter_sort_overrides.push_back(&override);
     }
 
-    if((override.rule.dynamic_filter || override.rule.dynamic_query) && !override.sort_by.empty()) {
-        curated_sort_by = override.sort_by;
-    }
-
     if((wildcard_tag_matched || tags_matched) && override.rule.query.empty() && override.rule.filter_by.empty()) {
         // allowed
     } else {
@@ -3625,7 +3621,7 @@ Option<bool> Collection::run_search_with_lock(search_args* search_params) const 
 
 Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                   std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,
-                                  const union_global_params_t& union_params, nlohmann::json& result) {
+                                  const union_global_params_t& union_params, nlohmann::json& result, bool remove_duplicates) {
     if (searches.size() != collection_ids.size()) {
         return Option<bool>(400, "Expected `collection_ids` and `searches` size to be equal.");
     }
@@ -3817,25 +3813,29 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     std::vector<std::vector<Union_KV*>> override_result_kvs;
 
     auto union_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
-                                                        Union_KV::is_greater, Union_KV::is_smaller>>(
-                                                            std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
+            Union_KV::is_greater, Union_KV::is_smaller>>(std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
     auto overrides_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
-            Union_KV::is_greater, Union_KV::is_smaller>>(
-            std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
+            Union_KV::is_greater, Union_KV::is_smaller>>(std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto& search_param = search_params_guards[search_index];
 
         for (auto& kvs: search_param->raw_result_kvs) {
-            Union_KV kv(*kvs[0], search_index);
-            union_topster->add(&kv);
+            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], remove_duplicates);
+            auto ret = union_topster->add(&kv);
+            if(remove_duplicates && ret == 0) { //duplicate doc
+                total--;
+            }
         }
 
         //populate overrides
         for(auto& kvs : search_param->override_result_kvs) {
-            Union_KV kv(*kvs[0], search_index);
-            overrides_topster->add(&kv);
+            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], remove_duplicates);
+            auto ret = overrides_topster->add(&kv);
+            if(remove_duplicates && ret == 0) { //duplicate doc
+                total--;
+            }
         }
     }
 
@@ -7625,6 +7625,25 @@ Option<bool> Collection::process_facet_return_parent(std::vector<std::string>& f
     }
     facet_return_parent = std::move(result);
     return Option<bool>(true);
+}
+
+Option<bool> Collection::process_ref_include_fields_sort(const std::string& sort_by_str, size_t limit, std::vector<uint32_t>& doc_ids) {
+    std::vector<sort_by> sort_fields;
+    auto result = CollectionManager::parse_sort_by_str(sort_by_str, sort_fields);
+    if(!result) {
+        return Option<bool>(400, "`sort_by` param for `include_fields` is malformed.");
+    }
+
+    std::vector<sort_by> sort_fields_std;
+    auto sort_validation_op = validate_and_standardize_sort_fields_with_lock(sort_fields, sort_fields_std, false, false, "", false, 0,
+                                                                                       0, true, false, false, 0);
+
+    if (!sort_validation_op.ok()) {
+        return Option<bool>(sort_validation_op.code(), "Error validating sort_fields in referenced collection `" + name + "`: " +
+                                                       sort_validation_op.error());
+    }
+
+    return index->process_ref_include_fields_sort(sort_fields_std, limit, doc_ids);
 }
 
 Option<bool> Collection::compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,

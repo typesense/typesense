@@ -1979,3 +1979,14 @@ TEST_F(CollectionAllFieldsTest, FieldTokenSeparatorsOnRestart) {
     ASSERT_EQ(1, fields[1].symbols_to_index.size());
     ASSERT_EQ('$', fields[1].symbols_to_index[0]);
 }
+
+TEST_F(CollectionAllFieldsTest, FieldNameEmpty) {
+    nlohmann::json schema = R"({
+        "name": "test",
+        "fields": [ {"name": "", "type": "string"} ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Field name cannot be empty.", create_op.error());
+}
