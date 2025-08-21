@@ -169,9 +169,11 @@ struct KV {
 
 struct Union_KV : public KV {
     uint32_t search_index{};
+    uint32_t collection_id;
+    bool remove_duplicates = false;
 
-    Union_KV(KV& kv, uint32_t search_index) : KV(kv.query_index, kv.key, kv.distinct_key, kv.match_score_index, kv.scores, {}, kv.vector_distance),
-                                               search_index(search_index) {
+    Union_KV(KV& kv, uint32_t search_index, uint32_t collection_id, bool remove_duplicates = false) : KV(kv.query_index, kv.key, kv.distinct_key, kv.match_score_index, kv.scores, {}, kv.vector_distance),
+                                               search_index(search_index), collection_id(collection_id), remove_duplicates(remove_duplicates) {
         reference_filter_results = std::move(kv.reference_filter_results);
     }
 
@@ -180,6 +182,8 @@ struct Union_KV : public KV {
     Union_KV& operator=(Union_KV&& kv) noexcept  {
         if (this != &kv) {
             search_index = kv.search_index;
+            collection_id = kv.collection_id;
+            remove_duplicates = kv.remove_duplicates;
             KV::operator=(std::move(kv));
         }
 
@@ -189,6 +193,8 @@ struct Union_KV : public KV {
     Union_KV& operator=(Union_KV& kv) noexcept {
         if (this != &kv) {
             search_index = kv.search_index;
+            collection_id = kv.collection_id;
+            remove_duplicates = kv.remove_duplicates;
             KV::operator=(kv);
         }
 
@@ -210,10 +216,18 @@ struct Union_KV : public KV {
     }
 
     static constexpr uint64_t get_key(const Union_KV* union_kv) {
+        if(union_kv->remove_duplicates) {
+            return StringUtils::hash_combine(union_kv->collection_id, union_kv->distinct_key);
+        }
+
         return StringUtils::hash_combine(union_kv->search_index, union_kv->key);
     }
 
     static constexpr uint64_t get_distinct_key(const Union_KV* union_kv) {
+        if(union_kv->remove_duplicates) {
+            return StringUtils::hash_combine(union_kv->collection_id, union_kv->distinct_key);
+        }
+
         return StringUtils::hash_combine(union_kv->search_index, union_kv->distinct_key);
     }
 };

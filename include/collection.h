@@ -969,7 +969,7 @@ public:
 
     static Option<bool> do_union(const std::vector<uint32_t>& collection_ids,
                                  std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,
-                                 const union_global_params_t& union_params, nlohmann::json& result);
+                                 const union_global_params_t& union_params, nlohmann::json& result, bool remove_duplicates);
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result,
                                 const bool& should_timeout = true, const bool& validate_field_names = true) const;
