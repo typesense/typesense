@@ -3553,7 +3553,7 @@ bool post_nl_search_model(const std::shared_ptr<http_req>& req, const std::share
     Collection::hide_credential(model_json, "refresh_token");
     Collection::hide_credential(model_json, "client_secret");
 
-    res->set_200(model_json.dump());
+    res->set_201(model_json.dump());
     return true;
 }
 
