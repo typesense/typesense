@@ -956,7 +956,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     const char* UNION_RESULT = "union";
     const char* UNION_REMOVE_DUPLICATES = "remove_duplicates";
     auto is_union = false;
-    auto union_remove_duplicates = false;
+    auto union_remove_duplicates = true;
     auto it = req_json.find(UNION_RESULT);
     if (it != req_json.end() && it.value().is_boolean()) {
         is_union = it.value();

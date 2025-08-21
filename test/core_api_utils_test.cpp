@@ -3017,7 +3017,7 @@ TEST_F(CoreAPIUtilsTest, UnionRemoveDuplicates) {
     add_op = coll1->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
 
-    nlohmann::json  searches = R"([
+    nlohmann::json searches = R"([
                     {
                         "collection": "coll1",
                         "q": "shampoo",
@@ -3059,4 +3059,22 @@ TEST_F(CoreAPIUtilsTest, UnionRemoveDuplicates) {
     ASSERT_EQ(2, response["hits"].size());
     ASSERT_EQ("1", response["hits"][0]["document"]["id"]);
     ASSERT_EQ("0", response["hits"][1]["document"]["id"]);
+
+    //check setting remove_duplicates to false
+    req->params.clear();
+    body.clear();
+    body["searches"] = searches;
+    body["union"] = true;
+    body["remove_duplicates"] = false;
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(5, response["found"].get<size_t>());
+    ASSERT_EQ(5, response["hits"].size());
+    ASSERT_EQ("1", response["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", response["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", response["hits"][2]["document"]["id"]);
+    ASSERT_EQ("1", response["hits"][3]["document"]["id"]);
+    ASSERT_EQ("1", response["hits"][4]["document"]["id"]);
 }

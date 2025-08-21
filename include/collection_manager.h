@@ -162,7 +162,7 @@ public:
 
     static Option<bool> do_union(std::map<std::string, std::string>& req_params,
                                  std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
-                                 nlohmann::json& response, uint64_t start_ts, bool remove_duplicates = false);
+                                 nlohmann::json& response, uint64_t start_ts, bool remove_duplicates = true);
 
     static bool parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields);
 

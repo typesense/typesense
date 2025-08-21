@@ -1348,10 +1348,23 @@ TEST_F(UnionTest, RemoveDuplicatesWithUnion) {
                     }
                 ])"_json;
 
-    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts, true);
+    //default to remove duplicates
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(2, json_res["found"].get<size_t>());
     ASSERT_EQ(2, json_res["hits"].size());
     ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]);
     ASSERT_EQ("0", json_res["hits"][1]["document"]["id"]);
+
+    //should explicitly set to false if not intending to remove duplicates
+    req_params = {{"remove_duplicates", "false"}};
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts, false);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(5, json_res["found"].get<size_t>());
+    ASSERT_EQ(5, json_res["hits"].size());
+    ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", json_res["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", json_res["hits"][2]["document"]["id"]);
+    ASSERT_EQ("1", json_res["hits"][3]["document"]["id"]);
+    ASSERT_EQ("1", json_res["hits"][4]["document"]["id"]);
 }
