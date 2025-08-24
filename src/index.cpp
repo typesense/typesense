@@ -3096,11 +3096,31 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                     //trim operators
 
                     int ind = 0;
-                    while(!std::isalnum(token[ind]) && token[ind] != '{') {
+                    while (ind < token.size() && !std::isalnum(token[ind]) && token[ind] != '{') {
                         ++ind;
                     }
+
+                    if (ind >= token.size()) {
+                        // token had no alnum or '{' at all (e.g., "(", ")", ",", "[", "]")
+                        token.clear();       // mark for removal
+                        continue;
+                    }
+
                     token.erase(0, ind);
+
+                    // (trim trailing non-data too
+                    while (!token.empty()) {
+                        unsigned char c = static_cast<unsigned char>(token.back());
+                        if (std::isalnum(c) || c == '}' || c == '`') break;
+                        token.pop_back();
+                    }
                 }
+
+                // Remove empties created above
+                processed_tokens.erase(
+                        std::remove_if(processed_tokens.begin(), processed_tokens.end(),
+                                       [](const std::string& s){ return s.empty(); }),
+                        processed_tokens.end());
             };
 
             std::vector<std::string> rule_parts;

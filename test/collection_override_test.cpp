@@ -5223,3 +5223,48 @@ TEST_F(CollectionOverrideTest, DynamicFilterMatchingMultipleRules) {
     ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
 }
+
+TEST_F(CollectionOverrideTest, DynamicFilterStandaloneParenTokenDeath) {
+    nlohmann::json schema = R"({
+          "name": "products",
+          "fields": [
+              {"name": "title", "type": "string"},
+              {"name": "category", "type": "string"},
+              {"name": "region", "type": "string"},
+              {"name": "popularity", "type": "int32", "sort": true}
+          ]
+      })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    // Add test documents
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"USB-C Charger","category":"Electronics","region":"act","popularity":50})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Office Stapler","category":"Office","region":"act","popularity":30})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Notebook","category":"Office","region":"nsw","popularity":70})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Bluetooth Speaker","category":"Electronics","region":"act","popularity":90})").ok());
+
+    // Override with a space after "( to force "(" to be a standalone token.
+    nlohmann::json override_json = R"OVR(
+        {
+        "id": "crash-standalone-paren",
+        "rule": { "filter_by": "region:={region} && ( category:=`Electronics` )" },
+        "includes": [],
+        "sort_by": "popularity:desc",
+        "stop_processing": true
+        }
+    )OVR"_json;
+
+    override_t ov;
+    auto parse_op = override_t::parse(override_json, "crash-standalone-paren", ov);
+    ASSERT_TRUE(parse_op.ok());
+    coll1->add_override(ov);
+
+    auto res_op = coll1->search("*", {}, "region:=act && ( category:=`Electronics` )", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("4", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+}
