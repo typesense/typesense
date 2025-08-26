@@ -3207,7 +3207,7 @@ bool post_conversation_model(const std::shared_ptr<http_req>& req, const std::sh
 
     Collection::hide_credential(model_json, "api_key");
 
-    res->set_200(model_json.dump());
+    res->set_201(model_json.dump());
     return true;
 }
 
@@ -3327,7 +3327,7 @@ bool post_personalization_model(const std::shared_ptr<http_req>& req, const std:
     if (model.contains("model_path")) {
       model.erase("model_path");
     }
-    res->set_200(model.dump());
+    res->set_201(model.dump());
     
     return true;
 }
@@ -3553,7 +3553,7 @@ bool post_nl_search_model(const std::shared_ptr<http_req>& req, const std::share
     Collection::hide_credential(model_json, "refresh_token");
     Collection::hide_credential(model_json, "client_secret");
 
-    res->set_200(model_json.dump());
+    res->set_201(model_json.dump());
     return true;
 }
 
