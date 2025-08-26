@@ -1905,3 +1905,61 @@ TEST_F(CollectionGroupingTest, HighCardinalityField) {
     ASSERT_EQ(397, res_obj["found"]);
     ASSERT_EQ(0, res_obj["grouped_hits"].size());
 }
+
+TEST_F(CollectionGroupingTest, InfixSearch) {
+    auto schema_json =
+            R"({
+                "name": "coll",
+                "fields": [
+                    {"name":"event_ticker","facet":true,"type":"string","infix":true},
+                    {"name":"series_ticker","facet":true,"type":"string","infix":true},
+                    {"name":"market_tickers","facet":false,"type":"string[]"}]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "event_ticker": "KXSECPRESSMENTION-25DEC13",
+                "series_ticker": "KXSECPRESSMENTION",
+                "market_tickers": ["KXSECPRESSMENTION-25DEC13-TX","KXSECPRESSMENTION-25DEC13-TA","KXSECPRESSMENTION-25DEC13-ENRG","KXSECPRESSMENTION-25DEC13-PUT","KXSECPRESSMENTION-25DEC13-GAZA","KXSECPRESSMENTION-25DEC13-CEN","KXSECPRESSMENTION-25DEC13-GA","KXSECPRESSMENTION-25DEC13-BR","KXSECPRESSMENTION-25DEC13-POW","KXSECPRESSMENTION-25DEC13-DEM","KXSECPRESSMENTION-25DEC13-JOB","KXSECPRESSMENTION-25DEC13-BID","KXSECPRESSMENTION-25DEC13-TAR","KXSECPRESSMENTION-25DEC13-AK","KXSECPRESSMENTION-25DEC13-DC","KXSECPRESSMENTION-25DEC13-AUT","KXSECPRESSMENTION-25DEC13-GET","KXSECPRESSMENTION-25DEC13-FED","KXSECPRESSMENTION-25DEC13-LABOR","KXSECPRESSMENTION-25DEC13-EP"]
+            })"_json,
+            R"({
+                "event_ticker": "KXSECPRESSMENTION-25OCT24",
+                "series_ticker": "KXSECPRESSMENTION",
+                "market_tickers": ["KXSECPRESSMENTION-25OCT24-GAZA","KXSECPRESSMENTION-25OCT24-TAR","KXSECPRESSMENTION-25OCT24-UKR","KXSECPRESSMENTION-25OCT24-CHINA","KXSECPRESSMENTION-25OCT24-ISRA","KXSECPRESSMENTION-25OCT24-IRAN","KXSECPRESSMENTION-25OCT24-FUNE","KXSECPRESSMENTION-25OCT24-DRUG","KXSECPRESSMENTION-25OCT24-STU","KXSECPRESSMENTION-25OCT24-FD"]
+            })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll"},
+            {"q", "kxsecpress"},
+            {"query_by", "event_ticker,series_ticker,market_tickers"},
+            {"infix", "always,always,off"},
+            {"group_by", "series_ticker"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["found_docs"]);
+
+    ASSERT_EQ(1, res_obj["grouped_hits"].size());
+    ASSERT_EQ(2, res_obj["grouped_hits"][0]["found"]);
+    ASSERT_EQ(1, res_obj["grouped_hits"][0]["group_key"].size());
+    ASSERT_EQ("KXSECPRESSMENTION", res_obj["grouped_hits"][0]["group_key"][0]);
+    ASSERT_EQ(2, res_obj["grouped_hits"][0]["hits"].size());
+
+    ASSERT_EQ("1", res_obj["grouped_hits"][0]["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["grouped_hits"][0]["hits"][1]["document"]["id"]);
+}
