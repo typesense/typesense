@@ -6200,12 +6200,14 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                                     bool is_group_by_first_pass,
                                     std::set<uint32_t>& group_by_missing_value_ids) const {
 
-    std::vector<group_by_field_it_t> group_by_field_it_vec;
-    if (group_limit != 0) {
-        group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
-    }
-
     for(size_t field_id = 0; field_id < num_search_fields; field_id++) {
+        // Initialize group_by_field_it_vec for each search field. If there is an overlap of the doc ids, group_by
+        // iterator might get invalidated and not match the doc ids of upcoming iteration even when it should.
+        std::vector<group_by_field_it_t> group_by_field_it_vec;
+        if (group_limit != 0) {
+            group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
+        }
+
         auto& field_name = the_fields[field_id].name;
         enable_t field_infix = the_fields[field_id].infix;
 
