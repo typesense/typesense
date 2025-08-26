@@ -3327,7 +3327,7 @@ bool post_personalization_model(const std::shared_ptr<http_req>& req, const std:
     if (model.contains("model_path")) {
       model.erase("model_path");
     }
-    res->set_200(model.dump());
+    res->set_201(model.dump());
     
     return true;
 }
