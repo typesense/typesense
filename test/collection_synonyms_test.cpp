@@ -1731,4 +1731,78 @@ TEST_F(CollectionSynonymsTest, SynonymIndexInSearchParams) {
     ASSERT_EQ(res["hits"][0]["document"]["points"].get<int>(), 100);
 }
 
+TEST_F(CollectionSynonymsTest, SynonymPrefixDisabled) {
+    nlohmann::json schema = R"({
+        "name": "coll3",
+        "fields": [
+          {"name": "title", "type": "string"}
+        ]
+    })"_json;
 
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll = op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "ccccc";
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    SynonymIndex idx(store, "tsyn_idx");
+
+    SynonymIndexManager& mgr = manager;
+
+    
+    nlohmann::json synonym1 = {
+        {"id", "syn-1"},
+        {"synonyms", {"test", "ccccc"}}
+    };
+    synonym_t syn;
+    synonym_t::parse(synonym1, syn);
+    idx.add_synonym(syn);
+    mgr.add_synonym_index("tsyn_idx", std::move(idx));
+    coll->set_synonym_sets({"tsyn_idx"});
+
+    bool synonym_prefix = false;
+
+    auto res = coll->search("t", {"title"}, "", {},
+                             {}, {2}, 10, 1,FREQUENCY, {false},
+                             Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "",
+                             30, 4, "", 40,
+                             {}, {}, {}, 0,"<mark>",
+                             "</mark>", {}, 1000,true,
+                             false, true, "", false,
+                             6000*1000, 4, 7, fallback, 4,
+                             {off}, INT16_MAX, INT16_MAX,2,
+                             2, false, "", true,
+                             0, max_score, 100, 0, 0, 0,
+                             "exhaustive", 30000, 2, "",
+                             {},{}, "right_to_left", true,
+                             true, false, "", "", "",
+                             "", false, true, synonym_prefix).get();
+
+    ASSERT_EQ(0, res["hits"].size());
+
+    synonym_prefix = true;
+
+    res = coll->search("t", {"title"}, "", {},
+                        {}, {2}, 10, 1,FREQUENCY, {false},
+                        Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "",
+                        30, 4, "", 40,
+                        {}, {}, {}, 0,"<mark>",
+                        "</mark>", {}, 1000,true,
+                        false, true, "", false,
+                        6000*1000, 4, 7, fallback, 4,
+                        {off}, INT16_MAX, INT16_MAX,2,
+                        2, false, "", true,
+                        0, max_score, 100, 0, 0, 0,
+                        "exhaustive", 30000, 2, "",
+                        {},{}, "right_to_left", true,
+                        true, false, "", "", "",
+                        "", false, true, synonym_prefix).get();
+
+    ASSERT_EQ(1, res["hits"].size());
+}
