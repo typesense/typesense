@@ -467,7 +467,8 @@ std::vector<synonym_node_t*> synonym_node_t::get_matching_children(const std::st
     // do fuzzy search if the token is not found
     std::vector<art_leaf*> leaves;
     std::set<std::string> exclude_leaves;
-    art_fuzzy_search((art_tree*) children_tree, (unsigned char*)token.c_str(), token.size(), 0, num_typos,
+    auto term_len = synonym_prefix ? token.size() : token.size() + 1;
+    art_fuzzy_search((art_tree*) children_tree, (unsigned char*)token.c_str(), term_len, 0, num_typos,
                      10, FREQUENCY, synonym_prefix, false, "", nullptr, 0, leaves, exclude_leaves);
     
     std::vector<synonym_node_t*> matching_children;
