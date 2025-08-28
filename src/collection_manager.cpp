@@ -1425,9 +1425,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     Option<nlohmann::json> result_op = collection->search(args);
 
-    auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                        std::chrono::high_resolution_clock::now() - begin).count();
-    update_app_metrics(timeMillis);
+    auto reqTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now().time_since_epoch()).count() - start_ts;
+    update_app_metrics(reqTimeMillis);
 
     if(!result_op.ok()) {
         return Option<bool>(result_op.code(), result_op.error());
@@ -1463,7 +1463,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     if(args.exclude_fields.count("search_time_ms") == 0) {
-        result["search_time_ms"] = timeMillis;
+        auto searchTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::high_resolution_clock::now() - begin).count();
+        result["search_time_ms"] = searchTimeMillis;
     }
 
     if(args.page == 0 && args.offset != 0) {
@@ -1592,9 +1594,9 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
 
     auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, union_params, response, remove_duplicates);
 
-    for (const auto& time: searchTimeMillis) {
-        update_app_metrics(time);
-    }
+    auto reqTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now().time_since_epoch()).count() - start_ts;
+    update_app_metrics(reqTimeMillis);
 
     if (!union_op.ok()) {
         if (union_op.code() == 408) {
