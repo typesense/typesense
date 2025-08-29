@@ -6827,23 +6827,36 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
             } else if (found_field && field_it->embed.count(fields::from) != 0) {
                 //embedded field, only api key updation is supported
-                if(!kv.value().contains(fields::embed) || !kv.value()[fields::embed].is_object()) {
-                    return Option<bool>(400,
-                                        "Missing or bad `embed` param.");
+                const auto& existing_embed = field_it->embed;
+                const auto& new_embed = kv.value()[fields::embed];
+                
+                const auto& existing_model_config = existing_embed[fields::model_config];
+                const auto& new_model_config = new_embed[fields::model_config];
+                
+                bool has_invalid_changes = false;
+                bool has_changes = false;
+                
+                if (existing_embed[fields::from] != new_embed[fields::from]) {
+                    has_invalid_changes = true;
+                    has_changes = true;
+                }
+                
+                for (const auto& [key, value] : new_model_config.items()) {
+                    if (existing_model_config.count(key) == 0 || existing_model_config[key] != value) {
+                        has_changes = true;
+                        if (key != fields::api_key) {
+                            has_invalid_changes = true;
+                        }
+                        break;
+                    }
+                }
+                
+                if (has_invalid_changes || !has_changes) {
+                    return Option<bool>(400, "Field `" + field_name + "` is already part of the schema: To "
+                                         "change this field, drop it first before adding it back to the schema.");
                 }
 
-                if (!kv.value()[fields::embed].contains(fields::model_config) || !kv.value()[fields::embed][fields::model_config].is_object()) {
-                    return Option<bool>(400,
-                                        "`model_config` should be an object containing `model_name` and `api_key`.");
-                }
-
-                const auto &model_config = kv.value()[fields::embed][fields::model_config];
-                if (!model_config.contains(fields::model_name) || !model_config.contains(fields::api_key) ||
-                    !model_config[fields::model_name].is_string() || !model_config[fields::api_key].is_string()) {
-                    return Option<bool>(400,
-                                        "`model_config` should be an object containing `model_name` and `api_key` as string values.");
-                }
-
+                // API key update, add to update_fields for later processing
                 field f(field_name, field_it->type, field_it->facet);
                 f.embed = kv.value()[fields::embed];
                 update_fields.push_back(f);
