@@ -92,6 +92,9 @@ TEST_F(PersonalizationModelManagerTest, GetModelSuccess) {
     auto get_result = PersonalizationModelManager::get_model("test_id");
     ASSERT_TRUE(get_result.ok());
     ASSERT_EQ(get_result.get()["id"], "test_id");
+    ASSERT_EQ(get_result.get()["name"], "ts/tyrec-1");
+    ASSERT_EQ(get_result.get()["type"], "recommendation");
+    ASSERT_EQ(get_result.get()["num_dim"], 256);
 }
 
 TEST_F(PersonalizationModelManagerTest, GetModelNotFound) {
@@ -109,6 +112,9 @@ TEST_F(PersonalizationModelManagerTest, DeleteModelSuccess) {
     auto delete_result = PersonalizationModelManager::delete_model("test_id");
     ASSERT_TRUE(delete_result.ok());
     ASSERT_EQ(delete_result.get()["id"], "test_id");
+    ASSERT_EQ(delete_result.get()["name"], "ts/tyrec-1");
+    ASSERT_EQ(delete_result.get()["type"], "recommendation");
+    ASSERT_EQ(delete_result.get()["num_dim"], 256);
 
     auto get_result = PersonalizationModelManager::get_model("test_id");
     ASSERT_FALSE(get_result.ok());
@@ -151,6 +157,8 @@ TEST_F(PersonalizationModelManagerTest, UpdateModelSuccess) {
     auto update_result = PersonalizationModelManager::update_model("test_id", update, "");
     ASSERT_TRUE(update_result.ok());
     ASSERT_EQ(update_result.get()["name"], "ts/tyrec-1");
+    ASSERT_EQ(update_result.get()["type"], "recommendation");
+    ASSERT_EQ(update_result.get()["num_dim"], 256);
 }
 
 TEST_F(PersonalizationModelManagerTest, UpdateModelNotFound) {

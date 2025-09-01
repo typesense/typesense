@@ -193,8 +193,6 @@ Option<nlohmann::json> PersonalizationModel::update_model(const std::string& mod
         nlohmann::json existing_json;
         existing_metadata >> existing_json;
 
-        model_json_with_dims["num_dim"] = existing_json["num_dim"];
-
         std::ofstream metadata_file(metadata_path);
         if (!metadata_file) {
             return Option<nlohmann::json>(500, "Failed to create metadata file");

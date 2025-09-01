@@ -58,7 +58,6 @@ Option<nlohmann::json> PersonalizationModelManager::add_model(nlohmann::json& mo
           return Option<nlohmann::json>(500, "Error while inserting model into the store");
       }
     }
-
     return Option<nlohmann::json>(model_json);
 }
 
