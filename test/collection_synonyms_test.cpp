@@ -1806,3 +1806,108 @@ TEST_F(CollectionSynonymsTest, SynonymPrefixDisabled) {
 
     ASSERT_EQ(1, res["hits"].size());
 }
+
+TEST_F(CollectionSynonymsTest, SynonymMatchShouldNotOutrankCloserDirectMatch) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Horween Brown Chromexcel Horsehide brwn", "100"},
+        {"The Chromexcel For Brown", "100"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = std::stoi(records[i][1]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    manager.upsert_synonym_item("index", R"({"id": "syn-1", "root": "brown", "synonyms": ["brwn"]})"_json);
+
+    auto res = coll1->search("brown chromexcel", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ(2, res["found"].get<uint32_t>());
+
+    // Better word proximity must be ranked higher with better match score
+
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_NE(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSynonymsTest, SynonymProximityCappedWhenTwoTokenSynonymAndPhraseAdjacent) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
+    }
+
+    manager.upsert_synonym_item("index", R"({"id": "syn-two", "root": "lululemon", "synonyms": ["lulu lemon"]})"_json);
+
+    nlohmann::json a; a["id"] = "0"; a["title"] = "Lulu Lemon"; a["points"] = 100;
+    nlohmann::json b; b["id"] = "1"; b["title"] = "Lulu amazing Lemon"; b["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(a.dump()).ok());
+    ASSERT_TRUE(coll1->add(b.dump()).ok());
+
+    auto res = coll1->search("lululemon", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, res["hits"].size());
+
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_NE(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSynonymsTest, SynonymProximityNotCappedWhenThreeTokenSynonymAlreadyLowProximity) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
+    }
+
+    manager.upsert_synonym_item("index", R"({"id": "syn-three", "root": "cmo", "synonyms": ["chief marketing officer"]})"_json);
+
+    nlohmann::json a; a["id"] = "0"; a["title"] = "Chief Marketing Officer"; a["points"] = 100;
+    nlohmann::json b; b["id"] = "1"; b["title"] = "Chief regional Marketing senior Officer"; b["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(a.dump()).ok());
+    ASSERT_TRUE(coll1->add(b.dump()).ok());
+
+    auto res = coll1->search("cmo", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, res["hits"].size());
+
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_NE(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}

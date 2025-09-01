@@ -7072,7 +7072,10 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
             if(syn_orig_num_tokens != -1 && num_query_tokens == posting_lists.size()) {
                 unique_words = syn_orig_num_tokens;
                 this_words_present = syn_orig_num_tokens;
-                proximity = 100 - (syn_orig_num_tokens - 1);
+                auto syn_max_proximity = 100 - (syn_orig_num_tokens - 1);
+                if(proximity > syn_max_proximity) {
+                    proximity = syn_max_proximity;
+                }
             }
 
             uint64_t mod_match_score = (
