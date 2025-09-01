@@ -172,7 +172,7 @@ Option<nlohmann::json> PersonalizationModel::update_model(const std::string& mod
         if(!validate_op.ok()) {
             return Option<nlohmann::json>(400, "Model validation failed. There is a problem with ONNX model");
         }
-        model_json_with_dims["num_dims"] = temp_model.get_num_dims();
+        model_json_with_dims["num_dim"] = temp_model.get_num_dim();
 
         std::string metadata_path = model_path + "/metadata.json";
         std::ofstream metadata_file(metadata_path);
@@ -193,7 +193,7 @@ Option<nlohmann::json> PersonalizationModel::update_model(const std::string& mod
         nlohmann::json existing_json;
         existing_metadata >> existing_json;
 
-        model_json_with_dims["num_dims"] = existing_json["num_dims"];
+        model_json_with_dims["num_dim"] = existing_json["num_dim"];
 
         std::ofstream metadata_file(metadata_path);
         if (!metadata_file) {
@@ -253,7 +253,7 @@ void PersonalizationModel::initialize_session() {
     // Initialize input and output dimensions
     Ort::AllocatorWithDefaultOptions allocator;
     auto output_shape = recommendation_session_->GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
-    num_dims_ = output_shape[output_shape.size() - 1];
+    num_dim_ = output_shape[output_shape.size() - 1];
 }
 
 embedding_res_t PersonalizationModel::embed_recommendations(const std::vector<std::vector<float>>& input_vector, const std::vector<int64_t>& user_mask) {
@@ -285,7 +285,7 @@ embedding_res_t PersonalizationModel::embed_recommendations(const std::vector<st
         float* output_data = output_tensors[0].GetTensorMutableData<float>();
         auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
         std::vector<float> embedding;
-        embedding.assign(output_data, output_data + num_dims_);
+        embedding.assign(output_data, output_data + num_dim_);
         return embedding_res_t(embedding);
 
     } catch (const Ort::Exception& e) {
@@ -334,7 +334,7 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_recommendations(c
         std::vector<embedding_res_t> embeddings;
         for (size_t i = 0; i < shape[0]; i++) {
             std::vector<float> embedding;
-            embedding.assign(output_data + (i * num_dims_), output_data + ((i + 1) * num_dims_));
+            embedding.assign(output_data + (i * num_dim_), output_data + ((i + 1) * num_dim_));
             embeddings.push_back(embedding_res_t(embedding));
         }
         return embeddings;
@@ -388,7 +388,7 @@ embedding_res_t PersonalizationModel::embed_user(const std::vector<std::string>&
         float* output_data = output_tensors[0].GetTensorMutableData<float>();
         auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
         std::vector<float> embedding;
-        embedding.assign(output_data, output_data + num_dims_);
+        embedding.assign(output_data, output_data + num_dim_);
         return embedding_res_t(embedding);
         
     } catch (const Ort::Exception& e) {
@@ -453,7 +453,7 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_users(const std::
             auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
             for (size_t i = 0; i < shape[0]; i++) {
                 std::vector<float> embedding;
-                embedding.assign(output_data + (i * num_dims_), output_data + ((i + 1) * num_dims_));
+                embedding.assign(output_data + (i * num_dim_), output_data + ((i + 1) * num_dim_));
                 embeddings.push_back(embedding_res_t(embedding));
             }
         } catch (const Ort::Exception& e) {
@@ -508,7 +508,7 @@ embedding_res_t PersonalizationModel::embed_item(const std::vector<std::string>&
         float* output_data = output_tensors[0].GetTensorMutableData<float>();
         auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
         std::vector<float> embedding;
-        embedding.assign(output_data, output_data + num_dims_);
+        embedding.assign(output_data, output_data + num_dim_);
         return embedding_res_t(embedding);
 
     } catch (const Ort::Exception& e) {
@@ -568,7 +568,7 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_items(const std::
             auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
             for (size_t i = 0; i < shape[0]; i++) {
                 std::vector<float> embedding;
-                embedding.assign(output_data + (i * num_dims_), output_data + ((i + 1) * num_dims_));
+                embedding.assign(output_data + (i * num_dim_), output_data + ((i + 1) * num_dim_));
                 embeddings.push_back(embedding_res_t(embedding));
             }
         } catch (const Ort::Exception& e) {

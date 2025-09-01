@@ -8155,11 +8155,11 @@ Option<bool> Collection::parse_and_validate_personalization_query(const std::str
         }
         user_embeddings.push_back(embedding);
     }
-    auto num_dims = personalization_model["num_dims"].get<size_t>();
+    auto num_dim = personalization_model["num_dim"].get<size_t>();
     std::vector<int64_t> user_mask(user_embeddings.size(), 1);
     if(user_embeddings.size() < personalization_n_events) {
         for (size_t i = user_embeddings.size(); i < personalization_n_events; i++) {
-            user_embeddings.push_back(std::vector<float>(num_dims, 0));
+            user_embeddings.push_back(std::vector<float>(num_dim, 0));
             user_mask.push_back(0);
         }
     }

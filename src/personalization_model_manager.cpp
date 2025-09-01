@@ -43,7 +43,7 @@ Option<nlohmann::json> PersonalizationModelManager::add_model(nlohmann::json& mo
             return Option<nlohmann::json>(validate_op.code(), validate_op.error());
         }
         model_embedders.emplace(model_id, model);
-        model_json["num_dims"] = model->get_num_dims();
+        model_json["num_dim"] = model->get_num_dim();
         LOG(INFO) << "Created model embedder for model: " << model_id;
     } catch (const std::exception& e) {
         LOG(ERROR) << "Error creating model embedder for model: " << model_id << ", error: " << e.what();
@@ -239,7 +239,7 @@ Option<bool> PersonalizationModelManager::validate_personalization_model(const n
     }
 
     auto model = get_model_op.get();
-    num_dim = model["num_dims"].get<size_t>();
+    num_dim = model["num_dim"].get<size_t>();
 
     return Option<bool>(true);
 }
