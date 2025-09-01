@@ -227,3 +227,9 @@ Option<bool> SynonymIndexManager::delete_synonym_item(const std::string& name, c
     }
     return get_index_op.get()->remove_synonym(id);
 }
+
+void SynonymIndexManager::dispose() {
+    synonym_index_list.clear();
+    synonym_index_map.clear();
+
+}
