@@ -8372,6 +8372,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     size_t snippet_threshold = 30;
     size_t highlight_affix_num_tokens = 4;
     std::string highlight_full_fields;
+    std::string highlight_fields;
     std::string pinned_hits_str;
     std::string hidden_hits_str;
     std::vector<std::string> group_by_fields;
@@ -8391,7 +8392,6 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     std::vector<std::string> synonym_sets;
 
     bool filter_curated_hits_option = false;
-    std::string highlight_fields;
     bool exhaustive_search = false;
     size_t search_cutoff_ms = 30 * 1000;
     enable_t split_join_tokens = fallback;
@@ -8762,4 +8762,20 @@ void collection_search_args_t::override_union_global_params(union_global_params_
     per_page = global_params.per_page;
     offset = global_params.offset;
     limit_hits = global_params.limit_hits;
+}
+
+void Collection::refresh_stemmers() {
+    std::unique_lock lock(mutex);
+    
+    
+    size_t schema_refreshed = 0;
+    size_t total_schema_fields = 0;
+    
+    for(auto& field : search_schema) {
+        total_schema_fields++;
+        if(!field.stem_dictionary.empty()) {
+            field.stemmer = StemmerManager::get_instance().get_stemmer(field.locale, field.stem_dictionary);
+            schema_refreshed++;
+        }
+    }
 }
