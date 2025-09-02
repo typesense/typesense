@@ -7656,7 +7656,19 @@ Option<bool> Collection::process_ref_include_fields_sort(const std::string& sort
                                                        sort_validation_op.error());
     }
 
-    return index->process_ref_include_fields_sort(sort_fields_std, limit, doc_ids);
+    auto op = index->process_ref_include_fields_sort(sort_fields_std, limit, doc_ids);
+    for (auto& sort_by_clause: sort_fields_std) {
+        for (auto& eval_ids: sort_by_clause.eval.eval_ids_vec) {
+            delete [] eval_ids;
+        }
+
+        for (uint32_t i = 0; i < sort_by_clause.eval_expressions.size(); i++) {
+            delete sort_by_clause.eval.filter_trees[i];
+        }
+
+        delete [] sort_by_clause.eval.filter_trees;
+    }
+    return op;
 }
 
 Option<bool> Collection::compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
