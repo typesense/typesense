@@ -2080,14 +2080,17 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     auto const is_nested_join = !ref_filter_result_iterator.reference.empty();
 
     if (is_nested_join && negate_left_join_info.is_negate_join) {
-        Option<bool>(400, "Left negate join cannot contain a nested join.");
+        return Option<bool>(400, "Left negate join cannot contain a nested join.");
     }
 
     if (search_schema.at(reference_helper_field_name).is_singular()) { // Only one reference per doc.
-        if (sort_index.count(reference_helper_field_name) == 0) {
+        auto it = sort_index.find(reference_helper_field_name);
+        if (it == sort_index.end()) {
             return Option<bool>(400, "`" + reference_helper_field_name + "` is not present in sort index.");
+        } else if (it->second == nullptr) {
+            return Option<bool>(400, "Reference index for `" + reference_helper_field_name + "` does not exist.");
         }
-        auto const& ref_index = *sort_index.at(reference_helper_field_name);
+        auto const& ref_index = *it->second;
 
         if (is_nested_join) {
             // In case of nested join, we need to collect all the doc ids from the reference ids along with their references.
@@ -2097,10 +2100,12 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
             for (uint32_t i = 0; i < count; i++) {
                 auto& reference_doc_id = reference_docs[i];
                 auto reference_doc_references = std::move(ref_filter_result->coll_to_references[i]);
-                if (ref_index.count(reference_doc_id) == 0) { // Reference field might be optional.
+
+                auto ref_it = ref_index.find(reference_doc_id);
+                if (ref_it == ref_index.end()) { // Reference field might be optional.
                     continue;
                 }
-                auto doc_id = ref_index.at(reference_doc_id);
+                auto doc_id = ref_it->second;
 
                 id_pairs.emplace_back(std::make_pair(doc_id, new single_filter_result_t(reference_doc_id,
                                                                                         std::move(reference_doc_references),
