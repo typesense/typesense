@@ -9768,6 +9768,37 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ("$Customers(customer_name: `Joe`)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
     ASSERT_EQ(2, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("Joe", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+
+    //check compatibility with joins
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "id:* || $Customers(customer_id: customer_c)"},
+            {"facet_by", "rating, $Customers(customer_name)"}
+    };
+
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"]);
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
+
+    ASSERT_EQ(2, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("rating", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("4", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ("2", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+
+    ASSERT_EQ(0, res_obj["facet_counts"][1]["counts"].size());
+    ASSERT_EQ("Customers(customer_name)", res_obj["facet_counts"][1]["field_name"].get<std::string>());
 }
 
 TEST_F(CollectionJoinTest, FacetByReferenceExtended) {

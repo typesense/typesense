@@ -4596,74 +4596,78 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
                                     const std::string& collection_name, Collection const *const ref_collection,
                                     filter_result_iterator_t& fit,
                                     std::unordered_map<std::string, reference_filter_result_t>& reference_facet_ids) const {
+
     auto const& ref_collection_name = ref_collection->get_name();
     reference_facet_ids[ref_collection_name] = reference_filter_result_t();
 
-    auto const joined_on_ref_collection = fit.reference.count(ref_collection_name) > 0;
-    auto const has_filter_reference = (joined_on_ref_collection && fit.reference.at(ref_collection_name).count > 0);
-    auto doc_has_reference = false, joined_coll_has_reference = false;
-
-    // Reference facet_by without join, check if doc itself contains the reference.
-    if (!joined_on_ref_collection) {
-        doc_has_reference = ref_collection->is_referenced_in(collection_name);
-    }
-
-    std::string joined_coll_having_reference;
-    // Check if the joined collection has a reference.
-    if (!joined_on_ref_collection && !doc_has_reference) {
-        for (const auto &reference_filter_result: fit.reference) {
-            joined_coll_has_reference = ref_collection->is_referenced_in(reference_filter_result.first);
-            if (joined_coll_has_reference) {
-                joined_coll_having_reference = reference_filter_result.first;
-                break;
-            }
-        }
-    }
-
-    if (!has_filter_reference && !doc_has_reference && !joined_coll_has_reference) {
-        return;
-    }
-
-    // Only collecting the references of docs in the final result.
     std::vector<uint32_t> ref_doc_ids;
     ref_doc_ids.reserve(all_result_ids_len);
-    if (has_filter_reference) {
-        for (uint32_t i = 0; i < all_result_ids_len; i++) {
-            if (fit.is_valid(all_result_ids[i]) == 1) {
-                auto const& ref_result = fit.reference[ref_collection_name];
-                for (uint32_t j = 0; j < ref_result.count; j++) {
-                    ref_doc_ids.push_back(ref_result.docs[j]);
+
+    for(auto i = 0; i < all_result_ids_len; ++i) {
+        // Only collecting the references of docs in the final result.
+        const auto& is_valid = fit.is_valid(all_result_ids[i]);
+        if (is_valid == 0) {
+            continue;
+        } else if (is_valid == -1) {
+            break;
+        }
+
+        auto const joined_on_ref_collection = fit.reference.count(ref_collection_name) > 0;
+        auto const has_filter_reference = (joined_on_ref_collection && fit.reference.at(ref_collection_name).count > 0);
+        auto doc_has_reference = false, joined_coll_has_reference = false;
+
+        // Reference facet_by without join, check if doc itself contains the reference.
+        if (!joined_on_ref_collection) {
+            doc_has_reference = ref_collection->is_referenced_in(collection_name);
+        }
+
+        std::string joined_coll_having_reference;
+        // Check if the joined collection has a reference.
+        if (!joined_on_ref_collection && !doc_has_reference) {
+            for (const auto& reference_filter_result: fit.reference) {
+                joined_coll_has_reference = ref_collection->is_referenced_in(reference_filter_result.first);
+                if (joined_coll_has_reference) {
+                    joined_coll_having_reference = reference_filter_result.first;
+                    break;
                 }
             }
         }
-        fit.reset();
-    } else if (doc_has_reference) {
-        auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(collection_name);
-        if (!get_reference_field_op.ok()) {
-            return;
-        }
-        auto const& reference_field_name = get_reference_field_op.get();
-        if (search_schema.count(reference_field_name) == 0) {
-            return;
+
+        if (!has_filter_reference && !doc_has_reference && !joined_coll_has_reference) {
+            continue;
         }
 
-        for (uint32_t i = 0; i < all_result_ids_len; i++) {
+        if (has_filter_reference) {
+            auto const& ref_result = fit.reference[ref_collection_name];
+            for (uint32_t j = 0; j < ref_result.count; j++) {
+                ref_doc_ids.push_back(ref_result.docs[j]);
+            }
+        } else if (doc_has_reference) {
+            auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(collection_name);
+            if (!get_reference_field_op.ok()) {
+                continue;
+            }
+            auto const& reference_field_name = get_reference_field_op.get();
+            if (search_schema.count(reference_field_name) == 0) {
+                continue;
+            }
+
             get_related_ids(reference_field_name, all_result_ids[i], ref_doc_ids);
-        }
-    } else if (joined_coll_has_reference) {
-        auto& cm = CollectionManager::get_instance();
-        auto joined_collection = cm.get_collection(joined_coll_having_reference);
-        if (joined_collection == nullptr) {
-            return;
-        }
+        } else if (joined_coll_has_reference) {
+            auto& cm = CollectionManager::get_instance();
+            auto joined_collection = cm.get_collection(joined_coll_having_reference);
+            if (joined_collection == nullptr) {
+                continue;
+            }
 
-        auto reference_field_name_op = ref_collection->get_referenced_in_field_with_lock(joined_coll_having_reference);
-        if (!reference_field_name_op.ok() || joined_collection->get_schema().count(reference_field_name_op.get()) == 0) {
-            return;
-        }
+            auto reference_field_name_op = ref_collection->get_referenced_in_field_with_lock(
+                    joined_coll_having_reference);
+            if (!reference_field_name_op.ok() ||
+                joined_collection->get_schema().count(reference_field_name_op.get()) == 0) {
+                continue;
+            }
 
-        auto const& reference_field_name = reference_field_name_op.get();
-        for (uint32_t i = 0; i < all_result_ids_len; i++) {
+            auto const& reference_field_name = reference_field_name_op.get();
             if (fit.is_valid(all_result_ids[i]) == 1) {
                 auto const& ref_result = fit.reference[joined_coll_having_reference];
                 for (uint32_t j = 0; j < ref_result.count; j++) {
@@ -4672,9 +4676,9 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
                 }
             }
         }
-        fit.reset();
     }
 
+    fit.reset();
     gfx::timsort(ref_doc_ids.begin(), ref_doc_ids.end());
     ref_doc_ids.erase(unique(ref_doc_ids.begin(), ref_doc_ids.end()), ref_doc_ids.end());
 
