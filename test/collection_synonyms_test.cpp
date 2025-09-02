@@ -1706,3 +1706,49 @@ TEST_F(CollectionSynonymsTest, SynonymsWithMultiToken) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSynonymsTest, DeEnLocaleFieldSpecificSynonyms) {
+    nlohmann::json schema = R"({
+        "name": "de_en_test_coll",
+        "fields": [
+          {"name": "title_de_en", "type": "string", "locale": "de_en"},
+          {"name": "title_en", "type": "string"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title_de_en"] = "apple";
+    doc["title_en"] = "apple";
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    // create a synonym "orange" -> "apple" with de_en locale
+    nlohmann::json synonym = R"({
+        "id": "orange-apple",
+        "root": "orange",
+        "synonyms": ["apple"],
+        "locale": "de_en"
+    })"_json;
+
+    ASSERT_TRUE(coll->add_synonym(synonym).ok());
+
+    // search for "orange" in de_en field: should find "apple" because of synonym
+    auto res = coll->search("orange", {"title_de_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size()) << "Synonym should work for de_en locale field";
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // search for "orange" in regular field: should NOT find anything
+    res = coll->search("orange", {"title_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(0, res["hits"].size()) << "Synonym should NOT work for fields without de_en locale";
+
+    // search for "apple" directly: should find the document
+    res = coll->search("apple", {"title_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size()) << "Direct term 'apple' should match the document";
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("de_en_test_coll");
+}
