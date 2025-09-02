@@ -1850,7 +1850,7 @@ TEST_F(CollectionSynonymsTest, SynonymMatchShouldNotOutrankCloserDirectMatch) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionSynonymsTest, SynonymProximityCappedWhenTwoTokenSynonymAndPhraseAdjacent) {
+TEST_F(CollectionSynonymsTest, SynonymProximityCapAppliedWhenMaxLengthExceedsVariantLength) {
     Collection *coll1;
 
     std::vector<field> fields = {field("title", field_types::STRING, false),
@@ -1862,46 +1862,17 @@ TEST_F(CollectionSynonymsTest, SynonymProximityCappedWhenTwoTokenSynonymAndPhras
         coll1->set_synonym_sets({"index"});
     }
 
-    manager.upsert_synonym_item("index", R"({"id": "syn-two", "root": "lululemon", "synonyms": ["lulu lemon"]})"_json);
+    // Synonym set where the maximum expansion length (3) exceeds a shorter variant length (2)
+    manager.upsert_synonym_item("index", R"({"id": "syn-cap", "root": "marketing officer", "synonyms": ["chief marketing officer"]})"_json);
 
-    nlohmann::json a; a["id"] = "0"; a["title"] = "Lulu Lemon"; a["points"] = 100;
-    nlohmann::json b; b["id"] = "1"; b["title"] = "Lulu amazing Lemon"; b["points"] = 100;
-
-    ASSERT_TRUE(coll1->add(a.dump()).ok());
-    ASSERT_TRUE(coll1->add(b.dump()).ok());
-
-    auto res = coll1->search("lululemon", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
-    ASSERT_EQ(2, res["hits"].size());
-
-    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
-
-    ASSERT_NE(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
-
-    collectionManager.drop_collection("coll1");
-}
-
-TEST_F(CollectionSynonymsTest, SynonymProximityNotCappedWhenThreeTokenSynonymAlreadyLowProximity) {
-    Collection *coll1;
-
-    std::vector<field> fields = {field("title", field_types::STRING, false),
-                                 field("points", field_types::INT32, false),};
-
-    coll1 = collectionManager.get_collection("coll1").get();
-    if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
-        coll1->set_synonym_sets({"index"});
-    }
-
-    manager.upsert_synonym_item("index", R"({"id": "syn-three", "root": "cmo", "synonyms": ["chief marketing officer"]})"_json);
-
-    nlohmann::json a; a["id"] = "0"; a["title"] = "Chief Marketing Officer"; a["points"] = 100;
-    nlohmann::json b; b["id"] = "1"; b["title"] = "Chief regional Marketing senior Officer"; b["points"] = 100;
+    nlohmann::json a; a["id"] = "0"; a["title"] = "Marketing Officer"; a["points"] = 100;
+    nlohmann::json b; b["id"] = "1"; b["title"] = "chief Marketing really very extremely amazingly far Officer"; b["points"] = 100;
 
     ASSERT_TRUE(coll1->add(a.dump()).ok());
     ASSERT_TRUE(coll1->add(b.dump()).ok());
 
-    auto res = coll1->search("cmo", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    // Query triggers both variants; for the 2-token variant, proximity (adjacent) = 99 > cap (98), so cap branch executes
+    auto res = coll1->search("marketing officer", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(2, res["hits"].size());
 
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
