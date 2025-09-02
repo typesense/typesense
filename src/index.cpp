@@ -1961,7 +1961,7 @@ void aggregate_nested_references(single_filter_result_t *const reference_result,
 }
 
 template <typename F>
-void negate_left_join(id_list_t* const seq_ids, uint32_t* reference_docs, uint32_t& reference_docs_count,
+void negate_left_join(id_list_t* const seq_ids, uint32_t*& reference_docs, uint32_t& reference_docs_count,
                       F&& get_doc_id, const bool& is_match_all_ids_filter, std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
                       std::set<uint32_t>& unique_doc_ids,
                       negate_left_join_t& negate_left_join_info) {
@@ -2031,6 +2031,7 @@ void negate_left_join(id_list_t* const seq_ids, uint32_t* reference_docs, uint32
         }
     }
 
+    delete [] reference_docs;
     reference_docs = negate_reference_docs;
     reference_docs_count = negate_index;
 
@@ -2074,7 +2075,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
         return Option<bool>(true);
     }
 
-    auto reference_docs = ref_filter_result->docs;
+    auto& reference_docs = ref_filter_result->docs;
 
     auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
     auto const is_nested_join = !ref_filter_result_iterator.reference.empty();
