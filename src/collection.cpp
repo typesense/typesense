@@ -4418,7 +4418,7 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
         bool end_of_phrase = false;
 
         if(token == "-" && !symbols_to_index_has_minus) {
-            if(locale != "en" && !locale.empty()) {
+            if(locale != "en" && locale != "de_en" && !locale.empty()) {
                 // non-English locale parsing splits "-" as individual tokens
                 exclude_operator_prior = true;
             }

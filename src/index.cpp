@@ -5026,7 +5026,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
 
                         const auto& search_field = search_schema.at(the_field.name);
                         auto& locale = search_field.locale;
-                        if(locale != "" && locale != "en" && locale != "th" && !Tokenizer::is_cyrillic(locale)) {
+                        if(locale != "" && locale != "en" && locale != "de_en" && locale != "th" && !Tokenizer::is_cyrillic(locale)) {
                             // disable fuzzy trie traversal for non-english locales
                             field_num_typos = 0;
                         }
