@@ -1569,7 +1569,7 @@ Option<bool> Index::do_facets(std::vector<facet>& facets, facet_query_t & facet_
             ref_facets[0].reference_collection_name = ref_collection_name;
             ref_facets[0].orig_index = temp_orig_index;
             a_facet = std::move(ref_facets[0]);
-            a_facet.references = std::move(ref_facet_result);
+            a_facet.references = ref_facet_result;
             continue;
         }
 
@@ -4668,12 +4668,10 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
             }
 
             auto const& reference_field_name = reference_field_name_op.get();
-            if (fit.is_valid(all_result_ids[i]) == 1) {
-                auto const& ref_result = fit.reference[joined_coll_having_reference];
-                for (uint32_t j = 0; j < ref_result.count; j++) {
-                    joined_collection->get_related_ids_with_lock(reference_field_name, ref_result.docs[j],
-                                                                 ref_doc_ids);
-                }
+            auto const& ref_result = fit.reference[joined_coll_having_reference];
+            for (uint32_t j = 0; j < ref_result.count; j++) {
+                joined_collection->get_related_ids_with_lock(reference_field_name, ref_result.docs[j],
+                                                             ref_doc_ids);
             }
         }
     }
