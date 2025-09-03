@@ -7069,13 +7069,18 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
             auto verbatim = ((this_match_score >> 8) & 0xFF);
             auto offset_score = prioritize_token_position ? ((this_match_score >> 0) & 0xFF) : 0;
 
+            // Capture originals for relative scoring prior to synonym-specific adjustments
+            const uint8_t orig_words_present = this_words_present;
+            const uint8_t orig_unique_words = unique_words;
+            const uint8_t orig_typo_score = typo_score;
+            const uint8_t orig_proximity = proximity;
+            const uint8_t orig_verbatim = verbatim;
+            const uint8_t orig_offset_score = offset_score;
+
             if(syn_orig_num_tokens != -1 && num_query_tokens == posting_lists.size()) {
                 unique_words = syn_orig_num_tokens;
                 this_words_present = syn_orig_num_tokens;
-                auto syn_max_proximity = 100 - (syn_orig_num_tokens - 1);
-                if(proximity > syn_max_proximity) {
-                    proximity = syn_max_proximity;
-                }
+                proximity = 100 - (syn_orig_num_tokens - 1);
             }
 
             uint64_t mod_match_score = (
@@ -7086,6 +7091,36 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
                     (int64_t(verbatim) << 8) |
                     (int64_t(offset_score) << 0)
             );
+
+            // Apply relative scoring within each criterion when synonyms are involved
+            // Normalizes partial synonym matches relative to the full synonym length.
+            if(syn_orig_num_tokens != -1) {
+                float relative_factor = 1.0f;
+                if (num_query_tokens == 1) {
+                    // Root token variant (e.g., "cmo") is considered full match
+                    relative_factor = 1.0f;
+                } else if (syn_orig_num_tokens > 0) {
+                    relative_factor = std::min(1.0f, float(orig_words_present) / float(syn_orig_num_tokens));
+                }
+
+                auto rel_words_present = uint8_t(std::max(0, std::min(255, int(std::lround(orig_words_present * relative_factor)))));
+                auto rel_unique_words = uint8_t(std::max(0, std::min(255, int(std::lround(orig_unique_words * relative_factor)))));
+                auto rel_typo_score = uint8_t(std::max(0, std::min(255, int(std::lround(orig_typo_score * relative_factor)))));
+                auto rel_proximity = uint8_t(std::max(0, std::min(255, int(std::lround(orig_proximity * relative_factor)))));
+                auto rel_verbatim = uint8_t(std::max(0, std::min(255, int(std::lround(orig_verbatim * relative_factor)))));
+                auto rel_offset_score = uint8_t(std::max(0, std::min(255, int(std::lround(orig_offset_score * relative_factor)))));
+
+                uint64_t relative_match_score = (
+                        (int64_t(rel_words_present) << 40) |
+                        (int64_t(rel_unique_words) << 32) |
+                        (int64_t(rel_typo_score) << 24) |
+                        (int64_t(rel_proximity) << 16) |
+                        (int64_t(rel_verbatim) << 8) |
+                        (int64_t(rel_offset_score) << 0)
+                );
+
+                mod_match_score = relative_match_score;
+            }
 
             if(mod_match_score > match_score) {
                 match_score = mod_match_score;
