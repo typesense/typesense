@@ -150,7 +150,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         return Option<bool>(400, std::string("The `locale` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a string."));
     } else if(!field_json[fields::locale].get<std::string>().empty() &&
-                    field_json[fields::locale].get<std::string>().size() != 2) {
+                    field_json[fields::locale].get<std::string>().size() != 2 &&
+                    field_json[fields::locale].get<std::string>() != "de_en") {
         return Option<bool>(400, std::string("The `locale` value of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` is not valid."));
     }

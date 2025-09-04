@@ -1750,6 +1750,24 @@ bool posting_list_t::found_token_sequence(const std::vector<token_positions_t>& 
     return found_token_sequence(token_positions, token_index+1, target_pos+1);
 }
 
+bool posting_list_t::has_phrase_match(std::vector<iterator_t>& its, const bool field_is_array) {
+    if (its.size() == 1) {
+        return true;
+    }
+
+    std::map<size_t, std::vector<token_positions_t>> array_token_positions;
+    get_offsets(its, array_token_positions);
+
+    for (auto& kv : array_token_positions) {
+        const auto& token_positions = kv.second;
+        if (token_positions.size() == its.size() && has_phrase_match(token_positions)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool posting_list_t::has_phrase_match(const std::vector<token_positions_t>& token_positions) {
     const auto& positions = token_positions[0].positions;
     int prev_pos = -1;

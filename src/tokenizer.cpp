@@ -65,7 +65,7 @@ void Tokenizer::init(const std::string& input) {
         text = input;
     }
 
-    if(!locale.empty() && locale != "en") {
+    if(!locale.empty() && locale != "en" && locale != "de_en") {
         UErrorCode status = U_ZERO_ERROR;
         const icu::Locale& icu_locale = icu::Locale(locale.c_str());
         if(!bi) {
@@ -106,7 +106,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
         return true;
     }
 
-    if(!locale.empty() && locale != "en") {
+    if(!locale.empty() && locale != "en" && locale != "de_en") {
         while (end_pos != icu::BreakIterator::DONE) {
             //LOG(INFO) << "Position: " << start_pos;
             std::string word;

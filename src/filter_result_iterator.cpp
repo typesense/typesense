@@ -531,7 +531,7 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
     // Since we do OR between filter values, the lowest seq_id id from all is selected.
     uint32_t lowest_id = UINT32_MAX;
 
-    if (filter_node->filter_exp.comparators[0] == EQUALS || filter_node->filter_exp.comparators[0] == NOT_EQUALS) {
+    if (filter_node && !filter_node->filter_exp.comparators.empty() && (filter_node->filter_exp.comparators[0] == EQUALS || filter_node->filter_exp.comparators[0] == NOT_EQUALS || filter_node->filter_exp.comparators[0] == CONTAINS_PHRASE)) {
         bool match_found = false;
         switch (posting_list_iterators.size()) {
             case 1:
@@ -543,9 +543,13 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
                         break;
                     }
 
-                    match_found = string_prefix_filter_index.count(0) == 0 ?
+                    if(filter_node->filter_exp.comparators[0] == CONTAINS_PHRASE) {
+                        match_found = posting_list_t::has_phrase_match(posting_list_iterators[0], field_is_array);
+                    } else {
+                        match_found = string_prefix_filter_index.count(0) == 0 ?
                                     posting_list_t::has_exact_match(posting_list_iterators[0], field_is_array) :
                                     posting_list_t::has_prefix_match(posting_list_iterators[0], field_is_array);
+                    }
 
                     if (match_found) {
                         break;
@@ -578,9 +582,13 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
                             break;
                         }
 
-                        match_found = string_prefix_filter_index.count(i) == 0 ?
+                        if(filter_node->filter_exp.comparators[0] == CONTAINS_PHRASE) {
+                             match_found = posting_list_t::has_phrase_match(filter_value_tokens, field_is_array);
+                        } else {
+                             match_found = string_prefix_filter_index.count(i) == 0 ?
                                       posting_list_t::has_exact_match(filter_value_tokens, field_is_array) :
                                       posting_list_t::has_prefix_match(filter_value_tokens, field_is_array);
+                        }
 
                         if (match_found) {
                             break;
@@ -3001,6 +3009,29 @@ void filter_result_iterator_t::compute_iterators() {
 
                 for (size_t pi = 0; pi < prefix_str_ids_size; pi++) {
                     f_id_buff.push_back(prefix_str_ids[pi]);
+                }
+            } else if (a_filter.comparators[0] == CONTAINS_PHRASE) {
+                std::vector<uint32_t> result_id_vec;
+                posting_list_t::intersect(p_list, result_id_vec);
+
+                if (result_id_vec.empty()) {
+                    continue;
+                }
+
+                uint32_t* phrase_str_ids = new uint32_t[result_id_vec.size()];
+                size_t phrase_str_ids_size = 0;
+                std::unique_ptr<uint32_t[]> phrase_str_ids_guard(phrase_str_ids);
+
+                posting_list_t::get_phrase_matches(posting_list_iterators[i], f.is_array(),
+                                                  result_id_vec.data(), result_id_vec.size(),
+                                                  phrase_str_ids, phrase_str_ids_size);
+
+                if (phrase_str_ids_size == 0) {
+                    continue;
+                }
+
+                for (size_t pi = 0; pi < phrase_str_ids_size; pi++) {
+                    f_id_buff.push_back(phrase_str_ids[pi]);
                 }
             } else if (a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) {
                 // needs intersection + exact matching (unlike CONTAINS)
