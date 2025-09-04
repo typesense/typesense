@@ -677,7 +677,6 @@ Option<bool> toFilter(const std::string& expression,
         NUM_COMPARATOR str_comparator = CONTAINS;
         auto apply_not_equals = false;
         if (raw_value[0] == '=') {
-            // string filter should be evaluated in strict "equals" mode
             str_comparator = EQUALS;
             while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
         } else if (raw_value.size() >= 2 && raw_value[0] == '!') {
@@ -685,22 +684,48 @@ Option<bool> toFilter(const std::string& expression,
                 str_comparator = NOT_EQUALS;
                 filter_value_index++;
             }
-
             apply_not_equals = true;
             while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
         }
         if (filter_value_index == raw_value.size()) {
-            return Option<bool>(400, "Error with filter field `" + _field.name +
-                                     "`: Filter value cannot be empty.");
+            return Option<bool>(400, "Error with filter field `" + _field.name + "`: Filter value cannot be empty.");
         }
-        if (raw_value[filter_value_index] == '[' && raw_value[raw_value.size() - 1] == ']') {
-            std::vector<std::string> filter_values;
-            StringUtils::split_to_values(
-                    raw_value.substr(filter_value_index + 1, raw_value.size() - filter_value_index - 2), filter_values);
 
-            filter_exp = {field_name, filter_values, {str_comparator}};
+        std::string value_part = raw_value.substr(filter_value_index);
+
+       	if (value_part.length() > 1 && value_part.front() == '"' && value_part.back() == '"') {
+        	value_part = value_part.substr(1, value_part.length() - 2);
+        	filter_exp = {field_name, {value_part}, {CONTAINS_PHRASE}};
+    	} else if (value_part[0] == '[' && value_part.back() == ']') {
+            std::vector<std::string> filter_values;
+        	std::string array_content = value_part.substr(1, value_part.size() - 2);
+        	StringUtils::split_to_values(array_content, filter_values);
+
+        	filter_exp = {field_name, {}, {}};
+
+            bool has_phrase = false;
+            for(const auto& val : filter_values) {
+                if (val.length() > 1 && val.front() == '"' && val.back() == '"') {
+                    has_phrase = true;
+                    break;
+                }
+            }
+
+            NUM_COMPARATOR default_comparator = has_phrase ? EQUALS : str_comparator;
+
+            for(const auto& val : filter_values) {
+                if (val.length() > 1 && val.front() == '"' && val.back() == '"') {
+                    std::string phrase_val = val.substr(1, val.length() - 2);
+                    filter_exp.values.push_back(phrase_val);
+                    filter_exp.comparators.push_back(CONTAINS_PHRASE);
+                } else {
+                    filter_exp.values.push_back(val);
+                    filter_exp.comparators.push_back(default_comparator);
+                }
+            }
+
         } else {
-            filter_exp = {field_name, {raw_value.substr(filter_value_index)}, {str_comparator}};
+            filter_exp = {field_name, {value_part}, {str_comparator}};
         }
 
         filter_exp.apply_not_equals = apply_not_equals;
