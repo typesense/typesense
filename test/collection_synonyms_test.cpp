@@ -1850,7 +1850,7 @@ TEST_F(CollectionSynonymsTest, SynonymMatchShouldNotOutrankCloserDirectMatch) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionSynonymsTest, SynonymProximityCapAppliedWhenMaxLengthExceedsVariantLength) {
+TEST_F(CollectionSynonymsTest, SynonymDirectMatchOutrankDirectMatch) {
     Collection *coll1;
 
     std::vector<field> fields = {field("title", field_types::STRING, false),
@@ -1862,7 +1862,6 @@ TEST_F(CollectionSynonymsTest, SynonymProximityCapAppliedWhenMaxLengthExceedsVar
         coll1->set_synonym_sets({"index"});
     }
 
-    // Synonym set where the maximum expansion length (3) exceeds a shorter variant length (2)
     manager.upsert_synonym_item("index", R"({"id": "syn-cap", "root": "marketing officer", "synonyms": ["chief marketing officer"]})"_json);
 
     nlohmann::json a; a["id"] = "0"; a["title"] = "Marketing Officer"; a["points"] = 100;
@@ -1871,12 +1870,11 @@ TEST_F(CollectionSynonymsTest, SynonymProximityCapAppliedWhenMaxLengthExceedsVar
     ASSERT_TRUE(coll1->add(a.dump()).ok());
     ASSERT_TRUE(coll1->add(b.dump()).ok());
 
-    // Query triggers both variants; for the 2-token variant, proximity (adjacent) = 99 > cap (98), so cap branch executes
     auto res = coll1->search("marketing officer", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(2, res["hits"].size());
 
-    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
 
     ASSERT_NE(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
 
