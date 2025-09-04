@@ -5243,7 +5243,7 @@ TEST_F(CollectionOverrideTest, DynamicFilterStandaloneParenTokenDeath) {
               {"name": "region", "type": "string"},
               {"name": "popularity", "type": "int32", "sort": true}
           ]
-      })"_json;
+    })"_json;
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -5277,4 +5277,56 @@ TEST_F(CollectionOverrideTest, DynamicFilterStandaloneParenTokenDeath) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ("4", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionOverrideTest, DynamicOverridePlaceHolderFieldNameTypo) {
+    nlohmann::json schema = R"({
+          "name": "products",
+          "fields": [
+              {"name": "title", "type": "string"},
+              {"name": "categoryType", "type": "string"},
+              {"name": "region", "type": "string"},
+              {"name": "popularity", "type": "int32", "sort": true}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    // Add test documents
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Office Charger","categoryType":"Electronics","region":"act","popularity":50})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Office Stapler","categoryType":"Office","region":"act","popularity":30})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Notebook","categoryType":"Office","region":"nsw","popularity":70})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Bluetooth Speaker","categoryType":"Electronics","region":"act","popularity":90})").ok());
+
+    // Override with a space after "( to force "(" to be a standalone token.
+    nlohmann::json override_json = R"OVR(
+        {
+        "id": "placeholder_field",
+        "rule": {
+            "query": "{categoryType}",
+            "match": "contains"
+          },
+          "filter_by": "categoryType:={categoryType}",
+          "filter_curated_hits": false,
+          "stop_processing": false,
+          "metadata": {
+            "text": "placeholder_field filter triggered"
+          }
+        }
+    )OVR"_json;
+
+    override_t ov;
+    auto parse_op = override_t::parse(override_json, "placeholder_field", ov);
+    ASSERT_TRUE(parse_op.ok());
+    coll1->add_override(ov);
+
+    auto res_op = coll1->search("Office", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("placeholder_field filter triggered", results["metadata"]["text"].get<std::string>());
 }
