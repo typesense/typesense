@@ -96,11 +96,64 @@ jobs:
           name: typesense-server
           path: ./typesense-server-binary
 
+      - name: Get previous successful run
+        id: get-previous-run
+        run: |
+          # First determine if we're on a fork
+          REPO_INFO=$(gh api /repos/${{ github.repository }})
+          IS_FORK=$(echo "$REPO_INFO" | jq -r '.fork')
+          PARENT_REPO=$(echo "$REPO_INFO" | jq -r '.parent.full_name // empty')
+          DEFAULT_BRANCH=$(echo "$REPO_INFO" | jq -r '.default_branch')
+
+          echo "Is fork: $IS_FORK"
+          if [ "$IS_FORK" = "true" ]; then
+            echo "This is a fork of $PARENT_REPO"
+            # For forks, get successful runs from the current repo
+            REPO_TO_CHECK="${{ github.repository }}"
+          else
+            echo "This is the main repo"
+            # For main repo, get successful runs from main branch
+            REPO_TO_CHECK="${{ github.repository }}"
+            BRANCH_FILTER="and .head_branch == \"$DEFAULT_BRANCH\""
+          fi
+
+          echo "Fetching workflow runs from $REPO_TO_CHECK..."
+          if [ "$IS_FORK" = "true" ]; then
+            RUNS_INFO=$(gh api -H "Accept: application/vnd.github+json" \
+              /repos/$REPO_TO_CHECK/actions/workflows/tests.yml/runs \
+              -q '.workflow_runs[] | select(.conclusion == "success") | {id: .id, sha: .head_sha, branch: .head_branch, conclusion: .conclusion}' \
+              --paginate | head -n 1)
+          else
+            RUNS_INFO=$(gh api -H "Accept: application/vnd.github+json" \
+              /repos/$REPO_TO_CHECK/actions/workflows/tests.yml/runs \
+              -q ".workflow_runs[] | select(.conclusion == \"success\" and .head_branch == \"$DEFAULT_BRANCH\") | {id: .id, sha: .head_sha, branch: .head_branch, conclusion: .conclusion}" \
+              --paginate | head -n 1)
+          fi
+
+          echo "Found runs info:"
+          echo "$RUNS_INFO"
+
+          if [ -z "$RUNS_INFO" ]; then
+            echo "No successful runs found"
+            echo "previous_run_id=" >> $GITHUB_OUTPUT
+          else
+            # Extract the latest run info
+            LATEST_RUN=$(echo "$RUNS_INFO" | head -n 1)
+            LATEST_ID=$(echo "$LATEST_RUN" | jq -r '.id')
+            echo "Latest successful run ID: $LATEST_ID"
+            echo "previous_run_id=$LATEST_ID" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Download cached model (if exists)
-        uses: actions/download-artifact@v4
+        uses: dawidd6/action-download-artifact@v2
         with:
+          workflow: tests.yml
           name: tei-model-cache
           path: ./hf_cache
+          run_id: ${{ steps.get-previous-run.outputs.previous_run_id }}
+          workflow_conclusion: success
         continue-on-error: true
 
       - name: Check cache contents
@@ -123,17 +176,20 @@ jobs:
 
       - name: Start TEI Container
         run: |
-          # Start container with cached model directory
           docker run -d --name tei-container --runtime=runc -p 8080:80 \
             -v ${{ github.workspace }}/hf_cache:/data \
-            ghcr.io/huggingface/text-embeddings-inference:cpu-1.8 \
-            --model-id nomic-ai/nomic-embed-text-v1.5
+            ghcr.io/huggingface/text-embeddings-inference:cpu-latest \
+            --model-id sentence-transformers/all-MiniLM-L6-v2
 
       - name: Wait for TEI Container to be ready
         run: |
           echo "Waiting for TEI Container to be ready..."
-          timeout 300 bash -c 'until curl -s http://localhost:8080/health > /dev/null; do sleep 5; done'
+          timeout 600 bash -c 'until curl -s http://localhost:8080/health > /dev/null; do sleep 5; done'
           echo "TEI Container is ready!"
+
+      - name: Print TEI Container logs on failure
+        if: failure()
+        run: docker logs tei-container || echo "No logs found"
 
       - name: Install dependencies
         working-directory: api_tests
@@ -175,6 +231,8 @@ jobs:
         with:
           name: tei-model-cache
           path: ./hf_cache
+          if-no-files-found: warn
+          overwrite: false
           retention-days: 7
 
       - name: Cleanup TEI Container
