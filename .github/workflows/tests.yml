@@ -178,8 +178,8 @@ jobs:
         run: |
           docker run -d --name tei-container --runtime=runc -p 8080:80 \
             -v ${{ github.workspace }}/hf_cache:/data \
-            ghcr.io/huggingface/text-embeddings-inference:cpu-1.8 \
-            --model-id nomic-ai/nomic-embed-text-v1.5
+            ghcr.io/huggingface/text-embeddings-inference:cpu-latest \
+            --model-id sentence-transformers/all-MiniLM-L6-v2
 
       - name: Wait for TEI Container to be ready
         run: |
