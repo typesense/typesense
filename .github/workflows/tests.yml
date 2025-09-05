@@ -123,7 +123,6 @@ jobs:
 
       - name: Start TEI Container
         run: |
-          # Start container with cached model directory
           docker run -d --name tei-container --runtime=runc -p 8080:80 \
             -v ${{ github.workspace }}/hf_cache:/data \
             ghcr.io/huggingface/text-embeddings-inference:cpu-1.8 \
@@ -132,8 +131,12 @@ jobs:
       - name: Wait for TEI Container to be ready
         run: |
           echo "Waiting for TEI Container to be ready..."
-          timeout 300 bash -c 'until curl -s http://localhost:8080/health > /dev/null; do sleep 5; done'
+          timeout 600 bash -c 'until curl -s http://localhost:8080/health > /dev/null; do sleep 5; done'
           echo "TEI Container is ready!"
+
+      - name: Print TEI Container logs on failure
+        if: failure()
+        run: docker logs tei-container || echo "No logs found"
 
       - name: Install dependencies
         working-directory: api_tests
