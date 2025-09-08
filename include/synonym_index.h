@@ -123,7 +123,7 @@ class SynonymIndex {
 private:
 
     mutable std::shared_mutex mutex;
-    Store* store;
+    Store* store = nullptr;
     spp::sparse_hash_map<std::string, uint32_t> synonym_ids_index_map;
     uint32_t synonym_index = 0;
     std::map<uint32_t, synonym_t> synonym_definitions;

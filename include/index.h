@@ -34,6 +34,7 @@
 #include "facet_index.h"
 #include "numeric_range_trie.h"
 #include "geopolygon_index.h"
+#include "join.h"
 
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
@@ -392,14 +393,6 @@ struct group_by_field_it_t {
     bool is_string;
 };
 
-struct negate_left_join_t {
-    bool is_negate_join = false;
-    size_t excluded_ids_size = 0;
-    std::unique_ptr<uint32_t []> excluded_ids = nullptr;
-
-    negate_left_join_t() = default;
-};
-
 #ifdef TEST_BUILD
     extern bool testing_not_equals_bug;
 #endif
@@ -681,9 +674,6 @@ public:
     static const int DROP_TOKENS_THRESHOLD = 1;
 
     enum {DEFAULT_TOPSTER_SIZE = 250};
-
-    /// Value used when async_reference is true and a reference doc is not found.
-    static constexpr int64_t reference_helper_sentinel_value = UINT32_MAX;
 
     Index() = delete;
 
