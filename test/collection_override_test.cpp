@@ -51,6 +51,7 @@ protected:
     }
 
     virtual void TearDown() {
+        SynonymIndexManager::get_instance().dispose();
         collectionManager.drop_collection("coll_mul_fields");
         collectionManager.dispose();
         delete store;
@@ -2762,6 +2763,10 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        SynonymIndexManager& synonymIndexManager = SynonymIndexManager::get_instance();
+        synonymIndexManager.init_store(store);
+        synonymIndexManager.add_synonym_index("index");
+        coll1->set_synonym_sets({"index"});
     }
 
     nlohmann::json doc1;
@@ -2852,7 +2857,9 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
     ASSERT_EQ(0, results["hits"].size());
 
     // with synonym for expensive: should NOT match as synonyms are resolved after override substitution
-    SynonymIndexManager::get_instance().upsert_synonym_item("index", R"({"id": "costly-expensive", "root": "costly", "synonyms": ["expensive"]})"_json);
+    op = SynonymIndexManager::get_instance().upsert_synonym_item("index",
+                                                            R"({"id": "costly-expensive", "root": "costly", "synonyms": ["expensive"]})"_json);
+    ASSERT_TRUE(op.ok());
 
     results = coll1->search("costly", {"name"}, "",
                             {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();

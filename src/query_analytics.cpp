@@ -93,7 +93,7 @@ Option<bool> QueryAnalytics::add_event(const std::string& client_ip, const nlohm
     query_event_t query_event{
       data["q"].get<std::string>(),
       event_type,
-      data["timestamp"].contains("timestamp") ? data["timestamp"].get<uint64_t>() : uint64_t(now_ts_useconds),
+      data.contains("timestamp") ? data["timestamp"].get<uint64_t>() : uint64_t(now_ts_useconds),
       data["user_id"].get<std::string>(),
       data.contains("filter_by") ? data["filter_by"].get<std::string>() : "",
       data.contains("analytics_tag") ? data["analytics_tag"].get<std::string>() : ""
@@ -118,7 +118,7 @@ Option<bool> QueryAnalytics::add_event(const std::string& client_ip, const nlohm
     log_event_it->second.push_back(query_event_t{
       data["q"].get<std::string>(),
       event_type,
-      data["timestamp"].contains("timestamp") ? data["timestamp"].get<uint64_t>() : uint64_t(now_ts_useconds),
+      data.contains("timestamp") ? data["timestamp"].get<uint64_t>() : uint64_t(now_ts_useconds),
       data["user_id"].get<std::string>(),
       data.contains("filter_by") && meta_fields.find("filter_by") != meta_fields.end() ? data["filter_by"].get<std::string>() : "",
       data.contains("analytics_tag") && meta_fields.find("analytics_tag") != meta_fields.end() ? data["analytics_tag"].get<std::string>() : ""

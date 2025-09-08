@@ -166,7 +166,7 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
             if (existing_document.contains(reference_helper_field_name) &&
                 existing_document[reference_helper_field_name].is_number_integer()) {
                 const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name].get<int64_t>();
-                if (existing_ref_seq_id != Index::reference_helper_sentinel_value &&
+                if (existing_ref_seq_id != Join::reference_helper_sentinel_value &&
                     existing_ref_seq_id != ref_seq_id) {
                     return Option<bool>(400, "Document `id: " + id + "` already has a reference to document `" +=
                                                 std::to_string(existing_ref_seq_id) + "` of `" += ref_coll_name +
@@ -213,7 +213,7 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
                 }
 
                 const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name][j].get<int64_t>();
-                if (existing_ref_seq_id != Index::reference_helper_sentinel_value &&
+                if (existing_ref_seq_id != Join::reference_helper_sentinel_value &&
                     existing_ref_seq_id != ref_seq_id) {
                     return Option<bool>(400, "Document `id: " + id + "` at `" += field_name +
                                                 "` reference array field and index `" + std::to_string(j) +
@@ -7656,7 +7656,19 @@ Option<bool> Collection::process_ref_include_fields_sort(const std::string& sort
                                                        sort_validation_op.error());
     }
 
-    return index->process_ref_include_fields_sort(sort_fields_std, limit, doc_ids);
+    auto op = index->process_ref_include_fields_sort(sort_fields_std, limit, doc_ids);
+    for (auto& sort_by_clause: sort_fields_std) {
+        for (auto& eval_ids: sort_by_clause.eval.eval_ids_vec) {
+            delete [] eval_ids;
+        }
+
+        for (uint32_t i = 0; i < sort_by_clause.eval_expressions.size(); i++) {
+            delete sort_by_clause.eval.filter_trees[i];
+        }
+
+        delete [] sort_by_clause.eval.filter_trees;
+    }
+    return op;
 }
 
 Option<bool> Collection::compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
