@@ -192,6 +192,7 @@ struct search_args {
     std::vector<facet_index_type_t> facet_index_types;
     bool enable_typos_for_numerical_tokens;
     bool enable_synonyms;
+    bool prioritize_synonym_match;
     bool synonym_prefix;
     uint32_t synonym_num_typos;
     std::vector<std::string> synonym_sets;
@@ -219,7 +220,7 @@ struct search_args {
                 size_t facet_sample_percent, size_t facet_sample_threshold, drop_tokens_param_t drop_tokens_mode,
                 std::unique_ptr<filter_node_t>&& filter_tree_root_guard, bool enable_lazy_filter, const size_t max_filter_by_candidates,
                 std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
-                bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
+                bool enable_synonyms, bool prioritize_synonym_match, bool synonym_prefix, uint32_t synonym_num_typos,
                 bool enable_typos_for_alpha_numerical_tokens, bool rerank_hybrid_matches, const bool& validate_field_names,
                 Collection const *const collection, const std::vector<std::string>& synonym_sets) :
             field_query_tokens(field_query_tokens),
@@ -245,7 +246,7 @@ struct search_args {
             enable_lazy_filter(enable_lazy_filter), max_filter_by_candidates(max_filter_by_candidates),
             facet_index_types(std::move(facet_index_types)),
             enable_typos_for_numerical_tokens(enable_typos_for_numerical_tokens), enable_synonyms(enable_synonyms),
-            synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos),
+            prioritize_synonym_match(prioritize_synonym_match), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens),
             rerank_hybrid_matches(rerank_hybrid_matches), validate_field_names(validate_field_names),
             collection(collection), synonym_sets(synonym_sets){
@@ -568,6 +569,9 @@ private:
                                        const bool prioritize_num_matching_fields,
                                        const size_t max_candidates,
                                        int syn_orig_num_tokens,
+                                       int orig_num_tokens,
+                                       bool is_synonym_query,
+                                       bool prioritize_synonym_match,
                                        const int* sort_order,
                                        std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                        const std::vector<size_t>& geopoint_indices,
@@ -718,6 +722,9 @@ public:
                            const bool prioritize_token_position,
                            size_t num_query_tokens,
                            int syn_orig_num_tokens,
+                           int orig_num_tokens,
+                           bool is_synonym_query,
+                           bool prioritize_synonym_match,
                            const std::vector<posting_list_t::iterator_t>& posting_lists);
 
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
@@ -799,6 +806,7 @@ public:
                 const std::vector<facet_index_type_t>& facet_index_types,
                 bool enable_typos_for_numerical_tokens,
                 bool enable_synonyms,
+                bool prioritize_synonym_match,
                 bool synonym_prefix,
                 uint32_t synonym_num_typos,
                 bool enable_lazy_filter,
@@ -992,6 +1000,8 @@ public:
                                                  Topster<KV>* actual_topster,
                                                  std::vector<std::vector<token_t>>& q_pos_synonyms,
                                                  int syn_orig_num_tokens,
+                                                 int orig_num_tokens,
+                                                 bool prioritize_synonym_match,
                                                  spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                                  std::vector<std::vector<art_leaf*>>& searched_queries,
                                                  uint32_t*& all_result_ids, size_t& all_result_ids_len,
@@ -1049,6 +1059,9 @@ public:
                                                    size_t min_len_1typo,
                                                    size_t min_len_2typo,
                                                    int syn_orig_num_tokens,
+                                                   int orig_num_tokens,
+                                                   bool is_synonym_query,
+                                                   bool prioritize_synonym_match,
                                                    const int* sort_order,
                                                    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                                    const std::vector<size_t>& geopoint_indices,
@@ -1088,6 +1101,9 @@ public:
                                       filter_result_iterator_t* const filter_result_iterator,
                                       const uint32_t total_cost,
                                       const int syn_orig_num_tokens,
+                                      const int orig_num_tokens,
+                                      bool is_synonym_query,
+                                      bool prioritize_synonym_match,
                                       const uint32_t* excluded_result_ids,
                                       size_t excluded_result_ids_size,
                                       const int* sort_order,
@@ -1110,6 +1126,9 @@ public:
                                      const bool prioritize_num_matching_fields,
                                      const uint32_t total_cost,
                                      const int syn_orig_num_tokens,
+                                     const int orig_num_tokens,
+                                     const bool is_synonym_query,
+                                     const bool prioritize_synonym_match,
                                      const uint32_t seq_id,
                                      const std::vector<sort_by>& sort_fields,
                                      const tsl::htrie_map<char, field>& search_schema,

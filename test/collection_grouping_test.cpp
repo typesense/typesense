@@ -749,7 +749,7 @@ TEST_F(CollectionGroupingTest, SkipFieldValidation) {
                              "exhaustive", 30000, 2, "",
                              {},{}, "right_to_left", true,
                              true, false, "", "", "",
-                             "", true, true, false, 0, true,
+                             "", true, true, false, false, 0, true,
                              true, 10, false, validate_field_names
                              );
 
@@ -776,7 +776,7 @@ TEST_F(CollectionGroupingTest, SkipFieldValidation) {
                            "exhaustive", 30000, 2, "",
                            {},{}, "right_to_left", true,
                            true, false, "", "", "",
-                           "", true, true, false, 0, true,
+                           "", true, true, false, false, 0, true,
                            true, 10, false, validate_field_names
     );
 
@@ -806,7 +806,7 @@ TEST_F(CollectionGroupingTest, SkipFieldValidation) {
                            "exhaustive", 30000, 2, "",
                            {},{}, "right_to_left", true,
                            true, false, "", "", "",
-                           "", true, true, false, 0, true,
+                           "", true, true, false, false, 0, true,
                            true, 10, false, validate_field_names);
 
     ASSERT_FALSE(res_op.ok());
