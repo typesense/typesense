@@ -3691,3 +3691,79 @@ TEST_F(CollectionSpecificMoreTest, StemmingWithDroppingTokens) {
     ASSERT_EQ("gardening tools", search_res["hits"][0]["document"]["content"].get<std::string>());
     ASSERT_EQ("gardening supply", search_res["hits"][1]["document"]["content"].get<std::string>());
 }
+
+
+TEST_F(CollectionSpecificMoreTest, CustomStemmingDictionaryOverridesDeEnLocale) {
+    nlohmann::json schema = R"({
+        "name": "custom_stemming_test",
+        "fields": [
+          {"name": "title_de_en", "type": "string", "locale": "de_en", "stem_dictionary": "absurd_stems"},
+          {"name": "title_en", "type": "string", "locale": "en", "stem": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    std::vector<std::string> json_lines;
+    json_lines.push_back("{\"word\": \"running\", \"root\": \"foo\"}");
+    json_lines.push_back("{\"word\": \"walking\", \"root\": \"bar\"}");
+    json_lines.push_back("{\"word\": \"playing\", \"root\": \"baz\"}");
+    json_lines.push_back("{\"word\": \"swimming\", \"root\": \"qux\"}");
+    json_lines.push_back("{\"word\": \"dancing\", \"root\": \"xyz\"}");
+
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("absurd_stems", json_lines).ok());
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["title_de_en"] = "running";
+    doc1["title_en"] = "running";
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+
+    nlohmann::json doc2;
+    doc2["id"] = "2";
+    doc2["title_de_en"] = "walking";
+    doc2["title_en"] = "walking";
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    nlohmann::json doc3;
+    doc3["id"] = "3";
+    doc3["title_de_en"] = "playing";
+    doc3["title_en"] = "playing";
+    ASSERT_TRUE(coll->add(doc3.dump()).ok());
+
+    nlohmann::json doc4;
+    doc4["id"] = "4";
+    doc4["title_de_en"] = "swimming";
+    doc4["title_en"] = "swimming";
+    ASSERT_TRUE(coll->add(doc4.dump()).ok());
+
+    nlohmann::json doc5;
+    doc5["id"] = "5";
+    doc5["title_de_en"] = "dancing";
+    doc5["title_en"] = "dancing";
+    ASSERT_TRUE(coll->add(doc5.dump()).ok());
+
+    auto res = coll->search("foo", {"title_de_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size()) << "Custom stem 'foo' should find 'running' in de_en field";
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+
+    res = coll->search("bar", {"title_de_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size()) << "Custom stem 'bar' should find 'walking' in de_en field";
+    ASSERT_EQ("2", res["hits"][0]["document"]["id"].get<std::string>());
+
+    res = coll->search("baz", {"title_de_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size()) << "Custom stem 'baz' should find 'playing' in de_en field";
+    ASSERT_EQ("3", res["hits"][0]["document"]["id"].get<std::string>());
+
+    res = coll->search("qux", {"title_de_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size()) << "Custom stem 'qux' should find 'swimming' in de_en field";
+    ASSERT_EQ("4", res["hits"][0]["document"]["id"].get<std::string>());
+
+    res = coll->search("xyz", {"title_de_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size()) << "Custom stem 'xyz' should find 'dancing' in de_en field";
+    ASSERT_EQ("5", res["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("custom_stemming_test");
+}
