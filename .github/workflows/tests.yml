@@ -147,13 +147,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Download cached model (if exists)
-        uses: dawidd6/action-download-artifact@v2
+        uses: actions/download-artifact@v5
         with:
-          workflow: tests.yml
           name: tei-model-cache
           path: ./hf_cache
-          run_id: ${{ steps.get-previous-run.outputs.previous_run_id }}
-          workflow_conclusion: success
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.get-previous-run.outputs.previous_run_id }}
         continue-on-error: true
 
       - name: Check cache contents
