@@ -5300,7 +5300,6 @@ TEST_F(CollectionOverrideTest, DynamicOverridePlaceHolderFieldNameTypo) {
     ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Notebook","categoryType":"Office","region":"nsw","popularity":70})").ok());
     ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Bluetooth Speaker","categoryType":"Electronics","region":"act","popularity":90})").ok());
 
-    // Override with a space after "( to force "(" to be a standalone token.
     nlohmann::json override_json = R"OVR(
         {
         "id": "placeholder_field",

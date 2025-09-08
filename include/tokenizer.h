@@ -40,7 +40,7 @@ private:
     int32_t end_pos = 0;
 
     bool phrase_search_op_prior = false;
-    bool is_override_token = false;
+    bool is_placeholder = false;
     bool placeholder_op_prior = false;
 
     char* normalized_text = nullptr;
@@ -65,7 +65,7 @@ public:
                        const std::vector<char>& symbols_to_index = {},
                        const std::vector<char>& separators = {},
                        std::shared_ptr<Stemmer> stemmer = nullptr,
-                       bool is_override = false);
+                       bool is_placeholder = false);
 
     ~Tokenizer() {
         iconv_close(cd);
