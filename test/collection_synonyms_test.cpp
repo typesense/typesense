@@ -1879,7 +1879,7 @@ TEST_F(CollectionSynonymsTest, SynonymDirectMatchOutrankDirectMatch) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionSynonymsTest, PrioritizeSynonymMatch) {
+TEST_F(CollectionSynonymsTest, DemoteSynonymMatch) {
     Collection *coll1;
 
     std::vector<field> fields = {field("title", field_types::STRING, false),
