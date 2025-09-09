@@ -1913,10 +1913,10 @@ TEST_F(CollectionSynonymsTest, PrioritizeSynonymMatch) {
     auto res = search_op.get();
     ASSERT_EQ(2, res["hits"].size());
 
-    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
 
-    ASSERT_NE(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
+    ASSERT_TRUE(res["hits"][0]["text_match"].get<size_t>() > res["hits"][1]["text_match"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
 }

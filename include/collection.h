@@ -108,7 +108,7 @@ struct collection_search_args_t {
     static constexpr auto ENABLE_OVERRIDES = "enable_overrides";
     static constexpr auto FILTER_CURATED_HITS = "filter_curated_hits";
     static constexpr auto ENABLE_SYNONYMS = "enable_synonyms";
-    static constexpr auto PRIORITIZE_SYNONYM_MATCH = "piroritize_synonym_match";
+    static constexpr auto DEMOTE_SYNONYM_MATCH = "piroritize_synonym_match";
 
     static constexpr auto MAX_CANDIDATES = "max_candidates";
 
@@ -248,7 +248,7 @@ struct collection_search_args_t {
     std::string voice_query;
     bool enable_typos_for_numerical_tokens;
     bool enable_synonyms;
-    bool prioritize_synonym_match;
+    bool demote_synonym_matches;
     bool synonym_prefix;
     size_t synonym_num_typos;
     std::vector<std::string> synonym_sets;
@@ -293,7 +293,7 @@ struct collection_search_args_t {
                              std::string drop_tokens_mode_str, bool prioritize_num_matching_fields, bool group_missing_values,
                              bool conversation, std::string conversation_model_id, std::string conversation_id,
                              std::string override_tags, std::string voice_query, bool enable_typos_for_numerical_tokens,
-                             bool enable_synonyms, bool prioritize_synonym_match, bool synonym_prefix, size_t synonym_num_typos, bool enable_lazy_filter,
+                             bool enable_synonyms, bool demote_synonym_matches, bool synonym_prefix, size_t synonym_num_typos, bool enable_lazy_filter,
                              bool enable_typos_for_alpha_numerical_tokens, size_t max_filter_by_candidates,
                              bool rerank_hybrid_matches, bool enable_analytics, bool validate_field_names,
                              std::string analytics_tag,
@@ -324,7 +324,7 @@ struct collection_search_args_t {
             drop_tokens_mode_str(std::move(drop_tokens_mode_str)), prioritize_num_matching_fields(prioritize_num_matching_fields), group_missing_values(group_missing_values),
             conversation(conversation), conversation_model_id(std::move(conversation_model_id)), conversation_id(std::move(conversation_id)),
             override_tags(std::move(override_tags)), voice_query(std::move(voice_query)), enable_typos_for_numerical_tokens(enable_typos_for_numerical_tokens),
-            enable_synonyms(enable_synonyms), prioritize_synonym_match(prioritize_synonym_match), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos), enable_lazy_filter(enable_lazy_filter),
+            enable_synonyms(enable_synonyms), demote_synonym_matches(demote_synonym_matches), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos), enable_lazy_filter(enable_lazy_filter),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens), max_filter_by_candidates(max_filter_by_candidates),
             rerank_hybrid_matches(rerank_hybrid_matches), enable_analytics(enable_analytics), validate_field_names(validate_field_names),
             analytics_tag(analytics_tag),
@@ -950,7 +950,7 @@ public:
                                   const std::string& voice_query = "",
                                   bool enable_typos_for_numerical_tokens = true,
                                   bool enable_synonyms = true,
-                                  bool prioritize_synonym_match = false,
+                                  bool demote_synonym_matches = false,
                                   bool synonym_prefix = false,
                                   uint32_t synonym_num_typos = 0,
                                   bool enable_lazy_filter = false,
