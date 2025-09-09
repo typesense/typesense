@@ -1980,6 +1980,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     const std::string& voice_query = coll_args.voice_query;
     const bool& enable_typos_for_numerical_tokens = coll_args.enable_typos_for_numerical_tokens;
     const bool& enable_synonyms = coll_args.enable_synonyms;
+    const bool& demote_synonym_match = coll_args.demote_synonym_match;
     const bool& synonym_prefix = coll_args.synonym_prefix;
     const uint32_t& synonyms_num_typos = coll_args.synonym_num_typos;
     const std::vector<std::string>& param_synonym_sets = coll_args.synonym_sets;
@@ -2640,7 +2641,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                facet_sample_percent_computed, facet_sample_threshold, drop_tokens_param,
                                                std::move(filter_tree_root_guard), enable_lazy_filter, max_filter_by_candidates,
                                                facet_index_types, enable_typos_for_numerical_tokens,
-                                               enable_synonyms, synonym_prefix, synonyms_num_typos,
+                                               enable_synonyms, demote_synonym_match, synonym_prefix, synonyms_num_typos,
                                                enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches,
                                                validate_field_names, this, all_synonym_sets);
 
@@ -2709,6 +2710,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           const std::string& voice_query,
                                           bool enable_typos_for_numerical_tokens,
                                           bool enable_synonyms,
+                                          bool demote_synonym_match,
                                           bool synonym_prefix,
                                           uint32_t synonym_num_typos,
                                           bool enable_lazy_filter,
@@ -2752,7 +2754,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          drop_tokens_mode, prioritize_num_matching_fields, group_missing_values,
                                          conversation, conversation_model_id, conversation_id,
                                          override_tags_str, voice_query, enable_typos_for_numerical_tokens,
-                                         enable_synonyms, synonym_prefix, synonym_num_typos, enable_lazy_filter,
+                                         enable_synonyms, demote_synonym_match, synonym_prefix, synonym_num_typos, enable_lazy_filter,
                                          enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
                                          rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                          personalization_user_id, personalization_model_id, personalization_type,
@@ -4849,7 +4851,7 @@ void Collection::highlight_result(const bool& enable_nested_fields, const std::v
                 StringUtils::tolowercase(text);
                 if(text.size() < 100 && text.find(raw_query_tokens.front()) != std::string::npos) {
                     const Match & this_match = Match(field_order_kv->key, empty_offsets, false, false);
-                    uint64_t this_match_score = this_match.get_match_score(0, 1);
+                    uint64_t this_match_score = this_match.get_match_score(0, 1, 0);
                     match_indices.emplace_back(this_match, this_match_score, i);
                 }
             }
@@ -4883,7 +4885,7 @@ void Collection::highlight_result(const bool& enable_nested_fields, const std::v
                 }
 
                 const Match & this_match = Match(field_order_kv->key, token_positions, true, true);
-                uint64_t this_match_score = this_match.get_match_score(1, token_positions.size());
+                uint64_t this_match_score = this_match.get_match_score(1, token_positions.size(), 0);
                 match_indices.emplace_back(this_match, this_match_score, array_index);
 
                 /*LOG(INFO) << "doc_id: " << document["id"] << ", search_field: " << search_field.name
@@ -8398,6 +8400,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     bool pre_segmented_query = false;
     bool enable_overrides = true;
     bool enable_synonyms = true;
+    bool demote_synonym_match = false;
     bool synonym_prefix = false;
     size_t synonym_num_typos = 0;
     std::vector<std::string> synonym_sets;
@@ -8515,6 +8518,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {GROUP_MISSING_VALUES, &group_missing_values},
             {ENABLE_TYPOS_FOR_NUMERICAL_TOKENS, &enable_typos_for_numerical_tokens},
             {ENABLE_SYNONYMS, &enable_synonyms},
+            {DEMOTE_SYNONYM_MATCH, &demote_synonym_match},
             {SYNONYM_PREFIX, &synonym_prefix},
             {ENABLE_LAZY_FILTER, &enable_lazy_filter},
             {ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS, &enable_typos_for_alpha_numerical_tokens},
@@ -8703,7 +8707,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     drop_tokens_mode_str, prioritize_num_matching_fields, group_missing_values,
                                     conversation, conversation_model_id, conversation_id,
                                     override_tags, voice_query, enable_typos_for_numerical_tokens,
-                                    enable_synonyms, synonym_prefix, synonym_num_typos, enable_lazy_filter,
+                                    enable_synonyms, demote_synonym_match, synonym_prefix, synonym_num_typos, enable_lazy_filter,
                                     enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
                                     rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                     personalization_user_id, personalization_model_id, personalization_type,

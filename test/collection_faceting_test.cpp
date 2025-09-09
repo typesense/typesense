@@ -3879,7 +3879,7 @@ TEST_F(CollectionFacetingTest, IgnoreMissingFacetByFields) {
                           "exhaustive", 30000, 2, "",
                           {},{}, "right_to_left", true,
                           true, false, "", "", "",
-                          "", true, true, false, 0, true,
+                          "", true, true, false, false, 0, true,
                           true, DEFAULT_FILTER_BY_CANDIDATES, false, validate_field_names);
 
     ASSERT_TRUE(res_op.ok());

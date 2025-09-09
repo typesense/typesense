@@ -1824,7 +1824,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                                                          0, group_by_fields, false, false, false, false,
                                                                          query_hashes, MAX_SCORE, {true}, typo_tokens_threshold,
                                                                          false, max_filter_by_candidates, min_len_1typo, min_len_2typo,
-                                                                         0, nullptr, field_values, geopoint_indices,
+                                                                         0, value_tokens.size(), false, false, nullptr, field_values, geopoint_indices,
                                                                          is_group_by_first_pass,
                                                                          group_by_missing_value_ids,
                                                                          enable_typos_for_numerical_tokens,

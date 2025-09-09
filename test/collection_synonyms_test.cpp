@@ -533,7 +533,6 @@ TEST_F(CollectionSynonymsTest, SynonymsTextMatchSameAsRootQuery) {
 
     ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
-
     ASSERT_EQ(res["hits"][1]["text_match"].get<size_t>(), res["hits"][0]["text_match"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
@@ -930,7 +929,6 @@ TEST_F(CollectionSynonymsTest, SynonymExpansionAndCompressionRanking) {
     // and hence must be tied and then ranked on "points"
     ASSERT_EQ("2", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
-
     ASSERT_EQ(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
 
     // now with compression synonym
@@ -1441,7 +1439,7 @@ TEST_F(CollectionSynonymsTest, SynonymTypos) {
                         "exhaustive", 30000, 2, "",
                         {},{}, "right_to_left", true,
                         true, false, "", "", "",
-                        "", false, true, false, synonym_num_typos).get();
+                        "", false, true, false, false, synonym_num_typos).get();
     ASSERT_EQ(1, res["hits"].size());
 
     //max 2 typos supported
@@ -1461,7 +1459,7 @@ TEST_F(CollectionSynonymsTest, SynonymTypos) {
                         "exhaustive", 30000, 2, "",
                         {},{}, "right_to_left", true,
                         true, false, "", "", "",
-                        "", false, true, false, synonym_num_typos);
+                        "", false, true, false,false, synonym_num_typos);
 
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("Value of `synonym_num_typos` must not be greater than 2.",search_op.error());
@@ -1537,7 +1535,7 @@ TEST_F(CollectionSynonymsTest, SynonymPrefix) {
                              "exhaustive", 30000, 2, "",
                              {},{}, "right_to_left", true,
                              true, false, "", "", "",
-                             "", false, true, synonym_prefix).get();
+                             "", false, true,false, synonym_prefix).get();
 
     ASSERT_EQ(2, res["hits"].size());
 }
@@ -1720,7 +1718,7 @@ TEST_F(CollectionSynonymsTest, SynonymIndexInSearchParams) {
                                 0, max_score, 100, 0, 0,0,
                                 "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true,
                                 true, false, "", "", "", "", false,
-                                true, false, 0, false, false, DEFAULT_FILTER_BY_CANDIDATES, false, true, true, 
+                                true, false, false, 0, false, false, DEFAULT_FILTER_BY_CANDIDATES, false, true, true,
                                 "", "", "", "", "", "", "", 0, {"tsyn_idx"});
 
     ASSERT_TRUE(search_op.ok());
@@ -1802,9 +1800,126 @@ TEST_F(CollectionSynonymsTest, SynonymPrefixDisabled) {
                         "exhaustive", 30000, 2, "",
                         {},{}, "right_to_left", true,
                         true, false, "", "", "",
-                        "", false, true, synonym_prefix).get();
+                        "", false, true, false, synonym_prefix).get();
 
     ASSERT_EQ(1, res["hits"].size());
+}
+
+TEST_F(CollectionSynonymsTest, SynonymMatchShouldNotOutrankCloserDirectMatch) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Horween Brown Chromexcel Horsehide brwn", "100"},
+        {"The Chromexcel For Brown", "100"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = std::stoi(records[i][1]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    manager.upsert_synonym_item("index", R"({"id": "syn-1", "root": "brown", "synonyms": ["brwn"]})"_json);
+
+    auto res = coll1->search("brown chromexcel", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ(2, res["found"].get<uint32_t>());
+
+    // Better word proximity must be ranked higher with better match score
+
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_NE(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSynonymsTest, SynonymDirectMatchOutrankDirectMatch) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
+    }
+
+    manager.upsert_synonym_item("index", R"({"id": "syn-cap", "root": "marketing officer", "synonyms": ["chief marketing officer"]})"_json);
+
+    nlohmann::json a; a["id"] = "0"; a["title"] = "Marketing Officer"; a["points"] = 100;
+    nlohmann::json b; b["id"] = "1"; b["title"] = "chief Marketing really very extremely amazingly far Officer"; b["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(a.dump()).ok());
+    ASSERT_TRUE(coll1->add(b.dump()).ok());
+
+    auto res = coll1->search("marketing officer", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, res["hits"].size());
+
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_NE(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSynonymsTest, DemoteSynonymMatch) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_synonym_sets({"index"});
+    }
+
+    manager.upsert_synonym_item("index", R"({"id": "syn-cap", "root": "cmo", "synonyms": ["chief marketing officer"]})"_json);
+
+    nlohmann::json a; a["id"] = "0"; a["title"] = "cmo"; a["points"] = 100;
+    nlohmann::json b; b["id"] = "1"; b["title"] = "chief Marketing Officer"; b["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(a.dump()).ok());
+    ASSERT_TRUE(coll1->add(b.dump()).ok());
+    bool demote_synonym_match = true;
+
+    auto search_op = coll1->search("cmo", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+      {true}, 0, spp::sparse_hash_set<string>{}, spp::sparse_hash_set<string>{}, 10, "", 30, 4, "", 40,
+      {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+      false, true, "", false, 6000 * 1000, 4, 7, fallback, 4,
+      {off}, INT16_MAX, INT16_MAX, 2, 2, false, "", true,
+      0, max_score, 100, 0, 0,0,
+      "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true,
+      true, false, "", "", "", "", false,
+      true, demote_synonym_match, false, 0, false, true, DEFAULT_FILTER_BY_CANDIDATES, false, true, true,
+      "", "", "", "", "", "", "", 0);
+
+    auto res = search_op.get();
+    ASSERT_EQ(2, res["hits"].size());
+
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_TRUE(res["hits"][0]["text_match"].get<size_t>() > res["hits"][1]["text_match"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionSynonymsTest, DeEnLocaleFieldSpecificSynonyms) {
