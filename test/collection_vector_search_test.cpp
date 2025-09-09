@@ -5409,7 +5409,7 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
                             "exhaustive", 30000, 2, "",
                             {},{}, "right_to_left", true,
                             true, false, "", "", "",
-                            "", true, true, false, 0, true,
+                            "", true, true, false, false, 0, true,
                             true, DEFAULT_FILTER_BY_CANDIDATES, use_aux_score).get();
 
 
@@ -5493,7 +5493,7 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreWithTwoFieldsTest) {
                             "exhaustive", 30000, 2, "",
                             {},{}, "right_to_left", true,
                             true, false, "", "", "",
-                            "", true, true, false, 0, true,
+                            "", true, true, false, false, 0, true,
                             true, DEFAULT_FILTER_BY_CANDIDATES, use_aux_score).get();
 
     ASSERT_EQ(2, res["hits"].size());

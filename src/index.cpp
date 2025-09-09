@@ -5425,10 +5425,17 @@ int64_t Index::compute_aggregated_score(const std::vector<or_iterator_t>& its,
     uint64_t aggregated_score = 0;
 
     if (match_type == max_score) {
+        std::cout << "match_type: max_score" << std::endl;
+        std::cout << "query_len: " << query_len << std::endl;
+        std::cout << "best_field_match_score: " << best_field_match_score << std::endl;
+        std::cout << "max_field_weight: " << max_field_weight << std::endl;
+        std::cout << "num_matching_fields: " << num_matching_fields << std::endl;
         aggregated_score = ((int64_t(query_len) << 59) |
                             (int64_t(best_field_match_score) << 11) |
                             (int64_t(max_field_weight) << 3) |
                             (int64_t(num_matching_fields) << 0));
+        std::cout << "aggregated_score: " << aggregated_score << std::endl;
+        std::cout << std::endl;
     } else if (match_type == max_weight) {
         aggregated_score = ((int64_t(query_len) << 59) |
                             (int64_t(max_field_weight) << 51) |
@@ -7072,16 +7079,14 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
                   << ", offset_score: " << offset_score
                   << ", match_score: " << match_score;*/
         auto this_match_score = match_score;
-        auto this_words_present = ((this_match_score >> 40) & 0xFF);
-        auto unique_words = field_is_array ? this_words_present : ((this_match_score >> 48) & 0xFF);
-        auto typo_score = ((this_match_score >> 32) & 0xFF);
-        auto proximity = ((this_match_score >> 24) & 0xFF);
-        auto verbatim = ((this_match_score >> 16) & 0xFF);
-        auto offset_score = prioritize_token_position ? ((this_match_score >> 8) & 0xFF) : 0;
+        auto this_words_present = ((this_match_score >> 32) & 0xFF);
+        auto unique_words = field_is_array ? this_words_present : ((this_match_score >> 40) & 0xFF);
+        auto typo_score = ((this_match_score >> 24) & 0xFF);
+        auto proximity = ((this_match_score >> 16) & 0xFF);
+        auto verbatim = ((this_match_score >> 12) & 0xFF);
+        auto offset_score = prioritize_token_position ? ((this_match_score >> 4) & 0xFF) : 0;
 
         std::cout << "seq_id: " << seq_id << std::endl;
-        std::cout << "prioritize_synonym_match: " << prioritize_synonym_match << std::endl;
-        std::cout << "synonym_score: " << int8_t(synonym_score) << std::endl;
         std::cout << "is_synonym_query: " << (is_synonym_query ? 1 : 0) << std::endl;
         std::cout << "orig_num_tokens: " << orig_num_tokens << std::endl;
         std::cout << "syn_orig_num_tokens: " << syn_orig_num_tokens << std::endl;
@@ -7094,7 +7099,6 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
         std::cout << "verbatim: " << verbatim << std::endl;
         std::cout << "offset_score: " << offset_score << std::endl;
         std::cout << "match_score: " << match_score << std::endl;
-        std::cout << std::endl;
 
     } else {
         std::map<size_t, std::vector<token_positions_t>> array_token_positions;
@@ -7114,11 +7118,12 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
             // might be available within the window used for proximity calculation (this_words_present)
 
             auto this_words_present = ((this_match_score >> 40) & 0xFF);
-            auto unique_words = field_is_array ? this_words_present : ((this_match_score >> 48) & 0xFF);
-            auto typo_score = ((this_match_score >> 32) & 0xFF);
-            auto proximity = ((this_match_score >> 24) & 0xFF);
-            auto verbatim = ((this_match_score >> 16) & 0xFF);
-            auto offset_score = prioritize_token_position ? ((this_match_score >> 8) & 0xFF) : 0;
+            auto unique_words = field_is_array ? this_words_present : ((this_match_score >> 32) & 0xFF);
+            auto typo_score = ((this_match_score >> 24) & 0xFF);
+            auto proximity = ((this_match_score >> 16) & 0xFF);
+            auto verbatim = ((this_match_score >> 12) & 0xF);
+            auto offset_score = prioritize_token_position ? ((this_match_score >> 4) & 0xFF) : 0;
+            synonym_score = ((this_match_score >> 0) & 0xF);
 
 
             if (is_synonym_query && num_query_tokens == posting_lists.size()) {
@@ -7147,12 +7152,12 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
             }
 
             uint64_t mod_match_score = (
-                    (int64_t(unique_words) << 48) |
                     (int64_t(this_words_present) << 40) |
-                    (int64_t(typo_score) << 32) |
-                    (int64_t(proximity) << 24) |
-                    (int64_t(verbatim) << 16) |
-                    (int64_t(offset_score) << 8) | 
+                    (int64_t(unique_words) << 32) |
+                    (int64_t(typo_score) << 24) |
+                    (int64_t(proximity) << 16) |
+                    (int64_t(verbatim) << 12) |
+                    (int64_t(offset_score) << 4) |
                     (int64_t(synonym_score) << 0)
             );
 
@@ -7161,10 +7166,6 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
             }
 
             std::cout << "seq_id: " << seq_id << std::endl;
-            std::cout << "prioritize_synonym_match: " << prioritize_synonym_match << std::endl;
-            std::cout << "synonym_score: " << int8_t(synonym_score) << std::endl;
-            std::cout << "is_synonym_query: " << (is_synonym_query ? 1 : 0) << std::endl;
-            std::cout << "orig_num_tokens: " << orig_num_tokens << std::endl;
             std::cout << "syn_orig_num_tokens: " << syn_orig_num_tokens << std::endl;
             std::cout << "num_query_tokens: " << num_query_tokens << std::endl;
             std::cout << "posting_lists.size: " << posting_lists.size() << std::endl;
@@ -7175,7 +7176,7 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
             std::cout << "verbatim: " << verbatim << std::endl;
             std::cout << "offset_score: " << offset_score << std::endl;
             std::cout << "mod_match_score: " << mod_match_score << std::endl;
-            std::cout << std::endl;
+            std::cout << "match_score: " << match_score << std::endl;
 
             /*std::ostringstream os;
             os << "seq_id: " << seq_id << ", field_id: " << field_id

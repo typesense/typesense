@@ -931,7 +931,7 @@ TEST_F(CollectionSpecificMoreTest, RelevanceConsiderAllFields) {
     ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
 
     // verify match score component values
-    ASSERT_EQ("580958991945826331", results["hits"][0]["text_match_info"]["score"].get<std::string>());
+    ASSERT_EQ("578730123373576219", results["hits"][0]["text_match_info"]["score"].get<std::string>());
     ASSERT_EQ(3, results["hits"][0]["text_match_info"]["fields_matched"].get<size_t>());
     ASSERT_EQ(2, results["hits"][1]["text_match_info"]["fields_matched"].get<size_t>());
     ASSERT_EQ(1, results["hits"][2]["text_match_info"]["fields_matched"].get<size_t>());
@@ -940,9 +940,9 @@ TEST_F(CollectionSpecificMoreTest, RelevanceConsiderAllFields) {
     ASSERT_EQ(1, results["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
     ASSERT_EQ(1, results["hits"][2]["text_match_info"]["tokens_matched"].get<size_t>());
 
-    ASSERT_EQ("2196406075392", results["hits"][0]["text_match_info"]["best_field_score"].get<std::string>());
-    ASSERT_EQ("2196406075392", results["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
-    ASSERT_EQ("2196406075392", results["hits"][2]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1108091342848", results["hits"][0]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1108091342848", results["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1108091342848", results["hits"][2]["text_match_info"]["best_field_score"].get<std::string>());
 
     ASSERT_EQ(3, results["hits"][0]["text_match_info"]["best_field_weight"].get<size_t>());
     ASSERT_EQ(3, results["hits"][1]["text_match_info"]["best_field_weight"].get<size_t>());
@@ -2225,12 +2225,12 @@ TEST_F(CollectionSpecificMoreTest, WeightTakingPrecendeceOverMatch) {
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
 
-    ASSERT_EQ("2196406009856", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1108091338752", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string>());
     ASSERT_EQ(15, res["hits"][0]["text_match_info"]["best_field_weight"].get<size_t>());
     ASSERT_EQ(2, res["hits"][0]["text_match_info"]["fields_matched"].get<size_t>());
     ASSERT_EQ(2, res["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
 
-    ASSERT_EQ("3295900860416", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("2211897868288", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
     ASSERT_EQ(14, res["hits"][1]["text_match_info"]["best_field_weight"].get<size_t>());
     ASSERT_EQ(1, res["hits"][1]["text_match_info"]["fields_matched"].get<size_t>());
     ASSERT_EQ(2, res["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
