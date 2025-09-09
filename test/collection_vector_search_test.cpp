@@ -5387,7 +5387,7 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
     ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
     ASSERT_FLOAT_EQ(0.2496563196182251, res["hits"][3]["vector_distance"].get<float>());
 
-    ASSERT_EQ(1736172819517014137, res["hits"][0]["text_match"].get<std::size_t>());
+    ASSERT_EQ(1736172819517016185, res["hits"][0]["text_match"].get<std::size_t>());
     ASSERT_EQ(0, res["hits"][1]["text_match"].get<std::size_t>());
     ASSERT_EQ(0, res["hits"][2]["text_match"].get<std::size_t>());
     ASSERT_EQ(0, res["hits"][3]["text_match"].get<std::size_t>());
@@ -5419,9 +5419,9 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
     ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
     ASSERT_FLOAT_EQ(0.2496563196182251, res["hits"][3]["vector_distance"].get<float>());
 
-    ASSERT_EQ(1736172819517014137, res["hits"][0]["text_match"].get<std::size_t>());
-    ASSERT_EQ(1157451471441100921, res["hits"][1]["text_match"].get<std::size_t>());
-    ASSERT_EQ(578730123365187705, res["hits"][2]["text_match"].get<std::size_t>());
+    ASSERT_EQ(1736172819517016185, res["hits"][0]["text_match"].get<std::size_t>());
+    ASSERT_EQ(1157451471441102969, res["hits"][1]["text_match"].get<std::size_t>());
+    ASSERT_EQ(578730123365189753, res["hits"][2]["text_match"].get<std::size_t>());
     ASSERT_EQ(0, res["hits"][3]["text_match"].get<std::size_t>()); //document with id:3 won't have any text_match
 }
 

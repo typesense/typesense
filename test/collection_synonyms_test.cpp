@@ -1898,6 +1898,7 @@ TEST_F(CollectionSynonymsTest, PrioritizeSynonymMatch) {
 
     ASSERT_TRUE(coll1->add(a.dump()).ok());
     ASSERT_TRUE(coll1->add(b.dump()).ok());
+    bool demote_synonym_match = true;
 
     auto search_op = coll1->search("cmo", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
       {true}, 0, spp::sparse_hash_set<string>{}, spp::sparse_hash_set<string>{}, 10, "", 30, 4, "", 40,
@@ -1907,7 +1908,7 @@ TEST_F(CollectionSynonymsTest, PrioritizeSynonymMatch) {
       0, max_score, 100, 0, 0,0,
       "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true,
       true, false, "", "", "", "", false,
-      true, true, false, 0, false, true, DEFAULT_FILTER_BY_CANDIDATES, false, true, true,
+      true, demote_synonym_match, false, 0, false, true, DEFAULT_FILTER_BY_CANDIDATES, false, true, true,
       "", "", "", "", "", "", "", 0);
 
     auto res = search_op.get();
