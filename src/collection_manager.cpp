@@ -99,6 +99,10 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         if(field_obj.count(fields::store) == 0) {
             field_obj[fields::store] = true;
         }
+        
+        if(field_obj.count(fields::truncate) == 0) {
+            field_obj[fields::truncate] = true;
+        }
 
         if(field_obj.count(fields::token_separators) == 0) {
             field_obj[fields::token_separators] = nlohmann::json::array();
@@ -140,7 +144,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
                 field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed],
                 field_obj[fields::range_index], field_obj[fields::store], field_obj[fields::stem], field_obj[fields::stem_dictionary],
-                field_obj[fields::hnsw_params], field_obj[fields::async_reference], field_obj[fields::token_separators], field_obj[fields::symbols_to_index]);
+                field_obj[fields::hnsw_params], field_obj[fields::async_reference], field_obj[fields::token_separators], field_obj[fields::symbols_to_index], field_obj[fields::truncate]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {

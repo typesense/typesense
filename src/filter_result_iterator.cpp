@@ -1761,7 +1761,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             auto approx_filter_value_match = UINT32_MAX;
 
             while (tokenizer.next(str_token, token_index)) {
-                if (str_token.size() > 100) {
+                if (str_token.size() > 100 && f.truncate) {
                     str_token.erase(100);
                 }
                 str_tokens.push_back(str_token);
