@@ -1213,6 +1213,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             sort_field_std.eval_expressions = _sort_field.eval_expressions;
             sort_field_std.eval.scores = _sort_field.eval.scores;
             sort_field_std.type = sort_by::eval_expression;
+            auto doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
 
             for (uint32_t j = 0; j < count; j++) {
                 auto const& filter_exp = _sort_field.eval_expressions[j];
@@ -1221,7 +1222,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 }
 
                 Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
-                                                                          store, "", sort_field_std.eval.filter_trees[j],
+                                                                          store, doc_id_prefix, sort_field_std.eval.filter_trees[j],
                                                                           validate_field_names);
                 if (!parse_filter_op.ok()) {
                     return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
