@@ -533,6 +533,7 @@ TEST_F(CollectionSynonymsTest, SynonymsTextMatchSameAsRootQuery) {
 
     ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(res["hits"][1]["text_match"].get<size_t>(), res["hits"][0]["text_match"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -928,6 +929,7 @@ TEST_F(CollectionSynonymsTest, SynonymExpansionAndCompressionRanking) {
     // and hence must be tied and then ranked on "points"
     ASSERT_EQ("2", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
 
     // now with compression synonym
     manager.upsert_synonym_item("index", R"({"id": "syn-1", "root": "lulu lemon", "synonyms": ["lululemon"]})"_json);
