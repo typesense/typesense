@@ -1996,7 +1996,8 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
               "stem":false,
               "store": true,
               "type":"string",
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate": true
             }
           ],
           "name":"cp2",
@@ -2206,7 +2207,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"string",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate": true
                 },
                 {
                     "facet":true,
@@ -2222,7 +2224,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate": true
                 },{
                     "facet":true,
                     "index":true,
@@ -2237,7 +2240,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate": true
                 },{
                     "facet":true,
                     "index":true,
@@ -2252,7 +2256,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate": true
                 }
             ],
             "id":1,
@@ -2307,7 +2312,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"string",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate": true
                 },
                 {
                     "facet":true,
@@ -2323,7 +2329,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate": true
                 },{
                     "facet":true,
                     "index":true,
@@ -2338,7 +2345,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate": true
                 },{
                     "facet":true,
                     "index":true,
@@ -2353,7 +2361,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate": true
                 }
             ],
             "id":1,
@@ -2662,7 +2671,8 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "stem":false,
                     "store":false,
                     "type":"string",
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate":true
                 },
                 {
                     "facet":false,
@@ -2675,7 +2685,8 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "stem":false,
                     "store":true,
                     "type":"int32",
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate":true
                 }],
                 "name":"collection3",
                 "num_documents":0,
@@ -2687,6 +2698,20 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
 
     expected_json["created_at"] = res_json["created_at"];
     ASSERT_EQ(expected_json, res_json);
+}
+
+TEST_F(CoreAPIUtilsTest, TruncateFieldValidation) {
+    // `truncate` must be a boolean
+    nlohmann::json schema = R"({
+        "name": "truncate_validation",
+        "fields": [
+            {"name": "title", "type": "string", "truncate": "false"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("The `truncate` property of the field `title` should be a boolean.", op.error());
 }
 
 TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
