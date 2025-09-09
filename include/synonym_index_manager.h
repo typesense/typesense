@@ -41,6 +41,8 @@ class SynonymIndexManager {
         }
 
         void load_synonym_indices();
+
+        void dispose();
     private:
         SynonymIndexManager();
         ~SynonymIndexManager();
@@ -51,7 +53,7 @@ class SynonymIndexManager {
         std::list<SynonymIndex> synonym_index_list;
         std::unordered_map<std::string, std::list<SynonymIndex>::iterator> synonym_index_map;
 
-        Store* store;
+        Store* store = nullptr;
 
         nlohmann::json get_synonym_index_json(const std::string& index_name);
 };

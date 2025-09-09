@@ -105,6 +105,25 @@ class OpenAIEmbedder : public RemoteEmbedder {
         static std::string get_openai_create_embedding_url(const std::string& openai_url, const std::string& openai_create_embedding_suffix = "") {
             return openai_url.back() == '/' ? openai_url + OPENAI_CREATE_EMBEDDING : openai_url + "/" + openai_create_embedding_suffix;
         }
+        
+        static std::string get_embedding_url_for_config(const std::string& openai_url, const std::string& openai_path) {
+            if (openai_url != "https://api.openai.com") {
+                // For custom URLs, check if they already contain the expected path
+                if (openai_url.find("/v1/embeddings") != std::string::npos) {
+                    return openai_url;
+                } else if (openai_url.find("/v1") != std::string::npos) {
+                    return openai_url + "/embeddings";
+                } else {
+                    return openai_url + "/v1/embeddings";
+                }
+            } else {
+                return get_openai_create_embedding_url(openai_url, openai_path);
+            }
+        }
+        
+        std::string get_embedding_url() const {
+            return get_embedding_url_for_config(openai_url, openai_create_embedding_suffix);
+        }
         friend class AzureEmbedder;
         enum OpenAIEmbedderType {
             OPENAI,

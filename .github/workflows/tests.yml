@@ -64,24 +64,24 @@ jobs:
       # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
       - name: Set BAZEL_BIN_FULL_PATH
         run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
-        
+
       - name: Set BAZEL_TESTLOGS_FULL_PATH
         run: echo "BAZEL_TESTLOGS_FULL_PATH=$(readlink -f bazel-testlogs)" >> $GITHUB_ENV
         if: failure()
-        
+
       - name: Save build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: typesense-server
           path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
-        
+
       - name: Save test logs on failure
         uses: actions/upload-artifact@v4
         with:
           name: test-logs
           path: ${{ env.BAZEL_TESTLOGS_FULL_PATH }}/
         if: failure()
-  
+
   api-tests:
     needs: test
     runs-on: ubuntu-22.04
@@ -89,21 +89,115 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Download Typesense Binary
         uses: actions/download-artifact@v4
         with:
           name: typesense-server
           path: ./typesense-server-binary
+
+      - name: Get previous successful run
+        id: get-previous-run
+        run: |
+          # First determine if we're on a fork
+          REPO_INFO=$(gh api /repos/${{ github.repository }})
+          IS_FORK=$(echo "$REPO_INFO" | jq -r '.fork')
+          PARENT_REPO=$(echo "$REPO_INFO" | jq -r '.parent.full_name // empty')
+          DEFAULT_BRANCH=$(echo "$REPO_INFO" | jq -r '.default_branch')
+
+          echo "Is fork: $IS_FORK"
+          if [ "$IS_FORK" = "true" ]; then
+            echo "This is a fork of $PARENT_REPO"
+            # For forks, get successful runs from the current repo
+            REPO_TO_CHECK="${{ github.repository }}"
+          else
+            echo "This is the main repo"
+            # For main repo, get successful runs from main branch
+            REPO_TO_CHECK="${{ github.repository }}"
+            BRANCH_FILTER="and .head_branch == \"$DEFAULT_BRANCH\""
+          fi
+
+          echo "Fetching workflow runs from $REPO_TO_CHECK..."
+          if [ "$IS_FORK" = "true" ]; then
+            RUNS_INFO=$(gh api -H "Accept: application/vnd.github+json" \
+              /repos/$REPO_TO_CHECK/actions/workflows/tests.yml/runs \
+              -q '.workflow_runs[] | select(.conclusion == "success") | {id: .id, sha: .head_sha, branch: .head_branch, conclusion: .conclusion}' \
+              --paginate | head -n 1)
+          else
+            RUNS_INFO=$(gh api -H "Accept: application/vnd.github+json" \
+              /repos/$REPO_TO_CHECK/actions/workflows/tests.yml/runs \
+              -q ".workflow_runs[] | select(.conclusion == \"success\" and .head_branch == \"$DEFAULT_BRANCH\") | {id: .id, sha: .head_sha, branch: .head_branch, conclusion: .conclusion}" \
+              --paginate | head -n 1)
+          fi
+
+          echo "Found runs info:"
+          echo "$RUNS_INFO"
+
+          if [ -z "$RUNS_INFO" ]; then
+            echo "No successful runs found"
+            echo "previous_run_id=" >> $GITHUB_OUTPUT
+          else
+            # Extract the latest run info
+            LATEST_RUN=$(echo "$RUNS_INFO" | head -n 1)
+            LATEST_ID=$(echo "$LATEST_RUN" | jq -r '.id')
+            echo "Latest successful run ID: $LATEST_ID"
+            echo "previous_run_id=$LATEST_ID" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Download cached model (if exists)
+        uses: actions/download-artifact@v5
+        with:
+          name: tei-model-cache
+          path: ./hf_cache
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.get-previous-run.outputs.previous_run_id }}
+        continue-on-error: true
+
+      - name: Check cache contents
+        run: |
+          # Check what we actually downloaded
+          echo "Contents of hf_cache directory:"
+          ls -la ./hf_cache/ || echo "hf_cache directory is empty or doesn't exist"
+
+          # Create empty cache directory if none exists
+          if [ ! -d "./hf_cache" ]; then
+            echo "No cached model found, will download fresh"
+            mkdir -p ./hf_cache
+          fi
+
       - name: Make binary executable
         run: chmod +x ./typesense-server-binary/typesense-server
+
       - name: Install bun
         uses: oven-sh/setup-bun@v2
+
+      - name: Start TEI Container
+        run: |
+          docker run -d --name tei-container --runtime=runc -p 8080:80 \
+            -v ${{ github.workspace }}/hf_cache:/data \
+            ghcr.io/huggingface/text-embeddings-inference:cpu-latest \
+            --model-id sentence-transformers/all-MiniLM-L6-v2
+
+      - name: Wait for TEI Container to be ready
+        run: |
+          echo "Waiting for TEI Container to be ready..."
+          timeout 600 bash -c 'until curl -s http://localhost:8080/health > /dev/null; do sleep 5; done'
+          echo "TEI Container is ready!"
+
+      - name: Print TEI Container logs on failure
+        if: failure()
+        run: docker logs tei-container || echo "No logs found"
+
       - name: Install dependencies
         working-directory: api_tests
-        run: bun install 
+        run: bun install
+
       - name: Install typesense-api-tests
         working-directory: api_tests
         run: bun link
+
       - name: Download test artifacts
         working-directory: api_tests
         run: |
@@ -111,6 +205,7 @@ jobs:
           mkdir -p ./artifacts
           curl https://dl.typesense.org/ci/typesense/v29-snapshot-1.tar.gz > ./artifacts/v29-snapshot.tar.gz
           tar -xzf ./artifacts/v29-snapshot.tar.gz -C ./artifacts/
+
       - name: Run API tests with secrets
         if: github.event.pull_request.head.repo.fork == false
         working-directory: api_tests
@@ -119,6 +214,7 @@ jobs:
           TYPESENSE_DATA_DIR: ${{ github.workspace }}/tmp/test
           OPEN_AI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: typesense-api-tests
+
       - name: Run API tests without secrets
         if: github.event.pull_request.head.repo.fork == true
         working-directory: api_tests
@@ -127,3 +223,19 @@ jobs:
           TYPESENSE_DATA_DIR: ${{ github.workspace }}/tmp/test
           OPEN_AI_API_KEY: ""
         run: typesense-api-tests --no-secrets
+
+      - name: Upload model cache for next run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tei-model-cache
+          path: ./hf_cache
+          if-no-files-found: warn
+          overwrite: false
+          retention-days: 7
+
+      - name: Cleanup TEI Container
+        if: always()
+        run: |
+          docker stop tei-container || true
+          docker rm tei-container || true

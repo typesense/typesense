@@ -221,6 +221,8 @@ public:
     static bool has_exact_match(std::vector<posting_list_t::iterator_t>& posting_list_iterators,
                                   const bool field_is_array);
 
+    static bool has_phrase_match(std::vector<iterator_t>& its, bool field_is_array);
+
     static void get_phrase_matches(std::vector<iterator_t>& its, bool field_is_array,
                                    const uint32_t* ids, const uint32_t num_ids,
                                    uint32_t*& phrase_ids, size_t& num_phrase_ids);

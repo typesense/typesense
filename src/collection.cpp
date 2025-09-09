@@ -166,7 +166,7 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
             if (existing_document.contains(reference_helper_field_name) &&
                 existing_document[reference_helper_field_name].is_number_integer()) {
                 const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name].get<int64_t>();
-                if (existing_ref_seq_id != Index::reference_helper_sentinel_value &&
+                if (existing_ref_seq_id != Join::reference_helper_sentinel_value &&
                     existing_ref_seq_id != ref_seq_id) {
                     return Option<bool>(400, "Document `id: " + id + "` already has a reference to document `" +=
                                                 std::to_string(existing_ref_seq_id) + "` of `" += ref_coll_name +
@@ -213,7 +213,7 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
                 }
 
                 const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name][j].get<int64_t>();
-                if (existing_ref_seq_id != Index::reference_helper_sentinel_value &&
+                if (existing_ref_seq_id != Join::reference_helper_sentinel_value &&
                     existing_ref_seq_id != ref_seq_id) {
                     return Option<bool>(400, "Document `id: " + id + "` at `" += field_name +
                                                 "` reference array field and index `" + std::to_string(j) +
@@ -4447,7 +4447,7 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
         bool end_of_phrase = false;
 
         if(token == "-" && !symbols_to_index_has_minus) {
-            if(locale != "en" && !locale.empty()) {
+            if(locale != "en" && locale != "de_en" && !locale.empty()) {
                 // non-English locale parsing splits "-" as individual tokens
                 exclude_operator_prior = true;
             }
@@ -6829,23 +6829,36 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
             } else if (found_field && field_it->embed.count(fields::from) != 0) {
                 //embedded field, only api key updation is supported
-                if(!kv.value().contains(fields::embed) || !kv.value()[fields::embed].is_object()) {
-                    return Option<bool>(400,
-                                        "Missing or bad `embed` param.");
+                const auto& existing_embed = field_it->embed;
+                const auto& new_embed = kv.value()[fields::embed];
+                
+                const auto& existing_model_config = existing_embed[fields::model_config];
+                const auto& new_model_config = new_embed[fields::model_config];
+                
+                bool has_invalid_changes = false;
+                bool has_changes = false;
+                
+                if (existing_embed[fields::from] != new_embed[fields::from]) {
+                    has_invalid_changes = true;
+                    has_changes = true;
+                }
+                
+                for (const auto& [key, value] : new_model_config.items()) {
+                    if (existing_model_config.count(key) == 0 || existing_model_config[key] != value) {
+                        has_changes = true;
+                        if (key != fields::api_key) {
+                            has_invalid_changes = true;
+                        }
+                        break;
+                    }
+                }
+                
+                if (has_invalid_changes || !has_changes) {
+                    return Option<bool>(400, "Field `" + field_name + "` is already part of the schema: To "
+                                         "change this field, drop it first before adding it back to the schema.");
                 }
 
-                if (!kv.value()[fields::embed].contains(fields::model_config) || !kv.value()[fields::embed][fields::model_config].is_object()) {
-                    return Option<bool>(400,
-                                        "`model_config` should be an object containing `model_name` and `api_key`.");
-                }
-
-                const auto &model_config = kv.value()[fields::embed][fields::model_config];
-                if (!model_config.contains(fields::model_name) || !model_config.contains(fields::api_key) ||
-                    !model_config[fields::model_name].is_string() || !model_config[fields::api_key].is_string()) {
-                    return Option<bool>(400,
-                                        "`model_config` should be an object containing `model_name` and `api_key` as string values.");
-                }
-
+                // API key update, add to update_fields for later processing
                 field f(field_name, field_it->type, field_it->facet);
                 f.embed = kv.value()[fields::embed];
                 update_fields.push_back(f);
@@ -7645,7 +7658,19 @@ Option<bool> Collection::process_ref_include_fields_sort(const std::string& sort
                                                        sort_validation_op.error());
     }
 
-    return index->process_ref_include_fields_sort(sort_fields_std, limit, doc_ids);
+    auto op = index->process_ref_include_fields_sort(sort_fields_std, limit, doc_ids);
+    for (auto& sort_by_clause: sort_fields_std) {
+        for (auto& eval_ids: sort_by_clause.eval.eval_ids_vec) {
+            delete [] eval_ids;
+        }
+
+        for (uint32_t i = 0; i < sort_by_clause.eval_expressions.size(); i++) {
+            delete sort_by_clause.eval.filter_trees[i];
+        }
+
+        delete [] sort_by_clause.eval.filter_trees;
+    }
+    return op;
 }
 
 Option<bool> Collection::compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
@@ -8157,11 +8182,11 @@ Option<bool> Collection::parse_and_validate_personalization_query(const std::str
         }
         user_embeddings.push_back(embedding);
     }
-    auto num_dims = personalization_model["num_dims"].get<size_t>();
+    auto num_dim = personalization_model["num_dim"].get<size_t>();
     std::vector<int64_t> user_mask(user_embeddings.size(), 1);
     if(user_embeddings.size() < personalization_n_events) {
         for (size_t i = user_embeddings.size(); i < personalization_n_events; i++) {
-            user_embeddings.push_back(std::vector<float>(num_dims, 0));
+            user_embeddings.push_back(std::vector<float>(num_dim, 0));
             user_mask.push_back(0);
         }
     }

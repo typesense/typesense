@@ -743,6 +743,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     // We have to delete the models here, before CUDA driver is unloaded.
     VQModelManager::get_instance().delete_all_models();
 
+    synonymIndexManager.dispose();
+
     CollectionManager::get_instance().dispose();
 
     delete analytics_store;
