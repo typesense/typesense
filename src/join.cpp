@@ -635,6 +635,8 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
                 continue;
             }
 
+            bool is_async_reference = schema.at(field_name).is_async_reference;
+
             if (collection->get_object_reference_helper_fields().count(field_name) != 0) {
                 std::vector<std::string> keys;
                 StringUtils::split(field_name, keys, ".");
@@ -684,9 +686,12 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
                     std::vector<uint32_t> ids;
                     auto get_references_op = collection->get_related_ids(field_name, seq_id, ids);
                     if (!get_references_op.ok()) {
-                        LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+                        if (!is_async_reference) {
+                            LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+                        }
                         continue;
                     }
+
                     reference_filter_result_t result(ids.size(), &ids[0]);
                     prune_doc_op = prune_ref_doc(doc[key], result, ref_include_fields_full, ref_exclude_fields_full,
                                                  schema.at(field_name).is_array(), ref_include_exclude);
@@ -696,9 +701,12 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
                 std::vector<uint32_t> ids;
                 auto get_references_op = collection->get_related_ids(field_name, seq_id, ids);
                 if (!get_references_op.ok()) {
-                    LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+                    if (!is_async_reference) {
+                        LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+                    }
                     continue;
                 }
+
                 reference_filter_result_t result(ids.size(), &ids[0]);
                 prune_doc_op = prune_ref_doc(doc, result, ref_include_fields_full, ref_exclude_fields_full,
                                              schema.at(field_name).is_array(), ref_include_exclude);
