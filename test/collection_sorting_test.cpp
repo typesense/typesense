@@ -3740,3 +3740,64 @@ TEST_F(CollectionSortingTest, EvalExpressionWithBackticks) {
 
     collectionManager.drop_collection("test");
 }
+
+TEST_F(CollectionSortingTest, EvalExpressionWithIdField) {
+    nlohmann::json schema = nlohmann::json::parse(R"({
+        "name": "eval_ids",
+        "fields": [
+            {"name": "id", "type": "string"},
+            {"name": "text", "type": "string"}
+        ]
+    })");
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // Add documents with special characters in text field
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["text"] = "some (annoying) value";
+
+    nlohmann::json doc2;
+    doc2["id"] = "2";
+    doc2["text"] = "another text";
+
+    nlohmann::json doc3;
+    doc3["id"] = "3";
+    doc3["text"] = "some other text";
+
+    nlohmann::json doc4;
+    doc4["id"] = "4";
+    doc4["text"] = "different other text";
+
+    nlohmann::json doc5;
+    doc5["id"] = "5";
+    doc5["text"] = "important other text";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "eval_ids"},
+            {"q", "*"},
+            {"filter_by", "id:=[1,2,3,4,5]"},
+            {"sort_by", "_eval([(id:1):10000,(id:2):9999,(id:3):9998]):desc"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", res_obj["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", res_obj["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", res_obj["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", res_obj["hits"][4]["document"]["id"].get<std::string>());
+}
