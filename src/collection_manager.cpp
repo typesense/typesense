@@ -608,7 +608,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     for(const auto& old_analytics_config_json: old_analytics_config_jsons) {
         nlohmann::json old_analytics_config = nlohmann::json::parse(old_analytics_config_json);
         auto create_op = AnalyticsManager::get_instance().create_old_rule(old_analytics_config);
-        if(!create_op.ok()) {
+        if(!create_op.ok() && create_op.code() != 409) {
             LOG(ERROR) << "Error while creating old analytics config. " << create_op.error();
         }
         restored_old_analytics_configs++;
