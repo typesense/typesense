@@ -8392,7 +8392,6 @@ Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_
     if(coll != nullptr) {
         auto op = coll->get_document_from_store(seq_id, doc);
         if (!op.ok()) {
-            LOG(ERROR) << op.error();
             return op;
         }
     }
