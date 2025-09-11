@@ -686,7 +686,9 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
                     std::vector<uint32_t> ids;
                     auto get_references_op = collection->get_related_ids(field_name, seq_id, ids);
                     if (!get_references_op.ok()) {
-                        if (!is_async_reference) {
+                        if (is_async_reference) {
+                            LOG(INFO) << "Error while getting related ids: " + get_references_op.error();
+                        } else {
                             LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
                         }
                         continue;
@@ -701,7 +703,9 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
                 std::vector<uint32_t> ids;
                 auto get_references_op = collection->get_related_ids(field_name, seq_id, ids);
                 if (!get_references_op.ok()) {
-                    if (!is_async_reference) {
+                    if (is_async_reference) {
+                        LOG(INFO) << "Error while getting related ids: " + get_references_op.error();
+                    } else {
                         LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
                     }
                     continue;

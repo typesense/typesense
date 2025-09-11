@@ -8387,10 +8387,21 @@ Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_
                                     get_collection_name() + "`.");
     }
 
+    nlohmann::json doc;
+    auto coll = CollectionManager::get_instance().get_collection(get_collection_name());
+    if(coll != nullptr) {
+        auto op = coll->get_document_from_store(seq_id, doc);
+        if (!op.ok()) {
+            LOG(ERROR) << op.error();
+            return op;
+        }
+    }
+
     auto const field_not_found_op = Option<bool>(400, "Could not find `" + reference_helper_field_name +
                                                       "` in the collection `" + get_collection_name() + "`.");
     auto const no_match_op = Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
-                                               std::to_string(seq_id) + "`.");
+                                                        doc["id"].get<std::string>() + "`.");
+
     if (search_schema.at(reference_helper_field_name).is_singular()) {
         if (sort_index.count(reference_helper_field_name) == 0) {
             return field_not_found_op;
