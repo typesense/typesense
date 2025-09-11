@@ -1892,9 +1892,9 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     // migrate synonyms if exists
     const std::string& syn_lower_bound_key =
-                std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "_";
+                std::string(SynonymIndex::OLD_COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "_";
 
-    std::string syn_upper_bound_key = std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" +
+    std::string syn_upper_bound_key = std::string(SynonymIndex::OLD_COLLECTION_SYNONYM_PREFIX) + "_" +
                                       this_collection_name + "`";  // cannot inline this
     std::vector<std::string> collection_synonym_jsons;
     cm.store->scan_fill(syn_lower_bound_key, syn_upper_bound_key,
