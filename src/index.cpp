@@ -8396,10 +8396,12 @@ Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_
                                     get_collection_name() + "`.");
     }
 
+    nlohmann::json doc;
+    auto coll = CollectionManager::get_instance().get_collection(get_collection_name());
+
     auto const field_not_found_op = Option<bool>(400, "Could not find `" + reference_helper_field_name +
                                                       "` in the collection `" + get_collection_name() + "`.");
-    auto const no_match_op = Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
-                                               std::to_string(seq_id) + "`.");
+
     if (search_schema.at(reference_helper_field_name).is_singular()) {
         if (sort_index.count(reference_helper_field_name) == 0) {
             return field_not_found_op;
@@ -8408,7 +8410,14 @@ Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_
         auto const& ref_index = sort_index.at(reference_helper_field_name);
         auto const it = ref_index->find(seq_id);
         if (it == ref_index->end()) {
-            return no_match_op;
+            if(coll != nullptr) {
+                auto op = coll->get_document_from_store(seq_id, doc);
+                if (!op.ok()) {
+                    return op;
+                }
+            }
+            return Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
+                                     doc["id"].get<std::string>() + "`.");
         }
 
         const uint32_t id = it->second;
@@ -8426,7 +8435,14 @@ Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_
     uint32_t* ids = nullptr;
     reference_index.at(reference_helper_field_name)->search(EQUALS, seq_id, &ids, ids_len);
     if (ids_len == 0) {
-        return no_match_op;
+        if(coll != nullptr) {
+            auto op = coll->get_document_from_store(seq_id, doc);
+            if (!op.ok()) {
+                return op;
+            }
+        }
+        return Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
+                                 doc["id"].get<std::string>() + "`.");
     }
 
     for (uint32_t i = 0; i < ids_len; i++) {
