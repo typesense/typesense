@@ -381,6 +381,13 @@ nlohmann::json Collection::get_summary_json() const {
                 hide_credential(field_json[fields::embed][fields::model_config], "client_id");
                 hide_credential(field_json[fields::embed][fields::model_config], "client_secret");
                 hide_credential(field_json[fields::embed][fields::model_config], "project_id");
+                // hide nested service_account credentials if present
+                if(field_json[fields::embed][fields::model_config].contains("service_account") &&
+                   field_json[fields::embed][fields::model_config]["service_account"].is_object()) {
+                    nlohmann::json& sa = field_json[fields::embed][fields::model_config]["service_account"];
+                    hide_credential(sa, "private_key");
+                    hide_credential(sa, "client_email");
+                }
             }
         }
 
@@ -6441,6 +6448,12 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
             hide_credential(field_json[fields::embed][fields::model_config], "client_id");
             hide_credential(field_json[fields::embed][fields::model_config], "client_secret");
             hide_credential(field_json[fields::embed][fields::model_config], "project_id");
+            if(field_json[fields::embed][fields::model_config].contains("service_account") &&
+                field_json[fields::embed][fields::model_config]["service_account"].is_object()) {
+                nlohmann::json& sa = field_json[fields::embed][fields::model_config]["service_account"];
+                hide_credential(sa, "private_key");
+                hide_credential(sa, "client_email");
+            }
         }
     }
 
