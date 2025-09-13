@@ -5607,6 +5607,21 @@ TEST_F(CollectionJoinTest, CascadeDeletion) {
     ASSERT_EQ("product_b", res_obj["hits"][0]["document"].at("product_id"));
     ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
 
+    // Documents referencing product_a should've been removed from the store too.
+    auto collection = collectionManager.get_collection_unsafe("CustomerProductPrices");
+    auto iter_upper_bound_key = collection->get_seq_id_collection_prefix() + "`";  // cannot inline this
+    auto iter_upper_bound = new rocksdb::Slice(iter_upper_bound_key);
+    auto seq_id_prefix = collection->get_seq_id_collection_prefix();
+    auto it = collectionManager.get_store()->scan(collection->get_seq_id_collection_prefix(), iter_upper_bound);
+    uint32_t docs_count = 0;
+    while(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
+        docs_count++;
+        it->Next();
+    }
+    delete iter_upper_bound;
+    delete it;
+    ASSERT_EQ(2, docs_count);
+
     collectionManager.get_collection_unsafe("Users")->remove("1");
 
     req_params = {
