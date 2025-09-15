@@ -211,7 +211,7 @@ jobs:
         working-directory: api_tests
         env:
           TYPESENSE_BINARY_PATH: ${{ github.workspace }}/typesense-server-binary/typesense-server
-          TYPESENSE_V29_BINARY_PATH: ${{ github.workspace }}/artifacts/v29/typesense-server
+          TYPESENSE_V29_BINARY_PATH: ${{ github.workspace }}/api_tests/artifacts/v29/typesense-server
           TYPESENSE_DATA_DIR: ${{ github.workspace }}/tmp/test
           OPEN_AI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: typesense-api-tests
