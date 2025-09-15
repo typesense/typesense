@@ -510,7 +510,7 @@ Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
     }
     const std::string& name = payload["name"].get<std::string>();
     if(rules_map.find(name) != rules_map.end()) {
-      return Option<bool>(400, "Rule Migration failed. Rule already exists");
+      return Option<bool>(409, "Rule already exists");
     }
     if(!payload.contains("type") || !payload["type"].is_string()) {
       return Option<bool>(400, "Rule Migration failed. type is required");
@@ -681,7 +681,6 @@ Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
     } else {
       return Option<bool>(400, "Rule Migration failed. " + type + " is invalid");
     }
-    store->remove(std::string(OLD_ANALYTICS_RULE_PREFIX) + "_" + name);
     return Option<bool>(true);
 }
 

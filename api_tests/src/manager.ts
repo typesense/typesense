@@ -154,8 +154,8 @@ export class TypesenseProcessManager {
     if (!res.ok) throw new Error(`Elect leader failed: ${res.statusText}`);
   }
 
-  async createSnapshot(port: number) {
-    const snapshotPath = join(this.baseDir, "snapshot", port === 8108 ? "single-node" : "multi-node");
+  async createSnapshot(port: number, snapshot_path: string = "") {
+    const snapshotPath = snapshot_path || join(this.baseDir, "snapshot", (port === 8108 ? "single-node" : "multi-node"));
     const url = `http://localhost:${port}/operations/snapshot?snapshot_path=${snapshotPath}`;
     const res = await fetch(url, {
       method: "POST",

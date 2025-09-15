@@ -608,7 +608,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     for(const auto& old_analytics_config_json: old_analytics_config_jsons) {
         nlohmann::json old_analytics_config = nlohmann::json::parse(old_analytics_config_json);
         auto create_op = AnalyticsManager::get_instance().create_old_rule(old_analytics_config);
-        if(!create_op.ok()) {
+        if(!create_op.ok() && create_op.code() != 409) {
             LOG(ERROR) << "Error while creating old analytics config. " << create_op.error();
         }
         restored_old_analytics_configs++;
@@ -1892,9 +1892,9 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     // migrate synonyms if exists
     const std::string& syn_lower_bound_key =
-                std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "_";
+                std::string(SynonymIndex::OLD_COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "_";
 
-    std::string syn_upper_bound_key = std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" +
+    std::string syn_upper_bound_key = std::string(SynonymIndex::OLD_COLLECTION_SYNONYM_PREFIX) + "_" +
                                       this_collection_name + "`";  // cannot inline this
     std::vector<std::string> collection_synonym_jsons;
     cm.store->scan_fill(syn_lower_bound_key, syn_upper_bound_key,
@@ -1909,16 +1909,6 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
             return Option<bool>(synonym_index_op.code(), synonym_index_op.error());
         }
         SynonymIndex* synonym_index = synonym_index_op.get();
-
-        // delete existing synonyms first
-        rocksdb::Slice syn_upper_bound(syn_upper_bound_key);
-
-        auto iter = cm.store->scan(syn_lower_bound_key, &syn_upper_bound);
-        while(iter->Valid() && iter->key().starts_with(syn_lower_bound_key)) {
-            cm.store->remove(iter->key().ToString());
-            iter->Next();
-        }
-        delete iter;
 
         for(const auto & collection_synonym_json: collection_synonym_jsons) {
             nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);

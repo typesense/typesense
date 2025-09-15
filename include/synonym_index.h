@@ -131,7 +131,8 @@ private:
     std::string name;
 public:
 
-    static constexpr const char* COLLECTION_SYNONYM_PREFIX = "$CY";
+    static constexpr const char* COLLECTION_SYNONYM_PREFIX = "$NCY";
+    static constexpr const char* OLD_COLLECTION_SYNONYM_PREFIX = "$CY";
 
     SynonymIndex(Store* store, const std::string& name): store(store), name(name) {
 
