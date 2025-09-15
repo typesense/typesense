@@ -1452,17 +1452,16 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 auto const& coll = export_state->collection;
                 auto const seq_id_op = coll->doc_id_to_seq_id(doc.at("id"));
                 if (!seq_id_op.ok()) {
-                    res->set(seq_id_op.code(), seq_id_op.error());
-                    req->last_chunk_aggregate = true;
-                    res->final = true;
-                    stream_response(req, res);
-                    return false;
+                    std::string message = "Error while getting seq_id of `" + doc.at("id").get<std::string>() + "`: " +
+                                            seq_id_op.error();
+                    LOG(ERROR) << message;
+                    res->body += message;
+                } else {
+                    std::map<std::string, reference_filter_result_t> references = {};
+                    coll->prune_doc_with_lock(doc, export_state->include_fields, export_state->exclude_fields,
+                                              references, seq_id_op.get(), export_state->ref_include_exclude_fields_vec);
+                    res->body += doc.dump();
                 }
-
-                std::map<std::string, reference_filter_result_t> references = {};
-                coll->prune_doc_with_lock(doc, export_state->include_fields, export_state->exclude_fields,
-                                          references, seq_id_op.get(), export_state->ref_include_exclude_fields_vec);
-                res->body += doc.dump();
             }
 
             it->Next();
