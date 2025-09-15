@@ -202,15 +202,16 @@ jobs:
         working-directory: api_tests
         run: |
           sudo apt-get install -y tar
-          mkdir -p ./artifacts
-          curl https://dl.typesense.org/ci/typesense/v29-snapshot-1.tar.gz > ./artifacts/v29-snapshot.tar.gz
-          tar -xzf ./artifacts/v29-snapshot.tar.gz -C ./artifacts/
+          mkdir -p ./artifacts/v29
+          curl https://dl.typesense.org/releases/29.0/typesense-server-29.0-linux-amd64.tar.gz > ./artifacts/v29.tar.gz
+          tar -xzf ./artifacts/v29.tar.gz -C ./artifacts/v29/
 
       - name: Run API tests with secrets
         if: github.event.pull_request.head.repo.fork == false
         working-directory: api_tests
         env:
           TYPESENSE_BINARY_PATH: ${{ github.workspace }}/typesense-server-binary/typesense-server
+          TYPESENSE_V29_BINARY_PATH: ${{ github.workspace }}/artifacts/v29/typesense-server
           TYPESENSE_DATA_DIR: ${{ github.workspace }}/tmp/test
           OPEN_AI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: typesense-api-tests

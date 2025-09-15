@@ -1910,16 +1910,6 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
         SynonymIndex* synonym_index = synonym_index_op.get();
 
-        // delete existing synonyms first
-        rocksdb::Slice syn_upper_bound(syn_upper_bound_key);
-
-        auto iter = cm.store->scan(syn_lower_bound_key, &syn_upper_bound);
-        while(iter->Valid() && iter->key().starts_with(syn_lower_bound_key)) {
-            cm.store->remove(iter->key().ToString());
-            iter->Next();
-        }
-        delete iter;
-
         for(const auto & collection_synonym_json: collection_synonym_jsons) {
             nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
             synonym_t synonym;
