@@ -711,7 +711,7 @@ TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
         "type": "popular_queries",
         "name": "coll_search",
         "collection": "coll1",
-        "event_type": "query",
+        "event_type": "search",
         "params": {
             "limit": 100,
             "destination_collection": "top_queries"
@@ -775,7 +775,7 @@ TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
         "name": "nohits_search_queries",
         "type": "nohits_queries",
         "collection": "coll1",
-        "event_type": "query",
+        "event_type": "search",
         "rule_tag": "nohits_queries",
         "params": {
             "limit": 100,
@@ -1938,7 +1938,7 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
         "name": "hide_search_queries",
         "type": "popular_queries",
         "collection": "coll3",
-        "event_type": "query",
+        "event_type": "search",
         "rule_tag": "popular_queries",
         "params": {
             "limit": 100,
