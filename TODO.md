@@ -110,6 +110,7 @@
 - ~~Fix result ids length during grouped overrides~~
 - ~~Fix override grouping (collate_included_ids)~~
 - ~~Test for overriding result on second page~~
+- ~~Test for replication~~
 - atleast 1 token match for proceeding with drop tokens
 - support wildcard query with filters
 - API for optimizing on disk storage
@@ -125,7 +126,6 @@
 - test for token ranking on float field
 - test for float int field deletion during doc deletion
 - Test for snippets
-- Test for replication
 - Query token ids should match query token ordering
 - ID should not have "/"
 - Group results by field
