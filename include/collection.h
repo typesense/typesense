@@ -1182,6 +1182,8 @@ public:
     bool check_store_alter_status_msg(bool success, const std::string& msg = "");
 
     std::string get_facet_str_val_with_lock(const std::string& field_name, uint32_t facet_id);
+
+    void refresh_stemmers();
 };
 
 template<class T>

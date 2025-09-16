@@ -1,4 +1,5 @@
 #include "stemmer_manager.h"
+#include "collection_manager.h"
 
 
 Stemmer::Stemmer(const char * language, const std::string& dictionary_name) {
@@ -104,32 +105,57 @@ Option<bool> StemmerManager::upsert_stemming_dictionary(const std::string& dicti
         return Option<bool>(400, "Invalid dictionary format.");
     }
 
-    std::lock_guard<std::mutex> lock(mutex);
+    bool needs_refresh = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        
+        nlohmann::json dictionary_json;
+        dictionary_json["id"] = dictionary_name;
+        dictionary_json["words"] = nlohmann::json::array();
 
-    nlohmann::json json_line;
-    nlohmann::json dictionary_json;
-    dictionary_json["id"] = dictionary_name;
-    dictionary_json["words"] = nlohmann::json::array();
-
-    for(const auto& line_str : json_lines) {
-        try {
-            json_line = nlohmann::json::parse(line_str);
-        } catch(...) {
-            return Option<bool>(400, "Invalid dictionary format.");
+        for(const auto& kv : stem_dictionaries[dictionary_name]) {
+            nlohmann::json existing_word;
+            existing_word["word"] = kv.first;
+            existing_word["root"] = kv.second;
+            dictionary_json["words"].push_back(existing_word);
         }
 
-        if(!json_line.contains("word") || !json_line.contains("root")) {
-            return Option<bool>(400, "dictionary lines should contain `word` and `root` values.");
-        }
-        stem_dictionaries[dictionary_name].emplace(json_line["word"], json_line["root"]);
-        dictionary_json["words"].push_back(json_line);
-    }
+        for(const auto& line_str : json_lines) {
+            nlohmann::json json_line;
+            try {
+                json_line = nlohmann::json::parse(line_str);
+            } catch(const nlohmann::json::exception& e) {
+                return Option<bool>(400, "Invalid JSON format.");
+            }
 
-    if(write_to_store) {
-        bool inserted = store->insert(get_stemming_dictionary_key(dictionary_name), dictionary_json.dump());
-        if (!inserted) {
-            return Option<bool>(500, "Unable to insert into store.");
+            if(!json_line.contains("word") || !json_line.contains("root")) {
+                return Option<bool>(400, "Dictionary lines must contain both 'word' and 'root' values.");
+            }
+            
+            const std::string& word = json_line["word"];
+            const std::string& root = json_line["root"];
+            
+            if(word.empty() || root.empty()) {
+                return Option<bool>(400, "Word and root values cannot be empty.");
+            }
+            
+            stem_dictionaries[dictionary_name].emplace(word, root);
+            dictionary_json["words"].push_back(json_line);
         }
+
+        if(write_to_store) {
+            bool inserted = store->insert(get_stemming_dictionary_key(dictionary_name), dictionary_json.dump());
+            if (!inserted) {
+                return Option<bool>(500, "Unable to insert dictionary into store.");
+            }
+        }
+
+        // refresh collection after successfully inserting the dictionary
+        needs_refresh = true;
+    } 
+    
+    if(needs_refresh) {
+        refresh_collection_stemmers(dictionary_name);
     }
 
     return Option<bool>(true);
@@ -219,6 +245,40 @@ void StemmerManager::delete_all_stemming_dictionaries() {
         store->remove(get_stemming_dictionary_key(kv.first));
     }
     stem_dictionaries.clear();
+}
+
+void StemmerManager::refresh_collection_stemmers(const std::string& dictionary_name) {
+    auto& collectionManager = CollectionManager::get_instance();
+    auto collections_op = collectionManager.get_collections();
+    
+    if(!collections_op.ok()) {
+        return;
+    }
+    
+    auto collections = collections_op.get();
+    
+    size_t refreshed_count = 0;
+    for(auto& collection : collections) {
+        if(collection == nullptr) {
+            continue;
+        }
+        
+        const auto& search_schema = collection->get_schema();
+        bool needs_refresh = false;
+        std::vector<std::string> matching_fields;
+        
+        for(const auto& field : search_schema) {
+            if(field.stem_dictionary == dictionary_name) {
+                needs_refresh = true;
+                matching_fields.push_back(field.name);
+            }
+        }
+        
+        if(needs_refresh) {
+            collection->refresh_stemmers();
+            refreshed_count++;
+        }
+    }
 }
 
 std::string StemmerManager::get_stemming_dictionary_key(const std::string &dictionary_name) {

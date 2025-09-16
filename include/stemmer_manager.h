@@ -79,4 +79,6 @@ class StemmerManager {
         Option<bool> del_stemming_dictionary(const std::string& id);
 
         void delete_all_stemming_dictionaries();
+
+        void refresh_collection_stemmers(const std::string& dictionary_name);
 };
