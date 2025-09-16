@@ -1438,8 +1438,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     if(Config::get_instance().get_enable_search_analytics()) {
         if(args.enable_analytics && result.contains("found")) {
             std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(args.raw_query);
-            query_internal_event_t internal_event = {
-                QueryAnalytics::LOG_TYPE,
+            search_internal_event_t internal_event = {
+                SearchAnalytics::LOG_TYPE,
                 orig_coll_name,
                 analytics_query,
                 "",
@@ -1452,11 +1452,11 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                         result["request_params"]["first_q"].get<std::string>());
                 internal_event.expanded_q = expanded_query;
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
-                internal_event.type = QueryAnalytics::POPULAR_QUERIES_TYPE;
+                internal_event.type = SearchAnalytics::POPULAR_QUERIES_TYPE;
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
             } else {
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
-                internal_event.type = QueryAnalytics::NO_HIT_QUERIES_TYPE;
+                internal_event.type = SearchAnalytics::NO_HIT_QUERIES_TYPE;
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
             }
         }

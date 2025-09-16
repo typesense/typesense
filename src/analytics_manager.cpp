@@ -66,14 +66,14 @@ void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t
       doc_analytics.reset_local_counter(counter_event_it.first);
     }
     
-    std::vector<std::vector<std::string>> query_analytics_queue;
-    query_analytics.compact_all_user_queries(now_ts_us);
-    for(auto& counter_event_it : query_analytics.get_query_counter_events()) {
+    std::vector<std::vector<std::string>> search_analytics_queue;
+    search_analytics.compact_all_user_queries(now_ts_us);
+    for(auto& counter_event_it : search_analytics.get_search_counter_events()) {
       const auto& collection = counter_event_it.second.destination_collection;
       std::string docs;
       counter_event_it.second.serialize_as_docs(docs);
-      query_analytics_queue.push_back({docs, collection, std::to_string(counter_event_it.second.limit)});
-      query_analytics.reset_local_counter(counter_event_it.first);
+      search_analytics_queue.push_back({docs, collection, std::to_string(counter_event_it.second.limit)});
+      search_analytics.reset_local_counter(counter_event_it.first);
     }
 
     const size_t rules_size = rules_map.size();
@@ -81,7 +81,7 @@ void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t
       lk.unlock();
     }
 
-    const size_t delay_interval = Config::get_instance().get_analytics_flush_interval() / (doc_analytics_queue.size() + query_analytics_queue.size() + 1);
+    const size_t delay_interval = Config::get_instance().get_analytics_flush_interval() / (doc_analytics_queue.size() + search_analytics_queue.size() + 1);
     for(const auto& params : doc_analytics_queue) {
       update_counter_events(params[0], params[1], "update");
       if (rules_size > DELAY_WRITE_RULE_SIZE && !triggered) {
@@ -89,7 +89,7 @@ void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t
       }
     }
 
-    for(const auto& params : query_analytics_queue) {
+    for(const auto& params : search_analytics_queue) {
       update_counter_events(params[0], params[1], "emplace");
       limit_to_top_k(params[1], std::stoi(params[2]));
       if (rules_size > DELAY_WRITE_RULE_SIZE && !triggered) {
@@ -109,7 +109,7 @@ void AnalyticsManager::persist_analytics_db_events(ReplicationState *raft_server
     nlohmann::json payload = nlohmann::json::array();
     const uint64_t now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
               std::chrono::system_clock::now().time_since_epoch()).count();
-    query_analytics.compact_all_user_queries(now_ts_us);
+    search_analytics.compact_all_user_queries(now_ts_us);
 
     for(const auto& log_rule : doc_analytics.get_doc_log_events()) {
         const auto& collection = doc_analytics.get_doc_rule(log_rule.first).collection;
@@ -125,8 +125,8 @@ void AnalyticsManager::persist_analytics_db_events(ReplicationState *raft_server
         }
     }
 
-    for(const auto& log_rule : query_analytics.get_query_log_events()) {
-        const auto& collection = query_analytics.get_query_rule(log_rule.first).collection;
+    for(const auto& log_rule : search_analytics.get_search_log_events()) {
+        const auto& collection = search_analytics.get_search_rule(log_rule.first).collection;
         for(const auto& event_data : log_rule.second) {
             nlohmann::json event_json;
             event_data.to_json(event_json, collection, log_rule.first);
@@ -135,7 +135,7 @@ void AnalyticsManager::persist_analytics_db_events(ReplicationState *raft_server
         if(!payload.empty()) {
             payloads.push_back(payload.dump());
             payload.clear();
-            query_analytics.reset_local_log_events(log_rule.first);
+            search_analytics.reset_local_log_events(log_rule.first);
         }
     }
 
@@ -212,7 +212,7 @@ Option<bool> AnalyticsManager::add_external_event(const std::string& client_ip, 
     }
 
     bool is_doc_event = rules_map.find(event_data["name"].get<std::string>()) != rules_map.end() && rules_map.find(event_data["name"].get<std::string>())->second == "doc";
-    bool is_query_event = rules_map.find(event_data["name"].get<std::string>()) != rules_map.end() && rules_map.find(event_data["name"].get<std::string>())->second == "query";
+    bool is_query_event = rules_map.find(event_data["name"].get<std::string>()) != rules_map.end() && rules_map.find(event_data["name"].get<std::string>())->second == "search";
 
     if(!is_doc_event && !is_query_event) {
       return Option<bool>(400, "Rule not found");
@@ -224,7 +224,7 @@ Option<bool> AnalyticsManager::add_external_event(const std::string& client_ip, 
         return Option<bool>(400, add_event_op.error());
       }
     } else if(is_query_event) {
-      auto add_event_op = query_analytics.add_event(client_ip, event_data);
+      auto add_event_op = search_analytics.add_event(client_ip, event_data);
       if(!add_event_op.ok()) {
         return Option<bool>(400, add_event_op.error());
       }
@@ -232,9 +232,9 @@ Option<bool> AnalyticsManager::add_external_event(const std::string& client_ip, 
     return Option<bool>(true);
 }
 
-Option<bool> AnalyticsManager::add_internal_event(const query_internal_event_t& event_data) {
+Option<bool> AnalyticsManager::add_internal_event(const search_internal_event_t& event_data) {
     std::unique_lock lock(mutex);
-    return query_analytics.add_internal_event(event_data);
+    return search_analytics.add_internal_event(event_data);
 }
 
 Option<nlohmann::json> AnalyticsManager::get_events(const std::string& userid, const std::string& event_name, uint32_t N) {
@@ -246,11 +246,11 @@ Option<nlohmann::json> AnalyticsManager::get_events(const std::string& userid, c
     }
 
     bool is_doc_rule = rules_map.find(event_name) != rules_map.end() && rules_map.find(event_name)->second == "doc";
-    bool is_query_rule = rules_map.find(event_name) != rules_map.end() && rules_map.find(event_name)->second == "query";
+    bool is_query_rule = rules_map.find(event_name) != rules_map.end() && rules_map.find(event_name)->second == "search";
     if(is_doc_rule) {
       doc_analytics.get_events(userid, event_name, N, in_memory_values);
     } else if(is_query_rule) {
-      query_analytics.get_events(userid, event_name, N, in_memory_values);
+      search_analytics.get_events(userid, event_name, N, in_memory_values);
     } else {
       return Option<nlohmann::json>(400, "Rule not found");
     }
@@ -345,7 +345,7 @@ Option<nlohmann::json> AnalyticsManager::get_events(const std::string& userid, c
 Option<nlohmann::json> AnalyticsManager::list_rules(const std::string& rule_tag) {
     std::shared_lock lock(mutex);
     auto doc_list_rules_op = doc_analytics.list_rules(rule_tag);
-    auto query_list_rules_op = query_analytics.list_rules(rule_tag);
+    auto query_list_rules_op = search_analytics.list_rules(rule_tag);
     if (doc_list_rules_op.ok() && query_list_rules_op.ok()) {
       nlohmann::json response = nlohmann::json::array();
       for(const auto& rule: doc_list_rules_op.get()) {
@@ -372,13 +372,13 @@ Option<nlohmann::json> AnalyticsManager::get_rule(const std::string& name) {
       return Option<nlohmann::json>(400, "Rule not found");
     }
     bool is_doc_rule = rule_type->second == "doc";
-    bool is_query_rule = rule_type->second == "query";
+    bool is_query_rule = rule_type->second == "search";
     Option<nlohmann::json> get_rule_op(500, "Internal server error");
     if(is_doc_rule) {
       get_rule_op = doc_analytics.get_rule(name);
     }
     if(is_query_rule) {
-      get_rule_op = query_analytics.get_rule(name);
+      get_rule_op = search_analytics.get_rule(name);
     }
     if (get_rule_op.ok()) {
         return Option<nlohmann::json>(get_rule_op.get());
@@ -433,7 +433,7 @@ Option<nlohmann::json> AnalyticsManager::create_rule(nlohmann::json& payload, bo
         }
 
         bool is_doc_rule = doc_analytics.check_rule_type(event_type, type);
-        bool is_query_rule = query_analytics.check_rule_type(event_type, type);
+        bool is_query_rule = search_analytics.check_rule_type(event_type, type);
         if (!is_doc_rule && !is_query_rule) {
             return Option<nlohmann::json>(400, "Event type or type is invalid (or) combination of both is invalid");
         }
@@ -441,7 +441,7 @@ Option<nlohmann::json> AnalyticsManager::create_rule(nlohmann::json& payload, bo
         if (is_doc_rule) {
             op_response = doc_analytics.create_rule(payload, false, is_live_req);
         } else {
-            op_response = query_analytics.create_rule(payload, false, is_live_req);
+            op_response = search_analytics.create_rule(payload, false, is_live_req);
         }
 
         if (!op_response.ok()) {
@@ -457,7 +457,7 @@ Option<nlohmann::json> AnalyticsManager::create_rule(nlohmann::json& payload, bo
             }
         }
 
-        rules_map[name] = is_doc_rule ? "doc" : "query";
+        rules_map[name] = is_doc_rule ? "doc" : "search";
         rules[name] = op_response.get();
     } else {
         // Validations for updating an existing rule
@@ -475,7 +475,7 @@ Option<nlohmann::json> AnalyticsManager::create_rule(nlohmann::json& payload, bo
         }
         name = payload["name"].get<std::string>();
         bool is_doc_rule = (rules_map.find(name) != rules_map.end() && rules_map[name] == "doc");
-        bool is_query_rule = (rules_map.find(name) != rules_map.end() && rules_map[name] == "query");
+        bool is_query_rule = (rules_map.find(name) != rules_map.end() && rules_map[name] == "search");
         if (!is_doc_rule && !is_query_rule) {
             return Option<nlohmann::json>(400, "Rule not found");
         }
@@ -483,7 +483,7 @@ Option<nlohmann::json> AnalyticsManager::create_rule(nlohmann::json& payload, bo
         if (is_doc_rule) {
             op_response = doc_analytics.create_rule(payload, true, is_live_req);
         } else {
-            op_response = query_analytics.create_rule(payload, true, is_live_req);
+            op_response = search_analytics.create_rule(payload, true, is_live_req);
         }
 
         if (!op_response.ok()) {
@@ -516,7 +516,7 @@ Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
       return Option<bool>(400, "Rule Migration failed. type is required");
     }
     const std::string& type = payload["type"].get<std::string>();
-    if(type != DocAnalytics::COUNTER_TYPE && type != QueryAnalytics::POPULAR_QUERIES_TYPE && type != QueryAnalytics::NO_HIT_QUERIES_TYPE) {
+    if(type != DocAnalytics::COUNTER_TYPE && type != SearchAnalytics::POPULAR_QUERIES_TYPE && type != SearchAnalytics::NO_HIT_QUERIES_TYPE) {
       return Option<bool>(400, "Rule Migration failed. " + type + " is invalid");
     }
 
@@ -555,8 +555,8 @@ Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
 
     bool duplicate_name = collections.size() != 1;
 
-    if (type == QueryAnalytics::POPULAR_QUERIES_TYPE || type == QueryAnalytics::NO_HIT_QUERIES_TYPE) {
-      const std::string& event_type = "query";
+    if (type == SearchAnalytics::POPULAR_QUERIES_TYPE || type == SearchAnalytics::NO_HIT_QUERIES_TYPE) {
+      const std::string& event_type = "search";
       size_t limit = 0;
       if(params.contains("limit") && params["limit"].is_number_integer()) {
         limit = params["limit"].get<size_t>();
@@ -687,7 +687,7 @@ Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
 Option<nlohmann::json> AnalyticsManager::remove_rule(const std::string& name) {
     std::unique_lock lock(mutex);
     const bool is_doc_rule = rules_map.find(name) != rules_map.end() && rules_map.find(name)->second == "doc";
-    const bool is_query_rule = rules_map.find(name) != rules_map.end() && rules_map.find(name)->second == "query";
+    const bool is_query_rule = rules_map.find(name) != rules_map.end() && rules_map.find(name)->second == "search";
     if(!is_doc_rule && !is_query_rule) {
       return Option<nlohmann::json>(400, "Rule not found");
     }
@@ -697,7 +697,7 @@ Option<nlohmann::json> AnalyticsManager::remove_rule(const std::string& name) {
         return Option<nlohmann::json>(400, remove_rule_op.error());
       }
     } else if(is_query_rule) {
-      auto remove_rule_op = query_analytics.remove_rule(name);
+      auto remove_rule_op = search_analytics.remove_rule(name);
       if(!remove_rule_op.ok()) {
         return Option<nlohmann::json>(400, remove_rule_op.error());
       }
@@ -720,7 +720,7 @@ Option<nlohmann::json> AnalyticsManager::remove_rule(const std::string& name) {
 void AnalyticsManager::remove_all_rules() {
     std::unique_lock lock(mutex);
     doc_analytics.remove_all_rules();
-    query_analytics.remove_all_rules();
+    search_analytics.remove_all_rules();
     rules_map.clear();
 }
 
@@ -757,18 +757,18 @@ Option<nlohmann::json> AnalyticsManager::get_status() {
     std::shared_lock lk(mutex);
     nlohmann::json status;
 
-    status["popular_prefix_queries"] = query_analytics.get_popular_prefix_queries_size();
-    status["nohits_prefix_queries"] = query_analytics.get_nohits_prefix_queries_size();
-    status["log_prefix_queries"] = query_analytics.get_log_prefix_queries_size();
+    status["popular_prefix_queries"] = search_analytics.get_popular_prefix_queries_size();
+    status["nohits_prefix_queries"] = search_analytics.get_nohits_prefix_queries_size();
+    status["log_prefix_queries"] = search_analytics.get_log_prefix_queries_size();
 
     size_t q_log = 0;
-    for (const auto& kv : query_analytics.get_query_log_events()) {
+    for (const auto& kv : search_analytics.get_search_log_events()) {
         q_log += kv.second.size();
     }
     status["query_log_events"] = q_log;
 
     size_t q_counter = 0;
-    for (const auto& kv : query_analytics.get_query_counter_events()) {
+    for (const auto& kv : search_analytics.get_search_counter_events()) {
         q_counter += kv.second.query_counts.size();
     }
     status["query_counter_events"] = q_counter;
@@ -794,7 +794,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
 
     while(!quit) {
         std::unique_lock lk(quit_mutex);
-        cv.wait_for(lk, std::chrono::seconds(QUERY_COMPACTION_INTERVAL_S), [&] {
+        cv.wait_for(lk, std::chrono::seconds(COMPACTION_INTERVAL_S), [&] {
             return quit.load() || flush_requested.load();
         });
 
@@ -880,7 +880,7 @@ void AnalyticsManager::dispose() {
     external_events_cache.clear();
     rules_map.clear();
     doc_analytics.dispose();
-    query_analytics.dispose();
+    search_analytics.dispose();
 }
 
 AnalyticsManager::~AnalyticsManager() {}
