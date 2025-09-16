@@ -314,7 +314,7 @@ describe(Phases.NO_PHASE, () => {
           type: "counter",
         }, {
           collection: "products_1",
-          event_type: "query",
+          event_type: "search",
           name: "product_queries_aggregation_2_products_1",
           params: {
             capture_search_requests: true,
@@ -326,7 +326,7 @@ describe(Phases.NO_PHASE, () => {
           type: "popular_queries",
         }, {
           collection: "products",
-          event_type: "query",
+          event_type: "search",
           name: "product_queries_aggregation_2_products",
           params: {
             capture_search_requests: true,
@@ -338,7 +338,7 @@ describe(Phases.NO_PHASE, () => {
           type: "popular_queries",
         }, {
           collection: "products",
-          event_type: "query",
+          event_type: "search",
           name: "product_queries_aggregation",
           params: {
             capture_search_requests: true,
@@ -350,7 +350,7 @@ describe(Phases.NO_PHASE, () => {
           type: "popular_queries",
         }, {
           collection: "products_1",
-          event_type: "query",
+          event_type: "search",
           name: "product_no_hits_1_products_1",
           params: {
             capture_search_requests: true,
@@ -362,7 +362,7 @@ describe(Phases.NO_PHASE, () => {
           type: "nohits_queries",
         }, {
           collection: "products",
-          event_type: "query",
+          event_type: "search",
           name: "products_search_event",
           params: {
             capture_search_requests: false,
@@ -374,7 +374,7 @@ describe(Phases.NO_PHASE, () => {
           type: "popular_queries",
         }, {
           collection: "products",
-          event_type: "query",
+          event_type: "search",
           name: "product_no_hits_1_products",
           params: {
             capture_search_requests: true,
@@ -386,7 +386,7 @@ describe(Phases.NO_PHASE, () => {
           type: "nohits_queries",
         }, {
           collection: "products",
-          event_type: "query",
+          event_type: "search",
           name: "product_no_hits",
           params: {
             capture_search_requests: true,

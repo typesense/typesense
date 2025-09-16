@@ -118,7 +118,7 @@ describe(Phases.SINGLE_FRESH, () => {
         name: "product_queries_with_capture",
         type: "log",
         collection: "analytics_products",
-        event_type: "query",
+        event_type: "search",
         rule_tag: "tag2",
         params: {
           meta_fields: ["analytics_tag"],
@@ -132,7 +132,7 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(data.data?.name).toBe("product_queries_with_capture");
     expect(data.data?.type).toBe("log");
     expect(data.data?.collection).toBe("analytics_products");
-    expect(data.data?.event_type).toBe("query");
+    expect(data.data?.event_type).toBe("search");
     expect(data.data?.rule_tag).toBe("tag2");
     expect(data.data?.params?.meta_fields).toEqual(["analytics_tag"]);
     expect(data.data?.params?.expand_query).toBe(true);
@@ -143,7 +143,7 @@ describe(Phases.SINGLE_FRESH, () => {
         name: "product_queries_without_capture",
         type: "log",
         collection: "analytics_products",
-        event_type: "query",
+        event_type: "search",
         rule_tag: "tag2",
         params: {
           capture_search_requests: false,
@@ -158,7 +158,7 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(data.data?.name).toBe("product_queries_without_capture");
     expect(data.data?.type).toBe("log");
     expect(data.data?.collection).toBe("analytics_products");
-    expect(data.data?.event_type).toBe("query");
+    expect(data.data?.event_type).toBe("search");
     expect(data.data?.rule_tag).toBe("tag2");
     expect(data.data?.params?.meta_fields).toEqual(["analytics_tag"]);
     expect(data.data?.params?.expand_query).toBe(true);
@@ -172,7 +172,7 @@ describe(Phases.SINGLE_FRESH, () => {
         name: "product_queries_without_capture",
         type: "log",
         collection: "analytics_products",
-        event_type: "query",
+        event_type: "search",
         rule_tag: "tag2",
         params: {
           capture_search_requests: false,
@@ -187,7 +187,7 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(data.data?.name).toBe("product_queries_without_capture");
     expect(data.data?.type).toBe("log");
     expect(data.data?.collection).toBe("analytics_products");
-    expect(data.data?.event_type).toBe("query");
+    expect(data.data?.event_type).toBe("search");
     expect(data.data?.rule_tag).toBe("tag2");
     expect(data.data?.params?.meta_fields).toEqual(["analytics_tag"]);
     expect(data.data?.params?.expand_query).toBe(true);
@@ -253,7 +253,7 @@ describe(Phases.SINGLE_FRESH, () => {
         name: "product_popular_queries",
         type: "popular_queries",
         collection: "analytics_products",
-        event_type: "query",
+        event_type: "search",
         rule_tag: "tag1",
         params: {
           destination_collection: "analytics_queries",
@@ -269,7 +269,7 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(data.data?.name).toBe("product_popular_queries");
     expect(data.data?.type).toBe("popular_queries");
     expect(data.data?.collection).toBe("analytics_products");
-    expect(data.data?.event_type).toBe("query");
+    expect(data.data?.event_type).toBe("search");
     expect(data.data?.rule_tag).toBe("tag1");
     expect(data.data?.params?.destination_collection).toBe("analytics_queries");
     expect(data.data?.params?.limit).toBe(10);
@@ -281,7 +281,7 @@ describe(Phases.SINGLE_FRESH, () => {
         name: "product_nohits_queries",
         type: "nohits_queries",
         collection: "analytics_products",
-        event_type: "query",
+        event_type: "search",
         rule_tag: "tag1",
         params: {
           destination_collection: "analytics_queries",
@@ -296,7 +296,7 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(data.data?.name).toBe("product_nohits_queries");
     expect(data.data?.type).toBe("nohits_queries");
     expect(data.data?.collection).toBe("analytics_products");
-    expect(data.data?.event_type).toBe("query");
+    expect(data.data?.event_type).toBe("search");
     expect(data.data?.rule_tag).toBe("tag1");
     expect(data.data?.params?.destination_collection).toBe("analytics_queries");
     expect(data.data?.params?.limit).toBe(10);
@@ -398,7 +398,7 @@ describe(Phases.SINGLE_FRESH, () => {
       method: "POST",
       body: JSON.stringify({
         name: "product_queries_without_capture",
-        event_type: "query",
+        event_type: "search",
         data: {
           q: "product",
           user_id: "user1",
@@ -415,7 +415,7 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(data1.success).toBe(true);
     expect(data1.data?.events?.length).toBe(1);
     expect(data1.data?.events?.[0]?.name).toBe("product_queries_without_capture");
-    expect(data1.data?.events?.[0]?.event_type).toBe("query");
+    expect(data1.data?.events?.[0]?.event_type).toBe("search");
     expect(data1.data?.events?.[0]?.query).toBe("product");
     expect(data1.data?.events?.[0]?.user_id).toBe("user1");
   });
@@ -432,7 +432,7 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(data1.success).toBe(true);
     expect(data1.data?.events?.length).toBe(1);
     expect(data1.data?.events?.[0]?.name).toBe("product_queries_with_capture");
-    expect(data1.data?.events?.[0]?.event_type).toBe("query");
+    expect(data1.data?.events?.[0]?.event_type).toBe("search");
     expect(data1.data?.events?.[0]?.query).toBe("typesense");
     expect(data1.data?.events?.[0]?.user_id).toBe("user1");
   });
@@ -583,7 +583,7 @@ describe(Phases.SINGLE_SNAPSHOT, () => {
     expect(data1.success).toBe(true);
     expect(data1.data?.events?.length).toBe(3);
     expect(data1.data?.events?.[0]?.name).toBe("product_queries_with_capture");
-    expect(data1.data?.events?.[0]?.event_type).toBe("query");
+    expect(data1.data?.events?.[0]?.event_type).toBe("search");
     expect(data1.data?.events?.[0]?.query).toBe("typesense");
     expect(data1.data?.events?.[0]?.user_id).toBe("user1");
   });
@@ -679,7 +679,7 @@ describe(Phases.MULTI_FRESH, () => {
         name: "product_queries_with_capture",
         type: "log",
         collection: "analytics_products",
-        event_type: "query",
+        event_type: "search",
         rule_tag: "tag2",
         params: {
           meta_fields: ["analytics_tag"],
@@ -693,7 +693,7 @@ describe(Phases.MULTI_FRESH, () => {
     expect(data.data?.name).toBe("product_queries_with_capture");
     expect(data.data?.type).toBe("log");
     expect(data.data?.collection).toBe("analytics_products");
-    expect(data.data?.event_type).toBe("query");
+    expect(data.data?.event_type).toBe("search");
     expect(data.data?.rule_tag).toBe("tag2");
     expect(data.data?.params?.meta_fields).toEqual(["analytics_tag"]);
     expect(data.data?.params?.expand_query).toBe(true);
@@ -704,7 +704,7 @@ describe(Phases.MULTI_FRESH, () => {
         name: "product_queries_without_capture",
         type: "log",
         collection: "analytics_products",
-        event_type: "query",
+        event_type: "search",
         rule_tag: "tag2",
         params: {
           capture_search_requests: false,
@@ -719,7 +719,7 @@ describe(Phases.MULTI_FRESH, () => {
     expect(data.data?.name).toBe("product_queries_without_capture");
     expect(data.data?.type).toBe("log");
     expect(data.data?.collection).toBe("analytics_products");
-    expect(data.data?.event_type).toBe("query");
+    expect(data.data?.event_type).toBe("search");
     expect(data.data?.rule_tag).toBe("tag2");
     expect(data.data?.params?.meta_fields).toEqual(["analytics_tag"]);
     expect(data.data?.params?.expand_query).toBe(true);
@@ -785,7 +785,7 @@ describe(Phases.MULTI_FRESH, () => {
         name: "product_popular_queries",
         type: "popular_queries",
         collection: "analytics_products",
-        event_type: "query",
+        event_type: "search",
         rule_tag: "tag1",
         params: {
           destination_collection: "analytics_queries",
@@ -801,7 +801,7 @@ describe(Phases.MULTI_FRESH, () => {
     expect(data.data?.name).toBe("product_popular_queries");
     expect(data.data?.type).toBe("popular_queries");
     expect(data.data?.collection).toBe("analytics_products");
-    expect(data.data?.event_type).toBe("query");
+    expect(data.data?.event_type).toBe("search");
     expect(data.data?.rule_tag).toBe("tag1");
     expect(data.data?.params?.destination_collection).toBe("analytics_queries");
     expect(data.data?.params?.limit).toBe(10);
@@ -813,7 +813,7 @@ describe(Phases.MULTI_FRESH, () => {
         name: "product_nohits_queries",
         type: "nohits_queries",
         collection: "analytics_products",
-        event_type: "query",
+        event_type: "search",
         rule_tag: "tag1",
         params: {
           destination_collection: "analytics_queries",
@@ -828,7 +828,7 @@ describe(Phases.MULTI_FRESH, () => {
     expect(data.data?.name).toBe("product_nohits_queries");
     expect(data.data?.type).toBe("nohits_queries");
     expect(data.data?.collection).toBe("analytics_products");
-    expect(data.data?.event_type).toBe("query");
+    expect(data.data?.event_type).toBe("search");
     expect(data.data?.rule_tag).toBe("tag1");
     expect(data.data?.params?.destination_collection).toBe("analytics_queries");
     expect(data.data?.params?.limit).toBe(10);
@@ -868,7 +868,7 @@ describe(Phases.MULTI_FRESH, () => {
       method: "POST",
       body: JSON.stringify({
         name: "product_queries_without_capture",
-        event_type: "query",
+        event_type: "search",
         data: {
           q: "product",
           user_id: "user1",
@@ -886,7 +886,7 @@ describe(Phases.MULTI_FRESH, () => {
     expect(data1.success).toBe(true);
     expect(data1.data?.events?.length).toBe(1);
     expect(data1.data?.events?.[0]?.name).toBe("product_queries_without_capture");
-    expect(data1.data?.events?.[0]?.event_type).toBe("query");
+    expect(data1.data?.events?.[0]?.event_type).toBe("search");
     expect(data1.data?.events?.[0]?.query).toBe("product");
     expect(data1.data?.events?.[0]?.user_id).toBe("user1");
   });
@@ -903,7 +903,7 @@ describe(Phases.MULTI_FRESH, () => {
     expect(data1.success).toBe(true);
     expect(data1.data?.events?.length).toBe(1);
     expect(data1.data?.events?.[0]?.name).toBe("product_queries_with_capture");
-    expect(data1.data?.events?.[0]?.event_type).toBe("query");
+    expect(data1.data?.events?.[0]?.event_type).toBe("search");
     expect(data1.data?.events?.[0]?.query).toBe("typesense");
     expect(data1.data?.events?.[0]?.user_id).toBe("user1");
   });
@@ -1056,7 +1056,7 @@ describe(Phases.MULTI_SNAPSHOT, () => {
     expect(data1.success).toBe(true);
     expect(data1.data?.events?.length).toBe(3);
     expect(data1.data?.events?.[0]?.name).toBe("product_queries_with_capture");
-    expect(data1.data?.events?.[0]?.event_type).toBe("query");
+    expect(data1.data?.events?.[0]?.event_type).toBe("search");
     expect(data1.data?.events?.[0]?.query).toBe("typesense");
     expect(data1.data?.events?.[0]?.user_id).toBe("user1");
   });
