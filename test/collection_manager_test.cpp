@@ -8,7 +8,7 @@
 #include "collection.h"
 #include "synonym_index.h"
 #include "synonym_index_manager.h"
-#include "query_analytics.h"
+#include "search_analytics.h"
 
 class CollectionManagerTest : public ::testing::Test {
 protected:
@@ -711,7 +711,7 @@ TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
         "type": "popular_queries",
         "name": "coll_search",
         "collection": "coll1",
-        "event_type": "query",
+        "event_type": "search",
         "params": {
             "limit": 100,
             "destination_collection": "top_queries"
@@ -775,7 +775,7 @@ TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
         "name": "nohits_search_queries",
         "type": "nohits_queries",
         "collection": "coll1",
-        "event_type": "query",
+        "event_type": "search",
         "rule_tag": "nohits_queries",
         "params": {
             "limit": 100,
@@ -801,7 +801,7 @@ TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
-    ASSERT_EQ(1, QueryAnalytics::get_instance().get_nohits_prefix_queries_size());
+    ASSERT_EQ(1, SearchAnalytics::get_instance().get_nohits_prefix_queries_size());
 
     collectionManager.drop_collection("coll1");
 }
@@ -1938,7 +1938,7 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
         "name": "hide_search_queries",
         "type": "popular_queries",
         "collection": "coll3",
-        "event_type": "query",
+        "event_type": "search",
         "rule_tag": "popular_queries",
         "params": {
             "limit": 100,
@@ -1966,14 +1966,14 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
-    ASSERT_EQ(0, QueryAnalytics::get_instance().get_popular_prefix_queries_size());
+    ASSERT_EQ(0, SearchAnalytics::get_instance().get_popular_prefix_queries_size());
 
     req_params["enable_analytics"] = "true";
 
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
-    ASSERT_EQ(1, QueryAnalytics::get_instance().get_popular_prefix_queries_size());
+    ASSERT_EQ(1, SearchAnalytics::get_instance().get_popular_prefix_queries_size());
 
     collectionManager.drop_collection("coll3");
 }

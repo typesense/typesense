@@ -1,7 +1,7 @@
 #pragma once
 
 #include "doc_analytics.h"
-#include "query_analytics.h"
+#include "search_analytics.h"
 #include <vector>
 #include <string>
 #include <shared_mutex>
@@ -26,7 +26,7 @@ private:
     mutable std::shared_mutex mutex;
     mutable std::shared_mutex quit_mutex;
     std::condition_variable_any cv;
-    const size_t QUERY_COMPACTION_INTERVAL_S = 30;
+    const size_t COMPACTION_INTERVAL_S = 30;
     bool isRateLimitEnabled = true;
     uint32_t analytics_minute_rate_limit = 5;
 
@@ -34,7 +34,7 @@ private:
     std::atomic<bool> flush_requested = false;
 
     DocAnalytics& doc_analytics = DocAnalytics::get_instance();
-    QueryAnalytics& query_analytics = QueryAnalytics::get_instance();
+    SearchAnalytics& search_analytics = SearchAnalytics::get_instance();
     LRU::Cache<std::string, external_event_cache_t> external_events_cache;
     std::unordered_map<std::string, std::string> rules_map;
     std::unordered_map<std::string, nlohmann::json> rules;
@@ -61,7 +61,7 @@ public:
     void persist_analytics_db_events(ReplicationState *raft_server, uint64_t prev_persistence_s, bool triggered);
     
     Option<bool> add_external_event(const std::string& client_ip, const nlohmann::json& event_data);
-    Option<bool> add_internal_event(const query_internal_event_t& event_data);
+    Option<bool> add_internal_event(const search_internal_event_t& event_data);
 
     Option<nlohmann::json> get_events(const std::string& userid, const std::string& event_name, uint32_t N);
     Option<nlohmann::json> list_rules(const std::string& rule_tag = "");

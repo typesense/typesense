@@ -1,9 +1,9 @@
 #include <mutex>
-#include "query_analytics.h"
+#include "search_analytics.h"
 #include "tokenizer.h"
 #include "collection_manager.h"
 
-void query_event_t::to_json(nlohmann::json& obj, const std::string& coll, const std::string& name) const {
+void search_event_t::to_json(nlohmann::json& obj, const std::string& coll, const std::string& name) const {
   obj["query"] = query;
   obj["event_type"] = event_type;
   obj["timestamp"] = timestamp;
@@ -21,7 +21,7 @@ void query_event_t::to_json(nlohmann::json& obj, const std::string& coll, const 
   obj["name"] = name;
 }
 
-void query_counter_event_t::serialize_as_docs(std::string& docs) {
+void search_counter_event_t::serialize_as_docs(std::string& docs) {
   for(const auto& kv : query_counts) {
     nlohmann::json doc;
     doc["id"] = std::to_string(StringUtils::hash_wy(kv.first.query.c_str(), kv.first.query.size()));
@@ -42,29 +42,29 @@ void query_counter_event_t::serialize_as_docs(std::string& docs) {
   }
 }
 
-bool QueryAnalytics::check_rule_type(const std::string& event_type, const std::string& type) {
-  if(event_type == QUERY_EVENT) {
+bool SearchAnalytics::check_rule_type(const std::string& event_type, const std::string& type) {
+  if(event_type == SEARCH_EVENT) {
     return type == LOG_TYPE || type == NO_HIT_QUERIES_TYPE || type == POPULAR_QUERIES_TYPE;
   }
 
   return false;
 }
 
-bool QueryAnalytics::check_rule_type_collection(const std::string& collection, const std::string& type) {
+bool SearchAnalytics::check_rule_type_collection(const std::string& collection, const std::string& type) {
   auto collection_map_it = collection_rules_map.find(collection);
   if(collection_map_it == collection_rules_map.end()) {
     return false;
   }
 
   for(const auto& rule_name : collection_map_it->second) {
-    if(query_rules.find(rule_name)->second.type == type) {
+    if(search_rules.find(rule_name)->second.type == type) {
       return true;
     }
   }
   return false;
 }
 
-Option<bool> QueryAnalytics::add_event(const std::string& client_ip, const nlohmann::json& event_data) {
+Option<bool> SearchAnalytics::add_event(const std::string& client_ip, const nlohmann::json& event_data) {
   std::unique_lock lock(mutex);
   auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
               std::chrono::system_clock::now().time_since_epoch()).count();
@@ -82,15 +82,15 @@ Option<bool> QueryAnalytics::add_event(const std::string& client_ip, const nlohm
   if(data.contains("analytics_tag") && !data["analytics_tag"].is_string()) {
     return Option<bool>(400, "'analytics_tag' should be a string");
   }
-  const auto& type = query_rules.find(event_name)->second.type;
-  const auto& event_type = query_rules.find(event_name)->second.event_type;
+  const auto& type = search_rules.find(event_name)->second.type;
+  const auto& event_type = search_rules.find(event_name)->second.event_type;
 
   if(type == POPULAR_QUERIES_TYPE || type == NO_HIT_QUERIES_TYPE) {
-    const auto& counter_event_it = query_counter_events.find(event_name);
-    if(counter_event_it == query_counter_events.end()) {
+    const auto& counter_event_it = search_counter_events.find(event_name);
+    if(counter_event_it == search_counter_events.end()) {
       return Option<bool>(400, "Rule does not exist");
     }
-    query_event_t query_event{
+    search_event_t search_event{
       data["q"].get<std::string>(),
       event_type,
       data.contains("timestamp") ? data["timestamp"].get<uint64_t>() : uint64_t(now_ts_useconds),
@@ -99,23 +99,23 @@ Option<bool> QueryAnalytics::add_event(const std::string& client_ip, const nlohm
       data.contains("analytics_tag") ? data["analytics_tag"].get<std::string>() : ""
     };
     auto& query_counts = counter_event_it->second.query_counts;
-    auto it = query_counts.find(query_event);
+    auto it = query_counts.find(search_event);
     // skip count when map has become too large (to prevent abuse)
     if (it == query_counts.end()) {
       if (query_counts.size() < counter_event_it->second.limit * 2) {
-        query_counts.emplace(query_event, 1);
+        query_counts.emplace(search_event, 1);
       }
       // else drop the event
     } else {
       it->second++;
     }
   } else if (type == LOG_TYPE) {
-    const auto& log_event_it = query_log_events.find(event_name);
-    if(log_event_it == query_log_events.end()) {
+    const auto& log_event_it = search_log_events.find(event_name);
+    if(log_event_it == search_log_events.end()) {
       return Option<bool>(400, "Rule does not exist");
     }
-    const auto& meta_fields = query_rules.find(event_name)->second.meta_fields;
-    log_event_it->second.push_back(query_event_t{
+    const auto& meta_fields = search_rules.find(event_name)->second.meta_fields;
+    search_log_events[event_name].push_back(search_event_t{
       data["q"].get<std::string>(),
       event_type,
       data.contains("timestamp") ? data["timestamp"].get<uint64_t>() : uint64_t(now_ts_useconds),
@@ -128,7 +128,7 @@ Option<bool> QueryAnalytics::add_event(const std::string& client_ip, const nlohm
   return Option<bool>(true);
 }
 
-Option<bool> QueryAnalytics::add_internal_event(const query_internal_event_t& event_data) {
+Option<bool> SearchAnalytics::add_internal_event(const search_internal_event_t& event_data) {
   std::unique_lock lock(mutex);
   std::unique_lock user_lock(user_compaction_mutex);
   const uint64_t now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -140,30 +140,30 @@ Option<bool> QueryAnalytics::add_internal_event(const query_internal_event_t& ev
   }
   const auto& rule_names = it->second;
   for(const auto& rule_name : rule_names) {
-    const auto& rule = query_rules.find(rule_name)->second;
+    const auto& rule = search_rules.find(rule_name)->second;
     if(rule.type == event_data.type && rule.capture_search_requests && event_data.q.size() <= MAX_QUERY_LENGTH) {
       if(rule.type == POPULAR_QUERIES_TYPE && popular_user_collection_prefix_queries[event_data.user_id][event_data.collection].size() < 100) {
-        popular_user_collection_prefix_queries[event_data.user_id][event_data.collection].push_back(query_event_t{
+        popular_user_collection_prefix_queries[event_data.user_id][event_data.collection].push_back(search_event_t{
           rule.expand_query ? event_data.expanded_q : event_data.q,
-          "query",
+          "search",
           now_ts_us,
           event_data.user_id,
           event_data.filter_by,
           event_data.analytics_tag
         });
       } else if (rule.type == NO_HIT_QUERIES_TYPE && nohits_user_collection_prefix_queries[event_data.user_id][event_data.collection].size() < 100) {
-        nohits_user_collection_prefix_queries[event_data.user_id][event_data.collection].push_back(query_event_t{
+        nohits_user_collection_prefix_queries[event_data.user_id][event_data.collection].push_back(search_event_t{
           rule.expand_query ? event_data.expanded_q : event_data.q,
-          "query",
+          "search",
           now_ts_us,
           event_data.user_id,
           event_data.filter_by,
           event_data.analytics_tag
         });
       } else if (rule.type == LOG_TYPE && log_user_collection_prefix_queries[event_data.user_id][event_data.collection].size() < 100) {
-        log_user_collection_prefix_queries[event_data.user_id][event_data.collection].push_back(query_event_t{
+        log_user_collection_prefix_queries[event_data.user_id][event_data.collection].push_back(search_event_t{
           rule.expand_query ? event_data.expanded_q : event_data.q,
-          "query",
+          "search",
           now_ts_us,
           event_data.user_id,
           event_data.filter_by,
@@ -175,14 +175,14 @@ Option<bool> QueryAnalytics::add_internal_event(const query_internal_event_t& ev
   return Option<bool>(true);
 }
 
-Option<nlohmann::json> QueryAnalytics::create_rule(nlohmann::json& payload, bool update, bool is_live_req) {
+Option<nlohmann::json> SearchAnalytics::create_rule(nlohmann::json& payload, bool update, bool is_live_req) {
   std::unique_lock lock(mutex);
   if(update) {
-    if(query_rules.find(payload["name"].get<std::string>()) == query_rules.end()) {
+    if(search_rules.find(payload["name"].get<std::string>()) == search_rules.end()) {
       return Option<nlohmann::json>(400, "Rule does not exist");
     }
     nlohmann::json existing_rule;
-    query_rules.find(payload["name"].get<std::string>())->second.to_json(existing_rule);
+    search_rules.find(payload["name"].get<std::string>())->second.to_json(existing_rule);
     if(payload.contains("rule_tag")) {
       existing_rule["rule_tag"] = payload["rule_tag"].get<std::string>();
     }
@@ -269,19 +269,19 @@ Option<nlohmann::json> QueryAnalytics::create_rule(nlohmann::json& payload, bool
       return Option<nlohmann::json>(400, "Limit should be a number greater than 0");
     }
 
-    query_counter_event_t counter_event;
+    search_counter_event_t counter_event;
     counter_event.destination_collection = payload["params"]["destination_collection"].get<std::string>();
     counter_event.meta_fields = payload["params"].contains("meta_fields") ? payload["params"]["meta_fields"].get<std::set<std::string>>() : std::set<std::string>();
     counter_event.limit = payload["params"]["limit"].get<uint32_t>();
     if(update) {
-      auto existing_query_counter_event_it = query_counter_events.find(payload["name"].get<std::string>());
-      if(existing_query_counter_event_it != query_counter_events.end()) {
-        counter_event.query_counts = existing_query_counter_event_it->second.query_counts;
-        query_counter_events.erase(existing_query_counter_event_it);
+      auto existing_search_counter_event_it = search_counter_events.find(payload["name"].get<std::string>());
+      if(existing_search_counter_event_it != search_counter_events.end()) {
+        counter_event.query_counts = existing_search_counter_event_it->second.query_counts;
+        search_counter_events.erase(existing_search_counter_event_it);
       }
     }
-    query_counter_events[payload["name"].get<std::string>()] = counter_event;
-    query_rules[payload["name"].get<std::string>()] = query_rule_config_t{
+    search_counter_events[payload["name"].get<std::string>()] = counter_event;
+    search_rules[payload["name"].get<std::string>()] = search_rule_config_t{
       payload["name"].get<std::string>(),
       payload["type"].get<std::string>(),
       payload["collection"].get<std::string>(),
@@ -305,12 +305,12 @@ Option<nlohmann::json> QueryAnalytics::create_rule(nlohmann::json& payload, bool
 
   if (payload["type"] == LOG_TYPE) {
     if(!update) {
-      query_log_events[payload["name"].get<std::string>()] = std::vector<query_event_t>();
+      search_log_events[payload["name"].get<std::string>()] = std::vector<search_event_t>();
     }
     if (update) {
-      query_rules.erase(payload["name"].get<std::string>());
+      search_rules.erase(payload["name"].get<std::string>());
     }
-    query_rules[payload["name"].get<std::string>()] = query_rule_config_t{
+    search_rules[payload["name"].get<std::string>()] = search_rule_config_t{
       payload["name"].get<std::string>(),
       payload["type"].get<std::string>(),
       payload["collection"].get<std::string>(),
@@ -335,12 +335,12 @@ Option<nlohmann::json> QueryAnalytics::create_rule(nlohmann::json& payload, bool
 }
   
 
-Option<bool> QueryAnalytics::remove_rule(const std::string& name) {
+Option<bool> SearchAnalytics::remove_rule(const std::string& name) {
   std::unique_lock lock(mutex);
-  auto it = query_rules.find(name);
-  auto query_counter_event_it = query_counter_events.find(name);
-  auto query_log_event_it = query_log_events.find(name);
-  if(it == query_rules.end()) {
+  auto it = search_rules.find(name);
+  auto search_counter_event_it = search_counter_events.find(name);
+  auto search_log_event_it = search_log_events.find(name);
+  if(it == search_rules.end()) {
     return Option<bool>(400, "Rule does not exist");
   }
   auto collection_rules_map_it = collection_rules_map.find(it->second.collection);
@@ -350,23 +350,23 @@ Option<bool> QueryAnalytics::remove_rule(const std::string& name) {
       collection_rules_map_it->second.erase(rule_name_it);
     }
   }
-  query_rules.erase(it);
-  if(query_counter_event_it != query_counter_events.end()) {
-    query_counter_events.erase(query_counter_event_it);
+  search_rules.erase(it);
+  if(search_counter_event_it != search_counter_events.end()) {
+    search_counter_events.erase(search_counter_event_it);
   }
-  if(query_log_event_it != query_log_events.end()) {
-    query_log_events.erase(query_log_event_it);
+  if(search_log_event_it != search_log_events.end()) {
+    search_log_events.erase(search_log_event_it);
   }
   return Option<bool>(true);
 }
 
-void QueryAnalytics::get_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values) {
+void SearchAnalytics::get_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values) {
   std::shared_lock lock(mutex);
-  auto it = query_log_events.find(event_name);
-  if(it == query_log_events.end()) {
+  auto it = search_log_events.find(event_name);
+  if(it == search_log_events.end()) {
     return;
   }
-  const auto& collection = query_rules.find(event_name)->second.collection;
+  const auto& collection = search_rules.find(event_name)->second.collection;
   for(const auto& event : it->second) {
     if(event.user_id == userid) {
       nlohmann::json obj;
@@ -380,10 +380,10 @@ void QueryAnalytics::get_events(const std::string& userid, const std::string& ev
   }
 }
 
-Option<nlohmann::json> QueryAnalytics::list_rules(const std::string& rule_tag) {
+Option<nlohmann::json> SearchAnalytics::list_rules(const std::string& rule_tag) {
   std::shared_lock lock(mutex);
   nlohmann::json rules = nlohmann::json::array();
-  for(const auto& [key, value] : query_rules) {
+  for(const auto& [key, value] : search_rules) {
     if(rule_tag.empty() || value.rule_tag == rule_tag) {
       nlohmann::json rule;
       value.to_json(rule);
@@ -393,10 +393,10 @@ Option<nlohmann::json> QueryAnalytics::list_rules(const std::string& rule_tag) {
   return Option<nlohmann::json>(rules);
 }
 
-Option<nlohmann::json> QueryAnalytics::get_rule(const std::string& name) {
+Option<nlohmann::json> SearchAnalytics::get_rule(const std::string& name) {
   std::shared_lock lock(mutex);
-  auto it = query_rules.find(name);
-  if(it == query_rules.end()) {
+  auto it = search_rules.find(name);
+  if(it == search_rules.end()) {
     return Option<nlohmann::json>(400, "Rule does not exist");
   }
   nlohmann::json rule;
@@ -404,7 +404,12 @@ Option<nlohmann::json> QueryAnalytics::get_rule(const std::string& name) {
   return Option<nlohmann::json>(rule);
 }
 
-void QueryAnalytics::compact_single_user_queries(uint64_t now_ts_us, const std::string& user_id, const std::string& type, std::unordered_map<std::string, std::vector<query_event_t>>& user_prefix_queries) {
+search_rule_config_t SearchAnalytics::get_search_rule(const std::string& name) {
+  std::shared_lock lock(mutex);
+  return search_rules.find(name)->second;
+}
+
+void SearchAnalytics::compact_single_user_queries(uint64_t now_ts_us, const std::string& user_id, const std::string& type, std::unordered_map<std::string, std::vector<search_event_t>>& user_prefix_queries) {
   std::unique_lock lock(user_compaction_mutex);
 
   for(auto& query_events : user_prefix_queries) {
@@ -424,7 +429,7 @@ void QueryAnalytics::compact_single_user_queries(uint64_t now_ts_us, const std::
         }
         const auto& rules = rules_it->second;
         for(const auto& rule : rules) {
-          const auto& rule_config = query_rules.find(rule)->second;
+          const auto& rule_config = search_rules.find(rule)->second;
           if(rule_config.type == type && rule_config.capture_search_requests) {
             nlohmann::json event_data;
             event_data["event_type"] = prefix_queries[i].event_type;
@@ -444,7 +449,7 @@ void QueryAnalytics::compact_single_user_queries(uint64_t now_ts_us, const std::
   }
 }
 
-void QueryAnalytics::compact_all_user_queries(uint64_t now_ts_us) {
+void SearchAnalytics::compact_all_user_queries(uint64_t now_ts_us) {
   for(auto& user_prefix_queries : popular_user_collection_prefix_queries) {
     compact_single_user_queries(now_ts_us, user_prefix_queries.first, POPULAR_QUERIES_TYPE, user_prefix_queries.second);
   }
@@ -456,40 +461,35 @@ void QueryAnalytics::compact_all_user_queries(uint64_t now_ts_us) {
   }
 }
 
-void QueryAnalytics::reset_local_counter(const std::string& event_name) {
+void SearchAnalytics::reset_local_counter(const std::string& event_name) {
   std::unique_lock lock(mutex);
-  auto it = query_counter_events.find(event_name);
-  if(it == query_counter_events.end()) {
+  auto it = search_counter_events.find(event_name);
+  if(it == search_counter_events.end()) {
     return;
   }
   it->second.query_counts.clear();
 }
 
-void QueryAnalytics::reset_local_log_events(const std::string& event_name) {
+void SearchAnalytics::reset_local_log_events(const std::string& event_name) {
   std::unique_lock lock(mutex);
-  auto it = query_log_events.find(event_name);
-  if(it == query_log_events.end()) {
+  auto it = search_log_events.find(event_name);
+  if(it == search_log_events.end()) {
     return;
   }
   it->second.clear();
 }
 
-std::unordered_map<std::string, query_counter_event_t> QueryAnalytics::get_query_counter_events() {
+std::unordered_map<std::string, search_counter_event_t> SearchAnalytics::get_search_counter_events() {
   std::unique_lock lock(mutex);
-  return query_counter_events;
+  return search_counter_events;
 }
 
-std::unordered_map<std::string, std::vector<query_event_t>> QueryAnalytics::get_query_log_events() {
+std::unordered_map<std::string, std::vector<search_event_t>> SearchAnalytics::get_search_log_events() {
   std::unique_lock lock(mutex);
-  return query_log_events;
+  return search_log_events;
 }
 
-query_rule_config_t QueryAnalytics::get_query_rule(const std::string& name) {
-  std::shared_lock lock(mutex);
-  return query_rules.find(name)->second;
-}
-
-size_t QueryAnalytics::get_popular_prefix_queries_size() {
+size_t SearchAnalytics::get_popular_prefix_queries_size() {
   std::shared_lock lock(mutex);
   std::shared_lock user_lock(user_compaction_mutex);
   size_t count = 0;
@@ -501,7 +501,7 @@ size_t QueryAnalytics::get_popular_prefix_queries_size() {
   return count;
 }
 
-size_t QueryAnalytics::get_nohits_prefix_queries_size() {
+size_t SearchAnalytics::get_nohits_prefix_queries_size() {
   std::shared_lock lock(mutex);
   std::shared_lock user_lock(user_compaction_mutex);
   size_t count = 0;
@@ -513,7 +513,7 @@ size_t QueryAnalytics::get_nohits_prefix_queries_size() {
   return count;
 }
 
-size_t QueryAnalytics::get_log_prefix_queries_size() {
+size_t SearchAnalytics::get_log_prefix_queries_size() {
   std::shared_lock lock(mutex);
   std::shared_lock user_lock(user_compaction_mutex);
   size_t count = 0;
@@ -525,17 +525,19 @@ size_t QueryAnalytics::get_log_prefix_queries_size() {
   return count;
 }
 
-void QueryAnalytics::remove_all_rules() {
+void SearchAnalytics::remove_all_rules() {
   std::unique_lock lock(mutex);
-  query_rules.clear();
-  query_counter_events.clear();
-  query_log_events.clear();
+  search_rules.clear();
+  search_counter_events.clear();
+  search_log_events.clear();
   collection_rules_map.clear();
   popular_user_collection_prefix_queries.clear();
   nohits_user_collection_prefix_queries.clear();
   log_user_collection_prefix_queries.clear();
 }
 
-void QueryAnalytics::dispose() {
+void SearchAnalytics::dispose() {
   remove_all_rules();
 }
+
+

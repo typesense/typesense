@@ -8,7 +8,7 @@
 #include "json.hpp"
 #include "option.h"
 
-struct query_event_t {
+struct search_event_t {
   std::string query;
   std::string event_type;
   uint64_t timestamp;
@@ -16,7 +16,7 @@ struct query_event_t {
   std::string filter_str;
   std::string tag_str;
 
-  query_event_t(const std::string& q, const std::string& type, uint64_t ts, const std::string& uid, const std::string& filter, const std::string& tag) {
+  search_event_t(const std::string& q, const std::string& type, uint64_t ts, const std::string& uid, const std::string& filter, const std::string& tag) {
     query = q;
     event_type = type;
     timestamp = ts;
@@ -25,7 +25,7 @@ struct query_event_t {
     tag_str = tag;
   }
 
-  query_event_t& operator=(const query_event_t& other) {
+  search_event_t& operator=(const search_event_t& other) {
     if (this != &other) {
       query = other.query;
       event_type = other.event_type;
@@ -37,12 +37,12 @@ struct query_event_t {
     return *this;
   }
 
-  bool operator==(const query_event_t& other) const {
+  bool operator==(const search_event_t& other) const {
     return query == other.query && filter_str == other.filter_str && tag_str == other.tag_str;
   }
 
   struct Hash {
-    std::size_t operator()(const query_event_t& event) const {
+    std::size_t operator()(const search_event_t& event) const {
       return std::hash<std::string>{}(event.query + event.filter_str + event.tag_str);
     }
   };
@@ -50,7 +50,7 @@ struct query_event_t {
   void to_json(nlohmann::json& obj, const std::string& coll, const std::string& name) const;
 };
 
-struct query_internal_event_t {
+struct search_internal_event_t {
   std::string type;
   std::string collection;
   std::string q;
@@ -60,8 +60,8 @@ struct query_internal_event_t {
   std::string analytics_tag;
 };
 
-struct query_counter_event_t {
-  std::unordered_map<query_event_t, uint64_t, query_event_t::Hash> query_counts;
+struct search_counter_event_t {
+  std::unordered_map<search_event_t, uint64_t, search_event_t::Hash> query_counts;
   std::string destination_collection;
   std::set<std::string> meta_fields;
   uint32_t limit;
@@ -69,7 +69,7 @@ struct query_counter_event_t {
   void serialize_as_docs(std::string& docs);
 };
 
-struct query_rule_config_t {
+struct search_rule_config_t {
     std::string name;
     std::string type;
     std::string collection;
@@ -102,34 +102,34 @@ struct query_rule_config_t {
     }
 };
 
-class QueryAnalytics {
+class SearchAnalytics {
 private:
   mutable std::shared_mutex user_compaction_mutex;
   mutable std::shared_mutex mutex;
-  std::unordered_map<std::string, query_rule_config_t> query_rules;
+  std::unordered_map<std::string, search_rule_config_t> search_rules;
   std::unordered_map<std::string, std::vector<std::string>> collection_rules_map;
-  std::unordered_map<std::string, std::vector<query_event_t>> query_log_events;
-  std::unordered_map<std::string, query_counter_event_t> query_counter_events;
-  std::unordered_map<std::string, std::unordered_map<std::string, std::vector<query_event_t>>> popular_user_collection_prefix_queries;
-  std::unordered_map<std::string, std::unordered_map<std::string, std::vector<query_event_t>>> nohits_user_collection_prefix_queries;
-  std::unordered_map<std::string, std::unordered_map<std::string, std::vector<query_event_t>>> log_user_collection_prefix_queries;
+  std::unordered_map<std::string, std::vector<search_event_t>> search_log_events;
+  std::unordered_map<std::string, search_counter_event_t> search_counter_events;
+  std::unordered_map<std::string, std::unordered_map<std::string, std::vector<search_event_t>>> popular_user_collection_prefix_queries;
+  std::unordered_map<std::string, std::unordered_map<std::string, std::vector<search_event_t>>> nohits_user_collection_prefix_queries;
+  std::unordered_map<std::string, std::unordered_map<std::string, std::vector<search_event_t>>> log_user_collection_prefix_queries;
 
 public:
   static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
   static constexpr const char* NO_HIT_QUERIES_TYPE = "nohits_queries";
   static constexpr const char* LOG_TYPE = "log";
-  static constexpr const char* QUERY_EVENT = "query";
+  static constexpr const char* SEARCH_EVENT = "search";
   static const size_t QUERY_FINALIZATION_INTERVAL_MICROS = 4 * 1000 * 1000;
   static const size_t MAX_QUERY_LENGTH = 1024;
 
-  QueryAnalytics() = default;
-  ~QueryAnalytics() = default;
+  SearchAnalytics() = default;
+  ~SearchAnalytics() = default;
 
-  QueryAnalytics(QueryAnalytics const&) = delete;
-  void operator=(QueryAnalytics const&) = delete;
+  SearchAnalytics(SearchAnalytics const&) = delete;
+  void operator=(SearchAnalytics const&) = delete;
 
-  static QueryAnalytics& get_instance() {
-    static QueryAnalytics instance;
+  static SearchAnalytics& get_instance() {
+    static SearchAnalytics instance;
     return instance;
   }
 
@@ -142,16 +142,18 @@ public:
   void get_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values);
   Option<nlohmann::json> list_rules(const std::string& rule_tag = "");
   Option<nlohmann::json> get_rule(const std::string& name);
-  Option<bool> add_internal_event(const query_internal_event_t& event_data);
-  void compact_single_user_queries(uint64_t now_ts_us, const std::string& user_id, const std::string& type, std::unordered_map<std::string, std::vector<query_event_t>>& user_prefix_queries);
+  Option<bool> add_internal_event(const search_internal_event_t& event_data);
+  void compact_single_user_queries(uint64_t now_ts_us, const std::string& user_id, const std::string& type, std::unordered_map<std::string, std::vector<search_event_t>>& user_prefix_queries);
   void compact_all_user_queries(uint64_t now_ts_us);
   void reset_local_counter(const std::string& event_name);
   void reset_local_log_events(const std::string& event_name);
-  std::unordered_map<std::string, query_counter_event_t> get_query_counter_events();
-  std::unordered_map<std::string, std::vector<query_event_t>> get_query_log_events();
-  query_rule_config_t get_query_rule(const std::string& name);
+  std::unordered_map<std::string, search_counter_event_t> get_search_counter_events();
+  std::unordered_map<std::string, std::vector<search_event_t>> get_search_log_events();
+  search_rule_config_t get_search_rule(const std::string& name);
   size_t get_popular_prefix_queries_size();
   size_t get_nohits_prefix_queries_size();
   size_t get_log_prefix_queries_size();
   void dispose();
 };
+
+
