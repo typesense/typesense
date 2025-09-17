@@ -3652,6 +3652,8 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     bool first_request_default_sorting_field_used = false;
     spp::sparse_hash_set<uint32_t> unique_collection_ids;
     long totalSearchTime = 0;
+    auto group_limit = searches[0].group_limit;
+    auto found_docs = 0;
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto begin = std::chrono::high_resolution_clock::now();
@@ -3700,8 +3702,9 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         }
 
         const auto& search_params = search_params_guard;
-        const auto& found = search_params->all_result_ids_len;
+        const auto& found = search_params->found_count;
         total += found;
+        found_docs += found;
         if (unique_collection_ids.count(coll_id) == 0) {
             out_of += coll->get_num_documents();
             unique_collection_ids.insert(coll_id);
@@ -3821,22 +3824,24 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     auto overrides_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
             Union_KV::is_greater, Union_KV::is_smaller>>(std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
+    auto should_remove_duplicates = group_limit ? false : remove_duplicates;
+
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto& search_param = search_params_guards[search_index];
 
         for (auto& kvs: search_param->raw_result_kvs) {
-            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], remove_duplicates);
+            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], should_remove_duplicates);
             auto ret = union_topster->add(&kv);
-            if(remove_duplicates && ret == 0) { //duplicate doc
+            if(should_remove_duplicates && ret == 0) { //duplicate doc
                 total--;
             }
         }
 
         //populate overrides
         for(auto& kvs : search_param->override_result_kvs) {
-            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], remove_duplicates);
+            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], should_remove_duplicates);
             auto ret = overrides_topster->add(&kv);
-            if(remove_duplicates && ret == 0) { //duplicate doc
+            if(should_remove_duplicates && ret == 0) { //duplicate doc
                 total--;
             }
         }
@@ -3896,7 +3901,11 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     result["search_time_ms"] = totalSearchTime;
     result["page"] = union_params.page;
 
-    std::string hits_key = "hits";
+    if(group_limit != 0) {
+        result["found_docs"] = found_docs;
+    }
+
+    std::string hits_key = group_limit ? "grouped_hits" : "hits";
     result[hits_key] = nlohmann::json::array();
 
     nlohmann::json docs_array = nlohmann::json::array();
@@ -3904,8 +3913,15 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     for (long kv_index = start_result_index; kv_index <= end_result_index; kv_index++) {
         const auto& kv_group = merged_result_kvs[kv_index];
 
-        for (const Union_KV* kv: kv_group) {
+        nlohmann::json group_hits;
+        if(group_limit) {
+            group_hits["hits"] = nlohmann::json::array();
+        }
 
+        nlohmann::json& hits_array = group_limit ? group_hits["hits"] : result["hits"];
+        nlohmann::json group_key = nlohmann::json::array();
+
+        for (const Union_KV* kv: kv_group) {
             const auto& search_index = kv->search_index;
             const auto& coll_id = collection_ids.at(search_index);
             auto& cm = CollectionManager::get_instance();
@@ -3949,6 +3965,15 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                             highlight_affix_num_tokens, highlight_start_tag, highlight_end_tag, highlight_field_names,
                             highlight_full_field_names, highlight_items, index_symbols, kv, document,
                             highlight_res, wrapper_doc);
+
+            if(group_limit && group_key.empty()) {
+                const auto& group_by_fields = searches.at(search_index).group_by_fields;
+                for(const auto& field_name: group_by_fields) {
+                    if(document.count(field_name) != 0) {
+                        group_key.push_back(document[field_name]);
+                    }
+                }
+            }
 
             remove_flat_fields(document);
             remove_reference_helper_fields(document);
@@ -4031,7 +4056,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                 wrapper_doc["vector_distance"] = kv->vector_distance;
             }
 
-            result[hits_key] += wrapper_doc;
+            hits_array.push_back(wrapper_doc);
 
             const auto& offset = search_params->offset;
             // handle analytics query expansion
@@ -4041,6 +4066,17 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                 raw_query, offset, total, search_params, result_group_kvs, raw_search_fields, first_q);
             auto& object = request_json_list[search_index];
             object["first_q"] = first_q;
+
+            if(group_limit) {
+                group_hits["group_key"] = group_key;
+                const auto& groups_processed = search_params_guards.at(search_index).get()->groups_processed;
+                const auto& itr = groups_processed.find(kv_group[0]->distinct_key);
+
+                if(itr != groups_processed.end()) {
+                    group_hits["found"] = itr->second;
+                }
+                result["grouped_hits"].push_back(group_hits);
+            }
         }
     }
 
@@ -8682,6 +8718,10 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
         max_candidates = exhaustive_search ? Index::COMBINATION_MAX_LIMIT :
                          (coll_num_documents < 500000 ? Index::NUM_CANDIDATES_DEFAULT_MAX :
                           Index::NUM_CANDIDATES_DEFAULT_MIN);
+    }
+
+    if(group_by_fields.empty()) {
+        group_limit = 0;
     }
 
     args = collection_search_args_t(raw_query, search_fields, filter_query,

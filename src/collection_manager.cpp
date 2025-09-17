@@ -1525,6 +1525,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
     std::vector<collection_search_args_t> coll_searches;
     std::vector<uint32_t> collection_ids;
     auto result_op = Option<bool>(true);
+    auto group_by_args_count = 0;
 
     for(size_t i = 0; i < searches.size(); i++) {
         auto& search_params = searches[i];
@@ -1579,9 +1580,17 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
             break;
         }
 
+        if(args.group_limit) {
+            group_by_args_count++;
+        }
+
         args.override_union_global_params(union_params);
         coll_searches.emplace_back(std::move(args));
         collection_ids.emplace_back(collection->get_collection_id());
+    }
+
+    if(result_op.ok() && group_by_args_count > 0 && group_by_args_count != searches.size()) {
+        result_op = Option<bool>(400, "Invalid group_by searches count. All searches with union search should be uniform.");
     }
 
     if (!result_op.ok()) {
