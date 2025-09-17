@@ -1977,3 +1977,92 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
 
     collectionManager.drop_collection("coll3");
 }
+
+TEST_F(CollectionManagerTest, CloneCollectionWithDocuments) {
+    // Create the source collection with schema and synonyms
+    nlohmann::json schema = R"({
+        "name": "source_collection",
+        "fields": [
+          {"name": "title", "type": "string"},
+          {"name": "points", "type": "int32"}
+        ]
+      })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    Collection* src_collection = collection_create_op.get();
+
+    nlohmann::json doc1 = R"({
+        "id": "1",
+        "title": "First document",
+        "points": 100
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "id": "2", 
+        "title": "Second document with query word",
+        "points": 200
+    })"_json;
+
+    nlohmann::json doc3 = R"({
+        "id": "3",
+        "title": "Third test document", 
+        "points": 150
+    })"_json;
+
+    ASSERT_TRUE(src_collection->add(doc1.dump()).ok());
+    ASSERT_TRUE(src_collection->add(doc2.dump()).ok());
+    ASSERT_TRUE(src_collection->add(doc3.dump()).ok());
+
+
+    // Verify source collection has 3 documents
+    ASSERT_EQ(3, src_collection->get_num_documents());
+
+    // Test 1: Clone collection WITHOUT copying documents (existing behavior)
+    nlohmann::json clone_req = R"({
+        "name": "cloned_collection_no_docs"
+    })"_json;
+
+    auto clone_op = collectionManager.clone_collection("source_collection", clone_req, false);
+    ASSERT_TRUE(clone_op.ok());
+    
+    Collection* cloned_collection_no_docs = clone_op.get();
+    ASSERT_EQ("cloned_collection_no_docs", cloned_collection_no_docs->get_name());
+    ASSERT_EQ(0, cloned_collection_no_docs->get_num_documents()); // No documents copied
+    
+    // Test 2: Clone collection WITH copying documents
+    nlohmann::json clone_req_with_docs = R"({
+        "name": "cloned_collection_with_docs"
+    })"_json;
+
+    auto clone_with_docs_op = collectionManager.clone_collection("source_collection", clone_req_with_docs, true);
+    ASSERT_TRUE(clone_with_docs_op.ok());
+    
+    Collection* cloned_collection_with_docs = clone_with_docs_op.get();
+    ASSERT_EQ("cloned_collection_with_docs", cloned_collection_with_docs->get_name());
+    ASSERT_EQ(3, cloned_collection_with_docs->get_num_documents()); // Documents copied
+
+    // Test 3: Verify documents are searchable in cloned collection
+    auto search_results = cloned_collection_with_docs->search("First", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, search_results["found"].get<size_t>());
+    ASSERT_EQ("1", search_results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("First document", search_results["hits"][0]["document"]["title"].get<std::string>());
+
+    search_results = cloned_collection_with_docs->search("*", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(3, search_results["found"].get<size_t>());
+    
+    // Also search the source collection and dump results
+    auto src_search_results = src_collection->search("*", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(3, src_search_results["found"].get<size_t>());
+
+    // Test 6: Verify original collection is unchanged
+    ASSERT_EQ(3, src_collection->get_num_documents());
+    auto orig_search_results = src_collection->search("*", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(3, orig_search_results["found"].get<size_t>());
+
+    // Clean up
+    collectionManager.drop_collection("source_collection");
+    collectionManager.drop_collection("cloned_collection_no_docs");
+    collectionManager.drop_collection("cloned_collection_with_docs");
+}
