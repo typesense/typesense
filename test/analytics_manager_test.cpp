@@ -4,7 +4,7 @@
 #include <collection_manager.h>
 #include <analytics_manager.h>
 #include <doc_analytics.h>
-#include <query_analytics.h>
+#include <search_analytics.h>
 #include "collection.h"
 
 class AnalyticsManagerTest : public ::testing::Test {
@@ -17,7 +17,7 @@ protected:
 
     AnalyticsManager& analyticsManager = AnalyticsManager::get_instance();
     DocAnalytics& doc_analytics = DocAnalytics::get_instance();
-    QueryAnalytics& query_analytics = QueryAnalytics::get_instance();
+    SearchAnalytics& search_analytics = SearchAnalytics::get_instance();
     uint32_t analytics_minute_rate_limit = 5;
 
     void setupCollection() {
@@ -85,7 +85,7 @@ TEST_F(AnalyticsManagerTest, CreateRule) {
         "name": "popular_queries_products",
         "type": "popular_queries",
         "collection": "products",
-        "event_type": "query",
+        "event_type": "search",
         "rule_tag": "popular_queries",
         "params": {
           "destination_collection": "queries",
@@ -116,7 +116,7 @@ TEST_F(AnalyticsManagerTest, CreateRule) {
       "name": "no_hit_queries_products",
       "type": "nohits_queries",
       "collection": "products",
-      "event_type": "query",
+      "event_type": "search",
       "params": {
         "destination_collection": "queries",
         "capture_search_requests": false,
@@ -180,7 +180,7 @@ TEST_F(AnalyticsManagerTest, UpsertRule) {
       "name": "popular_queries_products",
       "type": "popular_queries",
       "collection": "products",
-      "event_type": "query",
+      "event_type": "search",
       "rule_tag": "popular_queries",
       "params": {
         "destination_collection": "queries",
@@ -197,7 +197,7 @@ TEST_F(AnalyticsManagerTest, UpsertRule) {
   ASSERT_EQ(get_op.get()["name"], "popular_queries_products");
   ASSERT_EQ(get_op.get()["type"], "popular_queries");
   ASSERT_EQ(get_op.get()["collection"], "products");
-  ASSERT_EQ(get_op.get()["event_type"], "query");
+  ASSERT_EQ(get_op.get()["event_type"], "search");
   ASSERT_EQ(get_op.get()["rule_tag"], "popular_queries");
   ASSERT_EQ(get_op.get()["params"]["destination_collection"], "queries");
 
@@ -209,7 +209,7 @@ TEST_F(AnalyticsManagerTest, UpsertRule) {
   ASSERT_EQ(get_op.get()["name"], "popular_queries_products");
   ASSERT_EQ(get_op.get()["type"], "popular_queries");
   ASSERT_EQ(get_op.get()["collection"], "products");
-  ASSERT_EQ(get_op.get()["event_type"], "query");
+  ASSERT_EQ(get_op.get()["event_type"], "search");
   ASSERT_EQ(get_op.get()["rule_tag"], "popular_queries");
   ASSERT_EQ(get_op.get()["params"]["destination_collection"], "queries");
 
@@ -219,14 +219,14 @@ TEST_F(AnalyticsManagerTest, UpsertRule) {
   ASSERT_EQ(create_op.code(), 400);
   ASSERT_EQ(create_op.error(), "Rule event type cannot be changed");
 
-  popular_queries_analytics_rule["event_type"] = "query";
+  popular_queries_analytics_rule["event_type"] = "search";
   popular_queries_analytics_rule["collection"] = "non_existent_collection";
   create_op = analyticsManager.create_rule(popular_queries_analytics_rule, true, true, true);
   ASSERT_FALSE(create_op.ok());
   ASSERT_EQ(create_op.code(), 400);
   ASSERT_EQ(create_op.error(), "Rule collection cannot be changed");
 
-  popular_queries_analytics_rule["event_type"] = "query";
+  popular_queries_analytics_rule["event_type"] = "search";
   popular_queries_analytics_rule["collection"] = "products";
   popular_queries_analytics_rule["params"]["destination_collection"] = "queries1";
   create_op = analyticsManager.create_rule(popular_queries_analytics_rule, true, true, true);
@@ -234,7 +234,7 @@ TEST_F(AnalyticsManagerTest, UpsertRule) {
   ASSERT_EQ(create_op.get()["name"], "popular_queries_products");
   ASSERT_EQ(create_op.get()["type"], "popular_queries");
   ASSERT_EQ(create_op.get()["collection"], "products");
-  ASSERT_EQ(create_op.get()["event_type"], "query");
+  ASSERT_EQ(create_op.get()["event_type"], "search");
   ASSERT_EQ(create_op.get()["rule_tag"], "popular_queries");
   ASSERT_EQ(create_op.get()["params"]["destination_collection"], "queries1");
 
@@ -243,7 +243,7 @@ TEST_F(AnalyticsManagerTest, UpsertRule) {
   ASSERT_EQ(get_op.get()["name"], "popular_queries_products");
   ASSERT_EQ(get_op.get()["type"], "popular_queries");
   ASSERT_EQ(get_op.get()["collection"], "products");
-  ASSERT_EQ(get_op.get()["event_type"], "query");
+  ASSERT_EQ(get_op.get()["event_type"], "search");
   ASSERT_EQ(get_op.get()["rule_tag"], "popular_queries");
   ASSERT_EQ(get_op.get()["params"]["destination_collection"], "queries1");
 }
@@ -278,7 +278,7 @@ TEST_F(AnalyticsManagerTest, GetRule) {
         "name": "popular_queries_products",
         "type": "popular_queries",
         "collection": "products",
-        "event_type": "query",
+        "event_type": "search",
         "rule_tag": "popular_queries",
         "params": {
           "destination_collection": "queries",
@@ -295,7 +295,7 @@ TEST_F(AnalyticsManagerTest, GetRule) {
     ASSERT_EQ(get_op.get()["name"], "popular_queries_products");
     ASSERT_EQ(get_op.get()["type"], "popular_queries");
     ASSERT_EQ(get_op.get()["collection"], "products");
-    ASSERT_EQ(get_op.get()["event_type"], "query");
+    ASSERT_EQ(get_op.get()["event_type"], "search");
     ASSERT_EQ(get_op.get()["rule_tag"], "popular_queries");
     ASSERT_EQ(get_op.get()["params"]["destination_collection"], "queries");
 }
@@ -330,7 +330,7 @@ TEST_F(AnalyticsManagerTest, GetRules) {
         "name": "popular_queries_products",
         "type": "popular_queries",
         "collection": "products",
-        "event_type": "query",
+        "event_type": "search",
         "rule_tag": "popular_queries",
         "params": {
           "destination_collection": "queries",
@@ -348,7 +348,7 @@ TEST_F(AnalyticsManagerTest, GetRules) {
     ASSERT_EQ(get_op.get()[0]["name"], "popular_queries_products");
     ASSERT_EQ(get_op.get()[0]["type"], "popular_queries");
     ASSERT_EQ(get_op.get()[0]["collection"], "products");
-    ASSERT_EQ(get_op.get()[0]["event_type"], "query");
+    ASSERT_EQ(get_op.get()[0]["event_type"], "search");
     ASSERT_EQ(get_op.get()[0]["rule_tag"], "popular_queries");
     ASSERT_EQ(get_op.get()[0]["params"]["destination_collection"], "queries");
 
@@ -359,7 +359,7 @@ TEST_F(AnalyticsManagerTest, GetRules) {
     ASSERT_EQ(get_op_by_tag.get()[0]["name"], "popular_queries_products");
     ASSERT_EQ(get_op_by_tag.get()[0]["type"], "popular_queries");
     ASSERT_EQ(get_op_by_tag.get()[0]["collection"], "products");
-    ASSERT_EQ(get_op_by_tag.get()[0]["event_type"], "query");
+    ASSERT_EQ(get_op_by_tag.get()[0]["event_type"], "search");
     ASSERT_EQ(get_op_by_tag.get()[0]["rule_tag"], "popular_queries");
     ASSERT_EQ(get_op_by_tag.get()[0]["params"]["destination_collection"], "queries");
 
@@ -398,7 +398,7 @@ TEST_F(AnalyticsManagerTest, DeleteRule) {
       "name": "popular_queries_products",
       "type": "popular_queries",
       "collection": "products",
-      "event_type": "query",
+      "event_type": "search",
       "rule_tag": "popular_queries",
       "params": {
         "destination_collection": "queries",
@@ -472,7 +472,7 @@ TEST_F(AnalyticsManagerTest, RuleValidation) {
     "name": "popular_queries_products",
     "type": "popular_queries",
     "collection": "products",
-    "event_type": "query",
+    "event_type": "search",
     "rule_tag": "popular_queries",
     "params": {
       "destination_collection": "non_existent_collection",
@@ -490,7 +490,7 @@ TEST_F(AnalyticsManagerTest, RuleValidation) {
     "name": "popular_queries_products",
     "type": "popular_queries",
     "collection": "non_existent_collection",
-    "event_type": "query",
+    "event_type": "search",
     "rule_tag": "popular_queries",
     "params": {
       "destination_collection": "queries",
@@ -508,7 +508,7 @@ TEST_F(AnalyticsManagerTest, RuleValidation) {
     "name": "nohits_queries_products",
     "type": "nohits_queries_wrong_type",
     "collection": "products",
-    "event_type": "query",
+    "event_type": "search",
     "rule_tag": "nohits_queries",
     "params": {
       "destination_collection": "queries"
@@ -615,7 +615,7 @@ TEST_F(AnalyticsManagerTest, PopularQueries) {
     "name": "with_no_capture",
     "type": "popular_queries",
     "collection": "products",
-    "event_type": "query",
+    "event_type": "search",
     "rule_tag": "popular_queries",
     "params": {
       "destination_collection": "queries",
@@ -652,11 +652,11 @@ TEST_F(AnalyticsManagerTest, PopularQueries) {
 
 
   auto future_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
-              std::chrono::system_clock::now().time_since_epoch()).count() + uint64_t(QueryAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS) * 2;
+              std::chrono::system_clock::now().time_since_epoch()).count() + uint64_t(SearchAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS) * 2;
 
-  query_analytics.compact_all_user_queries(future_ts_us);
+  search_analytics.compact_all_user_queries(future_ts_us);
 
-  auto get_counter_op = query_analytics.get_query_counter_events();
+  auto get_counter_op = search_analytics.get_search_counter_events();
   ASSERT_EQ(get_counter_op.size(), 1);
   ASSERT_EQ(get_counter_op["with_no_capture"].query_counts.size(), 1);
   for(auto& [key, value] : get_counter_op["with_no_capture"].query_counts) {
@@ -671,7 +671,7 @@ TEST_F(AnalyticsManagerTest, PopularQueries) {
     "name": "with_capture",
     "type": "popular_queries",
     "collection": "products",
-    "event_type": "query",
+    "event_type": "search",
     "rule_tag": "popular_queries",
     "params": {
       "destination_collection": "queries",
@@ -711,9 +711,9 @@ TEST_F(AnalyticsManagerTest, PopularQueries) {
   ASSERT_TRUE(results.ok());
   ASSERT_EQ(1, nlohmann::json::parse(results_json_str)["hits"].size());
 
-  query_analytics.compact_all_user_queries(future_ts_us);
+  search_analytics.compact_all_user_queries(future_ts_us);
 
-  get_counter_op = query_analytics.get_query_counter_events();
+  get_counter_op = search_analytics.get_search_counter_events();
   ASSERT_EQ(get_counter_op.size(), 2);
   ASSERT_EQ(get_counter_op["with_capture"].query_counts.size(), 1);
   for(auto& [key, value] : get_counter_op["with_capture"].query_counts) {
@@ -764,7 +764,7 @@ TEST_F(AnalyticsManagerTest, NoHitsQueries) {
     "name": "with_no_capture_nohits",
     "type": "nohits_queries",
     "collection": "products",
-    "event_type": "query",
+    "event_type": "search",
     "params": {
       "destination_collection": "queries",
       "capture_search_requests": false,
@@ -799,11 +799,11 @@ TEST_F(AnalyticsManagerTest, NoHitsQueries) {
   ASSERT_TRUE(add_event_op.ok());
 
   auto future_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
-              std::chrono::system_clock::now().time_since_epoch()).count() + uint64_t(QueryAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS) * 2;
+              std::chrono::system_clock::now().time_since_epoch()).count() + uint64_t(SearchAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS) * 2;
 
-  query_analytics.compact_all_user_queries(future_ts_us);
+  search_analytics.compact_all_user_queries(future_ts_us);
 
-  auto get_counter_op = query_analytics.get_query_counter_events();
+  auto get_counter_op = search_analytics.get_search_counter_events();
   ASSERT_EQ(get_counter_op.size(), 1);
   ASSERT_EQ(get_counter_op["with_no_capture_nohits"].query_counts.size(), 1);
   for(auto& [key, value] : get_counter_op["with_no_capture_nohits"].query_counts) {
@@ -818,7 +818,7 @@ TEST_F(AnalyticsManagerTest, NoHitsQueries) {
     "name": "with_capture_nohits",
     "type": "nohits_queries",
     "collection": "products",
-    "event_type": "query",
+    "event_type": "search",
     "params": {
       "destination_collection": "queries",
       "capture_search_requests": true,
@@ -857,9 +857,9 @@ TEST_F(AnalyticsManagerTest, NoHitsQueries) {
   ASSERT_TRUE(results.ok());
   ASSERT_EQ(0, nlohmann::json::parse(results_json_str)["hits"].size());
 
-  query_analytics.compact_all_user_queries(future_ts_us);
+  search_analytics.compact_all_user_queries(future_ts_us);
 
-  get_counter_op = query_analytics.get_query_counter_events();
+  get_counter_op = search_analytics.get_search_counter_events();
   ASSERT_EQ(get_counter_op.size(), 2);
   ASSERT_EQ(get_counter_op["with_capture_nohits"].query_counts.size(), 1);
   for(auto& [key, value] : get_counter_op["with_capture_nohits"].query_counts) {
@@ -911,7 +911,7 @@ TEST_F(AnalyticsManagerTest, MigrateOldPopularQueriesRule) {
   ASSERT_EQ(get_op.get()["name"], "product_queries_aggregation");
   ASSERT_EQ(get_op.get()["type"], "popular_queries");
   ASSERT_EQ(get_op.get()["collection"], "products");
-  ASSERT_EQ(get_op.get()["event_type"], "query");
+  ASSERT_EQ(get_op.get()["event_type"], "search");
   ASSERT_EQ(get_op.get()["rule_tag"], "product_queries_aggregation");
   ASSERT_EQ(get_op.get()["params"]["destination_collection"], "product_queries");
   ASSERT_EQ(get_op.get()["params"]["limit"], 1000);
@@ -963,7 +963,7 @@ TEST_F(AnalyticsManagerTest, MigrateOldPopularQueriesEventRule) {
   ASSERT_EQ(get_op.get()["name"], "products_search_event");
   ASSERT_EQ(get_op.get()["type"], "popular_queries");
   ASSERT_EQ(get_op.get()["collection"], "products");
-  ASSERT_EQ(get_op.get()["event_type"], "query");
+  ASSERT_EQ(get_op.get()["event_type"], "search");
   ASSERT_EQ(get_op.get()["rule_tag"], "product_queries_aggregation");
   ASSERT_EQ(get_op.get()["params"]["destination_collection"], "product_queries");
   ASSERT_EQ(get_op.get()["params"]["limit"], 1000);
@@ -1010,7 +1010,7 @@ TEST_F(AnalyticsManagerTest, MigrateOldNoHitsQueriesRule) {
   ASSERT_EQ(get_op.get()["name"], "product_no_hits");
   ASSERT_EQ(get_op.get()["type"], "nohits_queries");
   ASSERT_EQ(get_op.get()["collection"], "products");
-  ASSERT_EQ(get_op.get()["event_type"], "query");
+  ASSERT_EQ(get_op.get()["event_type"], "search");
   ASSERT_EQ(get_op.get()["rule_tag"], "product_no_hits");
   ASSERT_EQ(get_op.get()["params"]["destination_collection"], "no_hits_queries");
   ASSERT_EQ(get_op.get()["params"]["limit"], 1000);
@@ -1191,7 +1191,7 @@ TEST_F(AnalyticsManagerTest, QueryLogEventsGetInMemory) {
     "name": "log_queries",
     "type": "log",
     "collection": "products",
-    "event_type": "query",
+    "event_type": "search",
     "rule_tag": "log_queries",
     "params": {
       "capture_search_requests": false,
@@ -1241,7 +1241,7 @@ TEST_F(AnalyticsManagerTest, QueryLogEventsGetInMemory) {
   ASSERT_EQ(events.size(), 2);
 
   ASSERT_EQ(events[0]["name"], "log_queries");
-  ASSERT_EQ(events[0]["event_type"], "query");
+  ASSERT_EQ(events[0]["event_type"], "search");
   ASSERT_EQ(events[0]["collection"], "products");
   ASSERT_EQ(events[0]["user_id"], "user2");
   ASSERT_EQ(events[0]["query"], "beta");
@@ -1249,7 +1249,7 @@ TEST_F(AnalyticsManagerTest, QueryLogEventsGetInMemory) {
   ASSERT_EQ(events[0]["analytics_tag"], "tag1");
 
   ASSERT_EQ(events[1]["name"], "log_queries");
-  ASSERT_EQ(events[1]["event_type"], "query");
+  ASSERT_EQ(events[1]["event_type"], "search");
   ASSERT_EQ(events[1]["collection"], "products");
   ASSERT_EQ(events[1]["user_id"], "user2");
   ASSERT_EQ(events[1]["query"], "alpha");
@@ -1371,7 +1371,7 @@ TEST_F(AnalyticsManagerTest, QueryLogEventsWithCaptureGetInMemory) {
     "name": "log_with_capture",
     "type": "log",
     "collection": "products",
-    "event_type": "query",
+    "event_type": "search",
     "rule_tag": "log_queries",
     "params": {
       "destination_collection": "ignored",
@@ -1410,15 +1410,15 @@ TEST_F(AnalyticsManagerTest, QueryLogEventsWithCaptureGetInMemory) {
   ASSERT_TRUE(results.ok());
 
   auto future_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
-              std::chrono::system_clock::now().time_since_epoch()).count() + uint64_t(QueryAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS) * 2;
-  query_analytics.compact_all_user_queries(future_ts_us);
+              std::chrono::system_clock::now().time_since_epoch()).count() + uint64_t(SearchAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS) * 2;
+  search_analytics.compact_all_user_queries(future_ts_us);
 
   auto get_events_op = analyticsManager.get_events("user2", "log_with_capture", 10);
   ASSERT_TRUE(get_events_op.ok());
   const auto& events = get_events_op.get()["events"].get<std::vector<nlohmann::json>>();
   ASSERT_EQ(events.size(), 1);
   ASSERT_EQ(events[0]["name"], "log_with_capture");
-  ASSERT_EQ(events[0]["event_type"], "query");
+  ASSERT_EQ(events[0]["event_type"], "search");
   ASSERT_EQ(events[0]["collection"], "products");
   ASSERT_EQ(events[0]["user_id"], "user2");
   ASSERT_EQ(events[0]["query"], "typesense");

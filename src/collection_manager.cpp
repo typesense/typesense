@@ -1438,8 +1438,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     if(Config::get_instance().get_enable_search_analytics()) {
         if(args.enable_analytics && result.contains("found")) {
             std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(args.raw_query);
-            query_internal_event_t internal_event = {
-                QueryAnalytics::LOG_TYPE,
+            search_internal_event_t internal_event = {
+                SearchAnalytics::LOG_TYPE,
                 orig_coll_name,
                 analytics_query,
                 "",
@@ -1452,11 +1452,11 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                         result["request_params"]["first_q"].get<std::string>());
                 internal_event.expanded_q = expanded_query;
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
-                internal_event.type = QueryAnalytics::POPULAR_QUERIES_TYPE;
+                internal_event.type = SearchAnalytics::POPULAR_QUERIES_TYPE;
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
             } else {
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
-                internal_event.type = QueryAnalytics::NO_HIT_QUERIES_TYPE;
+                internal_event.type = SearchAnalytics::NO_HIT_QUERIES_TYPE;
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
             }
         }
@@ -2078,7 +2078,8 @@ Option<bool> CollectionManager::delete_preset(const string& preset_name) {
     return Option<bool>(true);
 }
 
-Option<Collection*> CollectionManager::clone_collection(const string& existing_name, const nlohmann::json& req_json) {
+Option<Collection*> CollectionManager::clone_collection(const string& existing_name, const nlohmann::json& req_json, 
+                                                       const bool copy_documents) {
     std::shared_lock lock(mutex);
 
     if(collections.count(existing_name) == 0) {
@@ -2128,6 +2129,85 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     auto overrides = existing_coll->get_overrides().get();
     for(const auto& kv: overrides) {
         new_coll->add_override(*kv.second);
+    }
+
+    // copy documents if requested
+    if(copy_documents) {
+        lock.unlock();
+
+        LOG(INFO) << "Copying documents from " << existing_name << " to " << new_name;
+        
+        // Fetch records from the store and index them in the new collection using add_many
+        const std::string seq_id_prefix = existing_coll->get_seq_id_collection_prefix();
+        std::string upper_bound_key = existing_coll->get_seq_id_collection_prefix() + "`";
+        rocksdb::Slice upper_bound(upper_bound_key);
+
+        rocksdb::Iterator* iter = store->scan(seq_id_prefix, &upper_bound);
+        std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
+
+        std::vector<std::string> json_batch;
+        size_t num_found_docs = 0;
+        size_t num_indexed_docs = 0;
+        size_t batch_doc_str_size = 0;
+        const size_t batch_size = 1000;
+
+        auto begin = std::chrono::high_resolution_clock::now();
+
+        while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
+            num_found_docs++;
+
+            nlohmann::json document;
+            const std::string& doc_string = iter->value().ToString();
+
+            try {
+                document = nlohmann::json::parse(doc_string);
+            } catch(const std::exception& e) {
+                LOG(ERROR) << "JSON error during document copy: " << e.what();
+                iter->Next();
+                continue;
+            }
+
+            batch_doc_str_size += doc_string.size();
+            json_batch.emplace_back(doc_string);
+
+            // Peek and check for last record
+            iter->Next();
+            bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
+
+            // Check memory threshold and batch processing
+            bool exceeds_batch_mem_threshold = ((batch_doc_str_size * 7) > (250 * 1024 * 1024));
+
+            if(exceeds_batch_mem_threshold || (json_batch.size() >= batch_size) || last_record) {
+                // Use add_many which handles both indexing and storage properly
+                nlohmann::json dummy_doc;
+                auto add_result = new_coll->add_many(json_batch, dummy_doc, CREATE, "", DIRTY_VALUES::COERCE_OR_DROP);
+                
+                size_t num_imported = 0;
+                if(add_result.contains("num_imported")) {
+                    num_imported = add_result["num_imported"].get<size_t>();
+                }
+                
+                num_indexed_docs += num_imported;
+                batch_doc_str_size = 0;
+                json_batch.clear();
+
+                // Progress logging
+                if(num_found_docs % 10000 == 0 && num_found_docs > 0) {
+                    auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                            std::chrono::high_resolution_clock::now() - begin).count();
+
+                    if(time_elapsed > 30) {
+                        begin = std::chrono::high_resolution_clock::now();
+                        LOG(INFO) << "Copied " << num_found_docs << " documents so far.";
+                    }
+                }
+            }
+        }
+
+        LOG(INFO) << "Successfully copied " << num_indexed_docs << "/" << num_found_docs
+                  << " documents from " << existing_name << " to " << new_name;
+
+        lock.lock();
     }
 
     return Option<Collection*>(new_coll);

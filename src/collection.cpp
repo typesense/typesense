@@ -2547,7 +2547,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         parse_search_query(query, q_include_tokens, q_unstemmed_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
-                           field_locale, pre_segmented_query, stopwords_set, most_weighted_field.get_stemmer());
+                           field_locale, pre_segmented_query, stopwords_set, most_weighted_field.get_stemmer(),
+                           most_weighted_field.symbols_to_index, most_weighted_field.token_separators);
 
         // process filter overrides first, before synonyms (order is important)
 
@@ -4573,7 +4574,9 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
 void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens, std::vector<std::string>& q_unstemmed_tokens,
                                     std::vector<std::vector<std::string>>& q_exclude_tokens,
                                     std::vector<std::vector<std::string>>& q_phrases,
-                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set, std::shared_ptr<Stemmer> stemmer) const {
+                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set, std::shared_ptr<Stemmer> stemmer,
+                                    const std::vector<char>& override_symbols_to_index,
+                                    const std::vector<char>& override_token_separators) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
@@ -4592,13 +4595,15 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         if(already_segmented) {
             StringUtils::split(query, tokens, " ");
         } else {
-            std::vector<char> custom_symbols = symbols_to_index;
+            std::vector<char> custom_symbols = override_symbols_to_index.empty() ? symbols_to_index : override_symbols_to_index;
             custom_symbols.push_back('-');
             custom_symbols.push_back('"');
 
-            Tokenizer(query, true, false, locale, custom_symbols, token_separators, stemmer).tokenize(tokens);
+            const auto& separators = override_token_separators.empty() ? token_separators : override_token_separators;
+
+            Tokenizer(query, true, false, locale, custom_symbols, separators, stemmer).tokenize(tokens);
             if(stemmer) {
-                Tokenizer(query, true, false, locale, custom_symbols, token_separators, nullptr).tokenize(tokens_non_stemmed);
+                Tokenizer(query, true, false, locale, custom_symbols, separators, nullptr).tokenize(tokens_non_stemmed);
             }
         }
 
