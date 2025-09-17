@@ -5435,3 +5435,91 @@ TEST_F(CollectionTest, TokenSeparatorHighlightingIssue) {
 
     collectionManager.drop_collection("users");
 }
+
+TEST_F(CollectionTest, PerFieldTokenSeparatorsAndSymbolsToIndex) {
+    // collection-level token_separators
+    nlohmann::json coll1_fields_json = nlohmann::json::array();
+    coll1_fields_json.push_back(nlohmann::json::object({
+        {"name", "first_name"},
+        {"type", "string"}
+    }));
+    coll1_fields_json.push_back(nlohmann::json::object({
+        {"name", "email"},
+        {"type", "string"}
+    }));
+    
+    nlohmann::json coll1_schema = nlohmann::json::object({
+        {"name", "users_1"},
+        {"fields", coll1_fields_json},
+        {"token_separators", nlohmann::json::array({"+", "-", "@", "."})}
+    });
+    
+    auto coll1_op = collectionManager.create_collection(coll1_schema);
+    ASSERT_TRUE(coll1_op.ok());
+    Collection* coll1 = coll1_op.get();
+    
+    // per-field token_separators on email field
+    nlohmann::json coll2_fields_json = nlohmann::json::array();
+    coll2_fields_json.push_back(nlohmann::json::object({
+        {"name", "first_name"},
+        {"type", "string"}
+    }));
+    coll2_fields_json.push_back(nlohmann::json::object({
+        {"name", "email"},
+        {"type", "string"},
+        {"token_separators", nlohmann::json::array({"+", "-", "@", "."})}
+    }));
+    
+    nlohmann::json coll2_schema = nlohmann::json::object({
+        {"name", "users_2"},
+        {"fields", coll2_fields_json}
+    });
+    
+    auto coll2_op = collectionManager.create_collection(coll2_schema);
+    ASSERT_TRUE(coll2_op.ok());
+    Collection* coll2 = coll2_op.get();
+    
+    nlohmann::json doc;
+    doc["id"] = "124";
+    doc["first_name"] = "";
+    doc["email"] = "contact+docs-example@typesense.org";
+    
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+    
+    std::string query = "contact+docs-example@typesense";
+    
+    auto results1 = coll1->search(query, {"email"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results1["hits"].size());
+    ASSERT_EQ(1, results1["found"].get<int>());
+    
+    auto results2 = coll2->search(query, {"email"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results2["hits"].size());
+    ASSERT_EQ(1, results2["found"].get<int>());
+    
+    auto hit1 = results1["hits"][0];
+    auto highlights1 = hit1["highlights"];
+    ASSERT_GT(highlights1.size(), 0);
+    auto email_highlight1 = highlights1[0];
+    auto matched_tokens1 = email_highlight1["matched_tokens"];
+    
+    std::vector<std::string> expected_tokens = {"contact", "docs", "example", "typesense"};
+    ASSERT_EQ(expected_tokens.size(), matched_tokens1.size());
+    for(size_t i = 0; i < expected_tokens.size(); i++) {
+        ASSERT_EQ(expected_tokens[i], matched_tokens1[i].get<std::string>());
+    }
+    
+    auto hit2 = results2["hits"][0];
+    auto highlights2 = hit2["highlights"];
+    ASSERT_GT(highlights2.size(), 0);
+    auto email_highlight2 = highlights2[0];
+    auto matched_tokens2 = email_highlight2["matched_tokens"];
+    
+    ASSERT_EQ(expected_tokens.size(), matched_tokens2.size());
+    for(size_t i = 0; i < expected_tokens.size(); i++) {
+        ASSERT_EQ(expected_tokens[i], matched_tokens2[i].get<std::string>());
+    }
+    
+    collectionManager.drop_collection("users_1");
+    collectionManager.drop_collection("users_2");
+}
