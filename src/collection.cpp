@@ -966,7 +966,8 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                                 std::vector<const override_t*>& filter_sort_overrides,
                                 bool& filter_curated_hits,
                                 std::string& curated_sort_by,
-                                nlohmann::json& override_metadata) const {
+                                nlohmann::json& override_metadata,
+                                diversity_t& diversity) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -1068,6 +1069,9 @@ void Collection::curate_results(string& actual_query, const string& filter_query
 
                         if(match_found) {
                             found_overrides.insert(id);
+                            if (!override.diversity.similarity_equation.empty()) {
+                                diversity = std::move(override.diversity);
+                            }
                             if(override.stop_processing) {
                                 break;
                             }
@@ -2467,9 +2471,10 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     bool filter_curated_hits_overrides = false;
 
+    diversity_t diversity{};
     curate_results(query, filter_query, enable_overrides, pre_segmented_query, override_tag_set,
                    pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_overrides, filter_curated_hits_overrides,
-                   curated_sort_by, override_metadata);
+                   curated_sort_by, override_metadata, diversity);
 
     bool filter_curated_hits = filter_curated_hits_option || filter_curated_hits_overrides;
 
@@ -2644,7 +2649,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                facet_index_types, enable_typos_for_numerical_tokens,
                                                enable_synonyms, demote_synonym_match, synonym_prefix, synonyms_num_typos,
                                                enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches,
-                                               validate_field_names, this, all_synonym_sets);
+                                               validate_field_names, this, all_synonym_sets, std::move(diversity));
 
     return Option<bool>(true);
 }

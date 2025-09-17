@@ -429,7 +429,7 @@ void facet_index_t::handle_index_change(const std::string& field_name, size_t to
     }
 }
 
-bool facet_index_t::has_hash_index(const std::string &field_name) {
+bool facet_index_t::has_hash_index(const std::string &field_name) const {
     auto facet_index_it = facet_field_map.find(field_name);
     return facet_index_it != facet_field_map.end() && facet_index_it->second.has_hash_index;
 }
@@ -439,7 +439,7 @@ bool facet_index_t::has_value_index(const std::string &field_name) {
     return facet_index_it != facet_field_map.end() && facet_index_it->second.has_value_index;
 }
 
-posting_list_t* facet_index_t::get_facet_hash_index(const std::string &field_name) {
+posting_list_t* facet_index_t::get_facet_hash_index(const std::string &field_name) const {
     auto facet_index_it = facet_field_map.find(field_name);
     if(facet_index_it != facet_field_map.end()) {
         return facet_index_it->second.seq_id_hashes;

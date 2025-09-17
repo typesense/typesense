@@ -300,6 +300,7 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
     return false;
 }
 
+// todo: check if there's any change in the field definition of `diversity`.
 bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
     std::set<std::string> allowed_keys = {"metadata", "fields", "synonym_sets"};
@@ -2325,7 +2326,8 @@ bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     override_t override;
     Option<bool> parse_op = override_t::parse(req_json, override_id, override, "",
                                               collection->get_symbols_to_index(),
-                                              collection->get_token_separators());
+                                              collection->get_token_separators(),
+                                              collection->get_schema());
     if(!parse_op.ok()) {
         res->set(parse_op.code(), parse_op.error());
         return false;

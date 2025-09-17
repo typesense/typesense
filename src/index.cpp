@@ -21,6 +21,7 @@
 #include <collection_manager.h>
 #include "personalization_model_manager.h"
 #include "synonym_index_manager.h"
+#include <algorithm>
 
 #define RETURN_CIRCUIT_BREAKER if((std::chrono::duration_cast<std::chrono::microseconds>( \
                   std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) { \
@@ -2526,6 +2527,9 @@ Option<bool> Index::run_search(search_args* search_params) {
 #endif
 
     if (search_params->group_limit) {
+        if (!search_params->diversity.similarity_equation.empty()) {
+            return Option<bool>(400, "Diversity is not supported along with group_by.");
+        }
         auto res = search(search_params->field_query_tokens,
                           search_params->search_fields,
                           search_params->match_type,
@@ -2579,7 +2583,8 @@ Option<bool> Index::run_search(search_args* search_params) {
                           true,
                           group_by_missing_value_ids,
                           search_params->collection,
-                          search_params->synonym_sets);
+                          search_params->synonym_sets,
+                          search_params->diversity);
 
         // The filter iterator can be updated in places like `Index::do_phrase_search`.
         filter_iterator_guard.release();
@@ -2751,7 +2756,8 @@ Option<bool> Index::run_search(search_args* search_params) {
                   false,
                   group_by_missing_value_ids,
                   search_params->collection,
-                  search_params->synonym_sets
+                  search_params->synonym_sets,
+                  search_params->diversity
     );
 
     // The filter iterator can be updated in places like `Index::do_phrase_search`.
@@ -3474,7 +3480,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool enable_typos_for_alpha_numerical_tokens, const size_t& max_filter_by_candidates,
                    bool rerank_hybrid_matches, const bool& validate_field_names, bool is_group_by_first_pass,
                    std::set<uint32_t>& group_by_missing_value_ids, Collection const *const collection,
-                   const std::vector<std::string>& synonym_sets) const {
+                   const std::vector<std::string>& synonym_sets,
+                   const diversity_t& diversity) const {
     std::shared_lock lock(mutex);
 
     group_found_params_t group_found_params{};
@@ -3559,6 +3566,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     // phrase queries are handled as a filtering query
     const bool is_wildcard_non_phrase_query = is_wildcard_query && field_query_tokens[0].q_phrases.empty();
+    bool optimized_path_taken = false;
 
     // handle phrase searches
     if (!field_query_tokens[0].q_phrases.empty()) {
@@ -3580,6 +3588,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             goto process_search_results;
         }
     }
+
     // for phrase query, parser will set field_query_tokens to "*", need to handle that
     if (is_wildcard_non_phrase_query) {
         if(!filter_by_provided && facets.empty() && group_by_fields.empty() && curated_ids.empty() &&
@@ -3629,6 +3638,14 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
 
             all_result_ids_len = seq_ids->num_ids();
+            if (!diversity.similarity_equation.empty()) {
+                optimized_path_taken = true;
+                all_result_ids_len = result_ids.size();
+                all_result_ids = new uint32_t[all_result_ids_len];
+                for (uint32_t i = 0; i < all_result_ids_len; i++) {
+                    all_result_ids[i] = result_ids[all_result_ids_len - 1 - i];
+                }
+            }
             goto process_search_results;
         }
 
@@ -4233,8 +4250,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     topster->sort();
     curated_topster->sort();
 
-    populate_result_kvs(topster, raw_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass);
-    populate_result_kvs(curated_topster, override_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass);
+    populate_result_kvs(topster, raw_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass, diversity,
+                        sort_index, facet_index_v4, all_result_ids_len, all_result_ids);
+    populate_result_kvs(curated_topster, override_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass,
+                        diversity, sort_index, facet_index_v4, all_result_ids_len, all_result_ids);
+
+    if (optimized_path_taken) {
+        all_result_ids_len = seq_ids->num_ids();
+    }
+
     std::vector<uint32_t> top_k_result_ids, top_k_curated_result_ids;
     std::vector<facet> top_k_facets;
 
@@ -8945,10 +8969,14 @@ float Index::compute_decay_function_score(const sort_by& sort_field, uint32_t se
     return res;
 }
 
-void Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV *>> &result_kvs,
-                                const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
-                                const std::vector<sort_by>& sort_by_fields,
-                                const bool& is_group_by_first_pass) {
+Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV *>> &result_kvs,
+                                        const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                                        const std::vector<sort_by>& sort_by_fields,
+                                        const bool& is_group_by_first_pass,
+                                        const diversity_t& diversity,
+                                        const spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*>& sort_index,
+                                        const facet_index_t* facet_index_v4,
+                                        const uint32_t& all_result_ids_len, const uint32_t* all_result_ids) {
     if(topster->distinct && !is_group_by_first_pass) {
         // we have to pick top-K groups
         Topster<KV> gtopster(topster->MAX_SIZE);
@@ -8993,12 +9021,188 @@ void Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV
             );
             result_kvs.emplace_back(group_kvs);
         }
-    } else {
+
+        return Option<bool>(true);
+    }
+
+    if (diversity.similarity_equation.empty()) {
         for(uint32_t t = 0; t < topster->size; t++) {
             KV* kv = topster->getKV(t);
             result_kvs.push_back({kv});
         }
+
+        return Option<bool>(true);
     }
+
+    // Diversify the response.
+    struct facet_or_sort_index_t {
+        diversity_t::similarity_metric_t similarity_metric;
+        posting_list_t::iterator_t it;
+        spp::sparse_hash_map<uint32_t, int64_t, Hasher32>* sort_map;
+        bool is_sort_map;
+
+        std::set<uint32_t> left_facet_hashes;
+        int64_t left_value;
+
+        facet_or_sort_index_t(const diversity_t::similarity_metric_t& similarity_metric,
+                              posting_list_t::iterator_t&& it,
+                              std::set<uint32_t>&& left_facet_hashes) :
+                similarity_metric(similarity_metric), it(std::move(it)), sort_map(nullptr), is_sort_map(false),
+                left_facet_hashes(left_facet_hashes) {}
+
+        facet_or_sort_index_t(const diversity_t::similarity_metric_t& similarity_metric,
+                              spp::sparse_hash_map<uint32_t, int64_t, Hasher32>* sort_map,
+                              int64_t left_value) :
+                similarity_metric(similarity_metric), it(posting_list_t::iterator_t(nullptr, nullptr, nullptr, false)),
+                sort_map(sort_map), is_sort_map(true), left_value(left_value) {}
+
+    };
+
+    // Calculate similarity matrix.
+    auto similarity_map = spp::sparse_hash_map<std::pair<uint32_t, uint32_t>, double, pair_hash>();
+    for (uint32_t i = 0; i < all_result_ids_len; i++) {
+        const auto& left_seq_id = all_result_ids[i];
+
+        std::vector<facet_or_sort_index_t> facet_or_sort_index_vec;
+        for (const auto& item: diversity.similarity_equation) {
+            if (facet_index_v4->has_hash_index(item.field)) {
+                auto facet_index = facet_index_v4->get_facet_hash_index(item.field);
+                auto facet_it = facet_index->new_iterator();
+                if (!facet_it.valid()) {
+                    continue;
+                }
+                facet_it.skip_to(left_seq_id);
+                if (!facet_it.valid() || facet_it.id() != left_seq_id) {
+                    continue;
+                }
+
+                std::set<uint32_t> left_facet_hashes;
+                if (item.is_field_array) {
+                    std::vector<uint32_t> facet_hashes;
+                    posting_list_t::get_offsets(facet_it, facet_hashes);
+                    left_facet_hashes.insert(facet_hashes.begin(), facet_hashes.end());
+                } else {
+                    left_facet_hashes.insert(facet_it.offset());
+                }
+                facet_or_sort_index_vec.emplace_back(item, std::move(facet_it), std::move(left_facet_hashes));
+            } else if (sort_index.count(item.field) > 0) {
+                auto& sort_map = sort_index.at(item.field);
+                auto it = sort_map->find(left_seq_id);
+                if (it == sort_map->end()) {
+                    continue;
+                }
+
+                facet_or_sort_index_vec.emplace_back(item, sort_map, it->second);
+            } else {
+                return Option<bool>(400, "`" + item.field + "` field not found in either facet or sort index.");
+            }
+        }
+
+        for (uint32_t j = i + 1; j < all_result_ids_len; j++) {
+            const auto& right_seq_id = all_result_ids[j];
+
+            double similarity = facet_or_sort_index_vec.empty();
+            for (auto& facet_or_sort_index: facet_or_sort_index_vec) {
+                const auto& metric = facet_or_sort_index.similarity_metric;
+                if (facet_or_sort_index.is_sort_map && metric.method == diversity_t::equality) {
+                    const auto& map = facet_or_sort_index.sort_map;
+                    auto it = map->find(right_seq_id);
+                    if (it == map->end()) {
+                        continue;
+                    }
+                    else if (facet_or_sort_index.left_value == it->second) {
+                        similarity += metric.weight;
+                    }
+                }
+                else if (!facet_or_sort_index.is_sort_map) {
+                    const auto& left_facet_hashes = facet_or_sort_index.left_facet_hashes;
+                    std::set<uint32_t> right_facet_hashes;
+                    auto& facet_it = facet_or_sort_index.it;
+                    if (!facet_it.valid()) {
+                        continue;
+                    }
+                    facet_it.skip_to(right_seq_id);
+                    if (!facet_it.valid() || facet_it.id() != right_seq_id) {
+                        continue;
+                    }
+                    if (metric.is_field_array) {
+                        std::vector<uint32_t> facet_hashes;
+                        posting_list_t::get_offsets(facet_it, facet_hashes);
+                        right_facet_hashes.insert(facet_hashes.begin(), facet_hashes.end());
+                    } else {
+                        right_facet_hashes.insert(facet_it.offset());
+                    }
+
+                    if (left_facet_hashes.empty() && right_facet_hashes.empty()) {
+                        continue;
+                    }
+
+                    if (metric.method == diversity_t::jaccard) {
+                        std::vector<uint32_t> out{};
+                        std::set_intersection(left_facet_hashes.begin(), left_facet_hashes.end(),
+                                              right_facet_hashes.begin(), right_facet_hashes.end(),
+                                              std::back_inserter(out));
+                        const auto intersection_size = out.size();
+                        out.clear();
+
+                        std::set_union(left_facet_hashes.begin(), left_facet_hashes.end(),
+                                       right_facet_hashes.begin(), right_facet_hashes.end(),
+                                       std::back_inserter(out));
+                        const auto union_size = out.size();
+
+                        similarity += ((double) intersection_size/union_size) * metric.weight;
+                    }
+                    else if (metric.method == diversity_t::equality) {
+                        if (left_facet_hashes.size() == right_facet_hashes.size()) {
+                            std::vector<uint32_t> out{};
+                            std::set_difference(left_facet_hashes.begin(), left_facet_hashes.end(),
+                                                right_facet_hashes.begin(), right_facet_hashes.end(),
+                                                std::back_inserter(out));
+                            similarity += metric.weight * out.empty();
+                        }
+                    }
+                }
+            }
+
+            similarity_map[std::make_pair(left_seq_id, right_seq_id)] = similarity;
+        }
+    }
+
+    result_kvs.push_back({topster->getKV(0)});
+    std::set<uint32_t> processed_seq_ids{(uint32_t) topster->getKeyAt(0)};
+    const auto lambda = 0.5;
+    while (result_kvs.size() < topster->size) {
+        auto mmr = std::numeric_limits<double>::lowest();
+        KV* max_kv = nullptr;
+
+        for (uint32_t i = 1; i < topster->size; i++) {
+            auto kv_i = topster->getKV(i);
+            const auto& seq_id_i = (uint32_t) kv_i->key;
+            if (processed_seq_ids.count(seq_id_i) > 0) {
+                continue;
+            }
+
+            auto left = lambda * kv_i->text_match_score;
+            auto max_diversity = std::numeric_limits<double>::lowest();
+            for (const auto& kv_j: result_kvs) {
+                const auto& seq_id_j = (uint32_t) kv_j[0]->key;
+                max_diversity = std::max(similarity_map[std::make_pair(std::min(seq_id_i, seq_id_j), std::max(seq_id_i, seq_id_j) )],
+                                         max_diversity);
+            }
+
+            auto right = (1 - lambda) * max_diversity;
+            auto mr = left - right;
+            if (mr > mmr) {
+                max_kv = kv_i;
+                mmr = mr;
+            }
+        }
+
+        processed_seq_ids.insert((uint32_t) max_kv->key);
+        result_kvs.push_back({max_kv});
+    }
+
+    return Option<bool>(true);
 }
 
 Option<bool> Index::process_ref_include_fields_sort(std::vector<sort_by>& sort_fields_std, size_t limit, std::vector<uint32_t>& doc_ids) {

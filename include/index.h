@@ -204,6 +204,8 @@ struct search_args {
     size_t found_docs = 0;
     Collection const *const collection;
 
+    diversity_t diversity{};
+
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
                 const text_match_type_t match_type, std::vector<facet>& facets,
                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids, std::vector<uint32_t> excluded_ids,
@@ -223,7 +225,7 @@ struct search_args {
                 std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                 bool enable_synonyms, bool demote_synonym_match, bool synonym_prefix, uint32_t synonym_num_typos,
                 bool enable_typos_for_alpha_numerical_tokens, bool rerank_hybrid_matches, const bool& validate_field_names,
-                Collection const *const collection, const std::vector<std::string>& synonym_sets) :
+                Collection const *const collection, const std::vector<std::string>& synonym_sets, diversity_t&& diversity) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), match_type(match_type), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(std::move(sort_fields_std)),
@@ -250,7 +252,7 @@ struct search_args {
             demote_synonym_match(demote_synonym_match), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens),
             rerank_hybrid_matches(rerank_hybrid_matches), validate_field_names(validate_field_names),
-            collection(collection), synonym_sets(synonym_sets){
+            collection(collection), synonym_sets(synonym_sets), diversity(diversity) {
 
     }
 
@@ -391,12 +393,6 @@ struct group_by_field_it_t {
     posting_list_t::iterator_t it;
     bool is_array;
     bool is_string;
-};
-
-struct Hasher32 {
-    // Helps to spread the hash key and is used for sort index.
-    // see: https://github.com/greg7mdp/sparsepp/issues/21#issuecomment-270816275
-    size_t operator()(uint32_t k) const { return (k ^ 2166136261U)  * 16777619UL; }
 };
 
 struct pair_hash {
@@ -806,7 +802,8 @@ public:
                 bool is_group_by_first_pass,
                 std::set<uint32_t>& group_by_missing_value_ids,
                 Collection const *const collection,
-               const std::vector<std::string>& synonym_sets) const;
+               const std::vector<std::string>& synonym_sets,
+               const diversity_t& diversity) const;
 
     void remove_field(uint32_t seq_id, nlohmann::json& document, const std::string& field_name,
                       const bool is_update);
@@ -1202,10 +1199,14 @@ public:
                              const std::vector<token_t>& query_tokens,
                              const std::vector<search_field_t>& the_fields) const;
 
-    static void populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV *>> &result_kvs,
-                                    const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
-                                    const std::vector<sort_by>& sort_by_fields,
-                                    const bool& is_group_by_first_pass);
+    static Option<bool> populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV *>> &result_kvs,
+                                            const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                                            const std::vector<sort_by>& sort_by_fields,
+                                            const bool& is_group_by_first_pass,
+                                            const diversity_t& diversity,
+                                            const spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*>& sort_index,
+                                            const facet_index_t* facet_index_v4,
+                                            const uint32_t& all_result_ids_len, const uint32_t* all_result_ids);
 
     GeoPolygonIndex* get_geopolygon_index(const std::string& field_name) const;
 
