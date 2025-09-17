@@ -57,6 +57,8 @@ public:
 
     Option<bool> get_stopword(const std::string&, stopword_struct_t&) const;
 
+    Option<bool> get_combined_stopwords(const std::string& stopwords_set, stopword_struct_t& combined_stopwords) const;
+
     Option<bool> upsert_stopword(const std::string&, const nlohmann::json&, bool write_to_store=false);
 
     Option<bool> delete_stopword(const std::string&);

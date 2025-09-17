@@ -106,6 +106,13 @@ struct StringUtils {
 
     static void split_to_values(const std::string& vals_str, std::vector<std::string>& filter_values);
 
+    // Parse comma-separated stopword set names with trimming
+    static std::vector<std::string> parse_stopword_set_names(const std::string& stopwords_param) {
+        std::vector<std::string> stopword_set_names;
+        StringUtils::split(stopwords_param, stopword_set_names, ",", false, true);
+        return stopword_set_names;
+    }
+
     // Adapted from: http://stackoverflow.com/a/36000453/131050
     static std::string & trim(std::string & str) {
         // right trim

@@ -1,5 +1,6 @@
 #include "include/stopwords_manager.h"
 #include "include/tokenizer.h"
+#include "include/string_utils.h"
 
 void StopwordsManager::init(Store* _store) {
     store = _store;
@@ -20,6 +21,40 @@ Option<bool> StopwordsManager::get_stopword(const std::string& stopword_name, st
     }
 
     return Option<bool>(404, "Stopword `" + stopword_name +"` not found.");
+}
+
+Option<bool> StopwordsManager::get_combined_stopwords(const std::string& stopwords_set, stopword_struct_t& combined_stopwords) const {
+    std::shared_lock lock(mutex);
+    
+    // Parse stopword set names from comma-separated string
+    auto stopword_set_names = StringUtils::parse_stopword_set_names(stopwords_set);
+    
+    if(stopword_set_names.empty()) {
+        return Option<bool>(400, "No stopword sets specified.");
+    }
+    
+    if(stopword_set_names.size() == 1) {
+        return get_stopword(stopword_set_names[0], combined_stopwords);
+    }
+    
+    // Multiple stopword sets - create combined stopword struct
+    combined_stopwords.id = "combined";
+    combined_stopwords.stopwords.clear();
+    combined_stopwords.locale = ""; // Combined sets may have different locales
+    
+    // Merge all stopword sets
+    for(const auto& name : stopword_set_names) {
+        stopword_struct_t individual_set;
+        const auto& it = stopword_configs.find(name);
+        if(it != stopword_configs.end()) {
+            individual_set = it->second;
+            combined_stopwords.stopwords.insert(individual_set.stopwords.begin(), individual_set.stopwords.end());
+        } else {
+            return Option<bool>(404, "Could not find the stopword set named `" + name + "`.");
+        }
+    }
+    
+    return Option<bool>(true);
 }
 
 Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name, const nlohmann::json& stopwords_json,

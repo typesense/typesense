@@ -2,6 +2,7 @@
 
 #include <numeric>
 #include <chrono>
+#include <sstream>
 #include <match_score.h>
 #include <string_utils.h>
 #include <art.h>
@@ -1605,7 +1606,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                             value_meters = std::stof(dist_values[0]) * 1609.34;
                         } else {
                             return Option<bool>(400, "Sort field's parameter "
-                                                     "unit must be either `km` or `mi`.");
+                                                 "unit must be either `km` or `mi`.");
                         }
 
                         if(value_meters <= 0) {
@@ -4547,15 +4548,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
     } else {
         std::vector<std::string> tokens;
         std::vector<std::string> tokens_non_stemmed;
-        stopword_struct_t stopwordStruct;
-        if(!stopwords_set.empty()) {
-            const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwordStruct);
-            if (!stopword_op.ok()) {
-                LOG(ERROR) << stopword_op.error();
-                LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set;
-            }
-        }
-
+        
         if(already_segmented) {
             StringUtils::split(query, tokens, " ");
         } else {
@@ -4571,9 +4564,21 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             }
         }
 
-        for (const auto& val: stopwordStruct.stopwords) {
-            tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
-            tokens_non_stemmed.erase(std::remove(tokens_non_stemmed.begin(), tokens_non_stemmed.end(), val), tokens_non_stemmed.end());
+        if(!stopwords_set.empty()) {
+            auto stopword_set_names = StringUtils::parse_stopword_set_names(stopwords_set);
+            
+            for(const auto& name : stopword_set_names) {
+                stopword_struct_t individual_set;
+                const auto& stopword_op = StopwordsManager::get_instance().get_stopword(name, individual_set);
+                if (stopword_op.ok()) {
+                    for (const auto& val: individual_set.stopwords) {
+                        tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
+                        tokens_non_stemmed.erase(std::remove(tokens_non_stemmed.begin(), tokens_non_stemmed.end(), val), tokens_non_stemmed.end());
+                    }
+                } else {
+                    LOG(ERROR) << "Could not find the stopword set named `" << name << "`.";
+                }
+            }
         }
 
         bool exclude_operator_prior = false;
@@ -5447,7 +5452,7 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
 }
 
 void Collection::cascade_remove_docs(const std::string& field_name, const uint32_t& ref_seq_id,
-                                     const nlohmann::json& ref_doc, bool remove_from_store) {
+                                      const nlohmann::json& ref_doc, bool remove_from_store) {
     auto const ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
 
     filter_result_t filter_result;

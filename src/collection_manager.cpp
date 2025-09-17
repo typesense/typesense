@@ -1,5 +1,6 @@
 #include <string>
 #include <vector>
+#include <sstream>
 #include <json.hpp>
 #include <app_metrics.h>
 #include <analytics_manager.h>
@@ -1365,15 +1366,22 @@ Option<bool> apply_preset(std::map<std::string, std::string>& req_params) {
 }
 
 Option<bool> get_stopword_set(const std::map<std::string, std::string>& req_params, std::string& stopwords_set) {
-    //check if stopword set is supplied
     const auto stopword_it = req_params.find("stopwords");
 
     if(stopword_it != req_params.end()) {
-        stopwords_set = stopword_it->second;
-
-        if(!StopwordsManager::get_instance().stopword_exists(stopwords_set)) {
-            return Option<bool>(404, "Could not find the stopword set named `" + stopwords_set + "`.");
+        const std::string& stopwords_param = stopword_it->second;
+        
+        auto stopword_set_names = StringUtils::parse_stopword_set_names(stopwords_param);
+        
+        // Validate that all stopword sets exist
+        for(const auto& name : stopword_set_names) {
+            if(!StopwordsManager::get_instance().stopword_exists(name)) {
+                return Option<bool>(404, "Could not find the stopword set named `" + name + "`.");
+            }
         }
+        
+        // Store the original parameter value - parsing will be done in collection.cpp
+        stopwords_set = stopwords_param;
     }
 
     return Option<bool>(true);
