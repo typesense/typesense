@@ -38,11 +38,6 @@ void master_server_routes() {
     server->patch("/collections/:collection/documents", patch_update_documents);
     server->del("/collections/:collection/documents/:id", del_remove_document);
 
-    server->get("/collections/:collection/overrides", get_overrides);
-    server->get("/collections/:collection/overrides/:id", get_override);
-    server->put("/collections/:collection/overrides/:id", put_override);
-    server->del("/collections/:collection/overrides/:id", del_override);
-
     // collection management
     server->post("/collections", post_create_collection);
     server->patch("/collections/:collection", patch_update_collection);
@@ -79,6 +74,16 @@ void master_server_routes() {
     server->get("/synonym_sets/:name/items/:id", get_synonym_set_item);
     server->put("/synonym_sets/:name/items/:id", put_synonym_set_item);
     server->del("/synonym_sets/:name/items/:id", del_synonym_set_item);
+
+    // override sets
+    server->get("/override_sets", get_override_sets);
+    server->get("/override_sets/:name", get_override_set);
+    server->put("/override_sets/:name", put_override_set);
+    server->del("/override_sets/:name", del_override_set);
+    server->get("/override_sets/:name/items", get_override_set_items);
+    server->get("/override_sets/:name/items/:id", get_override_set_item);
+    server->put("/override_sets/:name/items/:id", put_override_set_item);
+    server->del("/override_sets/:name/items/:id", del_override_set_item);
 
     // new analytics
     server->get("/analytics/rules", get_analytics_rules);

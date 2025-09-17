@@ -404,10 +404,6 @@ private:
 
     tsl::htrie_map<char, field> search_schema;
 
-    std::map<std::string, override_t> overrides;
-
-    // maps tag name => override_ids
-    std::map<std::string, std::set<std::string>> override_tags;
 
     std::string default_sorting_field;
 
@@ -428,6 +424,7 @@ private:
     std::vector<char> token_separators;
 
     std::vector<std::string> synonym_sets;
+    std::vector<std::string> override_sets;
 
     /// "field name" -> reference_info(referenced_collection_name, referenced_field_name, is_async)
     spp::sparse_hash_map<std::string, reference_info_t> reference_fields;
@@ -721,6 +718,7 @@ public:
     static constexpr const char* COLLECTION_FALLBACK_FIELD_TYPE = "fallback_field_type";
     static constexpr const char* COLLECTION_ENABLE_NESTED_FIELDS = "enable_nested_fields";
     static constexpr const char* COLLECTION_SYNONYM_SETS = "synonym_sets";
+    static constexpr const char* COLLECTION_OVERRIDE_SETS = "override_sets";
 
     static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
@@ -787,10 +785,12 @@ public:
     std::string get_default_sorting_field();
 
     std::vector<std::string> get_synonym_sets() const;
+    std::vector<std::string> get_override_sets() const;
 
     void update_metadata(const nlohmann::json& meta);
 
     void update_synonym_sets(const std::vector<std::string>& synonym_sets);
+    void update_override_sets(const std::vector<std::string>& override_sets);
 
     Option<bool> update_apikey(const nlohmann::json& model_config, const std::string& field_name);
 
@@ -1046,17 +1046,8 @@ public:
 
     Option<bool> process_ref_include_fields_sort(const std::string& sort_by_str, size_t limit, std::vector<uint32_t>& doc_ids);
 
-    // Override operations
-
-    Option<uint32_t> add_override(const override_t & override, bool write_to_store = true);
-
-    Option<uint32_t> remove_override(const std::string & id);
-
-    Option<std::map<std::string, override_t*>> get_overrides(uint32_t limit=0, uint32_t offset=0);
-
-    Option<override_t> get_override(const std::string& override_id);
-
     Option<bool> set_synonym_sets(const std::vector<std::string>& synonym_sets);
+    Option<bool> set_override_sets(const std::vector<std::string>& override_sets);
     
     void synonym_reduction(const std::vector<std::string>& tokens,
                            const std::string& locale,

@@ -30,6 +30,7 @@
 #include "natural_language_search_model_manager.h"
 #include "conversation_model.h"
 #include "synonym_index_manager.h"
+#include "override_index_manager.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -618,6 +619,9 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     SynonymIndexManager& synonymIndexManager = SynonymIndexManager::get_instance();
     synonymIndexManager.init_store(&store);
+
+    OverrideIndexManager& overrideIndexManager = OverrideIndexManager::get_instance();
+    overrideIndexManager.init_store(&store);
 
     EmbedderManager::set_model_dir(config.get_data_dir() + "/models");
 

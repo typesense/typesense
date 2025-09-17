@@ -13,6 +13,7 @@
 #include "field.h"
 #include "core_api_utils.h"
 #include "synonym_index_manager.h"
+#include "override_index_manager.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -227,11 +228,20 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     }
 
     std::vector<std::string> synonym_sets;
+    std::vector<std::string> override_sets;
     if (collection_meta.count(Collection::COLLECTION_SYNONYM_SETS) != 0) {
         if (!collection_meta[Collection::COLLECTION_SYNONYM_SETS].is_array()) {
             LOG(ERROR) << "Parameter `synonym_sets` must be an array.";
         } else {
             synonym_sets = collection_meta[Collection::COLLECTION_SYNONYM_SETS].get<std::vector<std::string>>();
+        }
+    }
+
+    if (collection_meta.count(Collection::COLLECTION_OVERRIDE_SETS) != 0) {
+        if (!collection_meta[Collection::COLLECTION_OVERRIDE_SETS].is_array()) {
+            LOG(ERROR) << "Parameter `override_sets` must be an array.";
+        } else {
+            override_sets = collection_meta[Collection::COLLECTION_OVERRIDE_SETS].get<std::vector<std::string>>();
         }
     }
 
@@ -673,7 +683,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::vector<std::string>& token_separators,
                                                          const bool enable_nested_fields, std::shared_ptr<VQModel> model,
                                                          const nlohmann::json& metadata,
-                                                         const std::vector<std::string>& synonym_sets) {
+                                                         const std::vector<std::string>& synonym_sets,
+                                                         const std::vector<std::string>& override_sets) {
     std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -711,6 +722,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
     collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS] = enable_nested_fields;
     collection_meta[Collection::COLLECTION_SYNONYM_SETS] = synonym_sets;
+    collection_meta[Collection::COLLECTION_OVERRIDE_SETS] = override_sets;
 
     if(model != nullptr) {
         collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL] = nlohmann::json::object();
@@ -1657,6 +1669,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
     const char* METADATA = "metadata";
     const char* SYNONYM_SETS = "synonym_sets";
+    const char* OVERRIDE_SETS = "override_sets";
 
     // validate presence of mandatory fields
 
@@ -1683,6 +1696,10 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     if(req_json.count(SYNONYM_SETS) == 0) {
         req_json[SYNONYM_SETS] = nlohmann::json::array();
+    }
+
+    if(req_json.count(OVERRIDE_SETS) == 0) {
+        req_json[OVERRIDE_SETS] = nlohmann::json::array();
     }
 
     if(req_json.count(ENABLE_NESTED_FIELDS) == 0) {
@@ -1722,6 +1739,10 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         return Option<Collection*>(400, std::string("`") + SYNONYM_SETS + "` should be an array of synonym sets.");
     }
 
+    if(!req_json[OVERRIDE_SETS].is_array()) {
+        return Option<Collection*>(400, std::string("`") + OVERRIDE_SETS + "` should be an array of override sets.");
+    }
+
     for (const auto& synonym_set_name : req_json[SYNONYM_SETS]) {
         if (!synonym_set_name.is_string() || synonym_set_name.get<std::string>().empty()) {
             return Option<Collection*>(400, std::string("`") + SYNONYM_SETS + "` should be an array of non-empty strings.");
@@ -1730,6 +1751,17 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         auto get_op = synonym_index_manager.get_synonym_index(synonym_set_name.get<std::string>());
         if (!get_op.ok()) {
             return Option<Collection*>(404, "Synonym set `" + synonym_set_name.get<std::string>() + "` not found.");
+        }
+    }
+
+    for (const auto& override_set_name : req_json[OVERRIDE_SETS]) {
+        if (!override_set_name.is_string() || override_set_name.get<std::string>().empty()) {
+            return Option<Collection*>(400, std::string("`") + OVERRIDE_SETS + "` should be an array of non-empty strings.");
+        }
+        OverrideIndexManager& override_index_manager = OverrideIndexManager::get_instance();
+        auto get_op = override_index_manager.get_override_index(override_set_name.get<std::string>());
+        if (!get_op.ok()) {
+            return Option<Collection*>(404, "Override set `" + override_set_name.get<std::string>() + "` not found.");
         }
     }
 
@@ -1815,7 +1847,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                                                                 req_json[SYMBOLS_TO_INDEX],
                                                                 req_json[TOKEN_SEPARATORS],
                                                                 req_json[ENABLE_NESTED_FIELDS],
-                                                                model, req_json[METADATA], req_json[SYNONYM_SETS]);
+                                                                model, req_json[METADATA], req_json[SYNONYM_SETS], req_json[OVERRIDE_SETS]);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
@@ -1873,22 +1905,22 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     LOG(INFO) << "Loading collection " << collection->get_name();
 
     // initialize overrides
-    std::vector<std::string> collection_override_jsons;
-    cm.store->scan_fill(Collection::get_override_key(this_collection_name, ""),
-                        std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" + this_collection_name + "`",
-                        collection_override_jsons);
-
-    for(const auto & collection_override_json: collection_override_jsons) {
-        nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
-        override_t override;
-        auto parse_op = override_t::parse(collection_override, "", override, "", collection->get_symbols_to_index(),
-                                          collection->get_token_separators());
-        if(parse_op.ok()) {
-            collection->add_override(override, false);
-        } else {
-            LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
-        }
-    }
+    // std::vector<std::string> collection_override_jsons;
+    // cm.store->scan_fill(Collection::get_override_key(this_collection_name, ""),
+    //                     std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" + this_collection_name + "`",
+    //                     collection_override_jsons);
+    //
+    // for(const auto & collection_override_json: collection_override_jsons) {
+    //     nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
+    //     override_t override;
+    //     auto parse_op = override_t::parse(collection_override, "", override, "", collection->get_symbols_to_index(),
+    //                                       collection->get_token_separators());
+    //     if(parse_op.ok()) {
+    //         collection->add_override(override, false);
+    //     } else {
+    //         LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
+    //     }
+    // }
 
     // migrate synonyms if exists
     const std::string& syn_lower_bound_key =
@@ -2105,7 +2137,7 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
                               existing_coll->get_default_sorting_field(), static_cast<uint64_t>(std::time(nullptr)),
                               existing_coll->get_fallback_field_type(), symbols_to_index, token_separators,
                               existing_coll->get_enable_nested_fields(), existing_coll->get_vq_model(),
-                              {}, existing_coll->get_synonym_sets());
+                              {}, existing_coll->get_synonym_sets(), existing_coll->get_override_sets());
 
     lock.lock();
 
@@ -2114,12 +2146,6 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     }
 
     Collection* new_coll = coll_create_op.get();
-
-    // copy overrides
-    auto overrides = existing_coll->get_overrides().get();
-    for(const auto& kv: overrides) {
-        new_coll->add_override(*kv.second);
-    }
 
     return Option<Collection*>(new_coll);
 }
@@ -2295,6 +2321,39 @@ Option<bool> CollectionManager::update_collection_synonym_sets(const std::string
     auto collection_meta_json = nlohmann::json::parse(collection_meta_str);
 
     collection_meta_json[Collection::COLLECTION_SYNONYM_SETS] = synonym_sets;
+
+    if(store->insert(collection_metakey, collection_meta_json.dump())) {
+        return Option<bool>(true);
+    }
+
+    return Option<bool>(400, "failed to insert into store.");
+}
+
+Option<bool> CollectionManager::update_collection_override_sets(const std::string& collection, 
+                                                                const std::vector<std::string>& override_sets) {
+    auto collection_ptr = get_collection(collection);
+    if (collection_ptr == nullptr) {
+        return Option<bool>(400, "failed to get collection.");
+    }
+
+    auto& override_index_manager = OverrideIndexManager::get_instance();
+    for (const auto& override_set_name : override_sets) {
+        auto get_op = override_index_manager.get_override_index(override_set_name);
+        if (!get_op.ok()) {
+            return Option<bool>(404, "Override set `" + override_set_name + "` not found.");
+        }
+    }
+
+    collection_ptr->update_override_sets(override_sets);
+
+    std::string collection_meta_str;
+
+    auto collection_metakey = Collection::get_meta_key(collection);
+    store->get(collection_metakey, collection_meta_str);
+
+    auto collection_meta_json = nlohmann::json::parse(collection_meta_str);
+
+    collection_meta_json[Collection::COLLECTION_OVERRIDE_SETS] = override_sets;
 
     if(store->insert(collection_metakey, collection_meta_json.dump())) {
         return Option<bool>(true);
