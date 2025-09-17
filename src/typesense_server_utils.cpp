@@ -148,7 +148,8 @@ int init_root_logger(Config & config, const std::string & server_version) {
 
     if(log_dir.empty()) {
         // use console logger if log dir is not specified
-        FLAGS_logtostderr = true;
+        FLAGS_logtostdout = true;
+        FLAGS_stderrthreshold = google::GLOG_WARNING;
     } else {
         if(!directory_exists(log_dir)) {
             std::cerr << "Typesense failed to start. " << "Log directory " << log_dir << " does not exist.";
