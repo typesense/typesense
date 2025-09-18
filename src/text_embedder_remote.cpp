@@ -1,6 +1,10 @@
 #include <http_proxy.h>
 #include "text_embedder_remote.h"
 #include "embedder_manager.h"
+#include "string_utils.h"
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <ctime>
 
 Option<bool> RemoteEmbedder::validate_string_properties(const nlohmann::json& model_config, const std::vector<std::string>& properties) {
     for(auto& property : properties) {
@@ -9,6 +13,14 @@ Option<bool> RemoteEmbedder::validate_string_properties(const nlohmann::json& mo
         }
     }
     return Option<bool>(true);
+}
+
+void GCPEmbedder::normalize_pem_newlines(std::string& pem) {
+    std::string::size_type pos = 0;
+    while((pos = pem.find("\\n", pos)) != std::string::npos) {
+        pem.replace(pos, 2, "\n");
+        pos += 1;
+    }
 }
 
 long RemoteEmbedder::call_remote_api(const std::string& method, const std::string& url, const std::string& req_body,
@@ -480,7 +492,175 @@ GCPEmbedder::GCPEmbedder(const std::string& project_id, const std::string& model
     this->model_name = EmbedderManager::get_model_name_without_namespace(model_name);
 }
 
+GCPEmbedder::GCPEmbedder(const std::string& project_id, const std::string& model_name, const nlohmann::json& service_account,
+                         const bool has_custom_dims, const size_t num_dims, const std::string& document_task, const std::string& query_task, const std::string& region)
+        : project_id(project_id), has_custom_dims(has_custom_dims), num_dims(num_dims), document_task(document_task), query_task(query_task), region(region) {
+    this->model_name = EmbedderManager::get_model_name_without_namespace(model_name);
+    this->auth_type = AuthType::SERVICE_ACCOUNT_KEY;
+    if(service_account.count("client_email") > 0 && service_account["client_email"].is_string()) {
+        this->sa_client_email = service_account["client_email"].get<std::string>();
+    }
+    if(service_account.count("private_key") > 0 && service_account["private_key"].is_string()) {
+        this->sa_private_key_pem = service_account["private_key"].get<std::string>();
+        normalize_pem_newlines(this->sa_private_key_pem);
+    }
+    if(service_account.count("token_uri") > 0 && service_account["token_uri"].is_string()) {
+        this->sa_token_uri = service_account["token_uri"].get<std::string>();
+    } else {
+        this->sa_token_uri = GCP_AUTH_TOKEN_URL;
+    }
+}
+
+std::string GCPEmbedder::base64url_encode(const std::string& input) {
+    std::string out = StringUtils::base64_encode(input);
+    for(char& c : out) {
+        if(c == '+') c = '-';
+        else if(c == '/') c = '_';
+    }
+    // strip padding '='
+    while(!out.empty() && out.back() == '=') out.pop_back();
+    return out;
+}
+
+Option<std::string> GCPEmbedder::sign_jwt_rs256(const std::string& message, const std::string& private_key_pem) {
+    BIO* bio = BIO_new_mem_buf(private_key_pem.data(), static_cast<int>(private_key_pem.size()));
+    if(!bio) return Option<std::string>(500, "Internal error: BIO_new_mem_buf failed");
+    EVP_PKEY* pkey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+    BIO_free(bio);
+    if(!pkey) return Option<std::string>(400, "Invalid service_account.private_key format.");
+
+    EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+    if(!mdctx) { EVP_PKEY_free(pkey); return Option<std::string>(500, "Internal error: EVP_MD_CTX_new failed"); }
+    if(EVP_DigestSignInit(mdctx, nullptr, EVP_sha256(), nullptr, pkey) != 1) {
+        EVP_MD_CTX_free(mdctx); EVP_PKEY_free(pkey); return Option<std::string>(500, "Internal error: EVP_DigestSignInit failed");
+    }
+    if(EVP_DigestSignUpdate(mdctx, message.data(), message.size()) != 1) {
+        EVP_MD_CTX_free(mdctx); EVP_PKEY_free(pkey); return Option<std::string>(500, "Internal error: EVP_DigestSignUpdate failed");
+    }
+    size_t siglen = 0;
+    if(EVP_DigestSignFinal(mdctx, nullptr, &siglen) != 1) {
+        EVP_MD_CTX_free(mdctx); EVP_PKEY_free(pkey); return Option<std::string>(500, "Internal error: EVP_DigestSignFinal size failed");
+    }
+    std::string signature;
+    signature.resize(siglen);
+    if(EVP_DigestSignFinal(mdctx, reinterpret_cast<unsigned char*>(&signature[0]), &siglen) != 1) {
+        EVP_MD_CTX_free(mdctx); EVP_PKEY_free(pkey); return Option<std::string>(500, "Internal error: EVP_DigestSignFinal failed");
+    }
+    signature.resize(siglen);
+    EVP_MD_CTX_free(mdctx);
+    EVP_PKEY_free(pkey);
+    return Option<std::string>(signature);
+}
+
+Option<std::pair<std::string,long long>> GCPEmbedder::mint_sa_access_token_once(const std::string& client_email, const std::string& private_key_pem, const std::string& token_uri) {
+    const long long now = static_cast<long long>(std::time(nullptr));
+    const long long exp = now + 3600; // 1 hour
+    nlohmann::json header = {{"alg","RS256"},{"typ","JWT"}};
+    nlohmann::json claims = {
+        {"iss", client_email},
+        {"scope", "https://www.googleapis.com/auth/cloud-platform"},
+        {"aud", token_uri},
+        {"exp", exp},
+        {"iat", now}
+    };
+    const std::string signing_input = base64url_encode(header.dump()) + "." + base64url_encode(claims.dump());
+    auto sig_op = sign_jwt_rs256(signing_input, private_key_pem);
+    if(!sig_op.ok()) return Option<std::pair<std::string,long long>>(sig_op.code(), sig_op.error());
+    const std::string assertion = signing_input + "." + base64url_encode(sig_op.get());
+
+    std::unordered_map<std::string, std::string> headers;
+    headers["Content-Type"] = "application/x-www-form-urlencoded";
+    std::map<std::string, std::string> res_headers;
+    std::string res;
+    std::string req_body = "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=" + assertion;
+    auto res_code = call_remote_api("POST", token_uri, req_body, res, res_headers, headers);
+    if(res_code != 200) {
+        if(res_code == 408) return Option<std::pair<std::string,long long>>(408, "GCP API timeout.");
+        nlohmann::json json_res;
+        try { json_res = nlohmann::json::parse(res); } catch (...) {
+            return Option<std::pair<std::string,long long>>(400, "Got malformed response from GCP API.");
+        }
+        std::string msg = json_res.count("error") ? json_res["error"].dump() : res;
+        return Option<std::pair<std::string,long long>>(400, "GCP API error: " + msg);
+    }
+    nlohmann::json res_json;
+    try { res_json = nlohmann::json::parse(res); } catch (...) {
+        return Option<std::pair<std::string,long long>>(400, "Got malformed response from GCP API.");
+    }
+    if(res_json.count("access_token") == 0 || res_json.count("expires_in") == 0) {
+        return Option<std::pair<std::string,long long>>(400, "GCP API error: access_token missing in response");
+    }
+    const std::string token = res_json["access_token"].get<std::string>();
+    const long long expires_at = now + res_json["expires_in"].get<long long>();
+    return Option<std::pair<std::string,long long>>(std::make_pair(token, expires_at));
+}
+
+Option<std::string> GCPEmbedder::ensure_access_token(bool force_refresh) {
+    if (auth_type == AuthType::SERVICE_ACCOUNT_KEY) {
+        const long long now = static_cast<long long>(std::time(nullptr));
+        if (!force_refresh && !access_token.empty() && now + 60 < token_expires_at_epoch) {
+            return Option<std::string>(access_token);
+        }
+        auto mint_op = mint_sa_access_token_once(sa_client_email, sa_private_key_pem, sa_token_uri);
+        if (!mint_op.ok()) return Option<std::string>(mint_op.code(), mint_op.error());
+        access_token = mint_op.get().first;
+        token_expires_at_epoch = mint_op.get().second;
+        return Option<std::string>(access_token);
+    }
+
+    if (!force_refresh && !access_token.empty()) return Option<std::string>(access_token);
+    auto refresh_op = generate_access_token(refresh_token, client_id, client_secret);
+    if (!refresh_op.ok()) return Option<std::string>(refresh_op.code(), refresh_op.error());
+    access_token = refresh_op.get();
+    return Option<std::string>(access_token);
+}
+ 
 Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims)  {
+    // service account path
+    if(model_config.count("service_account") > 0 && model_config["service_account"].is_object()) {
+        auto validate_properties = validate_string_properties(model_config, {"model_name", "project_id"});
+        if(!validate_properties.ok()) return validate_properties;
+        auto model_name = model_config["model_name"].get<std::string>();
+        auto project_id = model_config["project_id"].get<std::string>();
+        std::string region = GCP_DEFAULT_REGION;
+        if(model_config.count("region") > 0 && model_config["region"].is_string()) region = model_config["region"].get<std::string>();
+        if(EmbedderManager::get_model_namespace(model_name) != "gcp") return Option<bool>(400, "Invalid GCP model name");
+        auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(model_name);
+        // Mint token once
+        const nlohmann::json& sa = model_config["service_account"];
+        if(sa.count("client_email") == 0 || !sa["client_email"].is_string() || sa.count("private_key") == 0 || !sa["private_key"].is_string()) {
+            return Option<bool>(400, "Property `embed.model_config.service_account.client_email/private_key` missing or not a string.");
+        }
+        const std::string client_email = sa["client_email"].get<std::string>();
+        std::string private_key = sa["private_key"].get<std::string>();
+        normalize_pem_newlines(private_key);
+        const std::string token_uri = sa.count("token_uri") > 0 && sa["token_uri"].is_string() ? sa["token_uri"].get<std::string>() : GCP_AUTH_TOKEN_URL;
+        auto mint_op = mint_sa_access_token_once(client_email, private_key, token_uri);
+        if(!mint_op.ok()) return Option<bool>(mint_op.code(), mint_op.error());
+        const std::string access_token_tmp = mint_op.get().first;
+
+        std::unordered_map<std::string, std::string> headers;
+        std::map<std::string, std::string> res_headers;
+        headers["Content-Type"] = "application/json";
+        headers["Authorization"] = "Bearer " + access_token_tmp;
+        std::string res;
+        nlohmann::json req_body;
+        req_body["instances"] = nlohmann::json::array();
+        nlohmann::json instance; instance["content"] = "typesense"; req_body["instances"].push_back(instance);
+        if(has_custom_dims) { nlohmann::json dimensions; dimensions["outputDimensionality"] = num_dims; req_body["parameters"] = dimensions; }
+        auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name_without_namespace, region), req_body.dump(), res, res_headers, headers);
+        if(res_code != 200) {
+            nlohmann::json json_res; try { json_res = nlohmann::json::parse(res); } catch (...) { return Option<bool>(400, "Got malformed response from GCP API."); }
+            if(res_code == 408) return Option<bool>(408, "GCP API timeout.");
+            if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) return Option<bool>(400, "GCP API error: " + res);
+            return Option<bool>(400, "GCP API error: " + json_res["error"]["message"].get<std::string>());
+        }
+        nlohmann::json res_json; try { res_json = nlohmann::json::parse(res); } catch (...) { return Option<bool>(400, "Got malformed response from GCP API."); }
+        if(res_json.count("predictions") == 0 || res_json["predictions"].size() == 0 || res_json["predictions"][0].count("embeddings") == 0) return Option<bool>(400, "GCP API error: Invalid response");
+        num_dims = res_json["predictions"][0]["embeddings"]["values"].size();
+        return Option<bool>(true);
+    }
+
     auto validate_properties = validate_string_properties(model_config, {"model_name", "project_id", "access_token", "refresh_token", "client_id", "client_secret"});
 
     if (!validate_properties.ok()) {
@@ -543,7 +723,6 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, siz
             return Option<bool>(400, "Invalid client_id, client_secret or refresh_token in `embed.model config'.");
         }
         access_token = refresh_op.get();
-        // retry
         headers["Authorization"] = "Bearer " + access_token;
         res.clear();
         res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name_without_namespace, region), req_body.dump(), res, res_headers, headers);
@@ -611,6 +790,10 @@ embedding_res_t GCPEmbedder::embed_query(const std::string& text, const size_t r
         req_body["parameters"] = dimensions;
     }
     std::unordered_map<std::string, std::string> headers;
+    auto token_op = ensure_access_token(false);
+    if(!token_op.ok()) {
+        return embedding_res_t(token_op.code(), nlohmann::json({{"error", token_op.error()}}));
+    }
     headers["Authorization"] = "Bearer " + access_token;
     headers["Content-Type"] = "application/json";
     headers["timeout_ms"] = std::to_string(remote_embedder_timeout_ms);
@@ -622,14 +805,12 @@ embedding_res_t GCPEmbedder::embed_query(const std::string& text, const size_t r
 
     if(res_code != 200) {
         if(res_code == 401) {
-            auto refresh_op = generate_access_token(refresh_token, client_id, client_secret);
+            auto refresh_op = ensure_access_token(true);
             if(!refresh_op.ok()) {
                 nlohmann::json embedding_res = nlohmann::json::object();
                 embedding_res["error"] = refresh_op.error();
                 return embedding_res_t(refresh_op.code(), embedding_res);
             }
-            access_token = refresh_op.get();
-            // retry
             headers["Authorization"] = "Bearer " + access_token;
             res.clear();
             res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name, region), req_body.dump(), res, res_headers, headers);
@@ -682,6 +863,14 @@ std::vector<embedding_res_t> GCPEmbedder::embed_documents(const std::vector<std:
         dimensions["outputDimensionality"] = num_dims;
         req_body["parameters"] = dimensions;
     }
+    auto token_op = ensure_access_token(false);
+    if(!token_op.ok()) {
+        std::vector<embedding_res_t> outputs;
+        for(size_t i = 0; i < inputs.size(); i++) {
+            outputs.push_back(embedding_res_t(token_op.code(), nlohmann::json({{"error", token_op.error()}})));
+        }
+        return outputs;
+    }
     std::unordered_map<std::string, std::string> headers;
     headers["Authorization"] = "Bearer " + access_token;
     headers["Content-Type"] = "application/json";
@@ -692,7 +881,7 @@ std::vector<embedding_res_t> GCPEmbedder::embed_documents(const std::vector<std:
     auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name, region), req_body.dump(), res, res_headers, headers);
     if(res_code != 200) {
         if(res_code == 401) {
-            auto refresh_op = generate_access_token(refresh_token, client_id, client_secret);
+            auto refresh_op = ensure_access_token(true);
             if(!refresh_op.ok()) {
                 nlohmann::json embedding_res = nlohmann::json::object();
                 embedding_res["error"] = refresh_op.error();
@@ -702,8 +891,6 @@ std::vector<embedding_res_t> GCPEmbedder::embed_documents(const std::vector<std:
                 }
                 return outputs;
             }
-            access_token = refresh_op.get();
-            // retry
             headers["Authorization"] = "Bearer " + access_token;
             res.clear();
             res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name, region), req_body.dump(), res, res_headers, headers);
@@ -718,6 +905,7 @@ std::vector<embedding_res_t> GCPEmbedder::embed_documents(const std::vector<std:
         }
         return outputs;
     }
+
     nlohmann::json res_json;
     try {
         res_json = nlohmann::json::parse(res);
@@ -729,7 +917,6 @@ std::vector<embedding_res_t> GCPEmbedder::embed_documents(const std::vector<std:
         }
         return outputs;
     }
-    std::vector<embedding_res_t> outputs;
 
     if(res_json.count("predictions") == 0 || !res_json["predictions"].is_array() || res_json["predictions"].size() != inputs.size()) {
         std::vector<embedding_res_t> outputs;
@@ -739,6 +926,7 @@ std::vector<embedding_res_t> GCPEmbedder::embed_documents(const std::vector<std:
         return outputs;
     }
 
+    std::vector<embedding_res_t> outputs;
     for(const auto& prediction : res_json["predictions"]) {
         if(prediction.count("embeddings") == 0 || !prediction["embeddings"].is_object() || prediction["embeddings"].count("values") == 0 || !prediction["embeddings"]["values"].is_array() || prediction["embeddings"]["values"].size() == 0) {
             outputs.push_back(embedding_res_t(500, "Got malformed response from GCP API."));
@@ -815,7 +1003,14 @@ Option<std::string> GCPEmbedder::generate_access_token(const std::string& refres
 }
 
 std::string GCPEmbedder::get_model_key(const nlohmann::json& model_config) {
-    return model_config["model_name"].get<std::string>() + ":" + model_config["project_id"].get<std::string>() + ":" + model_config["client_secret"].get<std::string>();
+    const std::string name = model_config["model_name"].get<std::string>();
+    const std::string project = model_config["project_id"].get<std::string>();
+    if(model_config.count("service_account") > 0 && model_config["service_account"].is_object()) {
+        const auto& sa = model_config["service_account"];
+        const std::string email = sa.count("client_email") && sa["client_email"].is_string() ? sa["client_email"].get<std::string>() : std::string("unknown");
+        return name + ":" + project + ":sa:" + email;
+    }
+    return name + ":" + project + ":" + model_config["client_secret"].get<std::string>();
 }
 
 

@@ -2374,6 +2374,78 @@ TEST_F(CollectionVectorTest, TestDifferentOpenAIApiKeys) {
     ASSERT_EQ(embedder_map.find("openai/text-embedding-ada-002"), embedder_map.end());
 }
 
+TEST_F(CollectionVectorTest, TestGCPServiceAccountValidationSkippable) {
+    if (std::getenv("GCP_PROJECT_ID") == nullptr ||
+        std::getenv("GCP_SA_CLIENT_EMAIL") == nullptr ||
+        std::getenv("GCP_SA_PRIVATE_KEY") == nullptr) {
+        LOG(INFO) << "Skipping test as GCP service account env vars are not set";
+        return;
+    }
+
+    auto project_id = std::string(std::getenv("GCP_PROJECT_ID"));
+    auto sa_client_email = std::string(std::getenv("GCP_SA_CLIENT_EMAIL"));
+    auto sa_private_key = std::string(std::getenv("GCP_SA_PRIVATE_KEY"));
+    auto region = std::getenv("GCP_REGION") ? std::string(std::getenv("GCP_REGION")) : std::string("us-central1");
+
+    auto embedder_map = EmbedderManager::get_instance()._get_text_embedders();
+
+    ASSERT_EQ(embedder_map.find("gcp/text-embedding-004:" + project_id + ":sa:" + sa_client_email), embedder_map.end());
+
+    nlohmann::json model_config = nlohmann::json::object();
+    model_config["model_name"] = "gcp/text-embedding-004";
+    model_config["project_id"] = project_id;
+    model_config["region"] = region;
+    model_config["service_account"] = nlohmann::json::object({
+        {"client_email", sa_client_email},
+        {"private_key", sa_private_key}
+    });
+
+    size_t num_dim = 0;
+    auto op = EmbedderManager::get_instance().validate_and_init_remote_model(model_config, num_dim);
+    ASSERT_TRUE(op.ok());
+
+    embedder_map = EmbedderManager::get_instance()._get_text_embedders();
+    ASSERT_NE(embedder_map.find("gcp/text-embedding-004:" + project_id + ":sa:" + sa_client_email), embedder_map.end());
+}
+
+TEST_F(CollectionVectorTest, TestGCPOAuthValidationSkippable) {
+    if (std::getenv("GCP_PROJECT_ID") == nullptr ||
+        std::getenv("GCP_ACCESS_TOKEN") == nullptr ||
+        std::getenv("GCP_REFRESH_TOKEN") == nullptr ||
+        std::getenv("GCP_CLIENT_ID") == nullptr ||
+        std::getenv("GCP_CLIENT_SECRET") == nullptr) {
+        LOG(INFO) << "Skipping test as required GCP OAuth env vars are not set";
+        return;
+    }
+
+    auto project_id = std::string(std::getenv("GCP_PROJECT_ID"));
+    auto access_token = std::string(std::getenv("GCP_ACCESS_TOKEN"));
+    auto refresh_token = std::string(std::getenv("GCP_REFRESH_TOKEN"));
+    auto client_id = std::string(std::getenv("GCP_CLIENT_ID"));
+    auto client_secret = std::string(std::getenv("GCP_CLIENT_SECRET"));
+    auto region = std::getenv("GCP_REGION") ? std::string(std::getenv("GCP_REGION")) : std::string("us-central1");
+
+    auto embedder_map = EmbedderManager::get_instance()._get_text_embedders();
+
+    ASSERT_EQ(embedder_map.find("gcp/text-embedding-004:" + project_id + ":" + client_secret), embedder_map.end());
+
+    nlohmann::json model_config = nlohmann::json::object();
+    model_config["model_name"] = "gcp/text-embedding-004";
+    model_config["project_id"] = project_id;
+    model_config["region"] = region;
+    model_config["access_token"] = access_token;
+    model_config["refresh_token"] = refresh_token;
+    model_config["client_id"] = client_id;
+    model_config["client_secret"] = client_secret;
+
+    size_t num_dim = 0;
+    auto op = EmbedderManager::get_instance().validate_and_init_remote_model(model_config, num_dim);
+    ASSERT_TRUE(op.ok());
+
+    embedder_map = EmbedderManager::get_instance()._get_text_embedders();
+    ASSERT_NE(embedder_map.find("gcp/text-embedding-004:" + project_id + ":" + client_secret), embedder_map.end());
+}
+
 
 TEST_F(CollectionVectorTest, TestMultilingualE5) {
     auto schema_json =
