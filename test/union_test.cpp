@@ -1368,3 +1368,90 @@ TEST_F(UnionTest, RemoveDuplicatesWithUnion) {
     ASSERT_EQ("1", json_res["hits"][3]["document"]["id"]);
     ASSERT_EQ("1", json_res["hits"][4]["document"]["id"]);
 }
+
+TEST_F(UnionTest, GroupingWithUnions) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "category", "type": "string", "facet": true},
+            {"name": "fieldId", "type": "int32"}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    nlohmann::json doc;
+    doc["name"] = "Head & Shoulders";
+    doc["category"] = "Shampoo";
+    doc["fieldId"] = 0;
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    doc["name"] = "Dove";
+    doc["category"] = "Shampoo";
+    doc["fieldId"] = 1;
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    doc["name"] = "Heads Up";
+    doc["category"] = "Shampoo";
+    doc["fieldId"] = 2;
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "coll1",
+                        "q": "head",
+                        "query_by": "name",
+                        "group_by": "category"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "do",
+                        "query_by": "name",
+                        "group_by": "category"
+                    }
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(2, json_res["found"].get<size_t>());
+    ASSERT_EQ(2, json_res["grouped_hits"].size());
+
+    ASSERT_EQ(2, json_res["grouped_hits"][0]["found"].get<size_t>());
+    ASSERT_EQ("Shampoo", json_res["grouped_hits"][0]["group_key"][0]);
+    ASSERT_EQ("0", json_res["grouped_hits"][0]["hits"][0]["document"]["id"]);
+
+    ASSERT_EQ(1, json_res["grouped_hits"][1]["found"].get<size_t>());
+    ASSERT_EQ("Shampoo", json_res["grouped_hits"][1]["group_key"][0]);
+    ASSERT_EQ("1", json_res["grouped_hits"][1]["hits"][0]["document"]["id"]);
+
+
+    //uneven searches
+    searches = R"([
+                    {
+                        "collection": "coll1",
+                        "q": "heads",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "dov",
+                        "query_by": "name",
+                        "group_by": "category"
+                    }
+                ])"_json;
+
+    req_params.clear();
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res.count("code"));
+    ASSERT_EQ(400, json_res["code"]);
+    ASSERT_EQ(1, json_res.count("error"));
+    ASSERT_EQ("Invalid group_by searches count. All searches with union search should be uniform.", json_res["error"]);
+}
