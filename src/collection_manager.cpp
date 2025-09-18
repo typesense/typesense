@@ -111,7 +111,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
 
         if(field_obj.count(fields::vec_dist) != 0) {
-            auto vec_dist_type_op = magic_enum::enum_cast<vector_distance_type_t>(fields::vec_dist);
+            auto vec_dist_type_op = magic_enum::enum_cast<vector_distance_type_t>(field_obj[fields::vec_dist]);
             if(vec_dist_type_op.has_value()) {
                 vec_dist_type = vec_dist_type_op.value();
             }
@@ -1891,7 +1891,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
         override_t override;
         auto parse_op = override_t::parse(collection_override, "", override, "", collection->get_symbols_to_index(),
-                                          collection->get_token_separators());
+                                          collection->get_token_separators(), collection->get_schema());
         if(parse_op.ok()) {
             collection->add_override(override, false);
         } else {

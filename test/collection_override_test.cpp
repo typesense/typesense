@@ -14,9 +14,9 @@ protected:
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
     Collection *coll_mul_fields;
+    std::string state_dir_path = "/tmp/typesense_test/collection_override";
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_override";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
@@ -5335,4 +5335,235 @@ TEST_F(CollectionOverrideTest, DynamicOverridePlaceHolderFieldNameTypo) {
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("placeholder_field filter triggered", results["metadata"]["text"].get<std::string>());
+}
+
+TEST_F(CollectionOverrideTest, DiversityOverrideParsing) {
+    Collection* tags_coll = nullptr;
+    auto schema_json =
+            R"({
+                "name": "tags",
+                "fields": [
+                    {"name": "app_id", "type": "string"},
+                    {"name": "ui_elements.group_id", "type": "string[]"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    tags_coll = collection_create_op.get();
+    auto json =
+            R"({
+                  "diversity": {
+                    "similarity_metric": [
+                      {
+                        "field": "flow_id",
+                        "method": "equality",
+                        "weight": 0.6
+                      },
+                      {
+                        "field": "app_id",
+                        "method": "equality"
+                      },
+                      {
+                        "field": "ui_elements.group_id",
+                        "method": "jaccard",
+                        "weight": 0.1
+                      }
+                    ]
+                  }
+                })"_json;
+
+    diversity_t diversity;
+    auto op = diversity_t::parse(json, diversity);
+    ASSERT_TRUE(op.ok());
+
+    ASSERT_EQ(3, diversity.similarity_equation.size());
+    ASSERT_EQ("flow_id", diversity.similarity_equation[0].field);
+    ASSERT_EQ(diversity_t::similarity_methods::equality, diversity.similarity_equation[0].method);
+    ASSERT_FLOAT_EQ(0.6, diversity.similarity_equation[0].weight);
+    ASSERT_FALSE(diversity.similarity_equation[0].is_field_array);
+
+    ASSERT_EQ("app_id", diversity.similarity_equation[1].field);
+    ASSERT_EQ(diversity_t::similarity_methods::equality, diversity.similarity_equation[1].method);
+    ASSERT_FLOAT_EQ(1, diversity.similarity_equation[1].weight);
+    ASSERT_FALSE(diversity.similarity_equation[1].is_field_array);
+
+    ASSERT_EQ("ui_elements.group_id", diversity.similarity_equation[2].field);
+    ASSERT_EQ(diversity_t::similarity_methods::jaccard, diversity.similarity_equation[2].method);
+    ASSERT_FLOAT_EQ(0.1, diversity.similarity_equation[2].weight);
+    ASSERT_FALSE(diversity.similarity_equation[2].is_field_array);
+
+    json["id"] = "foo";
+    json["rule"]["tags"] += "screen_pattern_rule";
+
+    override_t override;
+    op = override_t::parse(json, "", override, "", {}, {}, tags_coll->get_schema());
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("`flow_id` field not found in the schema.", op.error());
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "flow_id", "type": "string", "sort": true}
+        ]
+    })"_json;
+    auto alter_op = tags_coll->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    op = override_t::parse(json, "", override, "", {}, {}, tags_coll->get_schema());
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Enable sorting/faceting on `app_id` field to use in diversity.", op.error());
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "app_id", "drop": true},
+            {"name": "app_id", "type": "string", "facet": true}
+        ]
+    })"_json;
+    alter_op = tags_coll->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    op = override_t::parse(json, "", override, "", {}, {}, tags_coll->get_schema());
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Enable faceting on `ui_elements.group_id` array field to use in diversity.", op.error());
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "ui_elements.group_id", "drop": true},
+            {"name": "ui_elements.group_id", "type": "string[]", "facet": true}
+        ]
+    })"_json;
+    alter_op = tags_coll->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    op = override_t::parse(json, "", override, "", {}, {}, tags_coll->get_schema());
+    ASSERT_TRUE(op.ok());
+    ASSERT_EQ("foo", override.id);
+    ASSERT_EQ(1, override.rule.tags.size());
+    ASSERT_EQ("screen_pattern_rule", *override.rule.tags.begin());
+    ASSERT_EQ(3, override.diversity.similarity_equation.size());
+    ASSERT_TRUE(override.diversity.similarity_equation[2].is_field_array);
+
+    tags_coll->add_override(override);
+
+    //emulate restart
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok());
+
+    tags_coll = collectionManager.get_collection("tags").get();
+    auto get_op = tags_coll->get_override("foo");
+    ASSERT_TRUE(get_op.ok());
+
+    override = get_op.get();
+    op = override_t::parse(json, "", override, "", {}, {}, tags_coll->get_schema());
+    ASSERT_TRUE(op.ok());
+
+    ASSERT_EQ("foo", override.id);
+    ASSERT_EQ(1, override.rule.tags.size());
+    ASSERT_EQ("screen_pattern_rule", *override.rule.tags.begin());
+    ASSERT_EQ(3, override.diversity.similarity_equation.size());
+}
+
+TEST_F(CollectionOverrideTest, DiversityOverride) {
+    Collection* tags_coll = nullptr;
+    auto schema_json =
+            R"({
+                "name": "tags",
+                "fields": [
+                    {"name": "tags", "type": "string[]", "facet": true}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({"tags": ["gold", "silver"]})"_json,
+            R"({"tags": ["FINE PLATINUM"]})"_json,
+            R"({"tags": ["bronze", "gold"]})"_json,
+            R"({"tags": ["silver"]})"_json,
+            R"({"tags": ["silver", "gold", "bronze"]})"_json,
+            R"({"tags": ["silver", "FINE PLATINUM"]})"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    tags_coll = collection_create_op.get();
+    for (auto const &json: documents) {
+        auto add_op = tags_coll->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "tags"},
+            {"q", "*"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    long now_ts = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    nlohmann::json res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(6, res_obj["found"].get<size_t>());
+    ASSERT_EQ(6, res_obj["hits"].size());
+    for (uint32_t i = 0; i < 6; i++) {
+        ASSERT_EQ(std::to_string(5 - i), res_obj["hits"][i]["document"]["id"]);
+    }
+
+    auto json =
+            R"({
+                  "id": "foo",
+                  "rule": {
+                    "tags": [
+                      "screen_pattern_rule"
+                    ]
+                  },
+                  "diversity": {
+                    "similarity_metric": [
+                      {
+                        "field": "tags",
+                        "method": "jaccard"
+                      }
+                    ]
+                  }
+                })"_json;
+    override_t override;
+    auto op = override_t::parse(json, "", override, "", {}, {}, tags_coll->get_schema());
+    ASSERT_TRUE(op.ok());
+    tags_coll->add_override(override);
+
+    req_params = {
+            {"collection", "tags"},
+            {"q", "*"},
+            {"override_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(6, res_obj["found"].get<size_t>());
+    ASSERT_EQ(6, res_obj["hits"].size());
+    ASSERT_EQ("5", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("2", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][2]["document"]["id"]);
+    ASSERT_EQ("3", res_obj["hits"][3]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][4]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][5]["document"]["id"]);
+
+    req_params = {
+            {"collection", "tags"},
+            {"q", "*"},
+            {"override_tags", "screen_pattern_rule"},
+            {"diversity_lambda", "1"} // No diversity
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(6, res_obj["found"].get<size_t>());
+    ASSERT_EQ(6, res_obj["hits"].size());
+    for (uint32_t i = 0; i < 6; i++) {
+        ASSERT_EQ(std::to_string(5 - i), res_obj["hits"][i]["document"]["id"]);
+    }
 }
