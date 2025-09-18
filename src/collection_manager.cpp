@@ -888,20 +888,6 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
             store->compact_range(del_key_prefix, del_end_prefix);
         }
 
-        // delete overrides
-        const std::string& del_override_prefix =
-                std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" + actual_coll_name + "_";
-        std::string upper_bound_key = std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" +
-                                      actual_coll_name + "`";  // cannot inline this
-        rocksdb::Slice upper_bound(upper_bound_key);
-
-        rocksdb::Iterator* iter = store->scan(del_override_prefix, &upper_bound);
-        while(iter->Valid() && iter->key().starts_with(del_override_prefix)) {
-            store->remove(iter->key().ToString());
-            iter->Next();
-        }
-        delete iter;
-
         store->remove(Collection::get_next_seq_id_key(actual_coll_name));
         store->remove(Collection::get_meta_key(actual_coll_name));
     }
@@ -1903,24 +1889,6 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f, referenced_infos);
 
     LOG(INFO) << "Loading collection " << collection->get_name();
-
-    // initialize overrides
-    // std::vector<std::string> collection_override_jsons;
-    // cm.store->scan_fill(Collection::get_override_key(this_collection_name, ""),
-    //                     std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" + this_collection_name + "`",
-    //                     collection_override_jsons);
-    //
-    // for(const auto & collection_override_json: collection_override_jsons) {
-    //     nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
-    //     override_t override;
-    //     auto parse_op = override_t::parse(collection_override, "", override, "", collection->get_symbols_to_index(),
-    //                                       collection->get_token_separators());
-    //     if(parse_op.ok()) {
-    //         collection->add_override(override, false);
-    //     } else {
-    //         LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
-    //     }
-    // }
 
     // migrate synonyms if exists
     const std::string& syn_lower_bound_key =

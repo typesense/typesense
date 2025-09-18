@@ -1000,67 +1000,65 @@ void Collection::curate_results(string& actual_query, const string& filter_query
             }
         }
 
-        if(override_set_overrides.empty()) {
-          return;
-        }
+        if(!override_set_overrides.empty()) {
+          std::string query;
 
-        std::string query;
+          if(actual_query == "*") {
+              query = "*";
+          } else {
+              std::vector<std::string> tokens;
+              Tokenizer tokenizer(actual_query, true, false, "", symbols_to_index, token_separators);
+              tokenizer.tokenize(tokens);
+              query = StringUtils::join(tokens, " ");
+          }
 
-        if(actual_query == "*") {
-            query = "*";
-        } else {
-            std::vector<std::string> tokens;
-            Tokenizer tokenizer(actual_query, true, false, "", symbols_to_index, token_separators);
-            tokenizer.tokenize(tokens);
-            query = StringUtils::join(tokens, " ");
-        }
+          if(!tags.empty()) {
+              bool all_tags_found = false;
+              if(tags.size() > 1) {
+                  // exact AND match only when multiple tags are sent
+                  for(const auto* ov : override_set_overrides) {
+                      if(ov->rule.tags == tags) {
+                          bool match_found = does_override_match(*ov, query, excluded_set, actual_query,
+                                                                filter_query, already_segmented, true, false,
+                                                                pinned_hits, hidden_hits, included_ids,
+                                                                excluded_ids, filter_sort_overrides, filter_curated_hits,
+                                                                curated_sort_by, override_metadata);
+                          if(match_found) {
+                              all_tags_found = true;
+                              if(ov->stop_processing) { break; }
+                          }
+                      }
+                  }
+              }
 
-        if(!tags.empty()) {
-            bool all_tags_found = false;
-            if(tags.size() > 1) {
-                // exact AND match only when multiple tags are sent
-                for(const auto* ov : override_set_overrides) {
-                    if(ov->rule.tags == tags) {
-                        bool match_found = does_override_match(*ov, query, excluded_set, actual_query,
-                                                               filter_query, already_segmented, true, false,
-                                                               pinned_hits, hidden_hits, included_ids,
-                                                               excluded_ids, filter_sort_overrides, filter_curated_hits,
-                                                               curated_sort_by, override_metadata);
-                        if(match_found) {
-                            all_tags_found = true;
-                            if(ov->stop_processing) { break; }
-                        }
-                    }
-                }
-            }
-
-            if(!all_tags_found) {
-                // partial tag matches: any overlap
-                for(const auto* ov : override_set_overrides) {
-                    std::set<std::string> matching_tags;
-                    std::set_intersection(ov->rule.tags.begin(), ov->rule.tags.end(),
-                                          tags.begin(), tags.end(),
-                                          std::inserter(matching_tags, matching_tags.begin()));
-                    if(matching_tags.empty()) { continue; }
-                    bool match_found = does_override_match(*ov, query, excluded_set, actual_query,
-                                                           filter_query, already_segmented, true, false,
-                                                           pinned_hits, hidden_hits, included_ids,
-                                                           excluded_ids, filter_sort_overrides, filter_curated_hits,
-                                                           curated_sort_by, override_metadata);
-                    if(match_found && ov->stop_processing) { break; }
-                }
-            }
-        } else {
-            // no override tags given
-            for(const auto* ov : override_set_overrides) {
-                bool wildcard_tag = ov->rule.tags.size() == 1 && *ov->rule.tags.begin() == "*";
-                bool match_found = does_override_match(*ov, query, excluded_set, actual_query, filter_query,
-                                                       already_segmented, false, wildcard_tag,
-                                                       pinned_hits, hidden_hits, included_ids,
-                                                       excluded_ids, filter_sort_overrides, filter_curated_hits,
-                                                       curated_sort_by, override_metadata);
-                if(match_found && ov->stop_processing) { break; }
-            }
+              if(!all_tags_found) {
+                  // partial tag matches: any overlap
+                  for(const auto* ov : override_set_overrides) {
+                      std::set<std::string> matching_tags;
+                      std::set_intersection(ov->rule.tags.begin(), ov->rule.tags.end(),
+                                            tags.begin(), tags.end(),
+                                            std::inserter(matching_tags, matching_tags.begin()));
+                      if(matching_tags.empty()) { continue; }
+                      bool match_found = does_override_match(*ov, query, excluded_set, actual_query,
+                                                            filter_query, already_segmented, true, false,
+                                                            pinned_hits, hidden_hits, included_ids,
+                                                            excluded_ids, filter_sort_overrides, filter_curated_hits,
+                                                            curated_sort_by, override_metadata);
+                      if(match_found && ov->stop_processing) { break; }
+                  }
+              }
+          } else {
+              // no override tags given
+              for(const auto* ov : override_set_overrides) {
+                  bool wildcard_tag = ov->rule.tags.size() == 1 && *ov->rule.tags.begin() == "*";
+                  bool match_found = does_override_match(*ov, query, excluded_set, actual_query, filter_query,
+                                                        already_segmented, false, wildcard_tag,
+                                                        pinned_hits, hidden_hits, included_ids,
+                                                        excluded_ids, filter_sort_overrides, filter_curated_hits,
+                                                        curated_sort_by, override_metadata);
+                  if(match_found && ov->stop_processing) { break; }
+              }
+          }
         }
     }
 
@@ -5746,10 +5744,6 @@ tsl::htrie_set<char> Collection::get_object_reference_helper_fields() const {
 
 std::string Collection::get_meta_key(const std::string & collection_name) {
     return std::string(COLLECTION_META_PREFIX) + "_" + collection_name;
-}
-
-std::string Collection::get_override_key(const std::string & collection_name, const std::string & override_id) {
-    return std::string(COLLECTION_OVERRIDE_PREFIX) + "_" + collection_name + "_" + override_id;
 }
 
 std::string Collection::get_seq_id_collection_prefix() const {

@@ -6,6 +6,7 @@
 #include <collection_manager.h>
 #include "collection.h"
 #include "tsconfig.h"
+#include "override_index_manager.h"
 
 class CollectionGroupingTest : public ::testing::Test {
 protected:
@@ -369,6 +370,7 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
 }
 
 TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {
+    auto& ov_manager = OverrideIndexManager::get_instance();
     auto res = coll_group->search("*", {}, "", {"brand"}, {}, {0}, 50, 1, FREQUENCY,
                                   {false}, Index::DROP_TOKENS_THRESHOLD,
                                   spp::sparse_hash_set<std::string>(),
@@ -409,6 +411,7 @@ TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {
 }
 
 TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
+    auto& ov_manager = OverrideIndexManager::get_instance();
     nlohmann::json override_json_include = {
         {"id", "include-rule"},
         {
@@ -449,8 +452,8 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
     override_t::parse(override_json_include, "", override1);
     override_t::parse(override_json_exclude, "", override2);
 
-    Option<uint32_t> ov1_op = coll_group->add_override(override1);
-    Option<uint32_t> ov2_op = coll_group->add_override(override2);
+    auto ov1_op = ov_manager.upsert_override_item("index", override_json_include);
+    auto ov2_op = ov_manager.upsert_override_item("index", override_json_exclude);
 
     ASSERT_TRUE(ov1_op.ok());
     ASSERT_TRUE(ov2_op.ok());

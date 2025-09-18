@@ -9,6 +9,7 @@
 #include "conversation_model_manager.h"
 #include "conversation_manager.h"
 #include "synonym_index_manager.h"
+#include "override_index_manager.h"
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
@@ -2030,6 +2031,9 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
 
 TEST_F(CoreAPIUtilsTest, OverridesPagination) {
     Collection *coll2;
+    OverrideIndexManager& ov_manager = OverrideIndexManager::get_instance();
+    ov_manager.init_store(store);
+    ov_manager.add_override_index("index");
 
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false)};
@@ -2055,17 +2059,17 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
         override_t override;
         override_t::parse(override_json, "", override);
 
-        coll2->add_override(override);
+        ov_manager.upsert_override_item("index", override_json);
     }
 
     auto req = std::make_shared<http_req>();
     auto resp = std::make_shared<http_res>(nullptr);
 
-    req->params["collection"] = "coll2";
+    req->params["name"] = "index";
     req->params["offset"] = "0";
     req->params["limit"] = "1";
 
-    get_overrides(req, resp);
+    get_override_set_items(req, resp);
     nlohmann::json expected_json = R"({
         "overrides":[
                     {

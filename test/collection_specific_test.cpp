@@ -6,6 +6,7 @@
 #include <collection_manager.h>
 #include "collection.h"
 #include "synonym_index_manager.h"
+#include "override_index_manager.h"
 
 class CollectionSpecificTest : public ::testing::Test {
 protected:
@@ -30,6 +31,12 @@ protected:
 
         SynonymIndex synonym_index1(store, "index");
         synonym_index_manager.add_synonym_index("index", std::move(synonym_index1));
+
+        OverrideIndexManager& override_index_manager = OverrideIndexManager::get_instance();
+        override_index_manager.init_store(store);
+
+        OverrideIndex override_index1(store, "index");
+        override_index_manager.add_override_index("index", std::move(override_index1));
     }
 
     virtual void SetUp() {
@@ -37,6 +44,8 @@ protected:
     }
 
     virtual void TearDown() {
+        OverrideIndexManager::get_instance().dispose();
+        SynonymIndexManager::get_instance().dispose();
         collectionManager.dispose();
         delete store;
     }
@@ -671,6 +680,7 @@ TEST_F(CollectionSpecificTest, DeleteOverridesOnDiskDuringCollDropAndSynonymsSho
     }
 
     auto coll1 = collectionManager.get_collection_unsafe("coll1");
+    auto& ov_manager = OverrideIndexManager::get_instance();
 
     nlohmann::json override_json = {
         {"id",   "exclude-rule"},
@@ -690,7 +700,7 @@ TEST_F(CollectionSpecificTest, DeleteOverridesOnDiskDuringCollDropAndSynonymsSho
 
     override_t override;
     override_t::parse(override_json, "", override);
-    coll1->add_override(override);
+    ov_manager.upsert_override_item("index", override_json);
 
     // add synonym
     SynonymIndexManager::get_instance().upsert_synonym_item("index", R"({"id": "ipod-synonyms", "synonyms": ["ipod", "i pod", "pod"]})"_json);
@@ -699,7 +709,7 @@ TEST_F(CollectionSpecificTest, DeleteOverridesOnDiskDuringCollDropAndSynonymsSho
 
     // overrides should have been deleted from the store
     std::vector<std::string> stored_values;
-    store->scan_fill(Collection::COLLECTION_OVERRIDE_PREFIX, std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "`",
+    store->scan_fill(OverrideIndex::OLD_COLLECTION_OVERRIDE_PREFIX, std::string(OverrideIndex::OLD_COLLECTION_OVERRIDE_PREFIX) + "`",
                      stored_values);
     ASSERT_TRUE(stored_values.empty());
 

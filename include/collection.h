@@ -705,7 +705,6 @@ public:
     // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
     static constexpr const char* COLLECTION_META_PREFIX = "$CM";
     static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";
-    static constexpr const char* COLLECTION_OVERRIDE_PREFIX = "$CO";
     static constexpr const char* SEQ_ID_PREFIX = "$SI";
     static constexpr const char* DOC_ID_PREFIX = "$DI";
 
@@ -748,7 +747,6 @@ public:
 
     static std::string get_meta_key(const std::string & collection_name);
 
-    static std::string get_override_key(const std::string & collection_name, const std::string & override_id);
 
     std::string get_seq_id_collection_prefix() const;
 
