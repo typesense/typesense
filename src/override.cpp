@@ -6,7 +6,8 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
                                override_t& override,
                                const std::string& locale,
                                const std::vector<char>& symbols_to_index,
-                               const std::vector<char>& token_separators) {
+                               const std::vector<char>& token_separators,
+                               const tsl::htrie_map<char, field>& search_schema) {
     if(!override_json.is_object()) {
         return Option<bool>(400, "Bad JSON.");
     }
@@ -23,7 +24,7 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
     if(override_json.count("includes") == 0 && override_json.count("excludes") == 0 &&
        override_json.count("filter_by") == 0 && override_json.count("sort_by") == 0 &&
        override_json.count("remove_matched_tokens") == 0 && override_json.count("metadata") == 0 &&
-       override_json.count("replace_query") == 0) {
+       override_json.count("replace_query") == 0 && !override_json.contains("diversity")) {
         return Option<bool>(400, "Must contain one of: `includes`, `excludes`, `metadata`, "
                                  "`filter_by`, `sort_by`, `remove_matched_tokens`, `replace_query`.");
     }
@@ -248,6 +249,26 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
         i++;
     }
 
+    if (override_json.contains("diversity")) {
+        auto op = diversity_t::parse(override_json, override.diversity);
+        if (!op.ok()) {
+            return op;
+        }
+
+        for (auto& item: override.diversity.similarity_equation) {
+            auto it = search_schema.find(item.field);
+            if (it == search_schema.end()) {
+                return Option<bool>(400, "`" + item.field + "` field not found in the schema.");
+            }
+            if (it->is_array() && !it->facet) {
+                return Option<bool>(400, "Enable faceting on `" + item.field + "` array field to use in diversity.");
+            } else if (!it->sort && !it->facet) {
+                return Option<bool>(400, "Enable sorting/faceting on `" + item.field + "` field to use in diversity.");
+            }
+            item.is_field_array = it->is_array();
+        }
+    }
+
     return Option<bool>(true);
 }
 
@@ -313,6 +334,10 @@ nlohmann::json override_t::to_json() const {
 
     if(!metadata.empty()) {
         override["metadata"] = metadata;
+    }
+
+    if (!diversity.similarity_equation.empty()) {
+        diversity_t::to_json(diversity, override);
     }
 
     return override;

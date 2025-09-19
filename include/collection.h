@@ -181,6 +181,8 @@ struct collection_search_args_t {
     static constexpr auto PERSONALIZATION_EVENT_NAME = "personalization_event_name";
     static constexpr auto PERSONALIZATION_N_EVENTS = "personalization_n_events";
 
+    static constexpr auto DIVERSITY_LAMBDA = "diversity_lambda";
+
     std::string raw_query;
     std::vector<std::string> search_fields;
     std::string filter_query;
@@ -266,6 +268,7 @@ struct collection_search_args_t {
     std::string personalization_item_field;
     std::string personalization_event_name;
     size_t personalization_n_events;
+    float diversity_lamda;
 
     std::vector<std::vector<KV*>> result_group_kvs{};
 
@@ -299,7 +302,9 @@ struct collection_search_args_t {
                              std::string analytics_tag,
                              std::string personalization_user_id, std::string personalization_model_id,
                              std::string personalization_type, std::string personalization_user_field,
-                             std::string personalization_item_field, std::string personalization_event_name, size_t personalization_n_events, std::vector<std::string> synonym_sets) :
+                             std::string personalization_item_field, std::string personalization_event_name,
+                             size_t personalization_n_events, std::vector<std::string> synonym_sets,
+                             float diversity_lamda) :
             raw_query(std::move(raw_query)), search_fields(std::move(search_fields)), filter_query(std::move(filter_query)),
             facet_fields(std::move(facet_fields)), sort_fields(std::move(sort_fields)),
             num_typos(std::move(num_typos)), per_page(per_page), page(page), token_order(token_order),
@@ -331,7 +336,7 @@ struct collection_search_args_t {
             personalization_user_id(personalization_user_id), personalization_model_id(personalization_model_id),
             personalization_type(personalization_type), personalization_user_field(personalization_user_field),
             personalization_item_field(personalization_item_field), personalization_event_name(personalization_event_name), personalization_n_events(personalization_n_events),
-            synonym_sets(synonym_sets) {}
+            synonym_sets(synonym_sets), diversity_lamda(diversity_lamda) {}
 
     collection_search_args_t() = default;
 
@@ -530,7 +535,8 @@ private:
                         std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                         std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides,
                         bool& filter_curated_hits,
-                        std::string& curated_sort_by, nlohmann::json& override_metadata) const;
+                        std::string& curated_sort_by, nlohmann::json& override_metadata,
+                        diversity_t& diversity) const;
 
     static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
@@ -969,7 +975,8 @@ public:
                                   std::string personalization_item_field = "",
                                   std::string personalization_event_name = "",
                                   size_t personalization_n_events = 0,
-                                  const std::vector<std::string>& search_synonym_sets = {}) const;
+                                  const std::vector<std::string>& search_synonym_sets = {},
+                                  float diversity_lamda = 0.5) const;
 
     Option<bool> parse_and_validate_personalization_query(const std::string& personalization_user_id,
                                                           const std::string& personalization_model_id,

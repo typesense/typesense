@@ -973,7 +973,8 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                                 std::vector<const override_t*>& filter_sort_overrides,
                                 bool& filter_curated_hits,
                                 std::string& curated_sort_by,
-                                nlohmann::json& override_metadata) const {
+                                nlohmann::json& override_metadata,
+                                diversity_t& diversity) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -1075,6 +1076,9 @@ void Collection::curate_results(string& actual_query, const string& filter_query
 
                         if(match_found) {
                             found_overrides.insert(id);
+                            if (!override.diversity.similarity_equation.empty()) {
+                                diversity = std::move(override.diversity);
+                            }
                             if(override.stop_processing) {
                                 break;
                             }
@@ -2474,9 +2478,11 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     bool filter_curated_hits_overrides = false;
 
+    diversity_t diversity{};
     curate_results(query, filter_query, enable_overrides, pre_segmented_query, override_tag_set,
                    pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_overrides, filter_curated_hits_overrides,
-                   curated_sort_by, override_metadata);
+                   curated_sort_by, override_metadata, diversity);
+    diversity.lambda = coll_args.diversity_lamda;
 
     bool filter_curated_hits = filter_curated_hits_option || filter_curated_hits_overrides;
 
@@ -2652,7 +2658,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                facet_index_types, enable_typos_for_numerical_tokens,
                                                enable_synonyms, demote_synonym_match, synonym_prefix, synonyms_num_typos,
                                                enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches,
-                                               validate_field_names, this, all_synonym_sets);
+                                               validate_field_names, this, all_synonym_sets, std::move(diversity));
 
     return Option<bool>(true);
 }
@@ -2736,7 +2742,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           std::string personalization_item_field,
                                           std::string personalization_event_name,
                                           size_t personalization_n_events,
-                                          const std::vector<std::string>& search_synonym_sets) const {
+                                          const std::vector<std::string>& search_synonym_sets,
+                                          float diversity_lamda) const {
     std::shared_lock lock(mutex);
 
     auto args = collection_search_args_t(query, search_fields, filter_query,
@@ -2768,7 +2775,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                          personalization_user_id, personalization_model_id, personalization_type,
                                          personalization_user_field, personalization_item_field, personalization_event_name,
-                                         personalization_n_events, search_synonym_sets);
+                                         personalization_n_events, search_synonym_sets, diversity_lamda);
     return search(args);
 }
 
@@ -8506,6 +8513,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     std::string personalization_item_field;
     std::string personalization_event_name;
     size_t personalization_n_events = 0;
+    float diversity_lamda = 0.5;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
             {MIN_LEN_1TYPO, &min_len_1typo},
@@ -8633,6 +8641,15 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             if(match_op.has_value()) {
                 match_type = match_op.value();
             }
+        }
+
+        else if (key == DIVERSITY_LAMBDA) {
+            try {
+                auto temp = std::stof(val);
+                if (temp >= 0 && temp <= 1) {
+                    diversity_lamda = temp;
+                }
+            } catch (...) {}
         }
 
         else {
@@ -8770,7 +8787,8 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
                                     rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                     personalization_user_id, personalization_model_id, personalization_type,
-                                    personalization_user_field, personalization_item_field, personalization_event_name, personalization_n_events, synonym_sets);
+                                    personalization_user_field, personalization_item_field, personalization_event_name,
+                                    personalization_n_events, synonym_sets, diversity_lamda);
     return Option<bool>(true);
 }
 
