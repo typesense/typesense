@@ -33,6 +33,8 @@ protected:
         collectionManager.dispose();
         delete store;
     }
+
+    // Helper function to create a collection with documents
 };
 
 TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
@@ -2000,4 +2002,171 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterUpdateOldDocs) {
     ASSERT_EQ(1, search_res.get()["hits"][0]["document"]["nested"].size());
     ASSERT_EQ(0, search_res.get()["hits"][0]["document"].count(".flat"));
     ASSERT_EQ(0, search_res.get()["hits"][0]["document"].count("nested.hello"));
+}
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingRAMValidationSufficientMemory) {
+    uint64_t total_memory = 8ULL * 1024 * 1024 * 1024;
+    uint64_t used_memory = 2ULL * 1024 * 1024 * 1024;
+    
+    nlohmann::json field_json = R"({
+        "name": "embedding",
+        "type": "float[]",
+        "embed": {
+            "from": ["title"],
+            "model_config": {"model_name": "ts/e5-small"}
+        }
+    })"_json;
+    
+    field dummy_field;
+    dummy_field.name = "embedding";
+    dummy_field.type = "float[]";
+    dummy_field.embed = field_json["embed"];
+    
+    tsl::htrie_map<char, field> test_schema;
+    field title_field;
+    title_field.name = "title";
+    title_field.type = field_types::STRING;
+    test_schema.emplace("title", title_field);
+    
+    auto validate_res = field::validate_and_init_embed_field(test_schema, field_json, nlohmann::json::array(), dummy_field, 1000, total_memory, used_memory);
+    ASSERT_TRUE(validate_res.ok());
+}
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingRAMValidationInsufficientMemory) {
+    uint64_t document_count = 1000000;
+    uint64_t total_memory = 4ULL * 1024 * 1024 * 1024; // 4GB
+    uint64_t used_memory = 3ULL * 1024 * 1024 * 1024;   // 3GB
+    
+    nlohmann::json field_json = R"({
+        "name": "embedding",
+        "type": "float[]",
+        "embed": {
+            "from": ["title"],
+            "model_config": {"model_name": "ts/e5-large"}
+        }
+    })"_json;
+    
+    field dummy_field;
+    dummy_field.name = "embedding";
+    dummy_field.type = "float[]";
+    dummy_field.embed = field_json["embed"];
+    
+    tsl::htrie_map<char, field> test_schema;
+    field title_field;
+    title_field.name = "title";
+    title_field.type = field_types::STRING;
+    test_schema.emplace("title", title_field);
+    
+    auto validate_res = field::validate_and_init_embed_field(test_schema, field_json, nlohmann::json::array(), dummy_field, document_count, total_memory, used_memory);
+    ASSERT_FALSE(validate_res.ok());
+    ASSERT_EQ(400, validate_res.code());
+    ASSERT_TRUE(validate_res.error().find("Insufficient memory") != std::string::npos);
+}
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingRAMValidationMultipleEmbeddingFields) {
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("points", field_types::INT32, false)
+    };
+
+    Collection* coll = collectionManager.create_collection("test_coll", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Document 0";
+    doc1["points"] = 0;
+    coll->add(doc1.dump());
+    
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Document 1";
+    doc2["points"] = 1;
+    coll->add(doc2.dump());
+    
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["title"] = "Document 2";
+    doc3["points"] = 2;
+    coll->add(doc3.dump());
+    
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["title"] = "Document 3";
+    doc4["points"] = 3;
+    coll->add(doc4.dump());
+    
+    nlohmann::json doc5;
+    doc5["id"] = "4";
+    doc5["title"] = "Document 4";
+    doc5["points"] = 4;
+    coll->add(doc5.dump());
+    
+    nlohmann::json schema_changes = R"({
+        "fields": [
+            {"name": "embedding1", "type": "float[]", "optional": true, "embed": {"from": ["title"], "model_config": {"model_name": "ts/e5-small"}}},
+            {"name": "embedding2", "type": "float[]", "optional": true, "embed": {"from": ["title"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    auto result = coll->alter(schema_changes);
+
+    ASSERT_TRUE(result.ok());
+    collectionManager.drop_collection("test_coll");
+}
+
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingRAMValidationEdgeCases) {
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("points", field_types::INT32, false)
+    };
+
+    Collection* coll = collectionManager.create_collection("test_coll", 1, fields, "points").get();
+    // No documents added - testing edge case with 0 documents
+    
+    nlohmann::json schema_changes = R"({
+        "fields": [
+            {"name": "embedding", "type": "float[]", "optional": true, "embed": {"from": ["title"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    // Should pass with 0 documents (0 RAM required)
+    auto result = coll->alter(schema_changes);
+    ASSERT_TRUE(result.ok());
+}
+
+TEST_F(CollectionSchemaChangeTest, RAMCalculationFormula) {
+    uint64_t dimensions = 384;
+    uint64_t document_count = 1000000;
+    
+    // sufficient memory (8GB total, 2GB used)
+    uint64_t total_memory = 8ULL * 1024 * 1024 * 1024;
+    uint64_t used_memory = 2ULL * 1024 * 1024 * 1024;
+    
+    auto result = field::validate_embedding_memory_requirements(dimensions, document_count, total_memory, used_memory);
+    ASSERT_TRUE(result.ok());
+    
+    // insufficient memory (4GB total, 3GB used)
+    uint64_t total_memory_low = 4ULL * 1024 * 1024 * 1024;
+    uint64_t used_memory_high = 3ULL * 1024 * 1024 * 1024;
+    
+    auto result_fail = field::validate_embedding_memory_requirements(dimensions, document_count, total_memory_low, used_memory_high);
+    ASSERT_FALSE(result_fail.ok());
+    ASSERT_EQ(400, result_fail.code());
+    ASSERT_TRUE(result_fail.error().find("Insufficient memory") != std::string::npos);
+}
+
+TEST_F(CollectionSchemaChangeTest, MemoryCalculationLogic) {
+    // Test edge case with 0 documents (should always pass)
+    auto result_zero_docs = field::validate_embedding_memory_requirements(384, 0, 0, 0);
+    ASSERT_TRUE(result_zero_docs.ok());
+    
+    // Test with small embedding requirements that should fit
+    auto result_small = field::validate_embedding_memory_requirements(128, 1000, 8ULL * 1024 * 1024 * 1024, 2ULL * 1024 * 1024 * 1024);
+    ASSERT_TRUE(result_small.ok());
+    
+    // Test with large embedding requirements that should fail
+    auto result_large = field::validate_embedding_memory_requirements(1024, 1000000, 4ULL * 1024 * 1024 * 1024, 3ULL * 1024 * 1024 * 1024);
+    ASSERT_FALSE(result_large.ok());
+    ASSERT_EQ(400, result_large.code());
 }

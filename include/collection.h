@@ -705,6 +705,9 @@ public:
 
     enum {MAX_ARRAY_MATCHES = 5};
 
+    // test helper for RAM validation with mock memory values
+    Option<bool> test_embedding_ram_validation(const nlohmann::json& schema_changes, uint64_t total_memory_bytes, uint64_t used_memory_bytes);
+
     // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
     static constexpr const char* COLLECTION_META_PREFIX = "$CM";
     static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";

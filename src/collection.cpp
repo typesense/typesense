@@ -6623,6 +6623,31 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
                                     original_doc);
 }
 
+Option<bool> Collection::test_embedding_ram_validation(const nlohmann::json& schema_changes, uint64_t total_memory_bytes, uint64_t used_memory_bytes) {
+    for(const auto& field_json : schema_changes["fields"]) {
+        if(field_json.contains("drop") && field_json["drop"].get<bool>()) {
+            continue; // Skip dropped fields
+        }
+        
+        if(field_json.contains("embed") && !field_json["embed"].empty()) {
+            field dummy_field;
+            dummy_field.name = field_json["name"].get<std::string>();
+            dummy_field.type = field_json["type"].get<std::string>();
+            
+            dummy_field.embed = field_json["embed"];
+            
+            tsl::htrie_map<char, field> empty_schema;
+            
+            auto validate_res = field::validate_and_init_embed_field(empty_schema, const_cast<nlohmann::json&>(field_json), schema_changes["fields"], dummy_field, get_num_documents(), total_memory_bytes, used_memory_bytes);
+            if(!validate_res.ok()) {
+                return validate_res;
+            }
+        }
+    }
+    
+    return Option<bool>(true);
+}
+
 Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                 std::vector<field>& addition_fields,
                                                 std::vector<field>& reindex_fields,
@@ -6646,6 +6671,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             || schema_changes["fields"].empty())) {
         return Option<bool>(400, err_msg);
     }
+
 
     // basic validation of fields
     std::vector<field> diff_fields;
@@ -6841,7 +6867,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
 
                 if(!f.embed.empty()) {
-                    auto validate_res = field::validate_and_init_embed_field(search_schema, schema_changes["fields"][json_array_index], schema_changes["fields"], f);
+                    auto validate_res = field::validate_and_init_embed_field(search_schema, schema_changes["fields"][json_array_index], schema_changes["fields"], f, get_num_documents(), 0, 0);
 
                     if(!validate_res.ok()) {
                         return validate_res;
