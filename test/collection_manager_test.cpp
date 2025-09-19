@@ -604,8 +604,8 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_TRUE(collection1->get_enable_nested_fields());
 
     ASSERT_EQ(2, ov_manager.list_override_items("index", 0, 0).get().size());
-    ASSERT_STREQ("include-rule", ov_manager.list_override_items("index", 0, 0).get()[0]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("exclude-rule", ov_manager.list_override_items("index", 0, 0).get()[1]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("exclude-rule", ov_manager.list_override_items("index", 0, 0).get()[0]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("include-rule", ov_manager.list_override_items("index", 0, 0).get()[1]["id"].get<std::string>().c_str());
 
     const auto& synonym_index = SynonymIndexManager::get_instance().get_synonym_index("index").get();
     const auto& synonyms = synonym_index->get_synonyms().get();

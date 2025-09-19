@@ -412,6 +412,12 @@ TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {
 
 TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
     auto& ov_manager = OverrideIndexManager::get_instance();
+    ov_manager.init_store(store);
+
+    OverrideIndex override_index1(store, "index");
+    ov_manager.add_override_index("index", std::move(override_index1));
+    coll_group->set_override_sets({"index"});
+
     nlohmann::json override_json_include = {
         {"id", "include-rule"},
         {
@@ -455,6 +461,7 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
     auto ov1_op = ov_manager.upsert_override_item("index", override_json_include);
     auto ov2_op = ov_manager.upsert_override_item("index", override_json_exclude);
 
+    std::cout << ov1_op.error() << std::endl;
     ASSERT_TRUE(ov1_op.ok());
     ASSERT_TRUE(ov2_op.ok());
 

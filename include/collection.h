@@ -507,7 +507,7 @@ private:
 
     bool does_override_match(const override_t& override, std::string& query,
                              std::set<uint32_t>& excluded_set,
-                             std::string& actual_query, const std::string& filter_query,
+                             std::string& actual_query, const std::string& override_normalized_query, const string& filter_query,
                              bool already_segmented,
                              const bool tags_matched,
                              const bool wildcard_tag_matched,

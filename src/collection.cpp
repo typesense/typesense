@@ -863,7 +863,7 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
 
 bool Collection::does_override_match(const override_t& override, std::string& query,
                                      std::set<uint32_t>& excluded_set,
-                                     string& actual_query, const string& filter_query,
+                                     string& actual_query, const std::string& override_normalized_query, const string& filter_query,
                                      bool already_segmented,
                                      const bool tags_matched,
                                      const bool wildcard_tag_matched,
@@ -901,9 +901,9 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
         bool filter_by_match = (override.rule.query.empty() && override.rule.match.empty() &&
                                 !override.rule.filter_by.empty() && override.rule.filter_by == filter_query);
 
-        bool query_match = (override.rule.match == override_t::MATCH_EXACT && override.rule.normalized_query == query) ||
+        bool query_match = (override.rule.match == override_t::MATCH_EXACT && override_normalized_query == query) ||
                            (override.rule.match == override_t::MATCH_CONTAINS &&
-                            StringUtils::contains_word(query, override.rule.normalized_query));
+                            StringUtils::contains_word(query, override_normalized_query));
 
         if(!filter_by_match && !query_match) {
             return false;
@@ -939,7 +939,7 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
         actual_query = override.replace_query;
     } else if(override.remove_matched_tokens && override.filter_by.empty()) {
         // don't prematurely remove tokens from query because dynamic filtering will require them
-        StringUtils::replace_all(query, override.rule.normalized_query, "");
+        StringUtils::replace_all(query, override_normalized_query, "");
         StringUtils::trim(query);
         if(query.empty()) {
             query = "*";
@@ -987,18 +987,53 @@ void Collection::curate_results(string& actual_query, const string& filter_query
     if(enable_overrides) {
         // Build overrides list from override sets only
         std::vector<const override_t*> override_set_overrides;
-        {
-            std::shared_lock s_lock(mutex);
-            const auto local_override_sets = override_sets;
-            s_lock.unlock();
-            for(const auto& set_name : local_override_sets) {
-                auto get_index_op = OverrideIndexManager::get_instance().get_override_index(set_name);
-                if(!get_index_op.ok()) { continue; }
-                auto list_op = get_index_op.get()->get_overrides(0, 0);
-                if(!list_op.ok()) { continue; }
-                for(const auto& kv : list_op.get()) { override_set_overrides.push_back(kv.second); }
+        std::shared_lock s_lock(mutex);
+        const auto local_override_sets = override_sets;
+        for(const auto& set_name : local_override_sets) {
+            auto get_index_op = OverrideIndexManager::get_instance().get_override_index(set_name);
+            if(!get_index_op.ok()) { 
+              continue; 
+            }
+            auto list_op = get_index_op.get()->get_overrides(0, 0);
+            if(!list_op.ok()) { 
+              continue; 
+            }
+            for(const auto& kv : list_op.get()) { 
+              // compute normalize query
+              auto& override = kv.second;
+              override_set_overrides.push_back(kv.second); 
             }
         }
+        s_lock.unlock();
+
+        auto compute_normalized_query = [this](const std::string& query) {
+          auto symbols = symbols_to_index;
+          symbols.push_back('{');
+          symbols.push_back('}');
+          symbols.push_back('*');
+          symbols.push_back('.');
+
+          std::vector<std::string> tokens;
+          Tokenizer tokenizer(query, true, false, "", symbols, token_separators, nullptr, true);
+          tokenizer.tokenize(tokens);
+          auto query_normalized = StringUtils::join(tokens, " ");
+          size_t i = 0;
+          while(i < query_normalized.size()) {
+              if(query_normalized[i] == '{') {
+                  // look for closing curly
+                  i++;
+                  while(i < query_normalized.size()) {
+                      if(query_normalized[i] == '}') {
+                          query_normalized = StringUtils::trim_curly_spaces(query_normalized);
+                          break;
+                      }
+                      i++;
+                  }
+              }
+              i++;
+          }
+          return query_normalized;
+        };
 
         if(!override_set_overrides.empty()) {
           std::string query;
@@ -1018,7 +1053,9 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                   // exact AND match only when multiple tags are sent
                   for(const auto* ov : override_set_overrides) {
                       if(ov->rule.tags == tags) {
+                          auto normalized_override_query = compute_normalized_query(ov->rule.query);
                           bool match_found = does_override_match(*ov, query, excluded_set, actual_query,
+                                                                normalized_override_query,
                                                                 filter_query, already_segmented, true, false,
                                                                 pinned_hits, hidden_hits, included_ids,
                                                                 excluded_ids, filter_sort_overrides, filter_curated_hits,
@@ -1039,7 +1076,9 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                                             tags.begin(), tags.end(),
                                             std::inserter(matching_tags, matching_tags.begin()));
                       if(matching_tags.empty()) { continue; }
+                      auto normalized_override_query = compute_normalized_query(ov->rule.query);
                       bool match_found = does_override_match(*ov, query, excluded_set, actual_query,
+                                                            normalized_override_query,
                                                             filter_query, already_segmented, true, false,
                                                             pinned_hits, hidden_hits, included_ids,
                                                             excluded_ids, filter_sort_overrides, filter_curated_hits,
@@ -1051,7 +1090,8 @@ void Collection::curate_results(string& actual_query, const string& filter_query
               // no override tags given
               for(const auto* ov : override_set_overrides) {
                   bool wildcard_tag = ov->rule.tags.size() == 1 && *ov->rule.tags.begin() == "*";
-                  bool match_found = does_override_match(*ov, query, excluded_set, actual_query, filter_query,
+                  auto normalized_override_query = compute_normalized_query(ov->rule.query);
+                  bool match_found = does_override_match(*ov, query, excluded_set, actual_query, normalized_override_query, filter_query,
                                                         already_segmented, false, wildcard_tag,
                                                         pinned_hits, hidden_hits, included_ids,
                                                         excluded_ids, filter_sort_overrides, filter_curated_hits,
@@ -4367,7 +4407,39 @@ void Collection::process_filter_sort_overrides(std::vector<const override_t*>& f
                                           const bool& validate_field_names) const {
 
     std::vector<const override_t*> matched_dynamic_overrides;
-    index->process_filter_sort_overrides(filter_sort_overrides, q_include_tokens, token_order,
+    auto compute_normalized_query = [this](const std::string& query) {
+      auto symbols = symbols_to_index;
+      symbols.push_back('{');
+      symbols.push_back('}');
+      symbols.push_back('*');
+      symbols.push_back('.');
+
+      std::vector<std::string> tokens;
+      Tokenizer tokenizer(query, true, false, "", symbols, token_separators, nullptr, true);
+      tokenizer.tokenize(tokens);
+      auto query_normalized = StringUtils::join(tokens, " ");
+      size_t i = 0;
+      while(i < query_normalized.size()) {
+          if(query_normalized[i] == '{') {
+              // look for closing curly
+              i++;
+              while(i < query_normalized.size()) {
+                  if(query_normalized[i] == '}') {
+                      query_normalized = StringUtils::trim_curly_spaces(query_normalized);
+                      break;
+                  }
+                  i++;
+              }
+          }
+          i++;
+      }
+      return query_normalized;
+    };
+    std::vector<std::string> override_normalized_queries;
+    for(const auto* ov : filter_sort_overrides) {
+      override_normalized_queries.push_back(compute_normalized_query(ov->rule.query));
+    }
+    index->process_filter_sort_overrides(filter_sort_overrides, override_normalized_queries, q_include_tokens, token_order,
                                     filter_tree_root, matched_dynamic_overrides, override_metadata,
                                     sort_by_clause, enable_typos_for_numerical_tokens,
                                     enable_typos_for_alpha_numerical_tokens);

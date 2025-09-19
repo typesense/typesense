@@ -2832,6 +2832,7 @@ void Index::concat_topster_ids(Topster<KV>*& topster,
 }
 
 bool Index::static_filter_query_eval(const override_t* override,
+                                     const std::string& override_normalized_query,
                                      std::vector<std::string>& tokens,
                                      std::unique_ptr<filter_node_t>& filter_tree_root,
                                      const bool& validate_field_names) const {
@@ -2842,9 +2843,9 @@ bool Index::static_filter_query_eval(const override_t* override,
     bool wildcard_tag_matched = (override->rule.tags.size() == 1 && *override->rule.tags.begin() == "*");
 
     if (tag_matched || wildcard_tag_matched ||
-        (override->rule.match == override_t::MATCH_EXACT && override->rule.normalized_query == query) ||
+        (override->rule.match == override_t::MATCH_EXACT && override_normalized_query == query) ||
         (override->rule.match == override_t::MATCH_CONTAINS &&
-         StringUtils::contains_word(query, override->rule.normalized_query))) {
+         StringUtils::contains_word(query, override_normalized_query))) {
         filter_node_t* new_filter_tree_root = nullptr;
         Option<bool> filter_op = filter::parse_filter_query(override->filter_by, search_schema,
                                                             store, "", new_filter_tree_root, validate_field_names);
@@ -2967,6 +2968,7 @@ bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const 
 }
 
 void Index::process_filter_sort_overrides(const std::vector<const override_t*>& filter_sort_overrides,
+                                     std::vector<std::string>& override_normalized_queries,
                                      std::vector<std::string>& query_tokens,
                                      token_ordering token_order,
                                      std::unique_ptr<filter_node_t>& filter_tree_root,
@@ -2978,11 +2980,12 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                                      const bool& validate_field_names) const {
     std::shared_lock lock(mutex);
 
+    size_t i = 0;
     for (auto& override : filter_sort_overrides) {
         if (!override->rule.dynamic_query && !override->rule.dynamic_filter) {
             // Simple static filtering: add to filter_by and rewrite query if needed.
             // Check the original query and then the synonym variants until a rule matches.
-            bool resolved_override = static_filter_query_eval(override, query_tokens, filter_tree_root,
+            bool resolved_override = static_filter_query_eval(override, override_normalized_queries[i], query_tokens, filter_tree_root,
                                                               validate_field_names);
 
             if (resolved_override) {
@@ -3059,7 +3062,7 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
             bool match_found = false;
 
             if(override->rule.dynamic_query) {
-                StringUtils::split(override->rule.normalized_query, rule_parts, " ");
+                StringUtils::split(override_normalized_queries[i], rule_parts, " ");
                 processed_tokens = query_tokens;
             } else if(override->rule.dynamic_filter && filter_tree_root != nullptr) {
                 tokenize_filter_str(override->rule.filter_by, rule_parts);
@@ -3125,6 +3128,7 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                 sort_by_clause.clear();
             }
         }
+        i++;
     }
 }
 

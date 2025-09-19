@@ -2003,6 +2003,7 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
           "num_documents":0,
           "symbols_to_index":[],
           "synonym_sets":[],
+          "override_sets": [],
           "token_separators":[]
         }
     )"_json;
@@ -2070,8 +2071,7 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
     req->params["limit"] = "1";
 
     get_override_set_items(req, resp);
-    nlohmann::json expected_json = R"({
-        "overrides":[
+    nlohmann::json expected_json = R"([
                     {
                         "excludes":[],
                         "filter_curated_hits":false,
@@ -2084,8 +2084,7 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
                                 "query":"not-found"
                         },
                         "stop_processing":true
-                    }]
-    })"_json;
+                    }])"_json;
 
     ASSERT_EQ(expected_json.dump(), resp->body);
 
@@ -2266,6 +2265,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
             "num_memory_shards":4,
             "symbols_to_index":[],
             "synonym_sets":[],
+            "override_sets": [],
             "token_separators":[]
     })"_json;
 
@@ -2363,6 +2363,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
             "num_memory_shards":4,
             "symbols_to_index":[],
             "synonym_sets":[],
+            "override_sets": [],
             "token_separators":[]
     })"_json;
 
@@ -2680,6 +2681,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                 "num_documents":0,
                 "symbols_to_index":[],
                 "synonym_sets":[],
+                "override_sets": [],
                 "token_separators":[]
     })"_json;
 

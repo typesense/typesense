@@ -515,7 +515,7 @@ private:
                    Collection const *const collection,
                    std::unordered_map<std::string, reference_filter_result_t>* reference_facet_ids) const;
 
-    bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
+    bool static_filter_query_eval(const override_t* override, const std::string& override_normalized_query, std::vector<std::string>& tokens,
                                   std::unique_ptr<filter_node_t>& filter_tree_root, const bool& validate_field_names) const;
 
     bool resolve_override(const std::vector<std::string>& rule_tokens, bool exact_rule_match,
@@ -1127,6 +1127,7 @@ public:
                                      int64_t& out_best_field_match_score);
 
     void process_filter_sort_overrides(const std::vector<const override_t*>& filter_overrides,
+                                  std::vector<std::string>& override_normalized_queries,
                                   std::vector<std::string>& query_tokens,
                                   token_ordering token_order,
                                   std::unique_ptr<filter_node_t>& filter_tree_root,

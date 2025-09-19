@@ -1017,6 +1017,7 @@ TEST_F(CollectionOverrideTest, BothFilterByAndQueryMatch) {
     std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC") };
 
     nlohmann::json override_json = R"({
+       "id": "rule-1",
        "rule": {
          "query": "*",
          "match": "exact",
@@ -3164,6 +3165,7 @@ TEST_F(CollectionOverrideTest, SynonymsAppliedToOverridenQuery) {
         synonymIndexManager.init_store(store);
         synonymIndexManager.add_synonym_index("index");
         coll1->set_synonym_sets({"index"});
+        coll1->set_override_sets({"index"});
     }
 
     nlohmann::json doc1;
@@ -3871,6 +3873,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+        coll1->set_override_sets({"index"});
     }
 
     nlohmann::json doc1;
@@ -4032,6 +4035,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsPartialMatch) {
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+        coll1->set_override_sets({"index"});
     }
 
     nlohmann::json doc1;
@@ -4336,6 +4340,7 @@ TEST_F(CollectionOverrideTest, TagsOnlyRule) {
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+        coll1->set_override_sets({"index"});
     }
 
     nlohmann::json doc1;
@@ -4659,7 +4664,7 @@ TEST_F(CollectionOverrideTest, OverridesPagination) {
     override_op = ov_manager.list_override_items("index", limit, offset);
     override_map = override_op.get();
     ASSERT_EQ(1, override_map.size());
-    ASSERT_EQ("override5", override_map[0]["id"].get<std::string>().c_str());
+    ASSERT_EQ("override5", override_map[0]["id"].get<std::string>());
 
     //if limit is greater than number of collection then return all from offset
     offset=0; limit=8;
@@ -4668,7 +4673,7 @@ TEST_F(CollectionOverrideTest, OverridesPagination) {
     ASSERT_EQ(5, override_map.size());
     i=offset;
     for(const auto &kv : override_map) {
-        ASSERT_EQ("override" + std::to_string(i+1),  kv["id"].get<std::string>().c_str());
+        ASSERT_EQ("override" + std::to_string(i+1),  kv["id"].get<std::string>());
         ++i;
     }
 
@@ -5016,6 +5021,7 @@ TEST_F(CollectionOverrideTest, OverridesWithSemanticSearch) {
     auto coll_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(coll_op.ok());
     auto coll = coll_op.get();
+    coll->set_override_sets({"index"});
 
     std::vector<std::string> products = {"Cell Phone", "Laptop", "Desktop", "Printer", "Keyboard", "Monitor", "Mouse"};
     nlohmann::json doc;
@@ -5078,6 +5084,7 @@ TEST_F(CollectionOverrideTest, NestedObjectOverride) {
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
     Collection* coll1 = op.get();
+    coll1->set_override_sets({"index"});
 
     // Add documents with nested objects
     nlohmann::json doc1 = R"({
@@ -5394,6 +5401,7 @@ TEST_F(CollectionOverrideTest, DynamicOverridePlaceHolderFieldNameTypo) {
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
     Collection* coll1 = op.get();
+    coll1->set_override_sets({"index"});
 
     // Add test documents
     ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Office Charger","categoryType":"Electronics","region":"act","popularity":50})").ok());
