@@ -5550,15 +5550,6 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
 
 void Collection::cascade_remove_docs(const std::string& field_name, const uint32_t& ref_seq_id,
                                      const nlohmann::json& ref_doc, bool remove_from_store) {
-    auto const ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
-
-    filter_result_t filter_result;
-    get_filter_ids(ref_helper_field_name + ":" + std::to_string(ref_seq_id), filter_result, false);
-
-    if (filter_result.count == 0) {
-        return;
-    }
-
     bool is_field_singular, is_field_optional;
     {
         std::unique_lock lock(mutex);
@@ -5567,8 +5558,21 @@ void Collection::cascade_remove_docs(const std::string& field_name, const uint32
         if (it == search_schema.end()) {
             return;
         }
-        is_field_singular = it.value().is_singular();
-        is_field_optional = it.value().optional;
+        auto& field = it.value();
+        if (!field.cascade_delete) {
+            return;
+        }
+        is_field_singular = field.is_singular();
+        is_field_optional = field.optional;
+    }
+
+    auto const ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+
+    filter_result_t filter_result;
+    get_filter_ids(ref_helper_field_name + ":" + std::to_string(ref_seq_id), filter_result, false);
+
+    if (filter_result.count == 0) {
+        return;
     }
 
     std::vector<std::string> buffer;
