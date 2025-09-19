@@ -426,10 +426,16 @@ struct field {
                                               std::vector<field>& the_fields,
                                               const std::string& collection_name = "");
 
+    static Option<bool> validate_embedding_memory_requirements(uint64_t num_dim, uint64_t document_count,
+                                                               uint64_t total_memory_bytes = 0, uint64_t used_memory_bytes = 0);
+
     static Option<bool> validate_and_init_embed_field(const tsl::htrie_map<char, field>& search_schema,
                                                        nlohmann::json& field_json,
                                                        const nlohmann::json& fields_json,
-                                                       field& the_field);
+                                                       field& the_field,
+                                                       uint64_t document_count = 0,
+                                                       uint64_t total_memory_bytes = 0,
+                                                       uint64_t used_memory_bytes = 0);
 
 
     static bool flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,

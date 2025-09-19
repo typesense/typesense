@@ -6,6 +6,7 @@
 #include <stack>
 #include <collection_manager.h>
 #include <regex>
+#include <system_metrics.h>
 
 void field::add_default_json_values(nlohmann::json& json) {
     if (!json.contains(fields::name) || !json.contains(fields::type)) {
@@ -312,7 +313,10 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
     auto DEFAULT_VEC_DIST_METRIC = magic_enum::enum_name(vector_distance_type_t::cosine);
 
-    if(!field_json[fields::num_dim].is_number_unsigned()) {
+    // For embedding fields, num_dim will be set during model validation
+    if(!field_json[fields::embed].empty()) {
+        // Skip num_dim validation for embedding fields - it will be set by model validation
+    } else if(!field_json[fields::num_dim].is_number_unsigned()) {
         return Option<bool>(400, "Property `" + fields::num_dim + "` must be a positive integer.");
     } else if (field_json[fields::num_dim] > 0) {
         if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
@@ -772,7 +776,7 @@ Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::j
         }
 
         if(!the_fields.empty() && !the_fields.back().embed.empty()) {
-            auto validate_res = validate_and_init_embed_field(dummy_search_schema, field_json, fields_json, the_fields.back());
+            auto validate_res = validate_and_init_embed_field(dummy_search_schema, field_json, fields_json, the_fields.back(), 0, 0, 0);
             if(!validate_res.ok()) {
                 return validate_res;
             }
@@ -786,9 +790,40 @@ Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::j
     return Option<bool>(true);
 }
 
+Option<bool> field::validate_embedding_memory_requirements(uint64_t num_dim, uint64_t document_count,
+                                                           uint64_t total_memory_bytes, uint64_t used_memory_bytes) {
+    if(document_count == 0) {
+        return Option<bool>(true);
+    }
+    
+    //  7 bytes * dimensions * document_count
+    uint64_t required_ram_bytes = 7ULL * num_dim * document_count;
+    
+    uint64_t actual_total_memory_bytes = total_memory_bytes > 0 ? total_memory_bytes : SystemMetrics::get_instance().get_memory_total_bytes();
+    uint64_t actual_used_memory_bytes = used_memory_bytes > 0 ? used_memory_bytes : SystemMetrics::get_instance().get_memory_used_bytes();
+    
+    uint64_t available_memory_bytes = actual_total_memory_bytes - actual_used_memory_bytes;
+    
+    uint64_t reserved_memory_bytes = actual_total_memory_bytes * 0.15;
+    uint64_t usable_memory_bytes = available_memory_bytes > reserved_memory_bytes ? 
+                                   available_memory_bytes - reserved_memory_bytes : 0;
+    
+    if(required_ram_bytes > usable_memory_bytes) {
+        return Option<bool>(400,  "Insufficient memory for embedding generation. Please increase system memory or reduce the number of documents.");
+    }
+    
+    LOG(INFO) << "RAM check passed. Required: " << (required_ram_bytes / (1024 * 1024)) << " MB, "
+              << "Available: " << (usable_memory_bytes / (1024 * 1024)) << " MB";
+    
+    return Option<bool>(true);
+}
+
 Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, field>& search_schema, nlohmann::json& field_json,
                                                   const nlohmann::json& fields_json,
-                                                  field& the_field) {
+                                                  field& the_field,
+                                                  uint64_t document_count,
+                                                  uint64_t total_memory_bytes,
+                                                  uint64_t used_memory_bytes) {
     const std::string err_msg = "Property `" + fields::embed + "." + fields::from +
                                     "` can only refer to string, string array or image (for supported models) fields.";
     const std::string mapping_err_msg = "Property `" + fields::embed + "." + fields::from +
@@ -831,7 +866,12 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
     }
 
     const auto& model_config = field_json[fields::embed][fields::model_config];
-    size_t num_dim = field_json[fields::num_dim].get<size_t>();
+    size_t num_dim = 0;
+    
+    if (field_json.contains(fields::num_dim) && !field_json[fields::num_dim].is_null()) {
+        num_dim = field_json[fields::num_dim].get<size_t>();
+    }
+    
     if (model_config.contains(fields::personalization_type)) {
         if (model_config[fields::personalization_type] == "recommendation") {
             auto res = PersonalizationModelManager::validate_personalization_model(model_config, num_dim);
@@ -851,6 +891,12 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
     LOG(INFO) << "Model init done.";
     field_json[fields::num_dim] = num_dim;
     the_field.num_dim = num_dim;
+
+    // RAM validation for embedding fields
+    auto memory_validation = validate_embedding_memory_requirements(num_dim, document_count, total_memory_bytes, used_memory_bytes);
+    if(!memory_validation.ok()) {
+        return memory_validation;
+    }
 
     return Option<bool>(true);
 }
