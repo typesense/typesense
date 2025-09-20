@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <json.hpp>
+#include <diversity.h>
 #include "option.h"
 
 struct override_t {
@@ -47,14 +48,15 @@ struct override_t {
     int64_t effective_from_ts = -1;
     int64_t effective_to_ts = -1;
 
+    diversity_t diversity{};
+
     override_t() = default;
 
     static Option<bool> parse(const nlohmann::json& override_json, const std::string& id,
                               override_t& override,
                               const std::string& locale = "",
                               const std::vector<char>& symbols_to_index = {},
-                              const std::vector<char>& token_separators = {}
-                              );
+                              const std::vector<char>& token_separators = {});
 
     nlohmann::json to_json() const;
 };

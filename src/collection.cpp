@@ -383,6 +383,13 @@ nlohmann::json Collection::get_summary_json() const {
                 hide_credential(field_json[fields::embed][fields::model_config], "client_id");
                 hide_credential(field_json[fields::embed][fields::model_config], "client_secret");
                 hide_credential(field_json[fields::embed][fields::model_config], "project_id");
+                // hide nested service_account credentials if present
+                if(field_json[fields::embed][fields::model_config].contains("service_account") &&
+                   field_json[fields::embed][fields::model_config]["service_account"].is_object()) {
+                    nlohmann::json& sa = field_json[fields::embed][fields::model_config]["service_account"];
+                    hide_credential(sa, "private_key");
+                    hide_credential(sa, "client_email");
+                }
             }
         }
 
@@ -789,7 +796,7 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                 res["id"] = index_record.is_update ? index_record.new_doc["id"] : index_record.doc["id"];
             }
 
-            if(!index_record.indexed.ok()) {
+          if(!index_record.indexed.ok()) {
                 if(return_doc) {
                     res["document"] = json_out[index_record.position];
                 }
@@ -957,7 +964,7 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
     return true;
 }
 
-void Collection::curate_results(string& actual_query, const string& filter_query,
+Option<bool> Collection::curate_results(string& actual_query, const string& filter_query,
                                 bool enable_overrides, bool already_segmented,
                                 const std::set<std::string>& tags,
                                 const std::map<size_t, std::vector<std::string>>& pinned_hits,
@@ -967,7 +974,8 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                                 std::vector<const override_t*>& filter_sort_overrides,
                                 bool& filter_curated_hits,
                                 std::string& curated_sort_by,
-                                nlohmann::json& override_metadata) const {
+                                nlohmann::json& override_metadata,
+                                diversity_t& diversity) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -1083,7 +1091,24 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                                                             pinned_hits, hidden_hits, included_ids,
                                                             excluded_ids, filter_sort_overrides, filter_curated_hits,
                                                             curated_sort_by, override_metadata);
-                      if(match_found && ov->stop_processing) { break; }
+                      if(match_found) {
+                        if (!ov->diversity.similarity_equation.empty()) {
+                            diversity = std::move(ov->diversity);
+                            for (auto& item: diversity.similarity_equation) {
+                                auto it = search_schema.find(item.field);
+                                if (it == search_schema.end()) {
+                                    return Option<bool>(400, "`" + item.field + "` field not found in the schema.");
+                                }
+                                if (it->is_array() && !it->facet) {
+                                    return Option<bool>(400, "Enable faceting on `" + item.field + "` array field to use in diversity.");
+                                } else if (!it->sort && !it->facet) {
+                                    return Option<bool>(400, "Enable sorting/faceting on `" + item.field + "` field to use in diversity.");
+                                }
+                                item.is_field_array = it->is_array();
+                            }
+                        }
+                        if(ov->stop_processing) { break; }
+                      }
                   }
               }
           } else {
@@ -1118,6 +1143,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
             }
         }
     }
+    return Option<bool>(true);
 }
 
 Option<bool> Collection::validate_and_standardize_sort_fields_with_lock(const std::vector<sort_by> & sort_fields,
@@ -2475,9 +2501,14 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     bool filter_curated_hits_overrides = false;
 
-    curate_results(query, filter_query, enable_overrides, pre_segmented_query, override_tag_set,
+    diversity_t diversity{};
+    auto curate_results_op = curate_results(query, filter_query, enable_overrides, pre_segmented_query, override_tag_set,
                    pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_overrides, filter_curated_hits_overrides,
-                   curated_sort_by, override_metadata);
+                   curated_sort_by, override_metadata, diversity);
+    if(!curate_results_op.ok()) {
+        return curate_results_op;
+    }
+    diversity.lambda = coll_args.diversity_lamda;
 
     bool filter_curated_hits = filter_curated_hits_option || filter_curated_hits_overrides;
 
@@ -2555,7 +2586,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         parse_search_query(query, q_include_tokens, q_unstemmed_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
-                           field_locale, pre_segmented_query, stopwords_set, most_weighted_field.get_stemmer());
+                           field_locale, pre_segmented_query, stopwords_set, most_weighted_field.get_stemmer(),
+                           most_weighted_field.symbols_to_index, most_weighted_field.token_separators);
 
         // process filter overrides first, before synonyms (order is important)
 
@@ -2652,7 +2684,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                facet_index_types, enable_typos_for_numerical_tokens,
                                                enable_synonyms, demote_synonym_match, synonym_prefix, synonyms_num_typos,
                                                enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches,
-                                               validate_field_names, this, all_synonym_sets);
+                                               validate_field_names, this, all_synonym_sets, std::move(diversity));
 
     return Option<bool>(true);
 }
@@ -2735,7 +2767,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           std::string personalization_item_field,
                                           std::string personalization_event_name,
                                           size_t personalization_n_events,
-                                          const std::vector<std::string>& search_synonym_sets) const {
+                                          const std::vector<std::string>& search_synonym_sets,
+                                          float diversity_lamda) const {
     std::shared_lock lock(mutex);
 
     auto args = collection_search_args_t(query, search_fields, filter_query,
@@ -2767,7 +2800,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                          personalization_user_id, personalization_model_id, personalization_type,
                                          personalization_user_field, personalization_item_field, personalization_event_name,
-                                         personalization_n_events, search_synonym_sets);
+                                         personalization_n_events, search_synonym_sets, diversity_lamda);
     return search(args);
 }
 
@@ -3656,6 +3689,8 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     bool first_request_default_sorting_field_used = false;
     spp::sparse_hash_set<uint32_t> unique_collection_ids;
     long totalSearchTime = 0;
+    auto group_limit = searches[0].group_limit;
+    auto found_docs = 0;
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto begin = std::chrono::high_resolution_clock::now();
@@ -3704,8 +3739,9 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         }
 
         const auto& search_params = search_params_guard;
-        const auto& found = search_params->all_result_ids_len;
+        const auto& found = search_params->found_count;
         total += found;
+        found_docs += found;
         if (unique_collection_ids.count(coll_id) == 0) {
             out_of += coll->get_num_documents();
             unique_collection_ids.insert(coll_id);
@@ -3825,22 +3861,24 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     auto overrides_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
             Union_KV::is_greater, Union_KV::is_smaller>>(std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
+    auto should_remove_duplicates = group_limit ? false : remove_duplicates;
+
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto& search_param = search_params_guards[search_index];
 
         for (auto& kvs: search_param->raw_result_kvs) {
-            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], remove_duplicates);
+            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], should_remove_duplicates);
             auto ret = union_topster->add(&kv);
-            if(remove_duplicates && ret == 0) { //duplicate doc
+            if(should_remove_duplicates && ret == 0) { //duplicate doc
                 total--;
             }
         }
 
         //populate overrides
         for(auto& kvs : search_param->override_result_kvs) {
-            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], remove_duplicates);
+            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], should_remove_duplicates);
             auto ret = overrides_topster->add(&kv);
-            if(remove_duplicates && ret == 0) { //duplicate doc
+            if(should_remove_duplicates && ret == 0) { //duplicate doc
                 total--;
             }
         }
@@ -3900,7 +3938,11 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     result["search_time_ms"] = totalSearchTime;
     result["page"] = union_params.page;
 
-    std::string hits_key = "hits";
+    if(group_limit != 0) {
+        result["found_docs"] = found_docs;
+    }
+
+    std::string hits_key = group_limit ? "grouped_hits" : "hits";
     result[hits_key] = nlohmann::json::array();
 
     nlohmann::json docs_array = nlohmann::json::array();
@@ -3908,8 +3950,15 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     for (long kv_index = start_result_index; kv_index <= end_result_index; kv_index++) {
         const auto& kv_group = merged_result_kvs[kv_index];
 
-        for (const Union_KV* kv: kv_group) {
+        nlohmann::json group_hits;
+        if(group_limit) {
+            group_hits["hits"] = nlohmann::json::array();
+        }
 
+        nlohmann::json& hits_array = group_limit ? group_hits["hits"] : result["hits"];
+        nlohmann::json group_key = nlohmann::json::array();
+
+        for (const Union_KV* kv: kv_group) {
             const auto& search_index = kv->search_index;
             const auto& coll_id = collection_ids.at(search_index);
             auto& cm = CollectionManager::get_instance();
@@ -3953,6 +4002,15 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                             highlight_affix_num_tokens, highlight_start_tag, highlight_end_tag, highlight_field_names,
                             highlight_full_field_names, highlight_items, index_symbols, kv, document,
                             highlight_res, wrapper_doc);
+
+            if(group_limit && group_key.empty()) {
+                const auto& group_by_fields = searches.at(search_index).group_by_fields;
+                for(const auto& field_name: group_by_fields) {
+                    if(document.count(field_name) != 0) {
+                        group_key.push_back(document[field_name]);
+                    }
+                }
+            }
 
             remove_flat_fields(document);
             remove_reference_helper_fields(document);
@@ -4035,7 +4093,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                 wrapper_doc["vector_distance"] = kv->vector_distance;
             }
 
-            result[hits_key] += wrapper_doc;
+            hits_array.push_back(wrapper_doc);
 
             const auto& offset = search_params->offset;
             // handle analytics query expansion
@@ -4045,6 +4103,17 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                 raw_query, offset, total, search_params, result_group_kvs, raw_search_fields, first_q);
             auto& object = request_json_list[search_index];
             object["first_q"] = first_q;
+
+            if(group_limit) {
+                group_hits["group_key"] = group_key;
+                const auto& groups_processed = search_params_guards.at(search_index).get()->groups_processed;
+                const auto& itr = groups_processed.find(kv_group[0]->distinct_key);
+
+                if(itr != groups_processed.end()) {
+                    group_hits["found"] = itr->second;
+                }
+                result["grouped_hits"].push_back(group_hits);
+            }
         }
     }
 
@@ -4572,7 +4641,9 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
 void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens, std::vector<std::string>& q_unstemmed_tokens,
                                     std::vector<std::vector<std::string>>& q_exclude_tokens,
                                     std::vector<std::vector<std::string>>& q_phrases,
-                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set, std::shared_ptr<Stemmer> stemmer) const {
+                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set, std::shared_ptr<Stemmer> stemmer,
+                                    const std::vector<char>& override_symbols_to_index,
+                                    const std::vector<char>& override_token_separators) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
@@ -4591,13 +4662,15 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         if(already_segmented) {
             StringUtils::split(query, tokens, " ");
         } else {
-            std::vector<char> custom_symbols = symbols_to_index;
+            std::vector<char> custom_symbols = override_symbols_to_index.empty() ? symbols_to_index : override_symbols_to_index;
             custom_symbols.push_back('-');
             custom_symbols.push_back('"');
 
-            Tokenizer(query, true, false, locale, custom_symbols, token_separators, stemmer).tokenize(tokens);
+            const auto& separators = override_token_separators.empty() ? token_separators : override_token_separators;
+
+            Tokenizer(query, true, false, locale, custom_symbols, separators, stemmer).tokenize(tokens);
             if(stemmer) {
-                Tokenizer(query, true, false, locale, custom_symbols, token_separators, nullptr).tokenize(tokens_non_stemmed);
+                Tokenizer(query, true, false, locale, custom_symbols, separators, nullptr).tokenize(tokens_non_stemmed);
             }
         }
 
@@ -6389,6 +6462,12 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
             hide_credential(field_json[fields::embed][fields::model_config], "client_id");
             hide_credential(field_json[fields::embed][fields::model_config], "client_secret");
             hide_credential(field_json[fields::embed][fields::model_config], "project_id");
+            if(field_json[fields::embed][fields::model_config].contains("service_account") &&
+                field_json[fields::embed][fields::model_config]["service_account"].is_object()) {
+                nlohmann::json& sa = field_json[fields::embed][fields::model_config]["service_account"];
+                hide_credential(sa, "private_key");
+                hide_credential(sa, "client_email");
+            }
         }
     }
 
@@ -8397,6 +8476,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     std::string personalization_item_field;
     std::string personalization_event_name;
     size_t personalization_n_events = 0;
+    float diversity_lamda = 0.5;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
             {MIN_LEN_1TYPO, &min_len_1typo},
@@ -8526,6 +8606,15 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             }
         }
 
+        else if (key == DIVERSITY_LAMBDA) {
+            try {
+                auto temp = std::stof(val);
+                if (temp >= 0 && temp <= 1) {
+                    diversity_lamda = temp;
+                }
+            } catch (...) {}
+        }
+
         else {
             auto find_int_it = unsigned_int_values.find(key);
             if(find_int_it != unsigned_int_values.end()) {
@@ -8629,6 +8718,10 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                           Index::NUM_CANDIDATES_DEFAULT_MIN);
     }
 
+    if(group_by_fields.empty()) {
+        group_limit = 0;
+    }
+
     args = collection_search_args_t(raw_query, search_fields, filter_query,
                                     facet_fields, sort_fields,
                                     num_typos, per_page, page, token_order,
@@ -8657,7 +8750,8 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     enable_typos_for_alpha_numerical_tokens, max_filter_by_candidates,
                                     rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                     personalization_user_id, personalization_model_id, personalization_type,
-                                    personalization_user_field, personalization_item_field, personalization_event_name, personalization_n_events, synonym_sets);
+                                    personalization_user_field, personalization_item_field, personalization_event_name,
+                                    personalization_n_events, synonym_sets, diversity_lamda);
     return Option<bool>(true);
 }
 

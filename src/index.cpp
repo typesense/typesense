@@ -2526,6 +2526,9 @@ Option<bool> Index::run_search(search_args* search_params) {
 #endif
 
     if (search_params->group_limit) {
+        if (!search_params->diversity.similarity_equation.empty()) {
+            return Option<bool>(400, "Diversity is not supported along with group_by.");
+        }
         auto res = search(search_params->field_query_tokens,
                           search_params->search_fields,
                           search_params->match_type,
@@ -2579,7 +2582,8 @@ Option<bool> Index::run_search(search_args* search_params) {
                           true,
                           group_by_missing_value_ids,
                           search_params->collection,
-                          search_params->synonym_sets);
+                          search_params->synonym_sets,
+                          search_params->diversity);
 
         // The filter iterator can be updated in places like `Index::do_phrase_search`.
         filter_iterator_guard.release();
@@ -2751,7 +2755,8 @@ Option<bool> Index::run_search(search_args* search_params) {
                   false,
                   group_by_missing_value_ids,
                   search_params->collection,
-                  search_params->synonym_sets
+                  search_params->synonym_sets,
+                  search_params->diversity
     );
 
     // The filter iterator can be updated in places like `Index::do_phrase_search`.
@@ -3478,7 +3483,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool enable_typos_for_alpha_numerical_tokens, const size_t& max_filter_by_candidates,
                    bool rerank_hybrid_matches, const bool& validate_field_names, bool is_group_by_first_pass,
                    std::set<uint32_t>& group_by_missing_value_ids, Collection const *const collection,
-                   const std::vector<std::string>& synonym_sets) const {
+                   const std::vector<std::string>& synonym_sets,
+                   const diversity_t& diversity) const {
     std::shared_lock lock(mutex);
 
     group_found_params_t group_found_params{};
@@ -4237,8 +4243,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     topster->sort();
     curated_topster->sort();
 
-    populate_result_kvs(topster, raw_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass);
-    populate_result_kvs(curated_topster, override_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass);
+    populate_result_kvs(topster, raw_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass, diversity,
+                        sort_index, facet_index_v4);
+    populate_result_kvs(curated_topster, override_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass,
+                        diversity, sort_index, facet_index_v4);
+
     std::vector<uint32_t> top_k_result_ids, top_k_curated_result_ids;
     std::vector<facet> top_k_facets;
 
@@ -8949,10 +8958,13 @@ float Index::compute_decay_function_score(const sort_by& sort_field, uint32_t se
     return res;
 }
 
-void Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV *>> &result_kvs,
-                                const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
-                                const std::vector<sort_by>& sort_by_fields,
-                                const bool& is_group_by_first_pass) {
+Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV *>> &result_kvs,
+                                        const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                                        const std::vector<sort_by>& sort_by_fields,
+                                        const bool& is_group_by_first_pass,
+                                        const diversity_t& diversity,
+                                        const spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*>& sort_index,
+                                        const facet_index_t* facet_index_v4) {
     if(topster->distinct && !is_group_by_first_pass) {
         // we have to pick top-K groups
         Topster<KV> gtopster(topster->MAX_SIZE);
@@ -8997,12 +9009,58 @@ void Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV
             );
             result_kvs.emplace_back(group_kvs);
         }
-    } else {
+
+        return Option<bool>(true);
+    }
+
+    if (topster->size == 0 || diversity.similarity_equation.empty()) {
         for(uint32_t t = 0; t < topster->size; t++) {
             KV* kv = topster->getKV(t);
             result_kvs.push_back({kv});
         }
+
+        return Option<bool>(true);
     }
+
+    // Diversify the response.
+    similarity_t similarity;
+    result_kvs.push_back({topster->getKV(0)});
+    std::set<uint32_t> processed_seq_ids{(uint32_t) topster->getKeyAt(0)};
+    while (result_kvs.size() < topster->size) {
+        auto mmr = std::numeric_limits<double>::lowest();
+        KV* max_kv = nullptr;
+
+        for (uint32_t i = 1; i < topster->size; i++) {
+            auto kv_i = topster->getKV(i);
+            const auto& seq_id_i = (uint32_t) kv_i->key;
+            if (processed_seq_ids.count(seq_id_i) > 0) {
+                continue;
+            }
+
+            auto left = diversity.lambda * kv_i->vector_distance;
+            auto max_similarity = std::numeric_limits<double>::lowest();
+            for (const auto& kv_j: result_kvs) {
+                const auto& seq_id_j = (uint32_t) kv_j[0]->key;
+                auto sim_op = similarity.calculate(seq_id_i, seq_id_j, diversity, sort_index, facet_index_v4);
+                if (!sim_op.ok()) {
+                    return Option<bool>(sim_op.code(), sim_op.error());
+                }
+                max_similarity = std::max(max_similarity, sim_op.get());
+            }
+
+            auto right = (1 - diversity.lambda) * max_similarity;
+            auto mr = left - right;
+            if (mr > mmr) {
+                max_kv = kv_i;
+                mmr = mr;
+            }
+        }
+
+        processed_seq_ids.insert((uint32_t) max_kv->key);
+        result_kvs.push_back({max_kv});
+    }
+
+    return Option<bool>(true);
 }
 
 Option<bool> Index::process_ref_include_fields_sort(std::vector<sort_by>& sort_fields_std, size_t limit, std::vector<uint32_t>& doc_ids) {

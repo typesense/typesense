@@ -23,7 +23,7 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
     if(override_json.count("includes") == 0 && override_json.count("excludes") == 0 &&
        override_json.count("filter_by") == 0 && override_json.count("sort_by") == 0 &&
        override_json.count("remove_matched_tokens") == 0 && override_json.count("metadata") == 0 &&
-       override_json.count("replace_query") == 0) {
+       override_json.count("replace_query") == 0 && !override_json.contains("diversity")) {
         return Option<bool>(400, "Must contain one of: `includes`, `excludes`, `metadata`, "
                                  "`filter_by`, `sort_by`, `remove_matched_tokens`, `replace_query`.");
     }
@@ -248,6 +248,15 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
         i++;
     }
 
+    if (override_json.contains("diversity")) {
+        auto op = diversity_t::parse(override_json, override.diversity);
+        if (!op.ok()) {
+            return op;
+        }
+
+        // The validation logic with the search schema is moved to collection.cpp curate_results method
+    }
+
     return Option<bool>(true);
 }
 
@@ -313,6 +322,10 @@ nlohmann::json override_t::to_json() const {
 
     if(!metadata.empty()) {
         override["metadata"] = metadata;
+    }
+
+    if (!diversity.similarity_equation.empty()) {
+        diversity_t::to_json(diversity, override);
     }
 
     return override;
