@@ -378,7 +378,7 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
     nlohmann::json _llm_generated_params = nlohmann::json::array();
 
     for(auto& param : generated_params.items()) {
-        if(param.key() == "q") {
+        if(param.key() == "q" || param.key() == "query") {
             _llm_generated_params.push_back("q");
             req_params["q"] = param.value();
         } else if(param.key() == "filter_by") {
@@ -409,8 +409,14 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
             req_params["sort_by"] = param.value();
             _llm_generated_params.push_back("sort_by");
         } else if(param.key() != "llm_response") {
-            req_params[param.key()] = param.value();
-            _llm_generated_params.push_back(param.key());
+            if(param.key() == "query") {
+                // Map "query" to "q" for compatibility
+                req_params["q"] = param.value();
+                _llm_generated_params.push_back("q");
+            } else {
+                req_params[param.key()] = param.value();
+                _llm_generated_params.push_back(param.key());
+            }
         }
     }
 
