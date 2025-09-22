@@ -21,7 +21,6 @@ This is a selection of sites and apps using Typesense.
 | [Otaku Square](https://www.otakusquare.com) | Online retailer for pop-culture (e.g. anime, games, movies) merchandise |
 | [Orders Made Simple](https://ordersmadesimple.com) | A Stock ordering platform helping to connect hospitality and catering venues with their suppliers |
 | [Back Right Up](https://backrightup.com) | Automatic Azure Devops backups |
-| [Popcorn](https://onpopcorn.com) | Zoom meets Snapchat, async video chat app |
 | [Rushtix](https://rushtix.com) | Live Comedy Shows platform |
 | [What's In My Jar](https://whatsinmyjar.com) | Skincare Research platform |
 | [GlobalTill](https://www.globaltill.com) | Omnichannel Retail Management System |
