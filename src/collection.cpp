@@ -6842,8 +6842,14 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
 
                 if(f.is_dynamic()) {
+                    if(new_dynamic_fields.find(f.name) != new_dynamic_fields.end()) {
+                        return Option<bool>(400, "There can be only one field named `" + f.name + "`.");
+                    }
                     new_dynamic_fields[f.name] = f;
                 } else {
+                    if(updated_search_schema.find(f.name) != updated_search_schema.end()) {
+                        return Option<bool>(400, "There can be only one field named `" + f.name + "`.");
+                    }
                     updated_search_schema[f.name] = f;
                 }
 
