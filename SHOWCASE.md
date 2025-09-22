@@ -25,8 +25,6 @@ This is a selection of sites and apps using Typesense.
 | [Rushtix](https://rushtix.com) | Live Comedy Shows platform |
 | [What's In My Jar](https://whatsinmyjar.com) | Skincare Research platform |
 | [GlobalTill](https://www.globaltill.com) | Omnichannel Retail Management System |
-| [Upnext](https://www.getupnext.com) | Save, organize and focus on your personal content library |
-| [Plaza](https://www.useplaza.com) | Live-shopping platform |
 | [Aviyel](https://aviyel.com) | Open-source community platform |
 | [Grafikart](https://www.grafikart.fr/) | Learning resources library |
 | [BetaSeries](https://www.betaseries.com/) | TV shows and movies recommendation, using Typesense to search into 4M+ international records |
