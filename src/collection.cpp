@@ -65,7 +65,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        spp::sparse_hash_map<std::string, std::string> referenced_in,
                        const nlohmann::json& metadata,
                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins,
-                       const std::vector<std::string>& synonym_sets) :
+                       const std::vector<std::string>& synonym_sets, const std::vector<std::string>& override_sets) :
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
@@ -74,7 +74,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
         index(init_index()), vq_model(vq_model),
         referenced_in(std::move(referenced_in)),
-        metadata(metadata), async_referenced_ins(std::move(async_referenced_ins)), synonym_sets(synonym_sets)  {
+        metadata(metadata), async_referenced_ins(std::move(async_referenced_ins)), synonym_sets(synonym_sets), override_sets(override_sets)  {
     
     if (vq_model) {
         vq_model->inc_collection_ref_count();

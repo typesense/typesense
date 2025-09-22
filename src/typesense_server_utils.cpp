@@ -749,6 +749,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     VQModelManager::get_instance().delete_all_models();
 
     synonymIndexManager.dispose();
+    
+    overrideIndexManager.dispose();
 
     CollectionManager::get_instance().dispose();
 

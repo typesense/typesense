@@ -262,7 +262,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             referenced_in,
                                             metadata,
                                             async_referenced_ins,
-                                            synonym_sets);
+                                            synonym_sets,
+                                            override_sets);
 
     for (const auto& ref_field: collection->get_reference_fields()) {
         const auto& ref_info = ref_field.second;
@@ -754,7 +755,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                 enable_nested_fields, model,
                                                 spp::sparse_hash_map<std::string, std::string>(),
                                                 metadata,
-                                                spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(), synonym_sets);
+                                                spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(), synonym_sets, override_sets);
 
     add_to_collections(new_collection);
     lock.lock();
@@ -1912,33 +1913,79 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
                         collection_synonym_jsons);
     if(!collection_synonym_jsons.empty()) {
         SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
-        // Create a new SynonymIndex for the collection
-        auto synonym_index_op = synonym_index_manager.add_synonym_index(this_collection_name + "_synonyms_index");
-        if(!synonym_index_op.ok()) {
-            LOG(ERROR) << "Error while creating synonym index for collection " << this_collection_name
-                       << ": " << synonym_index_op.error();
-            return Option<bool>(synonym_index_op.code(), synonym_index_op.error());
+        auto get_op = synonym_index_manager.get_synonym_index(this_collection_name + "_synonyms_index");
+        if(get_op.ok()) {
+            LOG(INFO) << "Synonym index already exists for collection " << this_collection_name
+                       << ", skipping migration";
+        } else {
+          auto synonym_index_op = synonym_index_manager.add_synonym_index(this_collection_name + "_synonyms_index");
+          if(!synonym_index_op.ok()) {
+              LOG(ERROR) << "Error while creating synonym index for collection " << this_collection_name
+                        << ": " << synonym_index_op.error();
+              return Option<bool>(synonym_index_op.code(), synonym_index_op.error());
+          }
+          SynonymIndex* synonym_index = synonym_index_op.get();
+
+          for(const auto & collection_synonym_json: collection_synonym_jsons) {
+              nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
+              synonym_t synonym;
+              auto parse_op = synonym_t::parse(collection_synonym, synonym);
+              if(!parse_op.ok()) {
+                  LOG(ERROR) << "Skipping loading of synonym: " << parse_op.error();
+                  continue;
+              }
+              auto add_op = synonym_index->add_synonym(synonym, true);
+              if(!add_op.ok()) {
+                  LOG(ERROR) << "Error while adding synonym: " << add_op.error();
+              }
+          }
+
+          // Add the SynonymIndex to the collection
+          collection->set_synonym_sets({this_collection_name + "_synonyms_index"});
+
+          LOG(INFO) << "Migrated synonyms for collection " << this_collection_name;
         }
-        SynonymIndex* synonym_index = synonym_index_op.get();
+    }
 
-        for(const auto & collection_synonym_json: collection_synonym_jsons) {
-            nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
-            synonym_t synonym;
-            auto parse_op = synonym_t::parse(collection_synonym, synonym);
-            if(!parse_op.ok()) {
-                LOG(ERROR) << "Skipping loading of synonym: " << parse_op.error();
-                continue;
-            }
-            auto add_op = synonym_index->add_synonym(synonym, true);
-            if(!add_op.ok()) {
-                LOG(ERROR) << "Error while adding synonym: " << add_op.error();
-            }
+    // migrate overrides if exists
+    const std::string& ov_lower_bound_key =
+                std::string(OverrideIndex::OLD_COLLECTION_OVERRIDE_PREFIX) + "_" + this_collection_name + "_";
+    std::string ov_upper_bound_key = std::string(OverrideIndex::OLD_COLLECTION_OVERRIDE_PREFIX) + "_" +
+                                      this_collection_name + "`";  // cannot inline this
+    std::vector<std::string> collection_override_jsons;
+    cm.store->scan_fill(ov_lower_bound_key, ov_upper_bound_key, collection_override_jsons);
+    if(!collection_override_jsons.empty()) {
+        OverrideIndexManager& override_index_manager = OverrideIndexManager::get_instance();
+        // Create a new OverrideIndex for the collection
+        auto get_op = override_index_manager.get_override_index(this_collection_name + "_overrides_index");
+        if(get_op.ok()) {
+            LOG(INFO) << "Override index already exists for collection " << this_collection_name
+                       << ", skipping migration";
+        } else {
+          auto override_index_op = override_index_manager.add_override_index(this_collection_name + "_overrides_index");
+          if(!override_index_op.ok()) {
+              LOG(ERROR) << "Error while creating override index for collection " << this_collection_name
+                        << ": " << override_index_op.error();
+              return Option<bool>(override_index_op.code(), override_index_op.error());
+          }
+          OverrideIndex* override_index = override_index_op.get();
+          for(const auto & collection_override_json: collection_override_jsons) {
+              nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
+              override_t override;
+              std::string override_id = collection_override.value("id", std::string{});
+              auto parse_op = override_t::parse(collection_override, override_id, override);
+              if(!parse_op.ok()) {
+                  LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
+                  continue;
+              }
+              auto add_op = override_index->add_override(override, true);
+              if(!add_op.ok()) {
+                  LOG(ERROR) << "Error while adding override: " << add_op.error();
+              }
+          }
+          collection->set_override_sets({this_collection_name + "_overrides_index"});
+          LOG(INFO) << "Migrated overrides for collection " << this_collection_name;
         }
-
-        // Add the SynonymIndex to the collection
-        collection->set_synonym_sets({this_collection_name + "_synonyms_index"});
-
-        LOG(INFO) << "Migrated synonyms for collection " << this_collection_name;
     }
 
     // Fetch records from the store and re-create memory index

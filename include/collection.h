@@ -745,7 +745,7 @@ public:
                const nlohmann::json& metadata = {},
                spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins =
                         spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
-               const std::vector<std::string>& collection_synonym_sets = {});
+               const std::vector<std::string>& collection_synonym_sets = {}, const std::vector<std::string>& collection_override_sets = {});
 
     ~Collection();
 
