@@ -9,7 +9,7 @@
 #include "conversation_model_manager.h"
 #include "conversation_manager.h"
 #include "synonym_index_manager.h"
-#include "override_index_manager.h"
+#include "curation_index_manager.h"
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
@@ -2003,7 +2003,7 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
           "num_documents":0,
           "symbols_to_index":[],
           "synonym_sets":[],
-          "override_sets": [],
+          "curation_sets": [],
           "token_separators":[]
         }
     )"_json;
@@ -2032,9 +2032,9 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
 
 TEST_F(CoreAPIUtilsTest, OverridesPagination) {
     Collection *coll2;
-    OverrideIndexManager& ov_manager = OverrideIndexManager::get_instance();
+    CurationIndexManager& ov_manager = CurationIndexManager::get_instance();
     ov_manager.init_store(store);
-    ov_manager.add_override_index("index");
+    ov_manager.add_curation_index("index");
 
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false)};
@@ -2045,22 +2045,22 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
     }
 
     for(int i = 0; i < 5; ++i) {
-        nlohmann::json override_json = {
-                {"id",       "override"},
+        nlohmann::json curation_json = {
+                {"id",       "curation"},
                 {
                  "rule",     {
                                      {"query", "not-found"},
-                                     {"match", override_t::MATCH_EXACT}
+                                     {"match", curation_t::MATCH_EXACT}
                              }
                 },
                 {"metadata", {       {"foo",   "bar"}}},
         };
 
-        override_json["id"] = override_json["id"].get<std::string>() + std::to_string(i + 1);
-        override_t override;
-        override_t::parse(override_json, "", override);
+        curation_json["id"] = curation_json["id"].get<std::string>() + std::to_string(i + 1);
+        curation_t curation;
+        curation_t::parse(curation_json, "", curation);
 
-        ov_manager.upsert_override_item("index", override_json);
+        ov_manager.upsert_curation_item("index", curation_json);
     }
 
     auto req = std::make_shared<http_req>();
@@ -2070,7 +2070,7 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
     req->params["offset"] = "0";
     req->params["limit"] = "1";
 
-    get_override_set_items(req, resp);
+    get_curation_set_items(req, resp);
     nlohmann::json expected_json = R"([
                     {
                         "excludes":[],
@@ -2265,7 +2265,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
             "num_memory_shards":4,
             "symbols_to_index":[],
             "synonym_sets":[],
-            "override_sets": [],
+            "curation_sets": [],
             "token_separators":[]
     })"_json;
 
@@ -2363,7 +2363,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
             "num_memory_shards":4,
             "symbols_to_index":[],
             "synonym_sets":[],
-            "override_sets": [],
+            "curation_sets": [],
             "token_separators":[]
     })"_json;
 
@@ -2681,7 +2681,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                 "num_documents":0,
                 "symbols_to_index":[],
                 "synonym_sets":[],
-                "override_sets": [],
+                "curation_sets": [],
                 "token_separators":[]
     })"_json;
 

@@ -7306,7 +7306,7 @@ TEST_F(JoinSortTest, IntegrationWithOtherFeatures) {
     ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
     auto product_a_score = res_obj["hits"][0].at("vector_distance");
     auto product_b_score = res_obj["hits"][1].at("vector_distance");
-    // product_b is a better match for the vector query but sort_by overrides the order.
+    // product_b is a better match for the vector query but sort_by curations the order.
     ASSERT_TRUE(product_b_score < product_a_score);
 
     nlohmann::json model_config = R"({
@@ -7340,7 +7340,7 @@ TEST_F(JoinSortTest, IntegrationWithOtherFeatures) {
     ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
     product_a_score = res_obj["hits"][0].at("vector_distance");
     product_b_score = res_obj["hits"][1].at("vector_distance");
-    // product_b is a better match for the vector query but sort_by overrides the order.
+    // product_b is a better match for the vector query but sort_by curations the order.
     ASSERT_TRUE(product_b_score < product_a_score);
 
     // Hybrid search - Both text match and vector match
@@ -7390,7 +7390,7 @@ TEST_F(JoinSortTest, IntegrationWithOtherFeatures) {
     ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
     product_a_score = res_obj["hits"][0].at("vector_distance");
     product_b_score = res_obj["hits"][1].at("vector_distance");
-    // product_b is a better match for the vector query but sort_by overrides the order.
+    // product_b is a better match for the vector query but sort_by curations the order.
     ASSERT_TRUE(product_b_score < product_a_score);
 
     // Infix search

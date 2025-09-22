@@ -27,7 +27,7 @@
 #include <or_iterator.h>
 #include "id_list.h"
 #include "synonym_index.h"
-#include "override.h"
+#include "curation.h"
 #include "vector_query_ops.h"
 #include "hnswlib/hnswlib.h"
 #include "filter.h"
@@ -179,7 +179,7 @@ struct search_args {
     Topster<KV>* topster = nullptr;
     Topster<KV>* curated_topster = nullptr;
     std::vector<std::vector<KV*>> raw_result_kvs;
-    std::vector<std::vector<KV*>> override_result_kvs;
+    std::vector<std::vector<KV*>> curation_result_kvs;
 
     vector_query_t& vector_query;
     size_t facet_sample_percent;
@@ -504,7 +504,7 @@ private:
                    Collection const *const collection,
                    std::unordered_map<std::string, reference_filter_result_t>* reference_facet_ids) const;
 
-    bool static_filter_query_eval(const override_t* override, const std::string& override_normalized_query, std::vector<std::string>& tokens,
+    bool static_filter_query_eval(const curation_t* curation, const std::string& curation_normalized_query, std::vector<std::string>& tokens,
                                   std::unique_ptr<filter_node_t>& filter_tree_root, const bool& validate_field_names) const;
 
     bool resolve_override(const std::vector<std::string>& rule_tokens, bool exact_rule_match,
@@ -734,7 +734,7 @@ public:
                          bool is_reverse=false) const;
 
     void get_group_by_values(std::vector<std::vector<KV *>>& result_kvs,
-                             std::vector<std::vector<KV *>>& override_result_kvs,
+                             std::vector<std::vector<KV *>>& curation_result_kvs,
                              std::vector<group_by_field_it_t>& group_by_fields,
                              std::vector<std::set<std::string>>& group_by_values_list) const;
 
@@ -769,7 +769,7 @@ public:
                 spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                 std::vector<std::vector<art_leaf*>>& searched_queries,
                 tsl::htrie_map<char, token_leaf>& qtoken_set,
-                std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<std::vector<KV*>>& override_result_kvs,
+                std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<std::vector<KV*>>& curation_result_kvs,
                 const size_t typo_tokens_threshold, const size_t group_limit,
                 const std::vector<std::string>& group_by_fields,
                 const bool group_missing_values,
@@ -1116,13 +1116,13 @@ public:
                                      const int* sort_order,
                                      int64_t& out_best_field_match_score);
 
-    void process_filter_sort_overrides(const std::vector<const override_t*>& filter_overrides,
-                                  std::vector<std::string>& override_normalized_queries,
+    void process_filter_sort_overrides(const std::vector<const curation_t*>& filter_overrides,
+                                  std::vector<std::string>& curation_normalized_queries,
                                   std::vector<std::string>& query_tokens,
                                   token_ordering token_order,
                                   std::unique_ptr<filter_node_t>& filter_tree_root,
-                                  std::vector<const override_t*>& matched_dynamic_overrides,
-                                  nlohmann::json& override_metadata,
+                                  std::vector<const curation_t*>& matched_dynamic_overrides,
+                                  nlohmann::json& curation_metadata,
                                   std::string& sort_by_clause,
                                   bool enable_typos_for_numerical_tokens,
                                   bool enable_typos_for_alpha_numerical_tokens,

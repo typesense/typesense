@@ -26,7 +26,7 @@
 #include "natural_language_search_model_manager.h"
 #include "natural_language_search_model.h"
 #include "synonym_index_manager.h"
-#include "override_index_manager.h"
+#include "curation_index_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -304,7 +304,7 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
 
 bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
-    std::set<std::string> allowed_keys = {"metadata", "fields", "synonym_sets", "override_sets"};
+    std::set<std::string> allowed_keys = {"metadata", "fields", "synonym_sets", "curation_sets"};
 
     // Ensures that only one alter can run per collection.
     // The actual check for this, happens in `ReplicationState::write` which is called only during live writes.
@@ -366,14 +366,14 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         }
     }
 
-    if(req_json.contains("override_sets")) {
-        if(!req_json["override_sets"].is_array()) {
-            res->set_400("The `override_sets` value should be an array.");
+    if(req_json.contains("curation_sets")) {
+        if(!req_json["curation_sets"].is_array()) {
+            res->set_400("The `curation_sets` value should be an array.");
             return false;
         }
         
-        auto override_sets = req_json["override_sets"].get<std::vector<std::string>>();
-        auto op = CollectionManager::get_instance().update_collection_override_sets(req->params["collection"], override_sets);
+        auto curation_sets = req_json["curation_sets"].get<std::vector<std::string>>();
+        auto op = CollectionManager::get_instance().update_collection_curation_sets(req->params["collection"], curation_sets);
         if(!op.ok()) {
             res->set(op.code(), op.error());
             return false;
@@ -3863,18 +3863,18 @@ bool del_synonym_set_item(const std::shared_ptr<http_req>& req, const std::share
     return true;
 }
 
-// override sets
-bool get_override_sets(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    OverrideIndexManager& manager = OverrideIndexManager::get_instance();
-    nlohmann::json res_json = manager.get_all_override_indices_json();
+// curation sets
+bool get_curation_sets(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CurationIndexManager& manager = CurationIndexManager::get_instance();
+    nlohmann::json res_json = manager.get_all_curation_indices_json();
     res->set_200(res_json.dump());
     return true;
 }
 
-bool get_override_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    OverrideIndexManager& manager = OverrideIndexManager::get_instance();
+bool get_curation_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CurationIndexManager& manager = CurationIndexManager::get_instance();
     const std::string & set_name = req->params["name"];
-    auto get_index_op = manager.get_override_index(set_name);
+    auto get_index_op = manager.get_curation_index(set_name);
     if(!get_index_op.ok()) {
         res->set(get_index_op.code(), get_index_op.error());
         return false;
@@ -3883,15 +3883,15 @@ bool get_override_set(const std::shared_ptr<http_req>& req, const std::shared_pt
     return true;
 }
 
-bool del_override_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    OverrideIndexManager& manager = OverrideIndexManager::get_instance();
+bool del_curation_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CurationIndexManager& manager = CurationIndexManager::get_instance();
     const std::string & set_name = req->params["name"];
-    auto get_index_op = manager.get_override_index(set_name);
+    auto get_index_op = manager.get_curation_index(set_name);
     if(!get_index_op.ok()) {
         res->set(get_index_op.code(), get_index_op.error());
         return false;
     }
-    auto delete_op = manager.remove_override_index(set_name);
+    auto delete_op = manager.remove_curation_index(set_name);
     if(!delete_op.ok()) {
         res->set(delete_op.code(), delete_op.error());
         return false;
@@ -3902,8 +3902,8 @@ bool del_override_set(const std::shared_ptr<http_req>& req, const std::shared_pt
     return true;
 }
 
-bool put_override_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    OverrideIndexManager& manager = OverrideIndexManager::get_instance();
+bool put_curation_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CurationIndexManager& manager = CurationIndexManager::get_instance();
     nlohmann::json req_json;
     try {
         req_json = nlohmann::json::parse(req->body);
@@ -3922,12 +3922,12 @@ bool put_override_set(const std::shared_ptr<http_req>& req, const std::shared_pt
         return false;
     }
     req_json["name"] = name;
-    auto validate_op = manager.validate_override_index(req_json);
+    auto validate_op = manager.validate_curation_index(req_json);
     if(!validate_op.ok()) {
         res->set(validate_op.code(), validate_op.error());
         return false;
     }
-    auto upsert_op = manager.upsert_override_set(name, req_json["items"]);
+    auto upsert_op = manager.upsert_curation_set(name, req_json["items"]);
     if(!upsert_op.ok()) {
         res->set(upsert_op.code(), upsert_op.error());
         return false;
@@ -3936,7 +3936,7 @@ bool put_override_set(const std::shared_ptr<http_req>& req, const std::shared_pt
     return true;
 }
 
-bool get_override_set_items(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool get_curation_set_items(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
   uint32_t offset = 0, limit = 0;
   if(req->params.count("offset") != 0) {
       const auto &offset_str = req->params["offset"];
@@ -3955,8 +3955,8 @@ bool get_override_set_items(const std::shared_ptr<http_req>& req, const std::sha
       limit = std::stoi(limit_str);
   }
   const std::string& set_name = req->params["name"];
-  auto& manager = OverrideIndexManager::get_instance();
-  auto list_op = manager.list_override_items(set_name, limit, offset);
+  auto& manager = CurationIndexManager::get_instance();
+  auto list_op = manager.list_curation_items(set_name, limit, offset);
   if(!list_op.ok()) {
       res->set(list_op.code(), list_op.error());
       return false;
@@ -3965,11 +3965,11 @@ bool get_override_set_items(const std::shared_ptr<http_req>& req, const std::sha
   return true;
 }
 
-bool get_override_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool get_curation_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string& set_name = req->params["name"];
     const std::string id = req->params["id"];
-    auto& manager = OverrideIndexManager::get_instance();
-    auto item_op = manager.get_override_item(set_name, id);
+    auto& manager = CurationIndexManager::get_instance();
+    auto item_op = manager.get_curation_item(set_name, id);
     if(!item_op.ok()) {
         res->set(item_op.code(), item_op.error());
         return false;
@@ -3978,7 +3978,7 @@ bool get_override_set_item(const std::shared_ptr<http_req>& req, const std::shar
     return true;
 }
 
-bool put_override_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool put_curation_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string& set_name = req->params["name"];
     const std::string id = req->params["id"];
     nlohmann::json ov_json;
@@ -3994,8 +3994,8 @@ bool put_override_set_item(const std::shared_ptr<http_req>& req, const std::shar
         return false;
     }
     ov_json["id"] = id;
-    auto& manager = OverrideIndexManager::get_instance();
-    auto add_op = manager.upsert_override_item(set_name, ov_json);
+    auto& manager = CurationIndexManager::get_instance();
+    auto add_op = manager.upsert_curation_item(set_name, ov_json);
     if(!add_op.ok()) {
         res->set(add_op.code(), add_op.error());
         return false;
@@ -4004,11 +4004,11 @@ bool put_override_set_item(const std::shared_ptr<http_req>& req, const std::shar
     return true;
 }
 
-bool del_override_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool del_curation_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string& set_name = req->params["name"];
     const std::string id = req->params["id"];
-    auto& manager = OverrideIndexManager::get_instance();
-    auto del_op = manager.delete_override_item(set_name, id);
+    auto& manager = CurationIndexManager::get_instance();
+    auto del_op = manager.delete_curation_item(set_name, id);
     if(!del_op.ok()) {
         res->set(del_op.code(), del_op.error());
         return false;

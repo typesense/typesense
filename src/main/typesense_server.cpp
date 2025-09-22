@@ -75,15 +75,15 @@ void master_server_routes() {
     server->put("/synonym_sets/:name/items/:id", put_synonym_set_item);
     server->del("/synonym_sets/:name/items/:id", del_synonym_set_item);
 
-    // override sets
-    server->get("/override_sets", get_override_sets);
-    server->get("/override_sets/:name", get_override_set);
-    server->put("/override_sets/:name", put_override_set);
-    server->del("/override_sets/:name", del_override_set);
-    server->get("/override_sets/:name/items", get_override_set_items);
-    server->get("/override_sets/:name/items/:id", get_override_set_item);
-    server->put("/override_sets/:name/items/:id", put_override_set_item);
-    server->del("/override_sets/:name/items/:id", del_override_set_item);
+    // curation sets
+    server->get("/curation_sets", get_curation_sets);
+    server->get("/curation_sets/:name", get_curation_set);
+    server->put("/curation_sets/:name", put_curation_set);
+    server->del("/curation_sets/:name", del_curation_set);
+    server->get("/curation_sets/:name/items", get_curation_set_items);
+    server->get("/curation_sets/:name/items/:id", get_curation_set_item);
+    server->put("/curation_sets/:name/items/:id", put_curation_set_item);
+    server->del("/curation_sets/:name/items/:id", del_curation_set_item);
 
     // new analytics
     server->get("/analytics/rules", get_analytics_rules);
@@ -191,7 +191,7 @@ int main(int argc, char **argv) {
     init_cmdline_options(options, argc, argv);
     options.parse(argc, argv);
 
-    // Command line args override env vars
+    // Command line args curation env vars
     config.load_config_env();
     config.load_config_file(options);
     config.load_config_cmd_args(options);

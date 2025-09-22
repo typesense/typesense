@@ -238,7 +238,7 @@
 #define SPP_NO_CXX11_INLINE_NAMESPACES
 #endif
 
-#if !__has_feature(cxx_override_control)
+#if !__has_feature(cxx_curation_control)
 #define SPP_NO_CXX11_FINAL
 #endif
 

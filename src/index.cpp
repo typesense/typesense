@@ -2543,7 +2543,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                           search_params->all_result_ids_len, search_params->groups_processed,
                           search_params->searched_queries,
                           search_params->qtoken_set,
-                          search_params->raw_result_kvs, search_params->override_result_kvs,
+                          search_params->raw_result_kvs, search_params->curation_result_kvs,
                           search_params->typo_tokens_threshold,
                           search_params->group_limit,
                           search_params->group_by_fields,
@@ -2592,7 +2592,7 @@ Option<bool> Index::run_search(search_args* search_params) {
         if (!res.ok()) {
             return res;
         }
-        if (search_params->raw_result_kvs.empty() && search_params->override_result_kvs.empty()) {
+        if (search_params->raw_result_kvs.empty() && search_params->curation_result_kvs.empty()) {
             return Option<bool>(true);
         }
 
@@ -2613,7 +2613,7 @@ Option<bool> Index::run_search(search_args* search_params) {
         }
 
         std::vector<std::set<std::string>> group_by_values_list(group_by_fields.size());
-        get_group_by_values(search_params->raw_result_kvs, search_params->override_result_kvs, group_by_fields,
+        get_group_by_values(search_params->raw_result_kvs, search_params->curation_result_kvs, group_by_fields,
                             group_by_values_list);
 
         std::string filter_by;
@@ -2716,7 +2716,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                   search_params->all_result_ids_len, search_params->groups_processed,
                   search_params->searched_queries,
                   search_params->qtoken_set,
-                  search_params->raw_result_kvs, search_params->override_result_kvs,
+                  search_params->raw_result_kvs, search_params->curation_result_kvs,
                   search_params->typo_tokens_threshold,
                   search_params->group_limit,
                   search_params->group_by_fields,
@@ -2767,7 +2767,7 @@ Option<bool> Index::run_search(search_args* search_params) {
         // Doing std::max since in case of group_by, loglog_counter returns an approximate count of the number of distinct
         // group_by values in the first pass and sometimes the count can be less than the size of returned result.
         search_params->found_count = std::max(search_params->found_count,
-                                              search_params->raw_result_kvs.size() + search_params->override_result_kvs.size());
+                                              search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size());
     } else {
         search_params->found_count = search_params->all_result_ids_len;
     }
@@ -2836,28 +2836,28 @@ void Index::concat_topster_ids(Topster<KV>*& topster,
     }
 }
 
-bool Index::static_filter_query_eval(const override_t* override,
-                                     const std::string& override_normalized_query,
+bool Index::static_filter_query_eval(const curation_t* curation,
+                                     const std::string& curation_normalized_query,
                                      std::vector<std::string>& tokens,
                                      std::unique_ptr<filter_node_t>& filter_tree_root,
                                      const bool& validate_field_names) const {
     std::string query = StringUtils::join(tokens, " ");
-    bool tag_matched = (!override->rule.tags.empty() && override->rule.filter_by.empty() &&
-                         override->rule.query.empty());
+    bool tag_matched = (!curation->rule.tags.empty() && curation->rule.filter_by.empty() &&
+                         curation->rule.query.empty());
 
-    bool wildcard_tag_matched = (override->rule.tags.size() == 1 && *override->rule.tags.begin() == "*");
+    bool wildcard_tag_matched = (curation->rule.tags.size() == 1 && *curation->rule.tags.begin() == "*");
 
     if (tag_matched || wildcard_tag_matched ||
-        (override->rule.match == override_t::MATCH_EXACT && override_normalized_query == query) ||
-        (override->rule.match == override_t::MATCH_CONTAINS &&
-         StringUtils::contains_word(query, override_normalized_query))) {
+        (curation->rule.match == curation_t::MATCH_EXACT && curation_normalized_query == query) ||
+        (curation->rule.match == curation_t::MATCH_CONTAINS &&
+         StringUtils::contains_word(query, curation_normalized_query))) {
         filter_node_t* new_filter_tree_root = nullptr;
-        Option<bool> filter_op = filter::parse_filter_query(override->filter_by, search_schema,
+        Option<bool> filter_op = filter::parse_filter_query(curation->filter_by, search_schema,
                                                             store, "", new_filter_tree_root, validate_field_names);
         if (filter_op.ok()) {
             if (filter_tree_root == nullptr) {
                 filter_tree_root.reset(new_filter_tree_root);
-            } else if(!override->filter_by.empty()) {
+            } else if(!curation->filter_by.empty()) {
                 auto root = new filter_node_t(AND, filter_tree_root.release(), new_filter_tree_root);
                 filter_tree_root.reset(root);
             }
@@ -2972,13 +2972,13 @@ bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const 
     return true;
 }
 
-void Index::process_filter_sort_overrides(const std::vector<const override_t*>& filter_sort_overrides,
-                                     std::vector<std::string>& override_normalized_queries,
+void Index::process_filter_sort_overrides(const std::vector<const curation_t*>& filter_sort_overrides,
+                                     std::vector<std::string>& curation_normalized_queries,
                                      std::vector<std::string>& query_tokens,
                                      token_ordering token_order,
                                      std::unique_ptr<filter_node_t>& filter_tree_root,
-                                     std::vector<const override_t*>& matched_dynamic_overrides,
-                                     nlohmann::json& override_metadata,
+                                     std::vector<const curation_t*>& matched_dynamic_overrides,
+                                     nlohmann::json& curation_metadata,
                                      std::string& sort_by_clause,
                                      bool enable_typos_for_numerical_tokens,
                                      bool enable_typos_for_alpha_numerical_tokens,
@@ -2986,25 +2986,25 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
     std::shared_lock lock(mutex);
 
     size_t i = 0;
-    for (auto& override : filter_sort_overrides) {
-        if (!override->rule.dynamic_query && !override->rule.dynamic_filter) {
+    for (auto& curation : filter_sort_overrides) {
+        if (!curation->rule.dynamic_query && !curation->rule.dynamic_filter) {
             // Simple static filtering: add to filter_by and rewrite query if needed.
             // Check the original query and then the synonym variants until a rule matches.
-            bool resolved_override = static_filter_query_eval(override, override_normalized_queries[i], query_tokens, filter_tree_root,
+            bool resolved_override = static_filter_query_eval(curation, curation_normalized_queries[i], query_tokens, filter_tree_root,
                                                               validate_field_names);
 
             if (resolved_override) {
-                if(override_metadata.empty()) {
-                    override_metadata = override->metadata;
+                if(curation_metadata.empty()) {
+                    curation_metadata = curation->metadata;
                 }
-                if (override->remove_matched_tokens) {
+                if (curation->remove_matched_tokens) {
                     std::vector<std::string> rule_tokens;
-                    Tokenizer(override->rule.query, true).tokenize(rule_tokens);
+                    Tokenizer(curation->rule.query, true).tokenize(rule_tokens);
                     std::set<std::string> rule_token_set(rule_tokens.begin(), rule_tokens.end());
                     remove_matched_tokens(query_tokens, rule_token_set);
                 }
 
-                if (override->stop_processing) {
+                if (curation->stop_processing) {
                     return;
                 }
             }
@@ -3066,11 +3066,11 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
             std::vector<std::string> processed_tokens;
             bool match_found = false;
 
-            if(override->rule.dynamic_query) {
-                StringUtils::split(override_normalized_queries[i], rule_parts, " ");
+            if(curation->rule.dynamic_query) {
+                StringUtils::split(curation_normalized_queries[i], rule_parts, " ");
                 processed_tokens = query_tokens;
-            } else if(override->rule.dynamic_filter && filter_tree_root != nullptr) {
-                tokenize_filter_str(override->rule.filter_by, rule_parts);
+            } else if(curation->rule.dynamic_filter && filter_tree_root != nullptr) {
+                tokenize_filter_str(curation->rule.filter_by, rule_parts);
 
                 // tokenize filter_by string from search query
                 tokenize_filter_str(filter_tree_root->filter_query, processed_tokens);
@@ -3082,11 +3082,11 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                 }
             }
 
-            bool exact_rule_match = override->rule.match == override_t::MATCH_EXACT;
-            std::string filter_by_clause = override->filter_by;
+            bool exact_rule_match = curation->rule.match == curation_t::MATCH_EXACT;
+            std::string filter_by_clause = curation->filter_by;
 
             std::set<std::string> absorbed_tokens;
-            sort_by_clause = override->sort_by;
+            sort_by_clause = curation->sort_by;
             bool resolved_override = resolve_override(rule_parts, exact_rule_match, processed_tokens,
                                                       token_order, absorbed_tokens, filter_by_clause,
                                                       sort_by_clause,
@@ -3094,8 +3094,8 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                                                       enable_typos_for_alpha_numerical_tokens);
 
             if (resolved_override) {
-                if(override_metadata.empty()) {
-                    override_metadata = override->metadata;
+                if(curation_metadata.empty()) {
+                    curation_metadata = curation->metadata;
                 }
 
                 filter_node_t* new_filter_tree_root = nullptr;
@@ -3104,14 +3104,14 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                                                                     validate_field_names);
                 if (filter_op.ok()) {
                     // have to ensure that dropped hits take precedence over added hits
-                    matched_dynamic_overrides.push_back(override);
+                    matched_dynamic_overrides.push_back(curation);
 
-                    if (override->remove_matched_tokens) {
+                    if (curation->remove_matched_tokens) {
                         std::vector<std::string>& tokens = query_tokens;
                         remove_matched_tokens(tokens, absorbed_tokens);
                     }
 
-                    if(!filter_by_clause.empty()) { //when only dynamic query based override is present in
+                    if(!filter_by_clause.empty()) { //when only dynamic query based curation is present in
                         if (filter_tree_root == nullptr) {
                             filter_tree_root.reset(new_filter_tree_root);
                         } else {
@@ -3123,13 +3123,13 @@ void Index::process_filter_sort_overrides(const std::vector<const override_t*>& 
                     delete new_filter_tree_root;
                 }
 
-                if (override->stop_processing) {
+                if (curation->stop_processing) {
                     return;
                 }
 
                 match_found = true;
             } else {
-                //reset the curated sort if override is not matched
+                //reset the curated sort if curation is not matched
                 sort_by_clause.clear();
             }
         }
@@ -3462,7 +3462,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                    std::vector<std::vector<art_leaf*>>& searched_queries,
                    tsl::htrie_map<char, token_leaf>& qtoken_set,
-                   std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<std::vector<KV*>>& override_result_kvs,
+                   std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<std::vector<KV*>>& curation_result_kvs,
                    const size_t typo_tokens_threshold, const size_t group_limit,
                    const std::vector<std::string>& group_by_fields,
                    const bool group_missing_values,
@@ -4245,7 +4245,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     populate_result_kvs(topster, raw_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass, diversity,
                         sort_index, facet_index_v4);
-    populate_result_kvs(curated_topster, override_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass,
+    populate_result_kvs(curated_topster, curation_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass,
                         diversity, sort_index, facet_index_v4);
 
     std::vector<uint32_t> top_k_result_ids, top_k_curated_result_ids;
@@ -4489,7 +4489,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
               facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, collection, &reference_facet_ids);
 
     if(top_k_facets.size() >  0) {
-        get_top_k_result_ids(override_result_kvs, top_k_curated_result_ids);
+        get_top_k_result_ids(curation_result_kvs, top_k_curated_result_ids);
         do_facets(top_k_facets, facet_query, estimate_facets, facet_sample_percent,
                   facet_infos, group_limit, group_by_fields, group_missing_values, top_k_curated_result_ids.data(),
                   top_k_curated_result_ids.size(), max_facet_values, is_wildcard_no_filter_query,
@@ -7142,10 +7142,10 @@ void Index::get_distinct_id(posting_list_t::iterator_t& facet_index_it, const ui
 }
 
 void Index::get_group_by_values(std::vector<std::vector<KV *>>& result_kvs,
-                                std::vector<std::vector<KV *>>& override_result_kvs,
+                                std::vector<std::vector<KV *>>& curation_result_kvs,
                                 std::vector<group_by_field_it_t>& group_by_fields,
                                 std::vector<std::set<std::string>>& group_by_values_list) const {
-    std::vector<uint32_t> ids(result_kvs.size() + override_result_kvs.size());
+    std::vector<uint32_t> ids(result_kvs.size() + curation_result_kvs.size());
     uint32_t ids_size = 0;
     for (const auto& kvs: result_kvs) {
         if (kvs.empty()) {
@@ -7156,14 +7156,14 @@ void Index::get_group_by_values(std::vector<std::vector<KV *>>& result_kvs,
     }
     result_kvs.clear();
 
-    for (const auto& kvs: override_result_kvs) {
+    for (const auto& kvs: curation_result_kvs) {
         if (kvs.empty()) {
             continue;
         }
 
         ids[ids_size++] = kvs.front()->key;
     }
-    override_result_kvs.clear();
+    curation_result_kvs.clear();
 
     ids.resize(ids_size);
 

@@ -56,11 +56,11 @@ const CollectionSummaryResponse = z.object({
       type: z.string(),
     })
   ),
-  override_sets: z.array(z.string()).optional(),
+  curation_sets: z.array(z.string()).optional(),
 });
 
 const PatchCollectionOverrideSetsResponse = z.object({
-  override_sets: z.array(z.string()),
+  curation_sets: z.array(z.string()),
 });
 
 const initialOverrides = [
@@ -73,7 +73,7 @@ const updatedOverrides = [
 ];
 
 describe(Phases.SINGLE_FRESH, () => {
-  it("create an override set", async () => {
+  it("create an curation set", async () => {
     let res = await fetchSingleNode("/collections", {
       method: "POST",
       body: JSON.stringify({
@@ -87,7 +87,7 @@ describe(Phases.SINGLE_FRESH, () => {
     });
     expect(res.ok).toBe(true);
 
-    res = await fetchSingleNode("/override_sets/movies-core", {
+    res = await fetchSingleNode("/curation_sets/movies-core", {
       method: "PUT",
       body: JSON.stringify({ items: initialOverrides }),
     });
@@ -97,8 +97,8 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(ov.data?.items.length).toBe(2);
   });
 
-  it("list override sets", async () => {
-    const res = await fetchSingleNode("/override_sets", { method: "GET" });
+  it("list curation sets", async () => {
+    const res = await fetchSingleNode("/curation_sets", { method: "GET" });
     expect(res.ok).toBe(true);
     const list = OverrideSetListResponse.safeParse(await res.json());
     expect(list.success).toBe(true);
@@ -106,8 +106,8 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(names).toContain("movies-core");
   });
 
-  it("list override items in a set", async () => {
-    const res = await fetchSingleNode("/override_sets/movies-core/items?limit=10&offset=0", { method: "GET" });
+  it("list curation items in a set", async () => {
+    const res = await fetchSingleNode("/curation_sets/movies-core/items?limit=10&offset=0", { method: "GET" });
     expect(res.ok).toBe(true);
     const list = OverrideSetListItemResponse.safeParse(await res.json());
     expect(list.success).toBe(true);
@@ -115,40 +115,40 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(ids).toContain("ov-pin-romance");
   });
 
-  it("get an override item by id", async () => {
-    const res = await fetchSingleNode("/override_sets/movies-core/items/ov-pin-romance", { method: "GET" });
+  it("get an curation item by id", async () => {
+    const res = await fetchSingleNode("/curation_sets/movies-core/items/ov-pin-romance", { method: "GET" });
     expect(res.ok).toBe(true);
     const item = OverrideObject.safeParse(await res.json());
     expect(item.success).toBe(true);
     expect(item.data?.id).toBe("ov-pin-romance");
   });
 
-  it("upsert and delete an override item", async () => {
-    let res = await fetchSingleNode("/override_sets/movies-core/items/ov-extra", {
+  it("upsert and delete an curation item", async () => {
+    let res = await fetchSingleNode("/curation_sets/movies-core/items/ov-extra", {
       method: "PUT",
       body: JSON.stringify({ rule: { query: "extra", match: "exact" }, includes: [{ id: "1", position: 2 }] }),
     });
     expect(res.ok).toBe(true);
 
-    res = await fetchSingleNode("/override_sets/movies-core/items/ov-extra", { method: "GET" });
+    res = await fetchSingleNode("/curation_sets/movies-core/items/ov-extra", { method: "GET" });
     expect(res.ok).toBe(true);
     const item = OverrideObject.safeParse(await res.json());
     expect(item.success).toBe(true);
     expect(item.data?.id).toBe("ov-extra");
 
-    res = await fetchSingleNode("/override_sets/movies-core/items/ov-extra", { method: "DELETE" });
+    res = await fetchSingleNode("/curation_sets/movies-core/items/ov-extra", { method: "DELETE" });
     expect(res.ok).toBe(true);
   });
 
-  it("get an override set", async () => {
-    const res = await fetchSingleNode("/override_sets/movies-core", { method: "GET" });
+  it("get an curation set", async () => {
+    const res = await fetchSingleNode("/curation_sets/movies-core", { method: "GET" });
     expect(res.ok).toBe(true);
     const ov = OverrideSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
     expect(ov.data?.items.length).toBe(2);
   });
 
-  it("create a collection with override_sets", async () => {
+  it("create a collection with curation_sets", async () => {
     const res = await fetchSingleNode("/collections", {
       method: "POST",
       body: JSON.stringify({
@@ -158,34 +158,34 @@ describe(Phases.SINGLE_FRESH, () => {
           { name: "title", type: "string" },
           { name: "points", type: "int32" },
         ],
-        override_sets: ["movies-core"],
+        curation_sets: ["movies-core"],
       }),
     });
     expect(res.ok).toBe(true);
   });
 
-  it("attach override set to collection", async () => {
+  it("attach curation set to collection", async () => {
     const res = await fetchSingleNode("/collections/movies", {
       method: "PATCH",
-      body: JSON.stringify({ override_sets: ["movies-core"] }),
+      body: JSON.stringify({ curation_sets: ["movies-core"] }),
     });
     expect(res.ok).toBe(true);
     const patch = PatchCollectionOverrideSetsResponse.safeParse(await res.json());
     expect(patch.success).toBe(true);
-    expect(patch.data?.override_sets).toContain("movies-core");
+    expect(patch.data?.curation_sets).toContain("movies-core");
   });
 
-  it("get collection reflects override_sets", async () => {
+  it("get collection reflects curation_sets", async () => {
     const res = await fetchSingleNode("/collections/movies", { method: "GET" });
     expect(res.ok).toBe(true);
     const coll = CollectionSummaryResponse.safeParse(await res.json());
     expect(coll.success).toBe(true);
     expect(coll.data?.name).toBe("movies");
-    expect(coll.data?.override_sets).toContain("movies-core");
+    expect(coll.data?.curation_sets).toContain("movies-core");
   });
 
-  it("update override set contents", async () => {
-    const res = await fetchSingleNode("/override_sets/movies-core", {
+  it("update curation set contents", async () => {
+    const res = await fetchSingleNode("/curation_sets/movies-core", {
       method: "PUT",
       body: JSON.stringify({ items: updatedOverrides }),
     });
@@ -196,14 +196,14 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(updatedIds).toContain("ov-pin-thriller");
   });
 
-  it("delete a temporary override set", async () => {
-    let res = await fetchSingleNode("/override_sets/movies-temp", {
+  it("delete a temporary curation set", async () => {
+    let res = await fetchSingleNode("/curation_sets/movies-temp", {
       method: "PUT",
       body: JSON.stringify({ items: [{ id: "ov-temp", rule: { query: "temp", match: "exact" }, includes: [{ id: "1", position: 1 }] }] }),
     });
     expect(res.ok).toBe(true);
 
-    res = await fetchSingleNode("/override_sets/movies-temp", { method: "DELETE" });
+    res = await fetchSingleNode("/curation_sets/movies-temp", { method: "DELETE" });
     expect(res.ok).toBe(true);
     const del = OverrideSetDeleteResponse.safeParse(await res.json());
     expect(del.success).toBe(true);
@@ -212,8 +212,8 @@ describe(Phases.SINGLE_FRESH, () => {
 });
 
 describe(Phases.SINGLE_RESTARTED, () => {
-  it("override set and collection references persist", async () => {
-    let res = await fetchSingleNode("/override_sets/movies-core", { method: "GET" });
+  it("curation set and collection references persist", async () => {
+    let res = await fetchSingleNode("/curation_sets/movies-core", { method: "GET" });
     expect(res.ok).toBe(true);
     let ov = OverrideSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
@@ -224,13 +224,13 @@ describe(Phases.SINGLE_RESTARTED, () => {
     expect(res.ok).toBe(true);
     const coll = CollectionSummaryResponse.safeParse(await res.json());
     expect(coll.success).toBe(true);
-    expect(coll.data?.override_sets).toContain("movies-core");
+    expect(coll.data?.curation_sets).toContain("movies-core");
   });
 });
 
 describe(Phases.SINGLE_SNAPSHOT, () => {
-  it("override set and collection references persist in snapshot", async () => {
-    let res = await fetchSingleNode("/override_sets/movies-core", { method: "GET" });
+  it("curation set and collection references persist in snapshot", async () => {
+    let res = await fetchSingleNode("/curation_sets/movies-core", { method: "GET" });
     expect(res.ok).toBe(true);
     let ov = OverrideSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
@@ -239,12 +239,12 @@ describe(Phases.SINGLE_SNAPSHOT, () => {
     expect(res.ok).toBe(true);
     const coll = CollectionSummaryResponse.safeParse(await res.json());
     expect(coll.success).toBe(true);
-    expect(coll.data?.override_sets).toContain("movies-core");
+    expect(coll.data?.curation_sets).toContain("movies-core");
   });
 });
 
 describe(Phases.MULTI_FRESH, () => {
-  it("create override sets", async () => {
+  it("create curation sets", async () => {
     let res = await fetchMultiNode(1, "/collections", {
       method: "POST",
       body: JSON.stringify({
@@ -258,7 +258,7 @@ describe(Phases.MULTI_FRESH, () => {
     });
     expect(res.ok).toBe(true);
 
-    res = await fetchMultiNode(1, "/override_sets/movies-core-2", {
+    res = await fetchMultiNode(1, "/curation_sets/movies-core-2", {
       method: "PUT",
       body: JSON.stringify({ items: [{ id: "ov-x", rule: { query: "x", match: "exact" }, includes: [{ id: "1", position: 1 }] }] }),
     });
@@ -266,7 +266,7 @@ describe(Phases.MULTI_FRESH, () => {
     let ov = OverrideSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
 
-    res = await fetchMultiNode(1, "/override_sets/movies-core", {
+    res = await fetchMultiNode(1, "/curation_sets/movies-core", {
       method: "PUT",
       body: JSON.stringify({ items: [{ id: "ov-y", rule: { query: "y", match: "exact" }, includes: [{ id: "1", position: 1 }] }] }),
     });
@@ -275,8 +275,8 @@ describe(Phases.MULTI_FRESH, () => {
     expect(ov.success).toBe(true);
   });
 
-  it("list override sets", async () => {
-    const res = await fetchMultiNode(3, "/override_sets", { method: "GET" });
+  it("list curation sets", async () => {
+    const res = await fetchMultiNode(3, "/curation_sets", { method: "GET" });
     expect(res.ok).toBe(true);
     const list = OverrideSetListResponse.safeParse(await res.json());
     expect(list.success).toBe(true);
@@ -288,31 +288,31 @@ describe(Phases.MULTI_FRESH, () => {
   it("attach both sets to movies", async () => {
     const res = await fetchMultiNode(1, "/collections/movies", {
       method: "PATCH",
-      body: JSON.stringify({ override_sets: ["movies-core", "movies-core-2"] }),
+      body: JSON.stringify({ curation_sets: ["movies-core", "movies-core-2"] }),
     });
     expect(res.ok).toBe(true);
     const patch = PatchCollectionOverrideSetsResponse.safeParse(await res.json());
     expect(patch.success).toBe(true);
-    expect(patch.data?.override_sets).toContain("movies-core-2");
+    expect(patch.data?.curation_sets).toContain("movies-core-2");
   });
 
-  it("get collection reflects override_sets", async () => {
+  it("get collection reflects curation_sets", async () => {
     const res = await fetchMultiNode(2, "/collections/movies", { method: "GET" });
     expect(res.ok).toBe(true);
     const coll = CollectionSummaryResponse.safeParse(await res.json());
     expect(coll.success).toBe(true);
-    expect(coll.data?.override_sets).toContain("movies-core");
-    expect(coll.data?.override_sets).toContain("movies-core-2");
+    expect(coll.data?.curation_sets).toContain("movies-core");
+    expect(coll.data?.curation_sets).toContain("movies-core-2");
   });
 
-  it("detach and delete override set", async () => {
+  it("detach and delete curation set", async () => {
     let res = await fetchMultiNode(1, "/collections/movies", {
       method: "PATCH",
-      body: JSON.stringify({ override_sets: ["movies-core"] }),
+      body: JSON.stringify({ curation_sets: ["movies-core"] }),
     });
     expect(res.ok).toBe(true);
 
-    res = await fetchMultiNode(1, "/override_sets/movies-core-2", { method: "DELETE" });
+    res = await fetchMultiNode(1, "/curation_sets/movies-core-2", { method: "DELETE" });
     expect(res.ok).toBe(true);
     const del = OverrideSetDeleteResponse.safeParse(await res.json());
     expect(del.success).toBe(true);
@@ -321,8 +321,8 @@ describe(Phases.MULTI_FRESH, () => {
 });
 
 describe(Phases.MULTI_RESTARTED, () => {
-  it("override sets persist across nodes after restart", async () => {
-    let res = await fetchMultiNode(1, "/override_sets/movies-core", { method: "GET" });
+  it("curation sets persist across nodes after restart", async () => {
+    let res = await fetchMultiNode(1, "/curation_sets/movies-core", { method: "GET" });
     expect(res.ok).toBe(true);
     let ov = OverrideSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
@@ -331,13 +331,13 @@ describe(Phases.MULTI_RESTARTED, () => {
     expect(res.ok).toBe(true);
     const coll = CollectionSummaryResponse.safeParse(await res.json());
     expect(coll.success).toBe(true);
-    expect(coll.data?.override_sets).toContain("movies-core");
+    expect(coll.data?.curation_sets).toContain("movies-core");
   });
 });
 
 describe(Phases.MULTI_SNAPSHOT, () => {
-  it("override sets persist across nodes after snapshot", async () => {
-    let res = await fetchMultiNode(3, "/override_sets/movies-core", { method: "GET" });
+  it("curation sets persist across nodes after snapshot", async () => {
+    let res = await fetchMultiNode(3, "/curation_sets/movies-core", { method: "GET" });
     expect(res.ok).toBe(true);
     let ov = OverrideSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
@@ -346,6 +346,6 @@ describe(Phases.MULTI_SNAPSHOT, () => {
     expect(res.ok).toBe(true);
     const coll = CollectionSummaryResponse.safeParse(await res.json());
     expect(coll.success).toBe(true);
-    expect(coll.data?.override_sets).toContain("movies-core");
+    expect(coll.data?.curation_sets).toContain("movies-core");
   });
 });

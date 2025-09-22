@@ -130,7 +130,7 @@ public:
                                           const std::vector<std::string>& symbols_to_index = {},
                                           const std::vector<std::string>& token_separators = {},
                                           const bool enable_nested_fields = false, std::shared_ptr<VQModel> model = nullptr,
-                                          const nlohmann::json& metadata = {}, const std::vector<std::string>& synonym_sets = {}, const std::vector<std::string>& override_sets = {});
+                                          const nlohmann::json& metadata = {}, const std::vector<std::string>& synonym_sets = {}, const std::vector<std::string>& curation_sets = {});
 
     std::shared_ptr<Collection> get_collection(const std::string & collection_name) const;
 
@@ -204,7 +204,7 @@ public:
 
     Option<bool> update_collection_synonym_sets(const std::string& collection, const std::vector<std::string>& synonym_sets);
 
-    Option<bool> update_collection_override_sets(const std::string& collection, const std::vector<std::string>& override_sets);
+    Option<bool> update_collection_curation_sets(const std::string& collection, const std::vector<std::string>& curation_sets);
 
     Option<nlohmann::json> get_collection_alter_status() const;
 

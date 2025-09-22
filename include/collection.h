@@ -152,7 +152,7 @@ struct collection_search_args_t {
 
     static constexpr auto DROP_TOKENS_MODE = "drop_tokens_mode";
     static constexpr auto PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
-    static constexpr auto OVERRIDE_TAGS = "override_tags";
+    static constexpr auto OVERRIDE_TAGS = "curation_tags";
 
     static constexpr auto VOICE_QUERY = "voice_query";
 
@@ -246,7 +246,7 @@ struct collection_search_args_t {
     bool conversation;
     std::string conversation_model_id;
     std::string conversation_id;
-    std::string override_tags;
+    std::string curation_tags;
     std::string voice_query;
     bool enable_typos_for_numerical_tokens;
     bool enable_synonyms;
@@ -295,7 +295,7 @@ struct collection_search_args_t {
                              std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec,
                              std::string drop_tokens_mode_str, bool prioritize_num_matching_fields, bool group_missing_values,
                              bool conversation, std::string conversation_model_id, std::string conversation_id,
-                             std::string override_tags, std::string voice_query, bool enable_typos_for_numerical_tokens,
+                             std::string curation_tags, std::string voice_query, bool enable_typos_for_numerical_tokens,
                              bool enable_synonyms, bool demote_synonym_match, bool synonym_prefix, size_t synonym_num_typos, bool enable_lazy_filter,
                              bool enable_typos_for_alpha_numerical_tokens, size_t max_filter_by_candidates,
                              bool rerank_hybrid_matches, bool enable_analytics, bool validate_field_names,
@@ -328,7 +328,7 @@ struct collection_search_args_t {
             ref_include_exclude_fields_vec(std::move(ref_include_exclude_fields_vec)),
             drop_tokens_mode_str(std::move(drop_tokens_mode_str)), prioritize_num_matching_fields(prioritize_num_matching_fields), group_missing_values(group_missing_values),
             conversation(conversation), conversation_model_id(std::move(conversation_model_id)), conversation_id(std::move(conversation_id)),
-            override_tags(std::move(override_tags)), voice_query(std::move(voice_query)), enable_typos_for_numerical_tokens(enable_typos_for_numerical_tokens),
+            curation_tags(std::move(curation_tags)), voice_query(std::move(voice_query)), enable_typos_for_numerical_tokens(enable_typos_for_numerical_tokens),
             enable_synonyms(enable_synonyms), demote_synonym_match(demote_synonym_match), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos), enable_lazy_filter(enable_lazy_filter),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens), max_filter_by_candidates(max_filter_by_candidates),
             rerank_hybrid_matches(rerank_hybrid_matches), enable_analytics(enable_analytics), validate_field_names(validate_field_names),
@@ -346,7 +346,7 @@ struct collection_search_args_t {
                              const uint64_t& start_ts,
                              collection_search_args_t& args);
 
-    void override_union_global_params(union_global_params_t& global_params);
+    void curation_union_global_params(union_global_params_t& global_params);
 };
 
 class Collection: std::enable_shared_from_this<Collection> {
@@ -429,7 +429,7 @@ private:
     std::vector<char> token_separators;
 
     std::vector<std::string> synonym_sets;
-    std::vector<std::string> override_sets;
+    std::vector<std::string> curation_sets;
 
     /// "field name" -> reference_info(referenced_collection_name, referenced_field_name, is_async)
     spp::sparse_hash_map<std::string, reference_info_t> reference_fields;
@@ -510,9 +510,9 @@ private:
 
     void process_remove_field_for_embedding_fields(const field& del_field, std::vector<field>& garbage_embed_fields);
 
-    bool does_override_match(const override_t& override, std::string& query,
+    bool does_curation_match(const curation_t& curation, std::string& query,
                              std::set<uint32_t>& excluded_set,
-                             std::string& actual_query, const std::string& override_normalized_query, const string& filter_query,
+                             std::string& actual_query, const std::string& curation_normalized_query, const string& filter_query,
                              bool already_segmented,
                              const bool tags_matched,
                              const bool wildcard_tag_matched,
@@ -520,19 +520,19 @@ private:
                              const std::vector<std::string>& hidden_hits,
                              std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                              std::vector<uint32_t>& excluded_ids,
-                             std::vector<const override_t*>& filter_overrides,
+                             std::vector<const curation_t*>& filter_overrides,
                              bool& filter_curated_hits,
                              std::string& curated_sort_by,
-                             nlohmann::json& override_metadata) const;
+                             nlohmann::json& curation_metadata) const;
 
     Option<bool> curate_results(std::string& actual_query, const std::string& filter_query, bool enable_overrides, bool already_segmented,
                         const std::set<std::string>& tags,
                         const std::map<size_t, std::vector<std::string>>& pinned_hits,
                         const std::vector<std::string>& hidden_hits,
                         std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
-                        std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides,
+                        std::vector<uint32_t>& excluded_ids, std::vector<const curation_t*>& filter_overrides,
                         bool& filter_curated_hits,
-                        std::string& curated_sort_by, nlohmann::json& override_metadata,
+                        std::string& curated_sort_by, nlohmann::json& curation_metadata,
                         diversity_t& diversity) const;
 
     static Option<bool> detect_new_fields(nlohmann::json& document,
@@ -609,13 +609,13 @@ private:
                                         std::vector<field>& update_fields,
                                         std::string& fallback_field_type);
 
-    void process_filter_sort_overrides(std::vector<const override_t*>& filter_overrides,
+    void process_filter_sort_overrides(std::vector<const curation_t*>& filter_overrides,
                                   std::vector<std::string>& q_include_tokens,
                                   token_ordering token_order,
                                   std::unique_ptr<filter_node_t>& filter_tree_root,
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                   std::vector<uint32_t>& excluded_ids,
-                                  nlohmann::json& override_metadata,
+                                  nlohmann::json& curation_metadata,
                                   std::string& sort_by_clause,
                                   bool enable_typos_for_numerical_tokens=true,
                                   bool enable_typos_for_alpha_numerical_tokens=true,
@@ -678,7 +678,7 @@ private:
                                                   std::vector<facet>& facets,
                                                   size_t& per_page,
                                                   std::string& transcribed_query,
-                                                  nlohmann::json& override_metadata,
+                                                  nlohmann::json& curation_metadata,
                                                   const bool& is_union_search,
                                                   const uint32_t& union_search_index) const;
 
@@ -694,7 +694,7 @@ private:
                                         std::vector<facet>& facets,
                                         size_t& per_page,
                                         std::string& transcribed_query,
-                                        nlohmann::json& override_metadata,
+                                        nlohmann::json& curation_metadata,
                                         const bool& is_union_search,
                                         const uint32_t& union_search_index) const;
 
@@ -723,7 +723,7 @@ public:
     static constexpr const char* COLLECTION_FALLBACK_FIELD_TYPE = "fallback_field_type";
     static constexpr const char* COLLECTION_ENABLE_NESTED_FIELDS = "enable_nested_fields";
     static constexpr const char* COLLECTION_SYNONYM_SETS = "synonym_sets";
-    static constexpr const char* COLLECTION_OVERRIDE_SETS = "override_sets";
+    static constexpr const char* COLLECTION_curation_sets = "curation_sets";
 
     static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
@@ -745,7 +745,7 @@ public:
                const nlohmann::json& metadata = {},
                spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins =
                         spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
-               const std::vector<std::string>& collection_synonym_sets = {}, const std::vector<std::string>& collection_override_sets = {});
+               const std::vector<std::string>& collection_synonym_sets = {}, const std::vector<std::string>& collection_curation_sets = {});
 
     ~Collection();
 
@@ -789,12 +789,12 @@ public:
     std::string get_default_sorting_field();
 
     std::vector<std::string> get_synonym_sets() const;
-    std::vector<std::string> get_override_sets() const;
+    std::vector<std::string> get_curation_sets() const;
 
     void update_metadata(const nlohmann::json& meta);
 
     void update_synonym_sets(const std::vector<std::string>& synonym_sets);
-    void update_override_sets(const std::vector<std::string>& override_sets);
+    void update_curation_sets(const std::vector<std::string>& curation_sets);
 
     Option<bool> update_apikey(const nlohmann::json& model_config, const std::string& field_name);
 
@@ -850,8 +850,8 @@ public:
                             std::vector<std::vector<std::string>>& q_exclude_tokens,
                             std::vector<std::vector<std::string>>& q_phrases,
                             const std::string& locale, const bool already_segmented, const std::string& stopword_set="", std::shared_ptr<Stemmer> stemmer = nullptr,
-                            const std::vector<char>& override_symbols_to_index = std::vector<char>(),
-                            const std::vector<char>& override_token_separators = std::vector<char>()) const;
+                            const std::vector<char>& curation_symbols_to_index = std::vector<char>(),
+                            const std::vector<char>& curation_token_separators = std::vector<char>()) const;
     
     void process_tokens(std::vector<std::string>& tokens, std::vector<std::string>& q_include_tokens,
                        std::vector<std::vector<std::string>>& q_exclude_tokens,
@@ -952,7 +952,7 @@ public:
                                   const bool conversation = false,
                                   const std::string& conversation_model_id = "",
                                   std::string conversation_id = "",
-                                  const std::string& override_tags_str = "",
+                                  const std::string& curation_tags_str = "",
                                   const std::string& voice_query = "",
                                   bool enable_typos_for_numerical_tokens = true,
                                   bool enable_synonyms = true,
@@ -1054,7 +1054,7 @@ public:
     Option<bool> process_ref_include_fields_sort(const std::string& sort_by_str, size_t limit, std::vector<uint32_t>& doc_ids);
 
     Option<bool> set_synonym_sets(const std::vector<std::string>& synonym_sets);
-    Option<bool> set_override_sets(const std::vector<std::string>& override_sets);
+    Option<bool> set_curation_sets(const std::vector<std::string>& curation_sets);
     
     void synonym_reduction(const std::vector<std::string>& tokens,
                            const std::string& locale,

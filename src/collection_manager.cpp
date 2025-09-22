@@ -13,7 +13,7 @@
 #include "field.h"
 #include "core_api_utils.h"
 #include "synonym_index_manager.h"
-#include "override_index_manager.h"
+#include "curation_index_manager.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -230,7 +230,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     }
 
     std::vector<std::string> synonym_sets;
-    std::vector<std::string> override_sets;
+    std::vector<std::string> curation_sets;
     if (collection_meta.count(Collection::COLLECTION_SYNONYM_SETS) != 0) {
         if (!collection_meta[Collection::COLLECTION_SYNONYM_SETS].is_array()) {
             LOG(ERROR) << "Parameter `synonym_sets` must be an array.";
@@ -239,11 +239,11 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         }
     }
 
-    if (collection_meta.count(Collection::COLLECTION_OVERRIDE_SETS) != 0) {
-        if (!collection_meta[Collection::COLLECTION_OVERRIDE_SETS].is_array()) {
-            LOG(ERROR) << "Parameter `override_sets` must be an array.";
+    if (collection_meta.count(Collection::COLLECTION_curation_sets) != 0) {
+        if (!collection_meta[Collection::COLLECTION_curation_sets].is_array()) {
+            LOG(ERROR) << "Parameter `curation_sets` must be an array.";
         } else {
-            override_sets = collection_meta[Collection::COLLECTION_OVERRIDE_SETS].get<std::vector<std::string>>();
+            curation_sets = collection_meta[Collection::COLLECTION_curation_sets].get<std::vector<std::string>>();
         }
     }
 
@@ -263,7 +263,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             metadata,
                                             async_referenced_ins,
                                             synonym_sets,
-                                            override_sets);
+                                            curation_sets);
 
     for (const auto& ref_field: collection->get_reference_fields()) {
         const auto& ref_info = ref_field.second;
@@ -687,7 +687,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const bool enable_nested_fields, std::shared_ptr<VQModel> model,
                                                          const nlohmann::json& metadata,
                                                          const std::vector<std::string>& synonym_sets,
-                                                         const std::vector<std::string>& override_sets) {
+                                                         const std::vector<std::string>& curation_sets) {
     std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -725,7 +725,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
     collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS] = enable_nested_fields;
     collection_meta[Collection::COLLECTION_SYNONYM_SETS] = synonym_sets;
-    collection_meta[Collection::COLLECTION_OVERRIDE_SETS] = override_sets;
+    collection_meta[Collection::COLLECTION_curation_sets] = curation_sets;
 
     if(model != nullptr) {
         collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL] = nlohmann::json::object();
@@ -755,7 +755,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                 enable_nested_fields, model,
                                                 spp::sparse_hash_map<std::string, std::string>(),
                                                 metadata,
-                                                spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(), synonym_sets, override_sets);
+                                                spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(), synonym_sets, curation_sets);
 
     add_to_collections(new_collection);
     lock.lock();
@@ -1585,7 +1585,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
             group_by_args_count++;
         }
 
-        args.override_union_global_params(union_params);
+        args.curation_union_global_params(union_params);
         coll_searches.emplace_back(std::move(args));
         collection_ids.emplace_back(collection->get_collection_id());
     }
@@ -1667,7 +1667,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
     const char* METADATA = "metadata";
     const char* SYNONYM_SETS = "synonym_sets";
-    const char* OVERRIDE_SETS = "override_sets";
+    const char* curation_sets = "curation_sets";
 
     // validate presence of mandatory fields
 
@@ -1696,8 +1696,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         req_json[SYNONYM_SETS] = nlohmann::json::array();
     }
 
-    if(req_json.count(OVERRIDE_SETS) == 0) {
-        req_json[OVERRIDE_SETS] = nlohmann::json::array();
+    if(req_json.count(curation_sets) == 0) {
+        req_json[curation_sets] = nlohmann::json::array();
     }
 
     if(req_json.count(ENABLE_NESTED_FIELDS) == 0) {
@@ -1737,8 +1737,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         return Option<Collection*>(400, std::string("`") + SYNONYM_SETS + "` should be an array of synonym sets.");
     }
 
-    if(!req_json[OVERRIDE_SETS].is_array()) {
-        return Option<Collection*>(400, std::string("`") + OVERRIDE_SETS + "` should be an array of override sets.");
+    if(!req_json[curation_sets].is_array()) {
+        return Option<Collection*>(400, std::string("`") + curation_sets + "` should be an array of curation sets.");
     }
 
     for (const auto& synonym_set_name : req_json[SYNONYM_SETS]) {
@@ -1752,14 +1752,14 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         }
     }
 
-    for (const auto& override_set_name : req_json[OVERRIDE_SETS]) {
-        if (!override_set_name.is_string() || override_set_name.get<std::string>().empty()) {
-            return Option<Collection*>(400, std::string("`") + OVERRIDE_SETS + "` should be an array of non-empty strings.");
+    for (const auto& curation_set_name : req_json[curation_sets]) {
+        if (!curation_set_name.is_string() || curation_set_name.get<std::string>().empty()) {
+            return Option<Collection*>(400, std::string("`") + curation_sets + "` should be an array of non-empty strings.");
         }
-        OverrideIndexManager& override_index_manager = OverrideIndexManager::get_instance();
-        auto get_op = override_index_manager.get_override_index(override_set_name.get<std::string>());
+        CurationIndexManager& curation_index_manager = CurationIndexManager::get_instance();
+        auto get_op = curation_index_manager.get_curation_index(curation_set_name.get<std::string>());
         if (!get_op.ok()) {
-            return Option<Collection*>(404, "Override set `" + override_set_name.get<std::string>() + "` not found.");
+            return Option<Collection*>(404, "Curation set `" + curation_set_name.get<std::string>() + "` not found.");
         }
     }
 
@@ -1845,7 +1845,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                                                                 req_json[SYMBOLS_TO_INDEX],
                                                                 req_json[TOKEN_SEPARATORS],
                                                                 req_json[ENABLE_NESTED_FIELDS],
-                                                                model, req_json[METADATA], req_json[SYNONYM_SETS], req_json[OVERRIDE_SETS]);
+                                                                model, req_json[METADATA], req_json[SYNONYM_SETS], req_json[curation_sets]);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
@@ -1947,44 +1947,44 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
     }
 
-    // migrate overrides if exists
+    // migrate curations if exists
     const std::string& ov_lower_bound_key =
-                std::string(OverrideIndex::OLD_COLLECTION_OVERRIDE_PREFIX) + "_" + this_collection_name + "_";
-    std::string ov_upper_bound_key = std::string(OverrideIndex::OLD_COLLECTION_OVERRIDE_PREFIX) + "_" +
+                std::string(CurationIndex::OLD_COLLECTION_OVERRIDE_PREFIX) + "_" + this_collection_name + "_";
+    std::string ov_upper_bound_key = std::string(CurationIndex::OLD_COLLECTION_OVERRIDE_PREFIX) + "_" +
                                       this_collection_name + "`";  // cannot inline this
-    std::vector<std::string> collection_override_jsons;
-    cm.store->scan_fill(ov_lower_bound_key, ov_upper_bound_key, collection_override_jsons);
-    if(!collection_override_jsons.empty()) {
-        OverrideIndexManager& override_index_manager = OverrideIndexManager::get_instance();
-        // Create a new OverrideIndex for the collection
-        auto get_op = override_index_manager.get_override_index(this_collection_name + "_overrides_index");
+    std::vector<std::string> collection_curation_jsons;
+    cm.store->scan_fill(ov_lower_bound_key, ov_upper_bound_key, collection_curation_jsons);
+    if(!collection_curation_jsons.empty()) {
+        CurationIndexManager& curation_index_manager = CurationIndexManager::get_instance();
+        // Create a new CurationIndex for the collection
+        auto get_op = curation_index_manager.get_curation_index(this_collection_name + "_overrides_index");
         if(get_op.ok()) {
-            LOG(INFO) << "Override index already exists for collection " << this_collection_name
+            LOG(INFO) << "Curation index already exists for collection " << this_collection_name
                        << ", skipping migration";
         } else {
-          auto override_index_op = override_index_manager.add_override_index(this_collection_name + "_overrides_index");
-          if(!override_index_op.ok()) {
-              LOG(ERROR) << "Error while creating override index for collection " << this_collection_name
-                        << ": " << override_index_op.error();
-              return Option<bool>(override_index_op.code(), override_index_op.error());
+          auto curation_index_op = curation_index_manager.add_curation_index(this_collection_name + "_overrides_index");
+          if(!curation_index_op.ok()) {
+              LOG(ERROR) << "Error while creating curation index for collection " << this_collection_name
+                        << ": " << curation_index_op.error();
+              return Option<bool>(curation_index_op.code(), curation_index_op.error());
           }
-          OverrideIndex* override_index = override_index_op.get();
-          for(const auto & collection_override_json: collection_override_jsons) {
-              nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
-              override_t override;
-              std::string override_id = collection_override.value("id", std::string{});
-              auto parse_op = override_t::parse(collection_override, override_id, override);
+          CurationIndex* curation_index = curation_index_op.get();
+          for(const auto & collection_curation_json: collection_curation_jsons) {
+              nlohmann::json collection_override = nlohmann::json::parse(collection_curation_json);
+              curation_t curation;
+              std::string curation_id = collection_override.value("id", std::string{});
+              auto parse_op = curation_t::parse(collection_override, curation_id, curation);
               if(!parse_op.ok()) {
-                  LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
+                  LOG(ERROR) << "Skipping loading of curation: " << parse_op.error();
                   continue;
               }
-              auto add_op = override_index->add_override(override, true);
+              auto add_op = curation_index->add_override(curation, true);
               if(!add_op.ok()) {
-                  LOG(ERROR) << "Error while adding override: " << add_op.error();
+                  LOG(ERROR) << "Error while adding curation: " << add_op.error();
               }
           }
-          collection->set_override_sets({this_collection_name + "_overrides_index"});
-          LOG(INFO) << "Migrated overrides for collection " << this_collection_name;
+          collection->set_curation_sets({this_collection_name + "_overrides_index"});
+          LOG(INFO) << "Migrated curations for collection " << this_collection_name;
         }
     }
 
@@ -2164,7 +2164,7 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
                               existing_coll->get_default_sorting_field(), static_cast<uint64_t>(std::time(nullptr)),
                               existing_coll->get_fallback_field_type(), symbols_to_index, token_separators,
                               existing_coll->get_enable_nested_fields(), existing_coll->get_vq_model(),
-                              {}, existing_coll->get_synonym_sets(), existing_coll->get_override_sets());
+                              {}, existing_coll->get_synonym_sets(), existing_coll->get_curation_sets());
 
     lock.lock();
 
@@ -2436,22 +2436,22 @@ Option<bool> CollectionManager::update_collection_synonym_sets(const std::string
     return Option<bool>(400, "failed to insert into store.");
 }
 
-Option<bool> CollectionManager::update_collection_override_sets(const std::string& collection, 
-                                                                const std::vector<std::string>& override_sets) {
+Option<bool> CollectionManager::update_collection_curation_sets(const std::string& collection, 
+                                                                const std::vector<std::string>& curation_sets) {
     auto collection_ptr = get_collection(collection);
     if (collection_ptr == nullptr) {
         return Option<bool>(400, "failed to get collection.");
     }
 
-    auto& override_index_manager = OverrideIndexManager::get_instance();
-    for (const auto& override_set_name : override_sets) {
-        auto get_op = override_index_manager.get_override_index(override_set_name);
+    auto& curation_index_manager = CurationIndexManager::get_instance();
+    for (const auto& curation_set_name : curation_sets) {
+        auto get_op = curation_index_manager.get_curation_index(curation_set_name);
         if (!get_op.ok()) {
-            return Option<bool>(404, "Override set `" + override_set_name + "` not found.");
+            return Option<bool>(404, "Curation set `" + curation_set_name + "` not found.");
         }
     }
 
-    collection_ptr->update_override_sets(override_sets);
+    collection_ptr->update_curation_sets(curation_sets);
 
     std::string collection_meta_str;
 
@@ -2460,7 +2460,7 @@ Option<bool> CollectionManager::update_collection_override_sets(const std::strin
 
     auto collection_meta_json = nlohmann::json::parse(collection_meta_str);
 
-    collection_meta_json[Collection::COLLECTION_OVERRIDE_SETS] = override_sets;
+    collection_meta_json[Collection::COLLECTION_curation_sets] = curation_sets;
 
     if(store->insert(collection_metakey, collection_meta_json.dump())) {
         return Option<bool>(true);

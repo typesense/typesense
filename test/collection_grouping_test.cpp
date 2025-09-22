@@ -6,7 +6,7 @@
 #include <collection_manager.h>
 #include "collection.h"
 #include "tsconfig.h"
-#include "override_index_manager.h"
+#include "curation_index_manager.h"
 
 class CollectionGroupingTest : public ::testing::Test {
 protected:
@@ -370,7 +370,7 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
 }
 
 TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {
-    auto& ov_manager = OverrideIndexManager::get_instance();
+    auto& ov_manager = CurationIndexManager::get_instance();
     auto res = coll_group->search("*", {}, "", {"brand"}, {}, {0}, 50, 1, FREQUENCY,
                                   {false}, Index::DROP_TOKENS_THRESHOLD,
                                   spp::sparse_hash_set<std::string>(),
@@ -411,55 +411,55 @@ TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {
 }
 
 TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
-    auto& ov_manager = OverrideIndexManager::get_instance();
+    auto& ov_manager = CurationIndexManager::get_instance();
     ov_manager.init_store(store);
 
-    OverrideIndex override_index1(store, "index");
-    ov_manager.add_override_index("index", std::move(override_index1));
-    coll_group->set_override_sets({"index"});
+    CurationIndex curation_index1(store, "index");
+    ov_manager.add_curation_index("index", std::move(curation_index1));
+    coll_group->set_curation_sets({"index"});
 
-    nlohmann::json override_json_include = {
+    nlohmann::json curation_json_include = {
         {"id", "include-rule"},
         {
             "rule", {
                {"query", "shirt"},
-               {"match", override_t::MATCH_EXACT}
+               {"match", curation_t::MATCH_EXACT}
             }
         },
         {"stop_processing", false}
     };
 
-    override_json_include["includes"] = nlohmann::json::array();
-    override_json_include["includes"][0] = nlohmann::json::object();
-    override_json_include["includes"][0]["id"] = "11";
-    override_json_include["includes"][0]["position"] = 1;
+    curation_json_include["includes"] = nlohmann::json::array();
+    curation_json_include["includes"][0] = nlohmann::json::object();
+    curation_json_include["includes"][0]["id"] = "11";
+    curation_json_include["includes"][0]["position"] = 1;
 
-    override_json_include["includes"][1] = nlohmann::json::object();
-    override_json_include["includes"][1]["id"] = "10";
-    override_json_include["includes"][1]["position"] = 1;
+    curation_json_include["includes"][1] = nlohmann::json::object();
+    curation_json_include["includes"][1]["id"] = "10";
+    curation_json_include["includes"][1]["position"] = 1;
 
-    nlohmann::json override_json_exclude = {
+    nlohmann::json curation_json_exclude = {
         {"id",   "exclude-rule"},
         {
             "rule", {
                  {"query", "shirt"},
-                 {"match", override_t::MATCH_EXACT}
+                 {"match", curation_t::MATCH_EXACT}
             }
         },
         {"stop_processing", false}
     };
-    override_json_exclude["excludes"] = nlohmann::json::array();
-    override_json_exclude["excludes"][0] = nlohmann::json::object();
-    override_json_exclude["excludes"][0]["id"] = "2";
+    curation_json_exclude["excludes"] = nlohmann::json::array();
+    curation_json_exclude["excludes"][0] = nlohmann::json::object();
+    curation_json_exclude["excludes"][0]["id"] = "2";
 
-    override_t override1;
-    override_t override2;
+    curation_t override1;
+    curation_t override2;
 
-    override_t::parse(override_json_include, "", override1);
-    override_t::parse(override_json_exclude, "", override2);
+    curation_t::parse(curation_json_include, "", override1);
+    curation_t::parse(curation_json_exclude, "", override2);
 
-    auto ov1_op = ov_manager.upsert_override_item("index", override_json_include);
-    auto ov2_op = ov_manager.upsert_override_item("index", override_json_exclude);
+    auto ov1_op = ov_manager.upsert_curation_item("index", curation_json_include);
+    auto ov2_op = ov_manager.upsert_curation_item("index", curation_json_exclude);
 
     std::cout << ov1_op.error() << std::endl;
     ASSERT_TRUE(ov1_op.ok());
