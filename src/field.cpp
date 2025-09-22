@@ -63,6 +63,9 @@ void field::add_default_json_values(nlohmann::json& json) {
     if (json.count(fields::embed) == 0) {
         json[fields::embed] = nlohmann::json();
     }
+    if (json.count(fields::model_config) == 0) {
+        json[fields::model_config] = nlohmann::json::object();
+    }
     if (json.count(fields::range_index) == 0) {
         json[fields::range_index] = false;
     }

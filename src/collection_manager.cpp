@@ -21,138 +21,22 @@ CollectionManager::CollectionManager() {
 
 }
 
-Collection* CollectionManager::init_collection(const nlohmann::json & collection_meta,
-                                               const uint32_t collection_next_seq_id,
-                                               Store* store,
-                                               float max_memory_ratio,
-                                               const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos) {
+Option<Collection*> CollectionManager::init_collection(const nlohmann::json & collection_meta,
+                                                       const uint32_t collection_next_seq_id,
+                                                       Store* store,
+                                                       float max_memory_ratio,
+                                                       const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos) {
     std::string this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
+    bool enable_nested_fields = collection_meta.count(Collection::COLLECTION_ENABLE_NESTED_FIELDS) != 0 ?
+                                collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS].get<bool>() :
+                                false;
     std::vector<field> fields;
     nlohmann::json fields_map = collection_meta[Collection::COLLECTION_SEARCH_FIELDS_KEY];
-
-    for (nlohmann::json::iterator it = fields_map.begin(); it != fields_map.end(); ++it) {
-        nlohmann::json & field_obj = it.value();
-
-        // handle older records indexed before optional field introduction
-        if(field_obj.count(fields::optional) == 0) {
-            field_obj[fields::optional] = false;
-        }
-
-        if(field_obj.count(fields::index) == 0) {
-            field_obj[fields::index] = true;
-        }
-
-        if(field_obj.count(fields::locale) == 0) {
-            field_obj[fields::locale] = "";
-        }
-
-        if(field_obj.count(fields::infix) == 0) {
-            field_obj[fields::infix] = -1;
-        }
-
-        if(field_obj.count(fields::nested) == 0) {
-            field_obj[fields::nested] = false;
-        }
-
-        if(field_obj.count(fields::nested_array) == 0) {
-            field_obj[fields::nested_array] = 0;
-        }
-
-        if(field_obj.count(fields::num_dim) == 0) {
-            field_obj[fields::num_dim] = 0;
-        }
-
-        if (field_obj.count(fields::reference) == 0) {
-            field_obj[fields::reference] = "";
-        }
-
-        if (field_obj.count(fields::async_reference) == 0) {
-            field_obj[fields::async_reference] = false;
-        }
-
-        if(field_obj.count(fields::embed) == 0) {
-            field_obj[fields::embed] = nlohmann::json::object();
-        }
-
-        if(field_obj.count(fields::model_config) == 0) {
-            field_obj[fields::model_config] = nlohmann::json::object();
-        }
-
-        if(field_obj.count(fields::hnsw_params) == 0) {
-            field_obj[fields::hnsw_params] = nlohmann::json::object();
-            field_obj[fields::hnsw_params]["ef_construction"] = 200;
-            field_obj[fields::hnsw_params]["M"] = 16;
-        }
-
-        if(field_obj.count(fields::stem) == 0) {
-            field_obj[fields::stem] = false;
-        }
-
-        if(field_obj.count(fields::stem_dictionary) == 0) {
-            field_obj[fields::stem_dictionary] = "";
-        }
-
-        if(field_obj.count(fields::range_index) == 0) {
-            field_obj[fields::range_index] = false;
-        }
-
-        if(field_obj.count(fields::store) == 0) {
-            field_obj[fields::store] = true;
-        }
-
-        if(field_obj.count(fields::token_separators) == 0) {
-            field_obj[fields::token_separators] = nlohmann::json::array();
-        }
-
-        if(field_obj.count(fields::symbols_to_index) == 0) {
-            field_obj[fields::symbols_to_index] = nlohmann::json::array();
-        }
-
-        vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
-
-        if(field_obj.count(fields::vec_dist) != 0 && field_obj[fields::vec_dist].is_string()) {
-            auto val = field_obj[fields::vec_dist].get<std::string>();
-            StringUtils::tolowercase(val);
-            auto vec_dist_type_op = magic_enum::enum_cast<vector_distance_type_t>(val);
-            if(vec_dist_type_op.has_value()) {
-                vec_dist_type = vec_dist_type_op.value();
-            }
-        }
-
-        if(field_obj.count(fields::embed) != 0 && !field_obj[fields::embed].empty()) {
-            size_t num_dim = field_obj[fields::num_dim];
-            auto& model_config = field_obj[fields::embed][fields::model_config];
-
-            auto res = EmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
-            if(!res.ok()) {
-                const std::string& model_name = model_config["model_name"].get<std::string>();
-                LOG(ERROR) << "Error initializing model: " << model_name << ", error: " << res.error();
-                continue;
-            }
-
-            if(field_obj[fields::num_dim] == 0) {
-                field_obj[fields::num_dim] = num_dim;
-            }
-
-            LOG(INFO) << "Model init done.";
-        }
-
-        field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
-                field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
-                -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
-                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed],
-                field_obj[fields::range_index], field_obj[fields::store], field_obj[fields::stem], field_obj[fields::stem_dictionary],
-                field_obj[fields::hnsw_params], field_obj[fields::async_reference], field_obj[fields::token_separators], field_obj[fields::symbols_to_index]);
-
-        // value of `sort` depends on field type
-        if(field_obj.count(fields::sort) == 0) {
-            f.sort = f.is_num_sort_field();
-        } else {
-            f.sort = field_obj[fields::sort];
-        }
-
-        fields.push_back(f);
+    std::string temp;
+    auto parse_op = field::json_fields_to_fields(enable_nested_fields, fields_map, temp, fields, this_collection_name);
+    if (!parse_op.ok()) {
+        return Option<Collection*>(parse_op.code(), parse_op.error());
     }
 
     std::string default_sorting_field = collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();
@@ -167,10 +51,6 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     std::string fallback_field_type = collection_meta.count(Collection::COLLECTION_FALLBACK_FIELD_TYPE) != 0 ?
                               collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE].get<std::string>() :
                               "";
-
-    bool enable_nested_fields = collection_meta.count(Collection::COLLECTION_ENABLE_NESTED_FIELDS) != 0 ?
-                                 collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS].get<bool>() :
-                                 false;
 
     std::vector<std::string> symbols_to_index;
     std::vector<std::string> token_separators;
@@ -278,7 +158,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         }
         collection->update_reference_field_with_lock(ref_field.first, it->second.referenced_field);
     }
-    return collection;
+
+    return Option<Collection*>(collection);
 }
 
 void CollectionManager::add_to_collections(Collection* collection) {
@@ -1898,7 +1779,11 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
     }
 
-    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f, referenced_infos);
+    auto op = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f, referenced_infos);
+    if (!op.ok()) {
+        return Option<bool>(op.code(), op.error());
+    }
+    Collection* collection = op.get();
 
     LOG(INFO) << "Loading collection " << collection->get_name();
 
