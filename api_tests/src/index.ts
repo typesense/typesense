@@ -97,7 +97,7 @@ export class TypesenseTestRunner {
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_FRESH} ===\n`);
     const pattern = this.getTestNamePattern(Phases.SINGLE_FRESH, filters);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "curation_sets.test.ts", "--test-name-pattern", pattern, "--timeout", "100000"],
+      cmd: ["bun", "test", "--test-name-pattern", pattern, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -112,7 +112,7 @@ export class TypesenseTestRunner {
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_RESTARTED} ===\n`);
     const pattern = this.getTestNamePattern(Phases.SINGLE_RESTARTED, filters);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "curation_sets.test.ts", "--test-name-pattern", pattern, "--timeout", "100000"],
+      cmd: ["bun", "test", "--test-name-pattern", pattern, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -128,7 +128,7 @@ export class TypesenseTestRunner {
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_SNAPSHOT} ===\n`);
     const pattern = this.getTestNamePattern(Phases.SINGLE_SNAPSHOT, filters);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "curation_sets.test.ts", "--test-name-pattern", pattern, "--timeout", "100000"],
+      cmd: ["bun", "test", "--test-name-pattern", pattern, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -143,7 +143,7 @@ export class TypesenseTestRunner {
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_FRESH} ===\n`);
     const pattern = this.getTestNamePattern(Phases.MULTI_FRESH, filters);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "curation_sets.test.ts", "--test-name-pattern", pattern, "--timeout", "100000"],
+      cmd: ["bun", "test", "--test-name-pattern", pattern, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -158,7 +158,7 @@ export class TypesenseTestRunner {
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_RESTARTED} ===\n`);
     const pattern = this.getTestNamePattern(Phases.MULTI_RESTARTED, filters);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "curation_sets.test.ts", "--test-name-pattern", pattern, "--timeout", "100000"],
+      cmd: ["bun", "test", "--test-name-pattern", pattern, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -174,7 +174,7 @@ export class TypesenseTestRunner {
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_SNAPSHOT} ===\n`);
     const pattern = this.getTestNamePattern(Phases.MULTI_SNAPSHOT, filters);
     const proc = Bun.spawnSync({
-      cmd: ["bun", "test", "curation_sets.test.ts", "--test-name-pattern", pattern, "--timeout", "100000"],
+      cmd: ["bun", "test", "--test-name-pattern", pattern, "--timeout", "100000"],
       stderr: "inherit",
       stdout: "inherit",
     });
