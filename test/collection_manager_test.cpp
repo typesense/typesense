@@ -286,6 +286,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
             },
             {
               "async_reference":true,
+              "cascade_delete":true,
               "facet":false,
               "index":true,
               "infix":false,
