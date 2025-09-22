@@ -18,8 +18,7 @@ protected:
     }
 
     virtual void TearDown() {
-        mgr.remove_override_index("testset");
-        mgr.remove_override_index("testset2");
+        mgr.dispose();
         delete store;
     }
 };
