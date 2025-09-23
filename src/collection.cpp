@@ -878,7 +878,7 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
                                      const std::vector<std::string>& hidden_hits,
                                      std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                      std::vector<uint32_t>& excluded_ids,
-                                     std::vector<const curation_t*>& filter_sort_overrides,
+                                     std::vector<const curation_t*>& filter_sort_curations,
                                      bool& filter_curated_hits,
                                      std::string& curated_sort_by,
                                      nlohmann::json& curation_metadata) const {
@@ -899,7 +899,7 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
 
     // ID-based curations are applied first as they take precedence over filter-based curations
     if(!curation.filter_by.empty() || !curation.sort_by.empty()) {
-        filter_sort_overrides.push_back(&curation);
+        filter_sort_curations.push_back(&curation);
     }
 
     if((wildcard_tag_matched || tags_matched) && curation.rule.query.empty() && curation.rule.filter_by.empty()) {
@@ -965,13 +965,13 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
 }
 
 Option<bool> Collection::curate_results(string& actual_query, const string& filter_query,
-                                bool enable_overrides, bool already_segmented,
+                                bool enable_curations, bool already_segmented,
                                 const std::set<std::string>& tags,
                                 const std::map<size_t, std::vector<std::string>>& pinned_hits,
                                 const std::vector<std::string>& hidden_hits,
                                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                 std::vector<uint32_t>& excluded_ids,
-                                std::vector<const curation_t*>& filter_sort_overrides,
+                                std::vector<const curation_t*>& filter_sort_curations,
                                 bool& filter_curated_hits,
                                 std::string& curated_sort_by,
                                 nlohmann::json& curation_metadata,
@@ -992,9 +992,9 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
         }
     }
 
-    if(enable_overrides) {
+    if(enable_curations) {
         // Build curations list from curation sets only
-        std::vector<const curation_t*> curation_set_overrides;
+        std::vector<const curation_t*> curation_set_curations;
         std::shared_lock s_lock(mutex);
         const auto local_curation_sets = curation_sets;
         for(const auto& set_name : local_curation_sets) {
@@ -1002,14 +1002,14 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
             if(!get_index_op.ok()) { 
               continue; 
             }
-            auto list_op = get_index_op.get()->get_overrides(0, 0);
+            auto list_op = get_index_op.get()->get_curations(0, 0);
             if(!list_op.ok()) { 
               continue; 
             }
             for(const auto& kv : list_op.get()) { 
               // compute normalize query
               auto& curation = kv.second;
-              curation_set_overrides.push_back(kv.second); 
+              curation_set_curations.push_back(kv.second); 
             }
         }
         s_lock.unlock();
@@ -1043,7 +1043,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
           return query_normalized;
         };
 
-        if(!curation_set_overrides.empty()) {
+        if(!curation_set_curations.empty()) {
           std::string query;
 
           if(actual_query == "*") {
@@ -1059,14 +1059,14 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
               bool all_tags_found = false;
               if(tags.size() > 1) {
                   // exact AND match only when multiple tags are sent
-                  for(const auto* ov : curation_set_overrides) {
+                  for(const auto* ov : curation_set_curations) {
                       if(ov->rule.tags == tags) {
                           auto normalized_curation_query = compute_normalized_query(ov->rule.query);
                           bool match_found = does_curation_match(*ov, query, excluded_set, actual_query,
                                                                 normalized_curation_query,
                                                                 filter_query, already_segmented, true, false,
                                                                 pinned_hits, hidden_hits, included_ids,
-                                                                excluded_ids, filter_sort_overrides, filter_curated_hits,
+                                                                excluded_ids, filter_sort_curations, filter_curated_hits,
                                                                 curated_sort_by, curation_metadata);
                           if(match_found) {
                               all_tags_found = true;
@@ -1078,7 +1078,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
 
               if(!all_tags_found) {
                   // partial tag matches: any overlap
-                  for(const auto* ov : curation_set_overrides) {
+                  for(const auto* ov : curation_set_curations) {
                       std::set<std::string> matching_tags;
                       std::set_intersection(ov->rule.tags.begin(), ov->rule.tags.end(),
                                             tags.begin(), tags.end(),
@@ -1089,7 +1089,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                             normalized_curation_query,
                                                             filter_query, already_segmented, true, false,
                                                             pinned_hits, hidden_hits, included_ids,
-                                                            excluded_ids, filter_sort_overrides, filter_curated_hits,
+                                                            excluded_ids, filter_sort_curations, filter_curated_hits,
                                                             curated_sort_by, curation_metadata);
                       if(match_found) {
                         if (!ov->diversity.similarity_equation.empty()) {
@@ -1113,13 +1113,13 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
               }
           } else {
               // no curation tags given
-              for(const auto* ov : curation_set_overrides) {
+              for(const auto* ov : curation_set_curations) {
                   bool wildcard_tag = ov->rule.tags.size() == 1 && *ov->rule.tags.begin() == "*";
                   auto normalized_curation_query = compute_normalized_query(ov->rule.query);
                   bool match_found = does_curation_match(*ov, query, excluded_set, actual_query, normalized_curation_query, filter_query,
                                                         already_segmented, false, wildcard_tag,
                                                         pinned_hits, hidden_hits, included_ids,
-                                                        excluded_ids, filter_sort_overrides, filter_curated_hits,
+                                                        excluded_ids, filter_sort_curations, filter_curated_hits,
                                                         curated_sort_by, curation_metadata);
                   if(match_found && ov->stop_processing) { break; }
               }
@@ -1980,7 +1980,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     const size_t& limit_hits = coll_args.limit_hits;
     const bool& prioritize_exact_match = coll_args.prioritize_exact_match;
     const bool& pre_segmented_query = coll_args.pre_segmented_query;
-    const bool& enable_overrides = coll_args.enable_overrides;
+    const bool& enable_curations = coll_args.enable_curations;
     const std::string& highlight_fields = coll_args.highlight_fields;
     const bool& exhaustive_search = coll_args.exhaustive_search;
     const size_t& search_stop_millis = coll_args.search_cutoff_ms;
@@ -2489,7 +2489,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     std::vector<std::string> hidden_hits;
     StringUtils::split(hidden_hits_str, hidden_hits, ",");
 
-    std::vector<const curation_t*> filter_sort_overrides;
+    std::vector<const curation_t*> filter_sort_curations;
     std::string curated_sort_by;
     std::set<std::string> curation_tag_set;
 
@@ -2499,18 +2499,18 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         curation_tag_set.insert(tag);
     }
 
-    bool filter_curated_hits_overrides = false;
+    bool filter_curated_hits_curations = false;
 
     diversity_t diversity{};
-    auto curate_results_op = curate_results(query, filter_query, enable_overrides, pre_segmented_query, curation_tag_set,
-                   pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_overrides, filter_curated_hits_overrides,
+    auto curate_results_op = curate_results(query, filter_query, enable_curations, pre_segmented_query, curation_tag_set,
+                   pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_curations, filter_curated_hits_curations,
                    curated_sort_by, curation_metadata, diversity);
     if(!curate_results_op.ok()) {
         return curate_results_op;
     }
     diversity.lambda = coll_args.diversity_lamda;
 
-    bool filter_curated_hits = filter_curated_hits_option || filter_curated_hits_overrides;
+    bool filter_curated_hits = filter_curated_hits_option || filter_curated_hits_curations;
 
     /*for(auto& kv: included_ids) {
         LOG(INFO) << "key: " << kv.first;
@@ -2562,7 +2562,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
                                false, stopwords_set);
 
-            process_filter_sort_overrides(filter_sort_overrides, q_include_tokens, token_order, filter_tree_root_guard,
+            process_filter_sort_curations(filter_sort_curations, q_include_tokens, token_order, filter_tree_root_guard,
                                      included_ids, excluded_ids, curation_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
                                      enable_typos_for_alpha_numerical_tokens, validate_field_names);
 
@@ -2592,7 +2592,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         // process filter curations first, before synonyms (order is important)
 
         // included_ids, excluded_ids
-        process_filter_sort_overrides(filter_sort_overrides, q_include_tokens, token_order, filter_tree_root_guard,
+        process_filter_sort_curations(filter_sort_curations, q_include_tokens, token_order, filter_tree_root_guard,
                                  included_ids, excluded_ids, curation_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
                                  enable_typos_for_alpha_numerical_tokens, validate_field_names);
 
@@ -2712,7 +2712,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           size_t limit_hits,
                                           bool prioritize_exact_match,
                                           bool pre_segmented_query,
-                                          bool enable_overrides,
+                                          bool enable_curations,
                                           const std::string& highlight_fields,
                                           const bool exhaustive_search,
                                           size_t search_stop_millis,
@@ -2782,7 +2782,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          group_by_fields, group_limit,
                                          highlight_start_tag, highlight_end_tag,
                                          raw_query_by_weights, limit_hits, prioritize_exact_match,
-                                         pre_segmented_query, enable_overrides, highlight_fields,
+                                         pre_segmented_query, enable_curations, highlight_fields,
                                          exhaustive_search, search_stop_millis, min_len_1typo, min_len_2typo,
                                          split_join_tokens, max_candidates, infixes,
                                          max_extra_prefix, max_extra_suffix, facet_query_num_typos,
@@ -3858,7 +3858,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     auto union_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
             Union_KV::is_greater, Union_KV::is_smaller>>(std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
-    auto overrides_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
+    auto curations_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
             Union_KV::is_greater, Union_KV::is_smaller>>(std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
     auto should_remove_duplicates = group_limit ? false : remove_duplicates;
@@ -3877,7 +3877,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         //populate curations
         for(auto& kvs : search_param->curation_result_kvs) {
             Union_KV kv(*kvs[0], search_index, collection_ids[search_index], should_remove_duplicates);
-            auto ret = overrides_topster->add(&kv);
+            auto ret = curations_topster->add(&kv);
             if(should_remove_duplicates && ret == 0) { //duplicate doc
                 total--;
             }
@@ -3885,15 +3885,15 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     }
 
     union_topster->sort();
-    overrides_topster->sort();
+    curations_topster->sort();
 
     for(uint32_t t = 0; t < union_topster->size; t++) {
         Union_KV* kv = union_topster->getKV(t);
         raw_result_kvs.push_back({kv});
     }
 
-    for(uint32_t t = 0; t < overrides_topster->size; t++) {
-        Union_KV* kv = overrides_topster->getKV(t);
+    for(uint32_t t = 0; t < curations_topster->size; t++) {
+        Union_KV* kv = curations_topster->getKV(t);
         curation_result_kvs.push_back({kv});
     }
 
@@ -4463,7 +4463,7 @@ void Collection::process_highlight_fields(const std::vector<search_field_t>& sea
         }
     }
 }
-void Collection::process_filter_sort_overrides(std::vector<const curation_t*>& filter_sort_overrides,
+void Collection::process_filter_sort_curations(std::vector<const curation_t*>& filter_sort_curations,
                                           std::vector<std::string>& q_include_tokens,
                                           token_ordering token_order,
                                           std::unique_ptr<filter_node_t>& filter_tree_root,
@@ -4475,7 +4475,7 @@ void Collection::process_filter_sort_overrides(std::vector<const curation_t*>& f
                                           bool enable_typos_for_alpha_numerical_tokens,
                                           const bool& validate_field_names) const {
 
-    std::vector<const curation_t*> matched_dynamic_overrides;
+    std::vector<const curation_t*> matched_dynamic_curations;
     auto compute_normalized_query = [this](const std::string& query) {
       auto symbols = symbols_to_index;
       symbols.push_back('{');
@@ -4505,19 +4505,19 @@ void Collection::process_filter_sort_overrides(std::vector<const curation_t*>& f
       return query_normalized;
     };
     std::vector<std::string> curation_normalized_queries;
-    for(const auto* ov : filter_sort_overrides) {
+    for(const auto* ov : filter_sort_curations) {
       curation_normalized_queries.push_back(compute_normalized_query(ov->rule.query));
     }
-    index->process_filter_sort_overrides(filter_sort_overrides, curation_normalized_queries, q_include_tokens, token_order,
-                                    filter_tree_root, matched_dynamic_overrides, curation_metadata,
+    index->process_filter_sort_curations(filter_sort_curations, curation_normalized_queries, q_include_tokens, token_order,
+                                    filter_tree_root, matched_dynamic_curations, curation_metadata,
                                     sort_by_clause, enable_typos_for_numerical_tokens,
                                     enable_typos_for_alpha_numerical_tokens);
 
     // we will check the dynamic curations to see if they also have include/exclude
     std::set<uint32_t> excluded_set;
 
-    for(auto matched_dynamic_override: matched_dynamic_overrides) {
-        for(const auto& hit: matched_dynamic_override->drop_hits) {
+    for(auto matched_dynamic_curation: matched_dynamic_curations) {
+        for(const auto& hit: matched_dynamic_curation->drop_hits) {
             Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.doc_id);
             if(seq_id_op.ok()) {
                 excluded_ids.push_back(seq_id_op.get());
@@ -4525,7 +4525,7 @@ void Collection::process_filter_sort_overrides(std::vector<const curation_t*>& f
             }
         }
 
-        for(const auto& hit: matched_dynamic_override->add_hits) {
+        for(const auto& hit: matched_dynamic_curation->add_hits) {
             Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.doc_id);
             if(!seq_id_op.ok()) {
                 continue;
@@ -8423,7 +8423,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     bool prioritize_exact_match = true;
     bool prioritize_token_position = false;
     bool pre_segmented_query = false;
-    bool enable_overrides = true;
+    bool enable_curations = true;
     bool enable_synonyms = true;
     bool demote_synonym_match = false;
     bool synonym_prefix = false;
@@ -8537,7 +8537,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {PRIORITIZE_TOKEN_POSITION, &prioritize_token_position},
             {PRE_SEGMENTED_QUERY, &pre_segmented_query},
             {EXHAUSTIVE_SEARCH, &exhaustive_search},
-            {ENABLE_OVERRIDES, &enable_overrides},
+            {ENABLE_CURATIONS, &enable_curations},
             {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
             {CONVERSATION, &conversation},
             {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
@@ -8733,7 +8733,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     group_by_fields, group_limit,
                                     highlight_start_tag, highlight_end_tag,
                                     query_by_weights, limit_hits, prioritize_exact_match,
-                                    pre_segmented_query, enable_overrides, highlight_fields,
+                                    pre_segmented_query, enable_curations, highlight_fields,
                                     exhaustive_search, search_cutoff_ms, min_len_1typo, min_len_2typo,
                                     split_join_tokens, max_candidates, infixes,
                                     max_extra_prefix, max_extra_suffix, facet_query_num_typos,

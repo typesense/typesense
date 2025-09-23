@@ -105,7 +105,7 @@ struct collection_search_args_t {
 
     static constexpr auto PINNED_HITS = "pinned_hits";
     static constexpr auto HIDDEN_HITS = "hidden_hits";
-    static constexpr auto ENABLE_OVERRIDES = "enable_overrides";
+    static constexpr auto ENABLE_CURATIONS = "enable_curations";
     static constexpr auto FILTER_CURATED_HITS = "filter_curated_hits";
     static constexpr auto ENABLE_SYNONYMS = "enable_synonyms";
     static constexpr auto DEMOTE_SYNONYM_MATCH = "demote_synonym_match";
@@ -212,7 +212,7 @@ struct collection_search_args_t {
     size_t limit_hits;
     bool prioritize_exact_match;
     bool pre_segmented_query;
-    bool enable_overrides;
+    bool enable_curations;
     std::string highlight_fields;
     bool exhaustive_search;
     size_t search_cutoff_ms;
@@ -283,7 +283,7 @@ struct collection_search_args_t {
                              std::vector<std::string> group_by_fields, size_t group_limit,
                              std::string highlight_start_tag, std::string highlight_end_tag,
                              std::vector<uint32_t> query_by_weights, size_t limit_hits, bool prioritize_exact_match,
-                             bool pre_segmented_query, bool enable_overrides, std::string highlight_fields,
+                             bool pre_segmented_query, bool enable_curations, std::string highlight_fields,
                              bool exhaustive_search, size_t search_cutoff_ms, size_t min_len_1typo, size_t min_len_2typo,
                              enable_t split_join_tokens, size_t max_candidates, std::vector<enable_t> infixes,
                              size_t max_extra_prefix, size_t max_extra_suffix, size_t facet_query_num_typos,
@@ -316,7 +316,7 @@ struct collection_search_args_t {
             group_by_fields(std::move(group_by_fields)), group_limit(group_limit),
             highlight_start_tag(std::move(highlight_start_tag)), highlight_end_tag(std::move(highlight_end_tag)),
             query_by_weights(std::move(query_by_weights)), limit_hits(limit_hits), prioritize_exact_match(prioritize_exact_match),
-            pre_segmented_query(pre_segmented_query), enable_overrides(enable_overrides), highlight_fields(std::move(highlight_fields)),
+            pre_segmented_query(pre_segmented_query), enable_curations(enable_curations), highlight_fields(std::move(highlight_fields)),
             exhaustive_search(exhaustive_search), search_cutoff_ms(search_cutoff_ms), min_len_1typo(min_len_1typo), min_len_2typo(min_len_2typo),
             split_join_tokens(split_join_tokens), max_candidates(max_candidates), infixes(std::move(infixes)),
             max_extra_prefix(max_extra_prefix), max_extra_suffix(max_extra_suffix), facet_query_num_typos(facet_query_num_typos),
@@ -520,17 +520,17 @@ private:
                              const std::vector<std::string>& hidden_hits,
                              std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                              std::vector<uint32_t>& excluded_ids,
-                             std::vector<const curation_t*>& filter_overrides,
+                             std::vector<const curation_t*>& filter_curations,
                              bool& filter_curated_hits,
                              std::string& curated_sort_by,
                              nlohmann::json& curation_metadata) const;
 
-    Option<bool> curate_results(std::string& actual_query, const std::string& filter_query, bool enable_overrides, bool already_segmented,
+    Option<bool> curate_results(std::string& actual_query, const std::string& filter_query, bool enable_curations, bool already_segmented,
                         const std::set<std::string>& tags,
                         const std::map<size_t, std::vector<std::string>>& pinned_hits,
                         const std::vector<std::string>& hidden_hits,
                         std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
-                        std::vector<uint32_t>& excluded_ids, std::vector<const curation_t*>& filter_overrides,
+                        std::vector<uint32_t>& excluded_ids, std::vector<const curation_t*>& filter_curations,
                         bool& filter_curated_hits,
                         std::string& curated_sort_by, nlohmann::json& curation_metadata,
                         diversity_t& diversity) const;
@@ -609,7 +609,7 @@ private:
                                         std::vector<field>& update_fields,
                                         std::string& fallback_field_type);
 
-    void process_filter_sort_overrides(std::vector<const curation_t*>& filter_overrides,
+    void process_filter_sort_curations(std::vector<const curation_t*>& filter_curations,
                                   std::vector<std::string>& q_include_tokens,
                                   token_ordering token_order,
                                   std::unique_ptr<filter_node_t>& filter_tree_root,
@@ -918,7 +918,7 @@ public:
                                   size_t limit_hits=1000000,
                                   bool prioritize_exact_match=true,
                                   bool pre_segmented_query=false,
-                                  bool enable_overrides=true,
+                                  bool enable_curations=true,
                                   const std::string& highlight_fields="",
                                   const bool exhaustive_search = false,
                                   size_t search_stop_millis = 6000*1000,

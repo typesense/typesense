@@ -27,7 +27,7 @@ import type {
   SearchResponse,
 } from "typesense/lib/Typesense/Documents";
 import type { MetricsResponse } from "typesense/lib/Typesense/Metrics";
-import type { OverrideSchema } from "typesense/lib/Typesense/Curation";
+import type { OverrideSchema } from "typesense/lib/Typesense/Override";
 import type { OverrideCreateSchema, OverridesRetrieveSchema } from "typesense/lib/Typesense/Overrides";
 import type { StatsResponse } from "typesense/lib/Typesense/Stats";
 
@@ -192,14 +192,14 @@ interface Endpoints<
       queryParams: DocumentsExportParameters;
     };
   };
-  "collections/:id/curations": {
+  "collections/:id/overrides": {
     GET: {
       return: OverridesRetrieveSchema;
       body: never;
       queryParams: never;
     };
   };
-  "collections/:id/curations/:id": {
+  "collections/:id/overrides/:id": {
     PUT: {
       return: OverrideSchema;
       body: OverrideCreateSchema;

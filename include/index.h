@@ -507,7 +507,7 @@ private:
     bool static_filter_query_eval(const curation_t* curation, const std::string& curation_normalized_query, std::vector<std::string>& tokens,
                                   std::unique_ptr<filter_node_t>& filter_tree_root, const bool& validate_field_names) const;
 
-    bool resolve_override(const std::vector<std::string>& rule_tokens, bool exact_rule_match,
+    bool resolve_curation(const std::vector<std::string>& rule_tokens, bool exact_rule_match,
                           const std::vector<std::string>& query_tokens,
                           token_ordering token_order, std::set<std::string>& absorbed_tokens,
                           std::string& filter_by_clause,
@@ -515,7 +515,7 @@ private:
                           bool enable_typos_for_numerical_tokens,
                           bool enable_typos_for_alpha_numerical_tokens) const;
 
-    bool check_for_overrides(const token_ordering& token_order, const string& field_name, bool slide_window,
+    bool check_for_curations(const token_ordering& token_order, const string& field_name, bool slide_window,
                              bool exact_rule_match, std::vector<std::string>& tokens,
                              std::set<std::string>& absorbed_tokens,
                              std::vector<std::string>& field_absorbed_tokens,
@@ -1116,12 +1116,12 @@ public:
                                      const int* sort_order,
                                      int64_t& out_best_field_match_score);
 
-    void process_filter_sort_overrides(const std::vector<const curation_t*>& filter_overrides,
+    void process_filter_sort_curations(const std::vector<const curation_t*>& filter_curations,
                                   std::vector<std::string>& curation_normalized_queries,
                                   std::vector<std::string>& query_tokens,
                                   token_ordering token_order,
                                   std::unique_ptr<filter_node_t>& filter_tree_root,
-                                  std::vector<const curation_t*>& matched_dynamic_overrides,
+                                  std::vector<const curation_t*>& matched_dynamic_curations,
                                   nlohmann::json& curation_metadata,
                                   std::string& sort_by_clause,
                                   bool enable_typos_for_numerical_tokens,

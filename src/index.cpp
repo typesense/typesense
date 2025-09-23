@@ -1838,7 +1838,7 @@ Option<bool> Index::search_all_candidates(const size_t num_search_fields,
     auto product = []( long long a, tok_candidates & b ) { return a*b.candidates.size(); };
     long long int N = std::accumulate(token_candidates_vec.begin(), token_candidates_vec.end(), 1LL, product);
 
-    // escape hatch to prevent too much looping but subject to being overriden explicitly via `max_candidates`
+    // escape hatch to prevent too much looping but subject to being curationn explicitly via `max_candidates`
     long long combination_limit = (num_search_fields == 1 && prefixes[0]) ? max_candidates :
                                   std::max<size_t>(Index::COMBINATION_MIN_LIMIT, max_candidates);
 
@@ -2870,14 +2870,14 @@ bool Index::static_filter_query_eval(const curation_t* curation,
     return false;
 }
 
-bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const bool exact_rule_match,
+bool Index::resolve_curation(const std::vector<std::string>& rule_tokens, const bool exact_rule_match,
                              const std::vector<std::string>& query_tokens,
                              token_ordering token_order, std::set<std::string>& absorbed_tokens,
                              std::string& filter_by_clause, std::string& sort_by_clause,
                              bool enable_typos_for_numerical_tokens,
                              bool enable_typos_for_alpha_numerical_tokens) const {
 
-    bool resolved_override = false;
+    bool resolved_curation = false;
     size_t i = 0, j = 0;
 
     std::unordered_map<std::string, std::vector<std::string>> field_placeholder_tokens;
@@ -2909,19 +2909,19 @@ bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const 
                 j++;
             }
 
-            resolved_override = true;
+            resolved_curation = true;
 
             // we try to map `field_names` against `matched_tokens` now
             for(size_t findex = 0; findex < field_names.size(); findex++) {
                 const auto& field_name = field_names[findex];
                 bool slide_window = (findex == 0);  // fields following another field should match exactly
                 std::vector<std::string> field_absorbed_tokens;
-                resolved_override &= check_for_overrides(token_order, field_name, slide_window,
+                resolved_curation &= check_for_curations(token_order, field_name, slide_window,
                                                          exact_rule_match, matched_tokens, absorbed_tokens,
                                                          field_absorbed_tokens, enable_typos_for_numerical_tokens,
                                                          enable_typos_for_alpha_numerical_tokens);
 
-                if(!resolved_override) {
+                if(!resolved_curation) {
                     goto RETURN_EARLY;
                 }
 
@@ -2951,7 +2951,7 @@ bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const 
 
     RETURN_EARLY:
 
-    if(!resolved_override || (exact_rule_match && query_tokens.size() != absorbed_tokens.size())) {
+    if(!resolved_curation || (exact_rule_match && query_tokens.size() != absorbed_tokens.size())) {
         return false;
     }
 
@@ -2972,12 +2972,12 @@ bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const 
     return true;
 }
 
-void Index::process_filter_sort_overrides(const std::vector<const curation_t*>& filter_sort_overrides,
+void Index::process_filter_sort_curations(const std::vector<const curation_t*>& filter_sort_curations,
                                      std::vector<std::string>& curation_normalized_queries,
                                      std::vector<std::string>& query_tokens,
                                      token_ordering token_order,
                                      std::unique_ptr<filter_node_t>& filter_tree_root,
-                                     std::vector<const curation_t*>& matched_dynamic_overrides,
+                                     std::vector<const curation_t*>& matched_dynamic_curations,
                                      nlohmann::json& curation_metadata,
                                      std::string& sort_by_clause,
                                      bool enable_typos_for_numerical_tokens,
@@ -2986,14 +2986,14 @@ void Index::process_filter_sort_overrides(const std::vector<const curation_t*>& 
     std::shared_lock lock(mutex);
 
     size_t i = 0;
-    for (auto& curation : filter_sort_overrides) {
+    for (auto& curation : filter_sort_curations) {
         if (!curation->rule.dynamic_query && !curation->rule.dynamic_filter) {
             // Simple static filtering: add to filter_by and rewrite query if needed.
             // Check the original query and then the synonym variants until a rule matches.
-            bool resolved_override = static_filter_query_eval(curation, curation_normalized_queries[i], query_tokens, filter_tree_root,
+            bool resolved_curation = static_filter_query_eval(curation, curation_normalized_queries[i], query_tokens, filter_tree_root,
                                                               validate_field_names);
 
-            if (resolved_override) {
+            if (resolved_curation) {
                 if(curation_metadata.empty()) {
                     curation_metadata = curation->metadata;
                 }
@@ -3087,13 +3087,13 @@ void Index::process_filter_sort_overrides(const std::vector<const curation_t*>& 
 
             std::set<std::string> absorbed_tokens;
             sort_by_clause = curation->sort_by;
-            bool resolved_override = resolve_override(rule_parts, exact_rule_match, processed_tokens,
+            bool resolved_curation = resolve_curation(rule_parts, exact_rule_match, processed_tokens,
                                                       token_order, absorbed_tokens, filter_by_clause,
                                                       sort_by_clause,
                                                       enable_typos_for_numerical_tokens,
                                                       enable_typos_for_alpha_numerical_tokens);
 
-            if (resolved_override) {
+            if (resolved_curation) {
                 if(curation_metadata.empty()) {
                     curation_metadata = curation->metadata;
                 }
@@ -3104,7 +3104,7 @@ void Index::process_filter_sort_overrides(const std::vector<const curation_t*>& 
                                                                     validate_field_names);
                 if (filter_op.ok()) {
                     // have to ensure that dropped hits take precedence over added hits
-                    matched_dynamic_overrides.push_back(curation);
+                    matched_dynamic_curations.push_back(curation);
 
                     if (curation->remove_matched_tokens) {
                         std::vector<std::string>& tokens = query_tokens;
@@ -3153,7 +3153,7 @@ void Index::remove_matched_tokens(std::vector<std::string>& tokens, const std::s
     }
 }
 
-bool Index::check_for_overrides(const token_ordering& token_order, const string& field_name, const bool slide_window,
+bool Index::check_for_curations(const token_ordering& token_order, const string& field_name, const bool slide_window,
                                 bool exact_rule_match, std::vector<std::string>& tokens,
                                 std::set<std::string>& absorbed_tokens,
                                 std::vector<std::string>& field_absorbed_tokens,

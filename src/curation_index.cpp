@@ -1,7 +1,7 @@
 #include "curation_index.h"
 #include "string_utils.h"
 
-Option<std::map<std::string, curation_t*>> CurationIndex::get_overrides(uint32_t limit, uint32_t offset) {
+Option<std::map<std::string, curation_t*>> CurationIndex::get_curations(uint32_t limit, uint32_t offset) {
     std::shared_lock lock(mutex);
     std::map<std::string, curation_t*> res;
 
@@ -24,7 +24,7 @@ Option<std::map<std::string, curation_t*>> CurationIndex::get_overrides(uint32_t
     return Option<std::map<std::string, curation_t*>>(res);
 }
 
-bool CurationIndex::get_override(const std::string& id, curation_t& ov) {
+bool CurationIndex::get_curation(const std::string& id, curation_t& ov) {
     std::shared_lock lock(mutex);
     auto defIt = curation_definitions.find(id);
     if(defIt == curation_definitions.end()) return false;
@@ -32,7 +32,7 @@ bool CurationIndex::get_override(const std::string& id, curation_t& ov) {
     return true;
 }
 
-Option<bool> CurationIndex::add_override(const curation_t& ov, bool write_to_store) {
+Option<bool> CurationIndex::add_curation(const curation_t& ov, bool write_to_store) {
     std::unique_lock lock(mutex);
     // upsert by id (lexicographic order maintained by map key)
     curation_definitions[ov.id] = ov;
@@ -46,7 +46,7 @@ Option<bool> CurationIndex::add_override(const curation_t& ov, bool write_to_sto
     return Option<bool>(true);
 }
 
-Option<bool> CurationIndex::remove_override(const std::string& id) {
+Option<bool> CurationIndex::remove_curation(const std::string& id) {
     std::unique_lock lock(mutex);
     auto defIt = curation_definitions.find(id);
     if(defIt == curation_definitions.end()) {

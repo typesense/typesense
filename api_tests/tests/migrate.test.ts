@@ -252,8 +252,8 @@ describe(Phases.NO_PHASE, () => {
     manager = new TypesenseProcessManager(join(process.cwd(), "./data/v29-typesense-data"), process.env.TYPESENSE_V29_BINARY_PATH!);
     await manager.startSingleNode("", 8109, 8106, "v29-snapshot-server");
     try {
-      const customize_apple_override = await fetchSingleNode(
-        "/collections/products/curations/customize-apple",
+      const customize_apple_curation = await fetchSingleNode(
+        "/collections/products/overrides/customize-apple",
         {
           method: "PUT",
           body: JSON.stringify({
@@ -272,9 +272,9 @@ describe(Phases.NO_PHASE, () => {
         },
         8109
       );
-      expect(customize_apple_override.ok).toBe(true);
-      const brand_filter_override = await fetchSingleNode(
-        "/collections/products/curations/brand-filter",
+      expect(customize_apple_curation.ok).toBe(true);
+      const brand_filter_curation = await fetchSingleNode(
+        "/collections/products/overrides/brand-filter",
         {
           method: "PUT",
           body: JSON.stringify({
@@ -288,9 +288,9 @@ describe(Phases.NO_PHASE, () => {
         },
         8109
       );
-      expect(brand_filter_override.ok).toBe(true);
-      const dynamic_sort_override = await fetchSingleNode(
-        "/collections/products/curations/dynamic-sort",
+      expect(brand_filter_curation.ok).toBe(true);
+      const dynamic_sort_curation = await fetchSingleNode(
+        "/collections/products/overrides/dynamic-sort",
         {
           method: "PUT",
           body: JSON.stringify({
@@ -304,7 +304,7 @@ describe(Phases.NO_PHASE, () => {
         },
         8109
       );
-      expect(dynamic_sort_override.ok).toBe(true);
+      expect(dynamic_sort_curation.ok).toBe(true);
       await manager.createSnapshot(8109, join(process.cwd(), "./data/snapshot/v29-snapshot"));
     } finally {
       await manager.shutdown();
@@ -521,7 +521,7 @@ describe(Phases.NO_PHASE, () => {
       const res = await fetchSingleNode("/curation_sets", { method: "GET" }, 8109);
       const data: any = await res.json();
       expect(data.length).toEqual(1);
-      expect(data[0].name).toEqual("products_overrides_index");
+      expect(data[0].name).toEqual("products_curations_index");
       expect(data[0].items[0].id).toEqual("brand-filter");
       expect(data[0].items[0].rule.query).toEqual("{brand} phone");
       expect(data[0].items[0].rule.match).toEqual("contains");
@@ -538,9 +538,9 @@ describe(Phases.NO_PHASE, () => {
       expect(data[0].items[2].remove_matched_tokens).toEqual(true);
       expect(data[0].items[2].sort_by).toEqual("sales.{store}:desc, inventory.{store}:desc");
 
-      const delete_res = await fetchSingleNode("/curation_sets/products_overrides_index", { method: "DELETE" }, 8109);
+      const delete_res = await fetchSingleNode("/curation_sets/products_curations_index", { method: "DELETE" }, 8109);
       expect(delete_res.ok).toBe(true);
-      const put_res = await fetchSingleNode("/curation_sets/products_overrides_index", { method: "PUT", body: JSON.stringify({ items: [{ id: "brand-filter", rule: { query: "{brand} phone", match: "contains" }, filter_by: "brand:={brand}", remove_matched_tokens: true }, { id: "customize-apple", rule: { query: "apple", match: "exact" }, includes: [{ id: "422", position: 1 }, { id: "54", position: 2 }], excludes: [{ id: "287" }] }, { id: "dynamic-sort", rule: { query: "{store}", match: "exact" }, remove_matched_tokens: true, sort_by: "sales.{store}:desc, inventory.{store}:desc" }] }) }, 8109);
+      const put_res = await fetchSingleNode("/curation_sets/products_curations_index", { method: "PUT", body: JSON.stringify({ items: [{ id: "brand-filter", rule: { query: "{brand} phone", match: "contains" }, filter_by: "brand:={brand}", remove_matched_tokens: true }, { id: "customize-apple", rule: { query: "apple", match: "exact" }, includes: [{ id: "422", position: 1 }, { id: "54", position: 2 }], excludes: [{ id: "287" }] }, { id: "dynamic-sort", rule: { query: "{store}", match: "exact" }, remove_matched_tokens: true, sort_by: "sales.{store}:desc, inventory.{store}:desc" }] }) }, 8109);
       expect(put_res.ok).toBe(true);
       await manager.createSnapshot(8109, join(process.cwd(), "./data/snapshot/v29-snapshot-rollback"));
     } finally {
@@ -592,27 +592,27 @@ describe(Phases.NO_PHASE, () => {
       await manager.startSingleNode("", 8109, 8106, "v29-snapshot-server");
       const brands_filter = await fetchSingleNode("/collections/products/curations/brand-filter", { method: "GET" }, 8109);
       expect(brands_filter.ok).toBe(true);
-      const brands_filter_overrides_data: any = await brands_filter.json();
-      expect(brands_filter_overrides_data.rule.query).toEqual("{brand} phone");
-      expect(brands_filter_overrides_data.rule.match).toEqual("contains");
-      expect(brands_filter_overrides_data.filter_by).toEqual("brand:={brand}");
-      expect(brands_filter_overrides_data.remove_matched_tokens).toEqual(true);
+      const brands_filter_curations_data: any = await brands_filter.json();
+      expect(brands_filter_curations_data.rule.query).toEqual("{brand} phone");
+      expect(brands_filter_curations_data.rule.match).toEqual("contains");
+      expect(brands_filter_curations_data.filter_by).toEqual("brand:={brand}");
+      expect(brands_filter_curations_data.remove_matched_tokens).toEqual(true);
 
       const customize_apple = await fetchSingleNode("/collections/products/curations/customize-apple", { method: "GET" }, 8109);
       expect(customize_apple.ok).toBe(true);
-      const customize_apple_overrides_data: any = await customize_apple.json();
-      expect(customize_apple_overrides_data.rule.query).toEqual("apple");
-      expect(customize_apple_overrides_data.rule.match).toEqual("exact");
-      expect(customize_apple_overrides_data.includes).toEqual([{ id: "422", position: 1 }, { id: "54", position: 2 }]);
-      expect(customize_apple_overrides_data.excludes).toEqual([{ id: "287" }]);
+      const customize_apple_curations_data: any = await customize_apple.json();
+      expect(customize_apple_curations_data.rule.query).toEqual("apple");
+      expect(customize_apple_curations_data.rule.match).toEqual("exact");
+      expect(customize_apple_curations_data.includes).toEqual([{ id: "422", position: 1 }, { id: "54", position: 2 }]);
+      expect(customize_apple_curations_data.excludes).toEqual([{ id: "287" }]);
 
       const dynamic_sort = await fetchSingleNode("/collections/products/curations/dynamic-sort", { method: "GET" }, 8109);
       expect(dynamic_sort.ok).toBe(true);
-      const dynamic_sort_overrides_data: any = await dynamic_sort.json();
-      expect(dynamic_sort_overrides_data.rule.query).toEqual("{store}");
-      expect(dynamic_sort_overrides_data.rule.match).toEqual("exact");
-      expect(dynamic_sort_overrides_data.remove_matched_tokens).toEqual(true);
-      expect(dynamic_sort_overrides_data.sort_by).toEqual("sales.{store}:desc, inventory.{store}:desc");
+      const dynamic_sort_curations_data: any = await dynamic_sort.json();
+      expect(dynamic_sort_curations_data.rule.query).toEqual("{store}");
+      expect(dynamic_sort_curations_data.rule.match).toEqual("exact");
+      expect(dynamic_sort_curations_data.remove_matched_tokens).toEqual(true);
+      expect(dynamic_sort_curations_data.sort_by).toEqual("sales.{store}:desc, inventory.{store}:desc");
     } finally {
       await manager.shutdown();
     }

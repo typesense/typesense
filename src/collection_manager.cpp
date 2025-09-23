@@ -1957,12 +1957,12 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     if(!collection_curation_jsons.empty()) {
         CurationIndexManager& curation_index_manager = CurationIndexManager::get_instance();
         // Create a new CurationIndex for the collection
-        auto get_op = curation_index_manager.get_curation_index(this_collection_name + "_overrides_index");
+        auto get_op = curation_index_manager.get_curation_index(this_collection_name + "_curations_index");
         if(get_op.ok()) {
             LOG(INFO) << "Curation index already exists for collection " << this_collection_name
                        << ", skipping migration";
         } else {
-          auto curation_index_op = curation_index_manager.add_curation_index(this_collection_name + "_overrides_index");
+          auto curation_index_op = curation_index_manager.add_curation_index(this_collection_name + "_curations_index");
           if(!curation_index_op.ok()) {
               LOG(ERROR) << "Error while creating curation index for collection " << this_collection_name
                         << ": " << curation_index_op.error();
@@ -1970,20 +1970,20 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
           }
           CurationIndex* curation_index = curation_index_op.get();
           for(const auto & collection_curation_json: collection_curation_jsons) {
-              nlohmann::json collection_override = nlohmann::json::parse(collection_curation_json);
+              nlohmann::json collection_curation = nlohmann::json::parse(collection_curation_json);
               curation_t curation;
-              std::string curation_id = collection_override.value("id", std::string{});
-              auto parse_op = curation_t::parse(collection_override, curation_id, curation);
+              std::string curation_id = collection_curation.value("id", std::string{});
+              auto parse_op = curation_t::parse(collection_curation, curation_id, curation);
               if(!parse_op.ok()) {
                   LOG(ERROR) << "Skipping loading of curation: " << parse_op.error();
                   continue;
               }
-              auto add_op = curation_index->add_override(curation, true);
+              auto add_op = curation_index->add_curation(curation, true);
               if(!add_op.ok()) {
                   LOG(ERROR) << "Error while adding curation: " << add_op.error();
               }
           }
-          collection->set_curation_sets({this_collection_name + "_overrides_index"});
+          collection->set_curation_sets({this_collection_name + "_curations_index"});
           LOG(INFO) << "Migrated curations for collection " << this_collection_name;
         }
     }

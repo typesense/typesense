@@ -15,7 +15,7 @@ protected:
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
     Collection *coll_mul_fields;
-    std::string state_dir_path = "/tmp/typesense_test/collection_override";
+    std::string state_dir_path = "/tmp/typesense_test/collection_curation";
 
     void setupCollection() {
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
@@ -191,11 +191,11 @@ TEST_F(CollectionCurationTest, ExcludeIncludeExactQueryMatch) {
     ASSERT_EQ(0, results["found"].get<uint32_t>());
 
     // ability to disable curations
-    bool enable_overrides = false;
+    bool enable_curations = false;
     res_op = coll_mul_fields->search("will", {"title"}, "", {}, {}, {0}, 10,
                                      1, FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>(),
                                      spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 0, {}, {}, {}, 0,
-                                     "<mark>", "</mark>", {1}, 10000, true, false, enable_overrides);
+                                     "<mark>", "</mark>", {1}, 10000, true, false, enable_curations);
     ASSERT_TRUE(res_op.ok());
     results = res_op.get();
 
@@ -205,11 +205,11 @@ TEST_F(CollectionCurationTest, ExcludeIncludeExactQueryMatch) {
     ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
-    enable_overrides = true;
+    enable_curations = true;
     res_op = coll_mul_fields->search("will", {"title"}, "", {}, {}, {0}, 10,
                                      1, FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>(),
                                      spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 0, {}, {}, {}, 0,
-                                     "<mark>", "</mark>", {1}, 10000, true, false, enable_overrides);
+                                     "<mark>", "</mark>", {1}, 10000, true, false, enable_curations);
     ASSERT_TRUE(res_op.ok());
     results = res_op.get();
 
@@ -237,8 +237,8 @@ TEST_F(CollectionCurationTest, OverrideJSONValidation) {
     exclude_json["excludes"][0] = nlohmann::json::object();
     exclude_json["excludes"][0]["id"] = 11;
 
-    curation_t override1;
-    auto parse_op = curation_t::parse(exclude_json, "", override1);
+    curation_t curation1;
+    auto parse_op = curation_t::parse(exclude_json, "", curation1);
 
     ASSERT_FALSE(parse_op.ok());
     ASSERT_STREQ("Exclusion `id` must be a string.", parse_op.error().c_str());
@@ -257,20 +257,20 @@ TEST_F(CollectionCurationTest, OverrideJSONValidation) {
     include_json["includes"][0] = nlohmann::json::object();
     include_json["includes"][0]["id"] = "11";
 
-    curation_t override2;
-    parse_op = curation_t::parse(include_json, "", override2);
+    curation_t curation2;
+    parse_op = curation_t::parse(include_json, "", curation2);
 
     ASSERT_FALSE(parse_op.ok());
     ASSERT_STREQ("Inclusion definition must define both `id` and `position` keys.", parse_op.error().c_str());
 
     include_json["includes"][0]["position"] = "1";
 
-    parse_op = curation_t::parse(include_json, "", override2);
+    parse_op = curation_t::parse(include_json, "", curation2);
     ASSERT_FALSE(parse_op.ok());
     ASSERT_STREQ("Inclusion `position` must be an integer.", parse_op.error().c_str());
 
     include_json["includes"][0]["position"] = 1;
-    parse_op = curation_t::parse(include_json, "", override2);
+    parse_op = curation_t::parse(include_json, "", curation2);
     ASSERT_TRUE(parse_op.ok());
 
     nlohmann::json include_json2 = {
@@ -283,7 +283,7 @@ TEST_F(CollectionCurationTest, OverrideJSONValidation) {
             }
     };
 
-    parse_op = curation_t::parse(include_json2, "", override2);
+    parse_op = curation_t::parse(include_json2, "", curation2);
     ASSERT_FALSE(parse_op.ok());
     ASSERT_STREQ("Must contain one of: `includes`, `excludes`, `metadata`, `filter_by`, `sort_by`, "
                  "`remove_matched_tokens`, `replace_query`.", parse_op.error().c_str());
@@ -291,7 +291,7 @@ TEST_F(CollectionCurationTest, OverrideJSONValidation) {
     include_json2["includes"] = nlohmann::json::array();
     include_json2["includes"][0] = 100;
 
-    parse_op = curation_t::parse(include_json2, "", override2);
+    parse_op = curation_t::parse(include_json2, "", curation2);
     ASSERT_FALSE(parse_op.ok());
     ASSERT_STREQ("The `includes` value must be an array of objects.", parse_op.error().c_str());
 
@@ -308,7 +308,7 @@ TEST_F(CollectionCurationTest, OverrideJSONValidation) {
     exclude_json2["excludes"] = nlohmann::json::array();
     exclude_json2["excludes"][0] = "100";
 
-    parse_op = curation_t::parse(exclude_json2, "", override2);
+    parse_op = curation_t::parse(exclude_json2, "", curation2);
     ASSERT_FALSE(parse_op.ok());
     ASSERT_STREQ("The `excludes` value must be an array of objects.", parse_op.error().c_str());
 }
@@ -2577,12 +2577,12 @@ TEST_F(CollectionCurationTest, DynamicFilteringWithNumericalFilter) {
 
     // when curations are disabled
 
-    bool enable_overrides = false;
+    bool enable_curations = false;
     results = coll1->search("popular nike shoes", {"name", "category", "brand"}, "",
                             {}, sort_fields, {2, 2, 2}, 10, 1, FREQUENCY, {false, false, false}, 10,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {1, 1, 1}, 10000, true, false, enable_overrides).get();
+                            "<mark>", "</mark>", {1, 1, 1}, 10000, true, false, enable_curations).get();
     ASSERT_EQ(4, results["hits"].size());
 
     // should not match the defined curation
@@ -2760,8 +2760,8 @@ TEST_F(CollectionCurationTest, DynamicFilteringWithSynonyms) {
         {"filter_by", "category: {category}"}
     };
 
-    curation_t override1;
-    auto op = curation_t::parse(curation_json1, "dynamic-filters", override1);
+    curation_t curation1;
+    auto op = curation_t::parse(curation_json1, "dynamic-filters", curation1);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json1);
 
@@ -2783,8 +2783,8 @@ TEST_F(CollectionCurationTest, DynamicFilteringWithSynonyms) {
         {"filter_by", "points: [5, 4]"}
     };
 
-    curation_t override2;
-    op = curation_t::parse(curation_json2, "static-filters", override2);
+    curation_t curation2;
+    op = curation_t::parse(curation_json2, "static-filters", curation2);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json2);
 
@@ -3400,8 +3400,8 @@ TEST_F(CollectionCurationTest, DynamicFilteringWithJustRemoveTokens) {
             {"remove_matched_tokens", true}
     };
 
-    curation_t override2;
-    op = curation_t::parse(curation_json, "remove-some-tokens", override2);
+    curation_t curation2;
+    op = curation_t::parse(curation_json, "remove-some-tokens", curation2);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json);
 
@@ -3852,9 +3852,9 @@ TEST_F(CollectionCurationTest, OverrideWithSymbolsToIndex) {
 TEST_F(CollectionCurationTest, OverrideWithTags) {
     /*
 
-     If override1 is tagged tagA, tagB, override2 is tagged tagA, override3 is tagged with nothing:
+     If curation1 is tagged tagA, tagB, curation2 is tagged tagA, curation3 is tagged with nothing:
 
-     Then if a search is tagged with tagA, we only consider curations that contain tagA (override1 and override2)
+     Then if a search is tagged with tagA, we only consider curations that contain tagA (curation1 and curation2)
      with the usual logic - in alphabetic order of curation name and then process both if stop rule processing is false.
 
      If a search is tagged with tagA and tagB, we evaluate any rules that contain tagA and tagB first,
@@ -3917,8 +3917,8 @@ TEST_F(CollectionCurationTest, OverrideWithTags) {
         "filter_by": "category: kids"
     })"_json;
 
-    curation_t override1;
-    auto op = curation_t::parse(curation_json1, "ov-1", override1);
+    curation_t curation1;
+    auto op = curation_t::parse(curation_json1, "ov-1", curation1);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json1);
 
@@ -3933,8 +3933,8 @@ TEST_F(CollectionCurationTest, OverrideWithTags) {
         "filter_by": "category: kitchen"
     })"_json;
 
-    curation_t override2;
-    curation_t::parse(curation_json2, "ov-2", override2);
+    curation_t curation2;
+    curation_t::parse(curation_json2, "ov-2", curation2);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json2);
 
@@ -3948,8 +3948,8 @@ TEST_F(CollectionCurationTest, OverrideWithTags) {
         "filter_by": "category: home"
     })"_json;
 
-    curation_t override3;
-    op = curation_t::parse(curation_json3, "ov-3", override3);
+    curation_t curation3;
+    op = curation_t::parse(curation_json3, "ov-3", curation3);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json3);
 
@@ -4069,8 +4069,8 @@ TEST_F(CollectionCurationTest, OverrideWithTagsPartialMatch) {
         "filter_by": "category: kids"
     })"_json;
 
-    curation_t override1;
-    auto op = curation_t::parse(curation_json1, "ov-1", override1);
+    curation_t curation1;
+    auto op = curation_t::parse(curation_json1, "ov-1", curation1);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json1);
 
@@ -4085,8 +4085,8 @@ TEST_F(CollectionCurationTest, OverrideWithTagsPartialMatch) {
         "filter_by": "category: kitchen"
     })"_json;
 
-    curation_t override2;
-    curation_t::parse(curation_json2, "ov-2", override2);
+    curation_t curation2;
+    curation_t::parse(curation_json2, "ov-2", curation2);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json2);
 
@@ -4152,8 +4152,8 @@ TEST_F(CollectionCurationTest, OverrideWithTagsWithoutStopProcessing) {
         "filter_by": "category: kids"
     })"_json;
 
-    curation_t override1;
-    auto op = curation_t::parse(curation_json1, "ov-1", override1);
+    curation_t curation1;
+    auto op = curation_t::parse(curation_json1, "ov-1", curation1);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json1);
 
@@ -4171,8 +4171,8 @@ TEST_F(CollectionCurationTest, OverrideWithTagsWithoutStopProcessing) {
         "metadata": {"foo": "bar"}
     })"_json;
 
-    curation_t override2;
-    curation_t::parse(curation_json2, "ov-2", override2);
+    curation_t curation2;
+    curation_t::parse(curation_json2, "ov-2", curation2);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json2);
 
@@ -4188,8 +4188,8 @@ TEST_F(CollectionCurationTest, OverrideWithTagsWithoutStopProcessing) {
         "filter_by": "category: home"
     })"_json;
 
-    curation_t override3;
-    op = curation_t::parse(curation_json3, "ov-3", override3);
+    curation_t curation3;
+    op = curation_t::parse(curation_json3, "ov-3", curation3);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json3);
 
@@ -4252,8 +4252,8 @@ TEST_F(CollectionCurationTest, WildcardTagRuleThatMatchesAllQueries) {
         "filter_by": "category: kids"
     })"_json;
 
-    curation_t override1;
-    auto op = curation_t::parse(curation_json1, "ov-1", override1);
+    curation_t curation1;
+    auto op = curation_t::parse(curation_json1, "ov-1", curation1);
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("The `rule` definition must contain either a `tags` or a `query` and `match`.", op.error());
 
@@ -4265,7 +4265,7 @@ TEST_F(CollectionCurationTest, WildcardTagRuleThatMatchesAllQueries) {
         "filter_by": "category: kids"
     })"_json;
 
-    op = curation_t::parse(curation_json1, "ov-1", override1);
+    op = curation_t::parse(curation_json1, "ov-1", curation1);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json1);
 
@@ -4309,8 +4309,8 @@ TEST_F(CollectionCurationTest, WildcardTagRuleThatMatchesAllQueries) {
         ]
     })"_json;
 
-    curation_t override2;
-    op = curation_t::parse(curation_json2, "ov-2", override2);
+    curation_t curation2;
+    op = curation_t::parse(curation_json2, "ov-2", curation2);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json2);
 
@@ -4357,7 +4357,7 @@ TEST_F(CollectionCurationTest, TagsOnlyRule) {
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
 
     std::vector<sort_by> sort_fields = {sort_by("_text_match", "DESC")};
-    curation_t override1;
+    curation_t curation1;
     auto curation_json1 = R"({
        "id": "ov-1",
        "rule": {
@@ -4366,7 +4366,7 @@ TEST_F(CollectionCurationTest, TagsOnlyRule) {
         "filter_by": "category: kids"
     })"_json;
 
-    auto op = curation_t::parse(curation_json1, "ov-1", override1);
+    auto op = curation_t::parse(curation_json1, "ov-1", curation1);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json1);
 
@@ -4384,7 +4384,7 @@ TEST_F(CollectionCurationTest, TagsOnlyRule) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 
     // with include rule
-    curation_t override2;
+    curation_t curation2;
     auto curation_json2 = R"({
        "id": "ov-2",
        "rule": {
@@ -4395,7 +4395,7 @@ TEST_F(CollectionCurationTest, TagsOnlyRule) {
         ]
     })"_json;
 
-    op = curation_t::parse(curation_json2, "ov-2", override2);
+    op = curation_t::parse(curation_json2, "ov-2", curation2);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json2);
 
@@ -4461,8 +4461,8 @@ TEST_F(CollectionCurationTest, MetadataValidation) {
         "metadata": "foo"
     })"_json;
 
-    curation_t override1;
-    auto op = curation_t::parse(curation_json1, "ov-1", override1);
+    curation_t curation1;
+    auto op = curation_t::parse(curation_json1, "ov-1", curation1);
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("The `metadata` must be a JSON object.", op.error());
 
@@ -4475,8 +4475,8 @@ TEST_F(CollectionCurationTest, MetadataValidation) {
         }
     })"_json;
 
-    curation_t override2;
-    op = curation_t::parse(curation_json1, "ov-2", override2);
+    curation_t curation2;
+    op = curation_t::parse(curation_json1, "ov-2", curation2);
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("Must contain one of: `includes`, `excludes`, `metadata`, `filter_by`, `sort_by`, "
               "`remove_matched_tokens`, `replace_query`.", op.error());
@@ -4492,8 +4492,8 @@ TEST_F(CollectionCurationTest, MetadataValidation) {
         "metadata": {"foo": "bar"}
     })"_json;
 
-    curation_t override3;
-    op = curation_t::parse(curation_json1, "ov-3", override3);
+    curation_t curation3;
+    op = curation_t::parse(curation_json1, "ov-3", curation3);
     ASSERT_TRUE(op.ok());
 
     ov_manager.upsert_curation_item("index", curation_json1);
@@ -4544,8 +4544,8 @@ TEST_F(CollectionCurationTest, WildcardSearchOverride) {
         "filter_by": "category: kids"
     })"_json;
 
-    curation_t override1;
-    auto op = curation_t::parse(curation_json1, "ov-1", override1);
+    curation_t curation1;
+    auto op = curation_t::parse(curation_json1, "ov-1", curation1);
     ASSERT_TRUE(op.ok());
     ov_manager.upsert_curation_item("index", curation_json1);
 
@@ -5135,8 +5135,8 @@ TEST_F(CollectionCurationTest, NestedObjectOverride) {
     };
 
     curation_t curation;
-    auto op_override = curation_t::parse(curation_json, "nested-dynamic-filter", curation);
-    ASSERT_TRUE(op_override.ok());
+    auto op_curation = curation_t::parse(curation_json, "nested-dynamic-filter", curation);
+    ASSERT_TRUE(op_curation.ok());
     ov_manager.upsert_curation_item("index", curation_json);
 
     // Search with brand name
@@ -5314,7 +5314,7 @@ TEST_F(CollectionCurationTest, DynamicFilterMatchingMultipleRules) {
     ASSERT_TRUE(parse_op.ok());
     ov_manager.upsert_curation_item("index", curation_json2);
 
-    // should match with override2 only even though override1 can be matched with filter_query
+    // should match with curation2 only even though curation1 can be matched with filter_query
     results = coll1->search("*", {}, "region:=act && (category:=`Electronics` || category:=`Office`) ", {}, {}, {0}).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
@@ -5323,7 +5323,7 @@ TEST_F(CollectionCurationTest, DynamicFilterMatchingMultipleRules) {
     ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
     ASSERT_EQ(true, results["hits"][0]["curated"].get<bool>());
 
-    //this should match with override1 only
+    //this should match with curation1 only
     results = coll1->search("*", {}, "region:=act && category:=`Electronics`", {}, {}, {0}).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());

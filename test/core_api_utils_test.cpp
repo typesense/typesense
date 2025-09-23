@@ -2075,7 +2075,7 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
                     {
                         "excludes":[],
                         "filter_curated_hits":false,
-                        "id":"override1",
+                        "id":"curation1",
                         "includes":[],
                         "metadata":{"foo":"bar"},
                         "remove_matched_tokens":false,

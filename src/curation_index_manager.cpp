@@ -52,8 +52,8 @@ Option<bool> CurationIndexManager::remove_curation_index(const std::string& inde
         curation_index_list.erase(it->second);
         curation_index_map.erase(it);
         store->remove(CurationIndexManager::get_curation_index_key(index_name));
-        store->delete_range(CurationIndex::COLLECTION_OVERRIDE_SET_PREFIX + std::string("_") + index_name + "_",
-                            CurationIndex::COLLECTION_OVERRIDE_SET_PREFIX + std::string("_") + index_name + "`");
+        store->delete_range(CurationIndex::COLLECTION_CURATION_SET_PREFIX + std::string("_") + index_name + "_",
+                            CurationIndex::COLLECTION_CURATION_SET_PREFIX + std::string("_") + index_name + "`");
         return Option<bool>(true);
     }
     return Option<bool>(404, "Curation index not found");
@@ -112,8 +112,8 @@ void CurationIndexManager::load_curation_indices() {
         }
         auto& index = *add_op.get();
         std::vector<std::string> curations;
-        store->scan_fill(CurationIndex::COLLECTION_OVERRIDE_SET_PREFIX + std::string("_") + name + "_",
-                         CurationIndex::COLLECTION_OVERRIDE_SET_PREFIX + std::string("_") + name + "`",
+        store->scan_fill(CurationIndex::COLLECTION_CURATION_SET_PREFIX + std::string("_") + name + "_",
+                         CurationIndex::COLLECTION_CURATION_SET_PREFIX + std::string("_") + name + "`",
                          curations);
         for(const auto& curation_json: curations) {
             nlohmann::json ov_json;
@@ -129,7 +129,7 @@ void CurationIndexManager::load_curation_indices() {
                 LOG(ERROR) << "Failed to parse curation: " << parse_op.error();
                 continue;
             }
-            index.add_override(ov, false);
+            index.add_curation(ov, false);
         }
     }
 }
@@ -148,7 +148,7 @@ Option<nlohmann::json> CurationIndexManager::upsert_curation_set(const std::stri
         if(!op.ok()) {
             return Option<nlohmann::json>(op.code(), op.error());
         }
-        auto add_op = index.add_override(ov, true);
+        auto add_op = index.add_curation(ov, true);
         if(!add_op.ok()) {
             return Option<nlohmann::json>(add_op.code(), add_op.error());
         }
@@ -166,7 +166,7 @@ Option<nlohmann::json> CurationIndexManager::list_curation_items(const std::stri
         return Option<nlohmann::json>(get_op.code(), get_op.error());
     }
     auto* index = get_op.get();
-    auto list_op = index->get_overrides(limit, offset);
+    auto list_op = index->get_curations(limit, offset);
     if(!list_op.ok()) {
         return Option<nlohmann::json>(list_op.code(), list_op.error());
     }
@@ -183,7 +183,7 @@ Option<nlohmann::json> CurationIndexManager::get_curation_item(const std::string
         return Option<nlohmann::json>(get_op.code(), get_op.error());
     }
     curation_t ov;
-    bool found = get_op.get()->get_override(id, ov);
+    bool found = get_op.get()->get_curation(id, ov);
     if(!found) {
         return Option<nlohmann::json>(404, "Not Found");
     }
@@ -200,7 +200,7 @@ Option<bool> CurationIndexManager::upsert_curation_item(const std::string& name,
     if(!parse_op.ok()) {
         return Option<bool>(parse_op.code(), parse_op.error());
     }
-    return get_op.get()->add_override(ov, true);
+    return get_op.get()->add_curation(ov, true);
 }
 
 Option<bool> CurationIndexManager::delete_curation_item(const std::string& name, const std::string& id) {
@@ -208,7 +208,7 @@ Option<bool> CurationIndexManager::delete_curation_item(const std::string& name,
     if(!get_op.ok()) {
         return Option<bool>(get_op.code(), get_op.error());
     }
-    return get_op.get()->remove_override(id);
+    return get_op.get()->remove_curation(id);
 }
 
 void CurationIndexManager::dispose() {

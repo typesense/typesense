@@ -452,11 +452,11 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
     curation_json_exclude["excludes"][0] = nlohmann::json::object();
     curation_json_exclude["excludes"][0]["id"] = "2";
 
-    curation_t override1;
-    curation_t override2;
+    curation_t curation1;
+    curation_t curation2;
 
-    curation_t::parse(curation_json_include, "", override1);
-    curation_t::parse(curation_json_exclude, "", override2);
+    curation_t::parse(curation_json_include, "", curation1);
+    curation_t::parse(curation_json_exclude, "", curation2);
 
     auto ov1_op = ov_manager.upsert_curation_item("index", curation_json_include);
     auto ov2_op = ov_manager.upsert_curation_item("index", curation_json_exclude);
