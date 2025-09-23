@@ -2024,4 +2024,13 @@ TEST_F(CollectionSchemaChangeTest, AlterAddSameFieldTwice) {
     auto schema_change_op = coll->alter(schema_change);
     ASSERT_FALSE(schema_change_op.ok());
     ASSERT_EQ("There can be only one field named `title`.", schema_change_op.error());
+
+    schema_change = R"({
+            "fields": [
+                {"name": "title", "drop": true},
+                {"name": "title", "type": "string", "facet": true}
+            ]
+        })"_json;
+    schema_change_op = coll->alter(schema_change);
+    ASSERT_TRUE(schema_change_op.ok());
 }
