@@ -590,7 +590,7 @@ describe(Phases.NO_PHASE, () => {
     manager = new TypesenseProcessManager(join(process.cwd(), "./data/snapshot/v29-snapshot-rollback"), process.env.TYPESENSE_V29_BINARY_PATH!);
     try {
       await manager.startSingleNode("", 8109, 8106, "v29-snapshot-server");
-      const brands_filter = await fetchSingleNode("/collections/products/curations/brand-filter", { method: "GET" }, 8109);
+      const brands_filter = await fetchSingleNode("/collections/products/overrides/brand-filter", { method: "GET" }, 8109);
       expect(brands_filter.ok).toBe(true);
       const brands_filter_curations_data: any = await brands_filter.json();
       expect(brands_filter_curations_data.rule.query).toEqual("{brand} phone");
@@ -598,7 +598,7 @@ describe(Phases.NO_PHASE, () => {
       expect(brands_filter_curations_data.filter_by).toEqual("brand:={brand}");
       expect(brands_filter_curations_data.remove_matched_tokens).toEqual(true);
 
-      const customize_apple = await fetchSingleNode("/collections/products/curations/customize-apple", { method: "GET" }, 8109);
+      const customize_apple = await fetchSingleNode("/collections/products/overrides/customize-apple", { method: "GET" }, 8109);
       expect(customize_apple.ok).toBe(true);
       const customize_apple_curations_data: any = await customize_apple.json();
       expect(customize_apple_curations_data.rule.query).toEqual("apple");
@@ -606,7 +606,7 @@ describe(Phases.NO_PHASE, () => {
       expect(customize_apple_curations_data.includes).toEqual([{ id: "422", position: 1 }, { id: "54", position: 2 }]);
       expect(customize_apple_curations_data.excludes).toEqual([{ id: "287" }]);
 
-      const dynamic_sort = await fetchSingleNode("/collections/products/curations/dynamic-sort", { method: "GET" }, 8109);
+      const dynamic_sort = await fetchSingleNode("/collections/products/overrides/dynamic-sort", { method: "GET" }, 8109);
       expect(dynamic_sort.ok).toBe(true);
       const dynamic_sort_curations_data: any = await dynamic_sort.json();
       expect(dynamic_sort_curations_data.rule.query).toEqual("{store}");
