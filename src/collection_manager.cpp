@@ -1511,6 +1511,68 @@ void remove_global_params(std::map<std::string, std::string>& req_params) {
     }
 }
 
+Option<bool> CollectionManager::validate_facet_params(const std::vector<collection_search_args_t>& coll_searches) {
+    struct facet_field_parent {
+        std::string facet_field;
+        bool should_return_parent;
+    };
+
+    const auto& facet_strategy = coll_searches[0].facet_strategy;
+    const auto& simple_facet_query = coll_searches[0].simple_facet_query;
+    spp::sparse_hash_map<std::string, facet_field_parent> field_to_facet_field_map;
+    std::string generic_error = " should be uniform across searches for faceting with union search.";
+
+    for(const auto& args : coll_searches) {
+        if(args.facet_fields.empty()) {
+            continue;
+        }
+
+        if(args.facet_strategy != facet_strategy) {
+            return Option<bool>(400, "`facet_strategy`" + generic_error);
+        }
+
+        if(args.simple_facet_query != simple_facet_query) {
+            return Option<bool>(400, "`facet_query`" + generic_error);
+        }
+
+        for(const auto& field : args.facet_fields) {
+            if (field.find("sort_by") != std::string::npos) {
+                return Option<bool>(400, "`sort_by` is not supported for union search faceting.");
+            }
+
+            std::string field_name = field;
+            if (field[0] == '$') {
+                return Option<bool>(400, "facet referencing is not supported for union search faceting.");
+            }
+
+            auto pos = field_name.find("(");
+            field_name = field_name.substr(0, pos);
+
+            auto should_return_parent = false;
+            for(const auto& val : args.facet_return_parent) {
+                if(val == "*" || val == field_name) {
+                    should_return_parent = true;
+                    break;
+                }
+            }
+
+            auto it1 = field_to_facet_field_map.find(field_name);
+
+            if (it1 != field_to_facet_field_map.end()) {
+                if(field != it1->second.facet_field) {
+                    return Option<bool>(400, "facet fields" + generic_error);
+                } else if(it1->second.should_return_parent != should_return_parent) {
+                    return Option<bool>(400, "`facet_return_parent`" + generic_error);
+                }
+            } else {
+                field_to_facet_field_map[field_name] = facet_field_parent{field, should_return_parent};
+            }
+        }
+    }
+
+    return Option<bool>(true);
+}
+
 Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req_params,
                                          std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
                                          nlohmann::json& response, uint64_t start_ts, bool remove_duplicates) {
@@ -1592,7 +1654,12 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
     }
 
     if(result_op.ok() && group_by_args_count > 0 && group_by_args_count != searches.size()) {
-        result_op = Option<bool>(400, "Invalid group_by searches count. All searches with union search should be uniform.");
+        result_op = Option<bool>(400,
+                                 "Invalid group_by searches count. All searches with union search should be uniform.");
+    }
+
+    if (result_op.ok()) {
+        result_op = validate_facet_params(coll_searches);
     }
 
     if (!result_op.ok()) {
@@ -1603,7 +1670,8 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
 
     std::vector<long> searchTimeMillis;
 
-    auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, union_params, response, remove_duplicates);
+    auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, union_params, response,
+                                         remove_duplicates);
 
     auto reqTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now().time_since_epoch()).count() - start_ts;

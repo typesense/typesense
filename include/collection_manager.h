@@ -58,6 +58,8 @@ private:
         return "";
     }
 
+    static Option<bool> validate_facet_params(const std::vector<collection_search_args_t>& coll_searches);
+
 public:
     static constexpr const size_t DEFAULT_NUM_MEMORY_SHARDS = 4;
 
