@@ -18,7 +18,6 @@ This is a selection of sites and apps using Typesense.
 | [Instatus](https://instatus.com) | System Status Pages Platform |
 | [Iconduck](https://iconduck.com) | Site to search for open source icons |
 | [Service Foods](https://www.servicefoods.co.nz) | One of New Zealand's largest privately family owned and operated food service distribution businesses |
-| [Otaku Square](https://www.otakusquare.com) | Online retailer for pop-culture (e.g. anime, games, movies) merchandise |
 | [Orders Made Simple](https://ordersmadesimple.com) | A Stock ordering platform helping to connect hospitality and catering venues with their suppliers |
 | [Back Right Up](https://backrightup.com) | Automatic Azure Devops backups |
 | [Popcorn](https://onpopcorn.com) | Zoom meets Snapchat, async video chat app |
