@@ -6,6 +6,7 @@
 #include <collection_manager.h>
 #include "collection.h"
 #include "synonym_index_manager.h"
+#include "curation_index_manager.h"
 
 class CollectionSpecificTest : public ::testing::Test {
 protected:
@@ -30,6 +31,12 @@ protected:
 
         SynonymIndex synonym_index1(store, "index");
         synonym_index_manager.add_synonym_index("index", std::move(synonym_index1));
+
+        CurationIndexManager& curation_index_manager = CurationIndexManager::get_instance();
+        curation_index_manager.init_store(store);
+
+        CurationIndex curation_index1(store, "index");
+        curation_index_manager.add_curation_index("index", std::move(curation_index1));
     }
 
     virtual void SetUp() {
@@ -37,6 +44,8 @@ protected:
     }
 
     virtual void TearDown() {
+        CurationIndexManager::get_instance().dispose();
+        SynonymIndexManager::get_instance().dispose();
         collectionManager.dispose();
         delete store;
     }
@@ -671,35 +680,36 @@ TEST_F(CollectionSpecificTest, DeleteOverridesOnDiskDuringCollDropAndSynonymsSho
     }
 
     auto coll1 = collectionManager.get_collection_unsafe("coll1");
+    auto& ov_manager = CurationIndexManager::get_instance();
 
-    nlohmann::json override_json = {
+    nlohmann::json curation_json = {
         {"id",   "exclude-rule"},
         {
             "rule", {
                  {"query", "of"},
-                 {"match", override_t::MATCH_EXACT}
+                 {"match", curation_t::MATCH_EXACT}
              }
         }
     };
-    override_json["excludes"] = nlohmann::json::array();
-    override_json["excludes"][0] = nlohmann::json::object();
-    override_json["excludes"][0]["id"] = "4";
+    curation_json["excludes"] = nlohmann::json::array();
+    curation_json["excludes"][0] = nlohmann::json::object();
+    curation_json["excludes"][0]["id"] = "4";
 
-    override_json["excludes"][1] = nlohmann::json::object();
-    override_json["excludes"][1]["id"] = "11";
+    curation_json["excludes"][1] = nlohmann::json::object();
+    curation_json["excludes"][1]["id"] = "11";
 
-    override_t override;
-    override_t::parse(override_json, "", override);
-    coll1->add_override(override);
+    curation_t curation;
+    curation_t::parse(curation_json, "", curation);
+    ov_manager.upsert_curation_item("index", curation_json);
 
     // add synonym
     SynonymIndexManager::get_instance().upsert_synonym_item("index", R"({"id": "ipod-synonyms", "synonyms": ["ipod", "i pod", "pod"]})"_json);
 
     collectionManager.drop_collection("coll1");
 
-    // overrides should have been deleted from the store
+    // curations should have been deleted from the store
     std::vector<std::string> stored_values;
-    store->scan_fill(Collection::COLLECTION_OVERRIDE_PREFIX, std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "`",
+    store->scan_fill(CurationIndex::OLD_COLLECTION_OVERRIDE_PREFIX, std::string(CurationIndex::OLD_COLLECTION_OVERRIDE_PREFIX) + "`",
                      stored_values);
     ASSERT_TRUE(stored_values.empty());
 
@@ -2989,7 +2999,7 @@ TEST_F(CollectionSpecificTest, NonIndexField) {
     req_params = {
             {"collection", "coll1"},
             {"q", "*"},
-            {"include_fields", "*, title"}  // Adding a field name overrides include all wildcard
+            {"include_fields", "*, title"}  // Adding a field name curations include all wildcard
     };
 
     collectionManager.do_search(req_params, embedded_params, json_res, now_ts);

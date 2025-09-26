@@ -4,7 +4,7 @@
 #include <diversity.h>
 #include "option.h"
 
-struct override_t {
+struct curation_t {
     static const std::string MATCH_EXACT;
     static const std::string MATCH_CONTAINS;
 
@@ -50,14 +50,13 @@ struct override_t {
 
     diversity_t diversity{};
 
-    override_t() = default;
+    curation_t() = default;
 
-    static Option<bool> parse(const nlohmann::json& override_json, const std::string& id,
-                              override_t& override,
+    static Option<bool> parse(const nlohmann::json& curation_json, const std::string& id,
+                              curation_t& curation,
                               const std::string& locale = "",
                               const std::vector<char>& symbols_to_index = {},
-                              const std::vector<char>& token_separators = {},
-                              const tsl::htrie_map<char, field>& search_schema = tsl::htrie_map<char, field>());
+                              const std::vector<char>& token_separators = {});
 
     nlohmann::json to_json() const;
 };

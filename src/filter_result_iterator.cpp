@@ -2128,8 +2128,8 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
     }
 }
 
-int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout) {
-    if (validity == invalid || (!override_timeout && timeout_info != nullptr && is_timed_out())) {
+int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout) {
+    if (validity == invalid || (!curation_timeout && timeout_info != nullptr && is_timed_out())) {
         return -1;
     }
 
@@ -2338,12 +2338,12 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
     return false;
 }
 
-void filter_result_iterator_t::reset(const bool& override_timeout) {
+void filter_result_iterator_t::reset(const bool& curation_timeout) {
     if (filter_node == nullptr) {
         return;
     }
 
-    if (!override_timeout && timeout_info != nullptr && is_timed_out()) {
+    if (!curation_timeout && timeout_info != nullptr && is_timed_out()) {
         return;
     }
 
@@ -2652,13 +2652,13 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
     return *this;
 }
 
-void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout,
+void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& curation_timeout,
                                          const bool& is_group_by_first_pass) {
     if (!is_filter_result_initialized) {
         return;
     }
 
-    if (!override_timeout && timeout_info != nullptr) {
+    if (!curation_timeout && timeout_info != nullptr) {
         // In Index::search_wildcard number of calls to get_n_ids will be min(number of threads, filter match ids).
         // Therefore, `timeout_info->function_call_counter` won't reach `function_call_modulo` if only incremented on
         // function call.
@@ -2689,11 +2689,11 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
 void filter_result_iterator_t::get_n_ids(const uint32_t& n,
                                          uint32_t& excluded_result_index,
                                          uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                                         filter_result_t*& result, const bool& override_timeout,
+                                         filter_result_t*& result, const bool& curation_timeout,
                                          const bool& is_group_by_first_pass) {
     if (excluded_result_ids == nullptr || excluded_result_ids_size == 0 ||
         excluded_result_index >= excluded_result_ids_size) {
-        return get_n_ids(n, result, override_timeout, is_group_by_first_pass);
+        return get_n_ids(n, result, curation_timeout, is_group_by_first_pass);
     }
 
     // This method is only called in Index::search_wildcard after filter_result_iterator_t::compute_iterators.
@@ -2701,7 +2701,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
         return;
     }
 
-    if (!override_timeout && timeout_info != nullptr) {
+    if (!curation_timeout && timeout_info != nullptr) {
         // In Index::search_wildcard number of calls to get_n_ids will be min(number of threads, filter match ids).
         // Therefore, `timeout_info->function_call_counter` won't reach `function_call_modulo` if only incremented on
         // function call.
@@ -3114,12 +3114,12 @@ void filter_result_iterator_t::compute_iterators() {
     approx_filter_ids_length = filter_result.count;
 }
 
-bool filter_result_iterator_t::is_timed_out(const bool& override_function_call_counter) {
+bool filter_result_iterator_t::is_timed_out(const bool& curation_function_call_counter) {
     if (validity == timed_out) {
         return true;
     }
 
-    if (override_function_call_counter || ++(timeout_info->function_call_counter) % function_call_modulo == 0) {
+    if (curation_function_call_counter || ++(timeout_info->function_call_counter) % function_call_modulo == 0) {
         if ((std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count() - timeout_info->search_begin_us) > timeout_info->search_stop_us) {
             validity = timed_out;

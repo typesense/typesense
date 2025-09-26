@@ -213,7 +213,7 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
 
-    // `k` value should overrides per_page
+    // `k` value should curations per_page
     results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,

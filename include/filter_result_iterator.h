@@ -347,11 +347,11 @@ private:
 
     /// Collects n doc ids while advancing the iterator. The iterator may become invalid during this operation.
     /// **The references are moved from filter_result_iterator_t.
-    void get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout = false,
+    void get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& curation_timeout = false,
                    const bool& is_group_by_first_pass = false);
 
     /// Updates `validity` of the iterator to `timed_out` if condition is met. Assumes `timeout_info` is not null.
-    inline bool is_timed_out(const bool& override_function_call_counter = false);
+    inline bool is_timed_out(const bool& curation_function_call_counter = false);
 
     /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
     /// this operation.
@@ -411,7 +411,7 @@ public:
     /// 0 : id is not valid
     /// 1 : id is valid
     /// -1: end of iterator / timed out
-    [[nodiscard]] int is_valid(uint32_t id, const bool& override_timeout = false);
+    [[nodiscard]] int is_valid(uint32_t id, const bool& curation_timeout = false);
 
     /// Advances the iterator to get the next value of doc and reference. The iterator may become invalid during this
     /// operation.
@@ -424,14 +424,14 @@ public:
     void get_n_ids(const uint32_t& n,
                    uint32_t& excluded_result_index,
                    uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                   filter_result_t*& result, const bool& override_timeout = false,
+                   filter_result_t*& result, const bool& curation_timeout = false,
                    const bool& is_group_by_first_pass = false);
 
     /// Returns true if at least one id from the posting list object matches the filter.
     bool contains_atleast_one(const void* obj);
 
     /// Returns to the initial state of the iterator.
-    void reset(const bool& override_timeout = false);
+    void reset(const bool& curation_timeout = false);
 
     /// Copies filter ids from `filter_result` into `filter_array`.
     ///

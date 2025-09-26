@@ -1484,7 +1484,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(1000, import_response["num_imported"].get<int>());
 
-    // run upsert again with title override
+    // run upsert again with title curation
 
     records.clear();
 

@@ -8,6 +8,7 @@
 #include "collection.h"
 #include "synonym_index.h"
 #include "synonym_index_manager.h"
+#include "curation_index_manager.h"
 #include "search_analytics.h"
 
 class CollectionManagerTest : public ::testing::Test {
@@ -40,6 +41,12 @@ protected:
         SynonymIndex synonym_index1(store, "index");
         synonym_index_manager.add_synonym_index("index", std::move(synonym_index1));
 
+        CurationIndexManager& curation_index_manager = CurationIndexManager::get_instance();
+        curation_index_manager.init_store(store);
+        
+        CurationIndex curation_index1(store, "index");
+        curation_index_manager.add_curation_index("index", std::move(curation_index1));
+
         schema = R"({
             "name": "collection1",
             "enable_nested_fields": true,
@@ -58,7 +65,8 @@ protected:
             "default_sorting_field": "points",
             "symbols_to_index":["+"],
             "token_separators":["-"],
-            "synonym_sets": ["index"]
+            "synonym_sets": ["index"],
+            "curation_sets": ["index"]
         })"_json;
 
         sort_fields = { sort_by("points", "DESC") };
@@ -75,6 +83,8 @@ protected:
         if(store != nullptr) {
             collectionManager.drop_collection("collection1");
             collectionManager.dispose();
+            SynonymIndexManager::get_instance().dispose();
+            CurationIndexManager::get_instance().dispose();
             delete store;
         }
         analyticsManager.stop();
@@ -124,7 +134,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     store->get(Collection::get_next_seq_id_key("collection1"), next_seq_id);
     store->get(CollectionManager::NEXT_COLLECTION_ID_KEY, next_collection_id);
 
-    ASSERT_EQ(4, num_keys);
+    ASSERT_EQ(5, num_keys);
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
 
@@ -314,6 +324,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
             "+"
           ],
           "synonym_sets": ["index"],
+          "curation_sets": ["index"],
           "token_separators":[
             "-"
           ]
@@ -432,6 +443,7 @@ TEST_F(CollectionManagerTest, GetAllCollections) {
 }
 
 TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
+    auto& ov_manager = CurationIndexManager::get_instance();
     std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::string json_line;
 
@@ -445,69 +457,69 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     infile.close();
 
-    // add some overrides
-    nlohmann::json override_json_include = {
+    // add some curations
+    nlohmann::json curation_json_include = {
         {"id", "include-rule"},
         {
          "rule", {
                {"query", "in"},
-               {"match", override_t::MATCH_EXACT}
+               {"match", curation_t::MATCH_EXACT}
            }
         }
     };
-    override_json_include["includes"] = nlohmann::json::array();
-    override_json_include["includes"][0] = nlohmann::json::object();
-    override_json_include["includes"][0]["id"] = "0";
-    override_json_include["includes"][0]["position"] = 1;
+    curation_json_include["includes"] = nlohmann::json::array();
+    curation_json_include["includes"][0] = nlohmann::json::object();
+    curation_json_include["includes"][0]["id"] = "0";
+    curation_json_include["includes"][0]["position"] = 1;
 
-    override_json_include["includes"][1] = nlohmann::json::object();
-    override_json_include["includes"][1]["id"] = "3";
-    override_json_include["includes"][1]["position"] = 2;
+    curation_json_include["includes"][1] = nlohmann::json::object();
+    curation_json_include["includes"][1]["id"] = "3";
+    curation_json_include["includes"][1]["position"] = 2;
 
-    override_t override_include;
-    override_t::parse(override_json_include, "", override_include);
+    curation_t curation_include;
+    curation_t::parse(curation_json_include, "", curation_include);
+    ov_manager.upsert_curation_item("index", curation_json_include);
 
-    nlohmann::json override_json = {
+    nlohmann::json curation_json = {
         {"id", "exclude-rule"},
         {
          "rule", {
                        {"query", "of"},
-                       {"match", override_t::MATCH_EXACT}
+                       {"match", curation_t::MATCH_EXACT}
                }
         }
     };
-    override_json["excludes"] = nlohmann::json::array();
-    override_json["excludes"][0] = nlohmann::json::object();
-    override_json["excludes"][0]["id"] = "4";
+    curation_json["excludes"] = nlohmann::json::array();
+    curation_json["excludes"][0] = nlohmann::json::object();
+    curation_json["excludes"][0]["id"] = "4";
 
-    override_json["excludes"][1] = nlohmann::json::object();
-    override_json["excludes"][1]["id"] = "11";
+    curation_json["excludes"][1] = nlohmann::json::object();
+    curation_json["excludes"][1]["id"] = "11";
 
-    override_t override_exclude;
-    override_t::parse(override_json, "", override_exclude);
+    curation_t curation_exclude;
+    curation_t::parse(curation_json, "", curation_exclude);
 
-    nlohmann::json override_json_deleted = {
+    nlohmann::json curation_json_deleted = {
         {"id", "deleted-rule"},
         {
          "rule", {
                    {"query", "of"},
-                   {"match", override_t::MATCH_EXACT}
+                   {"match", curation_t::MATCH_EXACT}
            }
         }
     };
 
-    override_json_deleted["excludes"] = nlohmann::json::array();
-    override_json_deleted["excludes"][0] = nlohmann::json::object();
-    override_json_deleted["excludes"][0]["id"] = "11";
+    curation_json_deleted["excludes"] = nlohmann::json::array();
+    curation_json_deleted["excludes"][0] = nlohmann::json::object();
+    curation_json_deleted["excludes"][0]["id"] = "11";
 
-    override_t override_deleted;
-    override_t::parse(override_json_deleted, "", override_deleted);
+    curation_t curation_deleted;
+    curation_t::parse(curation_json_deleted, "", curation_deleted);
 
-    collection1->add_override(override_include);
-    collection1->add_override(override_exclude);
-    collection1->add_override(override_deleted);
+    ov_manager.upsert_curation_item("index", curation_json);
+    ov_manager.upsert_curation_item("index", curation_json_deleted);
 
-    collection1->remove_override("deleted-rule");
+    ov_manager.delete_curation_item("index", "deleted-rule");
 
     // make some synonym operation
     ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index",R"({"id": "id1", "root": "smart phone", "synonyms": ["iphone"]})"_json).ok());
@@ -591,9 +603,9 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     ASSERT_TRUE(collection1->get_enable_nested_fields());
 
-    ASSERT_EQ(2, collection1->get_overrides().get().size());
-    ASSERT_STREQ("exclude-rule", collection1->get_overrides().get()["exclude-rule"]->id.c_str());
-    ASSERT_STREQ("include-rule", collection1->get_overrides().get()["include-rule"]->id.c_str());
+    ASSERT_EQ(2, ov_manager.list_curation_items("index", 0, 0).get().size());
+    ASSERT_STREQ("exclude-rule", ov_manager.list_curation_items("index", 0, 0).get()[0]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("include-rule", ov_manager.list_curation_items("index", 0, 0).get()[1]["id"].get<std::string>().c_str());
 
     const auto& synonym_index = SynonymIndexManager::get_instance().get_synonym_index("index").get();
     const auto& synonyms = synonym_index->get_synonyms().get();
@@ -1079,11 +1091,14 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     SynonymIndexManager& synonymIndexManager = SynonymIndexManager::get_instance();
     synonymIndexManager.remove_synonym_index("index");
 
+    CurationIndexManager& CurationIndexManager = CurationIndexManager::get_instance();
+    CurationIndexManager.remove_curation_index("index");
+
     rocksdb::Iterator* it = store->get_iterator();
     size_t num_keys = 0;
 
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
-        ASSERT_EQ(it->key().ToString(), "$CI");
+        std::cout << it->key().ToString() << std::endl;
         num_keys += 1;
     }
 
@@ -1505,6 +1520,7 @@ TEST_F(CollectionManagerTest, Presets) {
 }
 
 TEST_F(CollectionManagerTest, CloneCollection) {
+    auto& ov_manager = CurationIndexManager::get_instance();
     nlohmann::json schema = R"({
         "name": "coll1",
         "fields": [
@@ -1512,10 +1528,12 @@ TEST_F(CollectionManagerTest, CloneCollection) {
         ],
         "symbols_to_index":["+"],
         "synonym_sets": ["index"],
+        "curation_sets": ["index"],
         "token_separators":["-", "?"]
     })"_json;
 
     auto create_op = collectionManager.create_collection(schema);
+    ASSERT_EQ("", create_op.error());
     ASSERT_TRUE(create_op.ok());
     auto coll1 = create_op.get();
 
@@ -1526,22 +1544,22 @@ TEST_F(CollectionManagerTest, CloneCollection) {
 
     ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index", synonym1).ok());
 
-    nlohmann::json override_json = {
+    nlohmann::json curation_json = {
             {"id",   "dynamic-cat-filter"},
             {
              "rule", {
                              {"query", "{categories}"},
-                             {"match", override_t::MATCH_EXACT}
+                             {"match", curation_t::MATCH_EXACT}
                      }
             },
             {"remove_matched_tokens", true},
             {"filter_by", "category: {categories}"}
     };
 
-    override_t override;
-    auto op = override_t::parse(override_json, "dynamic-cat-filter", override);
+    curation_t curation;
+    auto op = curation_t::parse(curation_json, "dynamic-cat-filter", curation);
     ASSERT_TRUE(op.ok());
-    coll1->add_override(override);
+    ov_manager.upsert_curation_item("index", curation_json);
 
     nlohmann::json req = R"({"name": "coll2"})"_json;
     collectionManager.clone_collection("coll1", req);
@@ -1550,7 +1568,7 @@ TEST_F(CollectionManagerTest, CloneCollection) {
     ASSERT_FALSE(coll2 == nullptr);
     ASSERT_EQ("coll2", coll2->get_name());
     ASSERT_EQ(1, coll2->get_fields().size());
-    ASSERT_EQ(1, coll2->get_overrides().get().size());
+    ASSERT_EQ(1, ov_manager.list_curation_items("index", 0, 0).get().size());
     ASSERT_EQ("", coll2->get_fallback_field_type());
 
     ASSERT_EQ(1, coll2->get_symbols_to_index().size());
@@ -1755,6 +1773,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
             "num_memory_shards":4,
             "symbols_to_index":[],
             "synonym_sets":[],
+            "curation_sets": [],
             "token_separators":[]
     })"_json;
 

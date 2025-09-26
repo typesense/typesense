@@ -93,15 +93,22 @@ bool put_synonym_set_item(const std::shared_ptr<http_req>& req, const std::share
 
 bool del_synonym_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-// Overrides
+// curation sets
+bool get_curation_sets(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_overrides(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool get_curation_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool del_curation_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool put_curation_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool del_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool get_curation_set_items(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_curation_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool put_curation_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_curation_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Keys
 

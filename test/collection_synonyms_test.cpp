@@ -17,7 +17,7 @@ protected:
     Collection *coll_mul_fields;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_override";
+        std::string state_dir_path = "/tmp/typesense_test/collection_curation";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 

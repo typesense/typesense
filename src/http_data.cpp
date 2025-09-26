@@ -10,7 +10,7 @@ std::string route_path::_get_action() {
 
     for(size_t i = 0; i < path_parts.size(); i++) {
         if(i == 0 && path_parts.size() > 2 && path_parts[i] == "collections") {
-            // sub-resource of a collection, e.g. /collections/:name/overrides should be treated as
+            // sub-resource of a collection, e.g. /collections/:name/curations should be treated as
             // top-level resource to maintain backward compatibility
             continue;
         }

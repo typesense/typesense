@@ -171,8 +171,8 @@ TEST(ConfigTest, CmdLineArgsOverrideConfigFileAndEnvVars) {
     ASSERT_EQ(9090, config.get_api_port());
     ASSERT_EQ(true, config.get_enable_cors());
     ASSERT_EQ("192.168.10.10", config.get_api_address());
-    ASSERT_EQ("abcd", config.get_api_key());  // cli parameter overrides file config
-    ASSERT_EQ(1, config.get_cors_domains().size());  // cli parameter overrides file config
+    ASSERT_EQ("abcd", config.get_api_key());  // cli parameter curations file config
+    ASSERT_EQ(1, config.get_cors_domains().size());  // cli parameter curations file config
     ASSERT_EQ("http://localhost:8108", *(config.get_cors_domains().begin()));
     ASSERT_EQ(250, config.get_max_per_page());
     ASSERT_EQ(99, config.get_max_group_limit());

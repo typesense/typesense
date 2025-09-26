@@ -763,7 +763,7 @@ TEST_F(FilterTest, FilterTreeIteratorTimeout) {
     result = new filter_result_t();
     filter_iterator->get_n_ids(count, excluded_result_index, nullptr, 0, result, true);
 
-    ASSERT_EQ(count, result->count); // With `override_timeout` true, we should get result.
+    ASSERT_EQ(count, result->count); // With `curation_timeout` true, we should get result.
     delete result;
 }
 

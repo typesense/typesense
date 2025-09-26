@@ -26,6 +26,7 @@
 #include "natural_language_search_model_manager.h"
 #include "natural_language_search_model.h"
 #include "synonym_index_manager.h"
+#include "curation_index_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -303,7 +304,7 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
 
 bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
-    std::set<std::string> allowed_keys = {"metadata", "fields", "synonym_sets"};
+    std::set<std::string> allowed_keys = {"metadata", "fields", "synonym_sets", "curation_sets"};
 
     // Ensures that only one alter can run per collection.
     // The actual check for this, happens in `ReplicationState::write` which is called only during live writes.
@@ -359,6 +360,20 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
 
         auto synonym_sets = req_json["synonym_sets"].get<std::vector<std::string>>();
         auto op = CollectionManager::get_instance().update_collection_synonym_sets(req->params["collection"], synonym_sets);
+        if(!op.ok()) {
+            res->set(op.code(), op.error());
+            return false;
+        }
+    }
+
+    if(req_json.contains("curation_sets")) {
+        if(!req_json["curation_sets"].is_array()) {
+            res->set_400("The `curation_sets` value should be an array.");
+            return false;
+        }
+        
+        auto curation_sets = req_json["curation_sets"].get<std::vector<std::string>>();
+        auto op = CollectionManager::get_instance().update_collection_curation_sets(req->params["collection"], curation_sets);
         if(!op.ok()) {
             res->set(op.code(), op.error());
             return false;
@@ -2233,141 +2248,6 @@ bool del_alias(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
     return true;
 }
 
-bool get_overrides(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req->params["collection"]);
-
-    if(collection == nullptr) {
-        res->set_404("Collection not found");
-        return false;
-    }
-
-    uint32_t offset = 0, limit = 0;
-    if(req->params.count("offset") != 0) {
-        const auto &offset_str = req->params["offset"];
-        if(!StringUtils::is_uint32_t(offset_str)) {
-            res->set(400, "Offset param should be unsigned integer.");
-            return false;
-        }
-        offset = std::stoi(offset_str);
-    }
-
-    if(req->params.count("limit") != 0) {
-        const auto &limit_str = req->params["limit"];
-        if(!StringUtils::is_uint32_t(limit_str)) {
-            res->set(400, "Limit param should be unsigned integer.");
-            return false;
-        }
-        limit = std::stoi(limit_str);
-    }
-
-    nlohmann::json res_json;
-    res_json["overrides"] = nlohmann::json::array();
-
-    auto overrides_op = collection->get_overrides(limit, offset);
-    if(!overrides_op.ok()) {
-        res->set(overrides_op.code(), overrides_op.error());
-        return false;
-    }
-
-    const auto overrides = overrides_op.get();
-
-    for(const auto &kv: overrides) {
-        res_json["overrides"].push_back(kv.second->to_json());
-    }
-
-    res->set_200(res_json.dump());
-    return true;
-}
-
-bool get_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req->params["collection"]);
-
-    if(collection == nullptr) {
-        res->set_404("Collection not found");
-        return false;
-    }
-
-    std::string override_id = req->params["id"];
-
-    auto overrides_op = collection->get_override(override_id);
-
-    if(!overrides_op.ok()) {
-        res->set(overrides_op.code(), overrides_op.error());
-        return false;
-    }
-
-    res->set_200(overrides_op.get().to_json().dump());
-    return true;
-}
-
-bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req->params["collection"]);
-
-    std::string override_id = req->params["id"];
-
-    if(collection == nullptr) {
-        res->set_404("Collection not found");
-        return false;
-    }
-
-    nlohmann::json req_json;
-
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-    
-    override_t override;
-    Option<bool> parse_op = override_t::parse(req_json, override_id, override, "",
-                                              collection->get_symbols_to_index(),
-                                              collection->get_token_separators(),
-                                              collection->get_schema());
-    if(!parse_op.ok()) {
-        res->set(parse_op.code(), parse_op.error());
-        return false;
-    }
-    
-    Option<uint32_t> add_op = collection->add_override(override);
-
-    if(!add_op.ok()) {
-        res->set(add_op.code(), add_op.error());
-        return false;
-    }
-
-    req_json["id"] = override.id;
-
-    res->set_200(req_json.dump());
-    return true;
-}
-
-bool del_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req->params["collection"]);
-
-    if(collection == nullptr) {
-        res->set_404("Collection not found");
-        return false;
-    }
-
-    Option<uint32_t> rem_op = collection->remove_override(req->params["id"]);
-    if(!rem_op.ok()) {
-        res->set(rem_op.code(), rem_op.error());
-        return false;
-    }
-
-    nlohmann::json res_json;
-    res_json["id"] = req->params["id"];
-
-    res->set_200(res_json.dump());
-    return true;
-}
-
 bool get_keys(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     AuthManager &auth_manager = collectionManager.getAuthManager();
@@ -3979,6 +3859,162 @@ bool del_synonym_set_item(const std::shared_ptr<http_req>& req, const std::share
     nlohmann::json res_json;
     res_json["id"] = id;
 
+    res->set_200(res_json.dump());
+    return true;
+}
+
+// curation sets
+bool get_curation_sets(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CurationIndexManager& manager = CurationIndexManager::get_instance();
+    nlohmann::json res_json = manager.get_all_curation_indices_json();
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool get_curation_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CurationIndexManager& manager = CurationIndexManager::get_instance();
+    const std::string & set_name = req->params["name"];
+    auto get_index_op = manager.get_curation_index(set_name);
+    if(!get_index_op.ok()) {
+        res->set(get_index_op.code(), get_index_op.error());
+        return false;
+    }
+    res->set_200(get_index_op.get()->to_view_json().dump());
+    return true;
+}
+
+bool del_curation_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CurationIndexManager& manager = CurationIndexManager::get_instance();
+    const std::string & set_name = req->params["name"];
+    auto get_index_op = manager.get_curation_index(set_name);
+    if(!get_index_op.ok()) {
+        res->set(get_index_op.code(), get_index_op.error());
+        return false;
+    }
+    auto delete_op = manager.remove_curation_index(set_name);
+    if(!delete_op.ok()) {
+        res->set(delete_op.code(), delete_op.error());
+        return false;
+    }
+    nlohmann::json res_json;
+    res_json["name"] = set_name;
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool put_curation_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CurationIndexManager& manager = CurationIndexManager::get_instance();
+    nlohmann::json req_json;
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+    if(!req_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+    std::string name = req->params["name"];
+    if(name.empty()) {
+        res->set_400("Name parameter is required.");
+        return false;
+    }
+    req_json["name"] = name;
+    auto validate_op = manager.validate_curation_index(req_json);
+    if(!validate_op.ok()) {
+        res->set(validate_op.code(), validate_op.error());
+        return false;
+    }
+    auto upsert_op = manager.upsert_curation_set(name, req_json["items"]);
+    if(!upsert_op.ok()) {
+        res->set(upsert_op.code(), upsert_op.error());
+        return false;
+    }
+    res->set_200(upsert_op.get().dump());
+    return true;
+}
+
+bool get_curation_set_items(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+  uint32_t offset = 0, limit = 0;
+  if(req->params.count("offset") != 0) {
+      const auto &offset_str = req->params["offset"];
+      if(!StringUtils::is_uint32_t(offset_str)) {
+          res->set(400, "Offset param should be unsigned integer.");
+          return false;
+      }
+      offset = std::stoi(offset_str);
+  }
+  if(req->params.count("limit") != 0) {
+      const auto &limit_str = req->params["limit"];
+      if(!StringUtils::is_uint32_t(limit_str)) {
+          res->set(400, "Limit param should be unsigned integer.");
+          return false;
+      }
+      limit = std::stoi(limit_str);
+  }
+  const std::string& set_name = req->params["name"];
+  auto& manager = CurationIndexManager::get_instance();
+  auto list_op = manager.list_curation_items(set_name, limit, offset);
+  if(!list_op.ok()) {
+      res->set(list_op.code(), list_op.error());
+      return false;
+  }
+  res->set_200(list_op.get().dump());
+  return true;
+}
+
+bool get_curation_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& set_name = req->params["name"];
+    const std::string id = req->params["id"];
+    auto& manager = CurationIndexManager::get_instance();
+    auto item_op = manager.get_curation_item(set_name, id);
+    if(!item_op.ok()) {
+        res->set(item_op.code(), item_op.error());
+        return false;
+    }
+    res->set_200(item_op.get().dump());
+    return true;
+}
+
+bool put_curation_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& set_name = req->params["name"];
+    const std::string id = req->params["id"];
+    nlohmann::json ov_json;
+    try {
+        ov_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+    if(!ov_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+    ov_json["id"] = id;
+    auto& manager = CurationIndexManager::get_instance();
+    auto add_op = manager.upsert_curation_item(set_name, ov_json);
+    if(!add_op.ok()) {
+        res->set(add_op.code(), add_op.error());
+        return false;
+    }
+    res->set_200(ov_json.dump());
+    return true;
+}
+
+bool del_curation_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& set_name = req->params["name"];
+    const std::string id = req->params["id"];
+    auto& manager = CurationIndexManager::get_instance();
+    auto del_op = manager.delete_curation_item(set_name, id);
+    if(!del_op.ok()) {
+        res->set(del_op.code(), del_op.error());
+        return false;
+    }
+    nlohmann::json res_json;
+    res_json["id"] = id;
     res->set_200(res_json.dump());
     return true;
 }
