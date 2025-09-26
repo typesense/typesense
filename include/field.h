@@ -85,6 +85,7 @@ namespace fields {
     static const std::string REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
 
     static const std::string store = "store";
+    static const std::string truncate = "truncate";
     
     static const std::string hnsw_params = "hnsw_params";
 }
@@ -123,6 +124,7 @@ struct field {
     bool nested;        // field inside an object
 
     bool store = true;        // store the field in disk
+    bool truncate = true;     // truncate string tokens at 100 chars
 
     // field inside an array of objects that is forced to be an array
     // integer to handle tri-state: true (1), false (0), not known yet (2)
@@ -158,10 +160,10 @@ struct field {
           int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine,
           std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false,
           const bool store = true, const bool stem = false, const std::string& stem_dictionary = "", const nlohmann::json hnsw_params = nlohmann::json(),
-          const bool async_reference = false, const nlohmann::json& token_separators = {}, const nlohmann::json& symbols_to_index = {}) :
+          const bool async_reference = false, const nlohmann::json& token_separators = {}, const nlohmann::json& symbols_to_index = {}, const bool truncate = true) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
-            embed(embed), range_index(range_index), store(store), stem(stem), stem_dictionary(stem_dictionary),
+            embed(embed), range_index(range_index), store(store), truncate(truncate), stem(stem), stem_dictionary(stem_dictionary),
             hnsw_params(hnsw_params), is_async_reference(async_reference) {
 
         set_computed_defaults(sort, infix);
@@ -408,7 +410,8 @@ struct field {
                      json[fields::hnsw_params].get<nlohmann::json>(),
                      json[fields::async_reference].get<bool>(),
                      json[fields::token_separators].get<nlohmann::json>(),
-                     json[fields::symbols_to_index].get<nlohmann::json>());
+                     json[fields::symbols_to_index].get<nlohmann::json>(),
+                     json[fields::truncate].get<bool>());
     }
 
     static Option<bool> fields_to_json_fields(const std::vector<field> & fields,

@@ -1334,7 +1334,7 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
             continue;
         }
 
-        if(token.size() > 100) {
+        if(token.size() > 100 && a_field.truncate) {
             token.erase(100);
         }
         
