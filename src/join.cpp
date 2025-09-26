@@ -103,6 +103,8 @@ Option<bool> Join::populate_reference_helper_fields(nlohmann::json& document,
 
         if (is_update && document.contains(reference_helper_field) &&
             (!document[field_name].is_array() || document[field_name].size() == document[reference_helper_field].size())) {
+
+            document[fields::reference_helper_fields] += reference_helper_field;
             // No need to look up the reference collection since reference helper field is already populated.
             // Saves needless computation in cases where references are known beforehand. For example, when cascade
             // deleting the related docs.
@@ -637,7 +639,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
 
             bool is_async_reference = schema.at(field_name).is_async_reference;
 
-            if (collection->get_object_reference_helper_fields().count(field_name) != 0) {
+            if (collection->get_object_reference_fields().count(field_name) != 0) {
                 std::vector<std::string> keys;
                 StringUtils::split(field_name, keys, ".");
                 auto const& key = keys[0];

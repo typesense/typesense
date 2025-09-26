@@ -574,7 +574,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                                                                record.is_update,
                                                                new_fields,
                                                                enable_nested_fields,
-                                                               reference_fields, object_reference_helper_fields);
+                                                               reference_fields, object_reference_fields);
                 if(!new_fields_op.ok()) {
                     record.index_failure(new_fields_op.code(), new_fields_op.error());
                 }
@@ -5886,9 +5886,9 @@ tsl::htrie_map<char, field> Collection::get_embedding_fields() {
     return embedding_fields;
 };
 
-tsl::htrie_set<char> Collection::get_object_reference_helper_fields() const {
+tsl::htrie_set<char> Collection::get_object_reference_fields() const {
     std::shared_lock lock(mutex);
-    return object_reference_helper_fields;
+    return object_reference_fields;
 }
 
 std::string Collection::get_meta_key(const std::string & collection_name) {
@@ -6219,8 +6219,9 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             field::flatten_doc(document, nested_fields, {}, true, flattened_fields);
         }
 
+        document.erase(fields::reference_helper_fields); // Avoid duplication of fields in `.ref[]`
         auto populate_reference_helper_fields_op = Join::populate_reference_helper_fields(document, search_schema, reference_fields,
-                                                                                          object_reference_helper_fields,
+                                                                                          object_reference_fields,
                                                                                           true);
         if (!populate_reference_helper_fields_op.ok()) {
             return populate_reference_helper_fields_op;
@@ -6387,40 +6388,6 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     if(!reindex_fields.empty()) {
         LOG(INFO) << "Processing field additions and deletions first...";
     }
-
-    std::unique_lock lck(mutex);
-    //update after successful alter operation
-    if(!del_fields.empty()) {
-        for(const auto& f : del_fields) {
-            if(reference_fields.find(f.name) != reference_fields.end()) {
-                reference_fields.erase(f.name);
-            }
-        }
-    }
-
-    if(!addition_fields.empty() || !reindex_fields.empty()) {
-        auto add_reference_field = [&] (const field& f) {
-            auto dot_index = f.reference.find('.');
-            auto ref_coll_name = f.reference.substr(0, dot_index);
-            auto ref_field_name = f.reference.substr(dot_index + 1);
-
-            reference_fields.emplace(f.name, reference_info_t(ref_coll_name, ref_field_name, f.is_async_reference));
-        };
-
-        for(const auto& f : addition_fields) {
-            if(!f.reference.empty()) {
-                add_reference_field(f);
-            }
-        }
-
-        for(const auto& f : reindex_fields) {
-            if(!f.reference.empty()) {
-                add_reference_field(f);
-            }
-        }
-    }
-
-    lck.unlock();
 
     auto batch_alter_op = batch_alter_data(addition_fields, del_fields, fallback_field_type);
     if(!batch_alter_op.ok()) {
@@ -6655,19 +6622,21 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             return Option<bool>(400, "Field `" + field_name + "` cannot be altered.");
         }
 
-        if(kv.value().contains("drop")) {
-            delete_field_names.insert(field_name);
+        if(!kv.value().contains("drop")) {
+            // Upstream has sorted drop values to the top.
+            break;
         }
 
-        //check for reference field, if found then remove reference field helper too
-        const auto& field_it = search_schema.find(field_name);
-        if(field_it != search_schema.end() && !field_it->reference.empty()) {
+        delete_field_names.insert(field_name);
+
+        // Check for reference field, if found then remove reference helper field too.
+        const auto& ref_it = reference_fields.find(field_name);
+        if(ref_it != reference_fields.end()) {
             const auto reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
-            if(search_schema.find(reference_helper_field) != search_schema.end()) {
-                delete_field_names.insert(reference_helper_field);
-            } else {
-                return Option<bool>(404,"reference helper field not found while altering field `" + field_name + "`");
+            if (search_schema.find(reference_helper_field) == search_schema.end()) {
+                return Option<bool>(404,"Reference helper field not found while altering field `" + field_name + "`.");
             }
+            delete_field_names.insert(reference_helper_field);
         }
     }
 
@@ -6707,10 +6676,16 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 updated_nested_fields.erase(field_it.key());
 
                 if(!field_it->reference.empty()) {
+                    reference_fields.erase(field_name);
+                    if (field_it->nested) {
+                        object_reference_fields.erase(field_name);
+                    }
+
                     //validated before only, so directly add to fields to delete
                     const auto ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
                     const auto ref_helper_field = search_schema.at(ref_helper_field_name);
                     del_fields.push_back(ref_helper_field);
+                    updated_search_schema.erase(ref_helper_field_name);
                 }
 
                 if(field_it.value().embed.count(fields::from) != 0) {
@@ -6796,7 +6771,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     reference_fields.emplace(field.name,
                                              reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference));
                     if (field.nested) {
-                        object_reference_helper_fields.insert(field.name);
+                        object_reference_fields.insert(field.name);
                     }
 
                     for (auto& update_ref_info: update_ref_infos) {
@@ -6936,7 +6911,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                            fallback_field_type, false,
                                                            new_fields,
                                                            enable_nested_fields,
-                                                           reference_fields, object_reference_helper_fields);
+                                                           reference_fields, object_reference_fields);
             if(!new_fields_op.ok()) {
                 return new_fields_op;
             }
@@ -7119,7 +7094,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                                            std::vector<field>& new_fields,
                                            const bool enable_nested_fields,
                                            const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
-                                           tsl::htrie_set<char>& object_reference_helper_fields) {
+                                           tsl::htrie_set<char>& object_reference_fields) {
 
     auto kv = document.begin();
     while(kv != document.end()) {
@@ -7205,7 +7180,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
     }
 
     auto populate_reference_helper_fields_op = Join::populate_reference_helper_fields(document, schema, reference_fields,
-                                                                                 object_reference_helper_fields,
+                                                                                 object_reference_fields,
                                                                                  is_update);
     if (!populate_reference_helper_fields_op.ok()) {
         return populate_reference_helper_fields_op;
@@ -7257,7 +7232,7 @@ Index* Collection::init_index() {
 
             reference_fields.emplace(field.name, reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference));
             if (field.nested) {
-                object_reference_helper_fields.insert(field.name);
+                object_reference_fields.insert(field.name);
             }
 
             for (auto& update_ref_info: update_ref_infos) {

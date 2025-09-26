@@ -1009,7 +1009,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ(1, doc.count(".ref"));
     ASSERT_EQ(1, doc[".ref"].size());
     ASSERT_EQ("object.ref_field_sequence_id", doc[".ref"][0]);
-    ASSERT_EQ(1, coll2->get_object_reference_helper_fields().count("object.ref_field_sequence_id"));
+    ASSERT_EQ(1, coll2->get_object_reference_fields().count("object.ref_field_sequence_id"));
 
     doc_json = R"({
                     "object": {
