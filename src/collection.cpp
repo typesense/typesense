@@ -6161,7 +6161,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             check_and_add_nested_field(nested_fields, f);
         }
 
-        if(f.is_async_reference) {
+        if(!f.reference.empty()) {
             found_reference_field = true;
         }
 

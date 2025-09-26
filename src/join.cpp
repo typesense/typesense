@@ -396,7 +396,8 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
                                  const tsl::htrie_set<char>& ref_include_fields_full,
                                  const tsl::htrie_set<char>& ref_exclude_fields_full,
                                  const bool& is_reference_array,
-                                 const ref_include_exclude_fields& ref_include_exclude) {
+                                 const ref_include_exclude_fields& ref_include_exclude,
+                                 const bool& cascade_delete) {
     nlohmann::json original_doc;
     if (!ref_include_exclude.nested_join_includes.empty()) {
         original_doc = doc;
@@ -420,7 +421,7 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
         nlohmann::json ref_doc;
         auto get_doc_op = ref_collection->get_document_from_store(ref_doc_seq_id, ref_doc);
         if (!get_doc_op.ok()) {
-            if (ref_doc_seq_id == Join::reference_helper_sentinel_value) {
+            if (!cascade_delete || ref_doc_seq_id == Join::reference_helper_sentinel_value) {
                 return Option<bool>(true);
             }
             return Option<bool>(get_doc_op.code(), error_prefix + get_doc_op.error());
@@ -498,8 +499,9 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
 
         auto get_doc_op = ref_collection->get_document_from_store(ref_doc_seq_id, ref_doc);
         if (!get_doc_op.ok()) {
+            // If `cascade_delete` is false, we don't remove the reference when the referenced doc is removed.
             // Referenced document is not yet indexed.
-            if (ref_doc_seq_id == Join::reference_helper_sentinel_value) {
+            if (!cascade_delete || ref_doc_seq_id == Join::reference_helper_sentinel_value) {
                 continue;
             }
             return Option<bool>(get_doc_op.code(), error_prefix + get_doc_op.error());
@@ -578,21 +580,36 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
         auto const joined_on_ref_collection = reference_filter_results.count(ref_collection_name) > 0,
                 has_filter_reference = (joined_on_ref_collection &&
                                         reference_filter_results.at(ref_collection_name).count > 0);
-        auto doc_has_reference = false, joined_coll_has_reference = false;
+        auto doc_has_reference = false, joined_coll_has_reference = false, cascade_delete = true;
 
         // Reference include_by without join, check if doc itself contains the reference.
         if (!joined_on_ref_collection && collection != nullptr) {
-            doc_has_reference = ref_collection->is_referenced_in(collection->get_name());
+            auto op = ref_collection->get_referenced_in_field_with_lock(collection->get_name());
+            if (op.ok()) {
+                doc_has_reference = true;
+
+                auto schema = collection->get_schema();
+                auto it = schema.find(op.get());
+                if (it != schema.end() && !it->cascade_delete) {
+                    cascade_delete = false;
+                }
+            }
         }
 
         std::string joined_coll_having_reference;
         // Check if the joined collection has a reference.
         if (!joined_on_ref_collection && !doc_has_reference) {
             for (const auto &reference_filter_result: reference_filter_results) {
-                joined_coll_has_reference = ref_collection->is_referenced_in(reference_filter_result.first);
-                if (joined_coll_has_reference) {
-                    joined_coll_having_reference = reference_filter_result.first;
-                    break;
+                auto op = ref_collection->get_referenced_in_field_with_lock(reference_filter_result.first);
+                if (!op.ok()) {
+                    continue;
+                }
+                joined_coll_has_reference = true;
+                joined_coll_having_reference = reference_filter_result.first;
+                auto schema = cm.get_collection(joined_coll_having_reference)->get_schema();
+                auto it = schema.find(op.get());
+                if (it != schema.end() && !it->cascade_delete) {
+                    cascade_delete = false;
                 }
             }
         }
@@ -624,7 +641,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
         if (has_filter_reference) {
             auto const& ref_filter_result = reference_filter_results.at(ref_collection_name);
             prune_doc_op = prune_ref_doc(doc, ref_filter_result, ref_include_fields_full, ref_exclude_fields_full,
-                                         ref_filter_result.is_reference_array_field, ref_include_exclude);
+                                         ref_filter_result.is_reference_array_field, ref_include_exclude, cascade_delete);
         } else if (doc_has_reference) {
             auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(collection->get_name());
             if (!get_reference_field_op.ok()) {
@@ -679,7 +696,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
                         reference_filter_result_t result(1, new uint32_t[1]{ref_doc_id});
                         prune_doc_op = prune_ref_doc(doc[key][i], result,
                                                      ref_include_fields_full, ref_exclude_fields_full,
-                                                     false, ref_include_exclude);
+                                                     false, ref_include_exclude, cascade_delete);
                         if (!prune_doc_op.ok()) {
                             return prune_doc_op;
                         }
@@ -698,7 +715,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
 
                     reference_filter_result_t result(ids.size(), &ids[0]);
                     prune_doc_op = prune_ref_doc(doc[key], result, ref_include_fields_full, ref_exclude_fields_full,
-                                                 schema.at(field_name).is_array(), ref_include_exclude);
+                                                 schema.at(field_name).is_array(), ref_include_exclude, cascade_delete);
                     result.docs = nullptr;
                 }
             } else {
@@ -715,7 +732,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
 
                 reference_filter_result_t result(ids.size(), &ids[0]);
                 prune_doc_op = prune_ref_doc(doc, result, ref_include_fields_full, ref_exclude_fields_full,
-                                             schema.at(field_name).is_array(), ref_include_exclude);
+                                             schema.at(field_name).is_array(), ref_include_exclude, cascade_delete);
                 result.docs = nullptr;
             }
         } else if (joined_coll_has_reference) {
@@ -750,7 +767,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
             result.docs = &ids[0];
             prune_doc_op = prune_ref_doc(doc, result, ref_include_fields_full, ref_exclude_fields_full,
                                          joined_coll_schema.at(reference_field_name).is_array(),
-                                         ref_include_exclude);
+                                         ref_include_exclude, cascade_delete);
             result.docs = nullptr;
         }
 

@@ -464,7 +464,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], 
                   field_json[fields::store], field_json[fields::stem], field_json[fields::stem_dictionary],
                   field_json[fields::hnsw_params], field_json[fields::async_reference], field_json[fields::token_separators],
-                  field_json[fields::symbols_to_index])
+                  field_json[fields::symbols_to_index], field_json[fields::cascade_delete])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {

@@ -410,9 +410,9 @@ struct field {
                      json[fields::stem_dictionary].get<std::string>(),
                      json[fields::hnsw_params].get<nlohmann::json>(),
                      json[fields::async_reference].get<bool>(),
-                     json[fields::cascade_delete].get<bool>(),
                      json[fields::token_separators].get<nlohmann::json>(),
-                     json[fields::symbols_to_index].get<nlohmann::json>());
+                     json[fields::symbols_to_index].get<nlohmann::json>(),
+                     json[fields::cascade_delete].get<bool>());
     }
 
     static Option<bool> fields_to_json_fields(const std::vector<field> & fields,

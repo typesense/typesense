@@ -5444,586 +5444,197 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
     ASSERT_EQ(10 , res_obj["hits"][1]["document"]["portions"][0].at("count"));
 }
 
-class JoinCascadeDeletionTest : public ::testing::Test {
-protected:
-    Store* store = nullptr;
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    std::atomic<bool> quit = false;
-
-    std::vector<std::string> query_fields;
-    std::vector<sort_by> sort_fields;
-    std::string state_dir_path = "/tmp/typesense_test/collection_join_cascade_deletion";
-
-    Collection* products = nullptr;
-    Collection* customers = nullptr;
-
-    std::map<std::string, std::string> req_params;
-    nlohmann::json embedded_params;
-    std::string json_res;
-    long now_ts = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-
-    void setupCollection() {
-        LOG(INFO) << "Truncating and creating: " << state_dir_path;
-        system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
-
-        store = new Store(state_dir_path);
-        collectionManager.init(store, 1.0, "auth_key", quit);
-        collectionManager.load(8, 1000);
-
-        auto schema_json =
-                R"({
-                "name": "Products",
-                "fields": [
-                    {"name": "product_id", "type": "string"},
-                    {"name": "product_name", "type": "string", "sort": true, "infix": true},
-                    {"name": "product_description", "type": "string"},
-                    {"name": "embedding", "type":"float[]", "embed":{"from": ["product_description"], "model_config": {"model_name": "ts/e5-small"}}}
-                ]
-            })"_json;
-        std::vector<nlohmann::json> documents = {
-                R"({
-                "product_id": "product_a",
-                "product_name": "shampoo",
-                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair."
-            })"_json,
-                R"({
-                "product_id": "product_b",
-                "product_name": "soap",
-                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients."
-            })"_json
-        };
-
-        EmbedderManager::set_model_dir("/tmp/typesense_test/models");
-
-        auto collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                "name": "Customers",
-                "fields": [
-                    {"name": "customer_id", "type": "string"},
-                    {"name": "customer_name", "type": "string", "sort": true},
-                    {"name": "product_price", "type": "float"},
-                    {"name": "product_available", "type": "bool"},
-                    {"name": "product_location", "type": "geopoint"},
-                    {"name": "product_id", "type": "string", "reference": "Products.product_id", "sort": true}
-                ]
-            })"_json;
-        documents = {
-                R"({
-                "customer_id": "customer_a",
-                "customer_name": "Joe",
-                "product_price": 143,
-                "product_available": true,
-                "product_location": [48.872576479306765, 2.332291112241466],
-                "product_id": "product_a"
-            })"_json,
-                R"({
-                "customer_id": "customer_a",
-                "customer_name": "Joe",
-                "product_price": 73.5,
-                "product_available": false,
-                "product_location": [48.888286721920934, 2.342340862419206],
-                "product_id": "product_b"
-            })"_json,
-                R"({
-                "customer_id": "customer_b",
-                "customer_name": "Dan",
-                "product_price": 75,
-                "product_available": true,
-                "product_location": [48.872576479306765, 2.332291112241466],
-                "product_id": "product_a"
-            })"_json,
-                R"({
-                "customer_id": "customer_b",
-                "customer_name": "Dan",
-                "product_price": 140,
-                "product_available": false,
-                "product_location": [48.888286721920934, 2.342340862419206],
-                "product_id": "product_b"
-            })"_json
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                "name": "Users",
-                "fields": [
-                    {"name": "user_id", "type": "string"},
-                    {"name": "user_name", "type": "string", "sort": true}
-                ]
-            })"_json;
-        documents = {
-                R"({
-                "user_id": "user_a",
-                "user_name": "Roshan"
-            })"_json,
-                R"({
-                "id": "foo",
-                "user_id": "user_b",
-                "user_name": "Ruby"
-            })"_json,
-                R"({
-                "user_id": "user_c",
-                "user_name": "Joe"
-            })"_json,
-                R"({
-                "user_id": "user_d",
-                "user_name": "Aby"
-            })"_json
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                "name": "Repos",
-                "fields": [
-                    {"name": "repo_id", "type": "string"},
-                    {"name": "repo_content", "type": "string"},
-                    {"name": "repo_stars", "type": "int32"},
-                    {"name": "repo_is_private", "type": "bool"},
-                    {"name": "repo_location", "type": "geopoint", "optional": true}
-                ]
-            })"_json;
-        documents = {
-                R"({
-                "repo_id": "repo_a",
-                "repo_content": "body1",
-                "repo_stars": 431,
-                "repo_is_private": true,
-                "repo_location": [13.22112, 80.30511]
-            })"_json,
-                R"({
-                "repo_id": "repo_b",
-                "repo_content": "body2",
-                "repo_stars": 4562,
-                "repo_is_private": false,
-                "repo_location": [12.98973, 80.23095]
-            })"_json,
-                R"({
-                "repo_id": "repo_c",
-                "repo_content": "body3",
-                "repo_stars": 945,
-                "repo_is_private": false
-            })"_json,
-                R"({
-                "repo_id": "repo_d",
-                "repo_content": "body4",
-                "repo_stars": 95,
-                "repo_is_private": true,
-                "repo_location": [13.12752, 79.90136]
-            })"_json
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                "name": "Links",
-                "fields": [
-                    {"name": "repo_id", "type": "string", "reference": "Repos.repo_id"},
-                    {"name": "user_id", "type": "string", "reference": "Users.user_id"}
-                ]
-            })"_json;
-        documents = {
-                R"({
-                "repo_id": "repo_a",
-                "user_id": "user_b"
-            })"_json,
-                R"({
-                "repo_id": "repo_a",
-                "user_id": "user_c"
-            })"_json,
-                R"({
-                "repo_id": "repo_b",
-                "user_id": "user_a"
-            })"_json,
-                R"({
-                "repo_id": "repo_b",
-                "user_id": "user_b"
-            })"_json,
-                R"({
-                "repo_id": "repo_b",
-                "user_id": "user_d"
-            })"_json,
-                R"({
-                "repo_id": "repo_c",
-                "user_id": "user_a"
-            })"_json,
-                R"({
-                "repo_id": "repo_c",
-                "user_id": "user_b"
-            })"_json,
-                R"({
-                "repo_id": "repo_c",
-                "user_id": "user_c"
-            })"_json,
-                R"({
-                "repo_id": "repo_c",
-                "user_id": "user_d"
-            })"_json,
-                R"({
-                "repo_id": "repo_d",
-                "user_id": "user_d"
-            })"_json
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                "name": "Structures",
-                "fields": [
-                    {"name": "id", "type": "string"},
-                    {"name": "name", "type": "string", "sort": true}
-                ]
-            })"_json;
-        documents = {
-                R"({ "id": "struct_a", "name": "foo" })"_json,
-                R"({ "id": "struct_b", "name": "bar" })"_json
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                "name": "Ads",
-                "fields": [
-                    {"name": "id", "type": "string"},
-                    {"name": "structure", "type": "string", "reference": "Structures.id"}
-                ]
-            })"_json;
-        documents = {
-                R"({ "id": "ad_a", "structure": "struct_b" })"_json,
-                R"({ "id": "ad_b", "structure": "struct_a" })"_json
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                "name": "Candidates",
-                "fields": [
-                   {"name": "structure", "type": "string", "reference": "Structures.id", "optional": true},
-                   {"name": "ad", "type": "string", "reference": "Ads.id", "optional": true}
-                ]
-            })"_json;
-        documents = {
-                R"({ "structure": "struct_b" })"_json,
-                R"({ "ad": "ad_a" })"_json,
-                R"({ "structure": "struct_a" })"_json,
-                R"({ "ad": "ad_b" })"_json
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                "name": "product",
-                "fields": [
-                    {"name": "entity_id", "type": "string"},
-                    {"name": "name", "type": "string", "sort": true},
-                    {"name": "location", "type": "geopoint", "optional": true}
-                ]
-            })"_json;
-        documents = {
-                R"({"entity_id": "P0",  "name": "Generic brand Tablet", "location": [12.98973, 80.23095]})"_json,
-                R"({"entity_id": "P1", "name": "Tablet from samsung"})"_json,
-                R"({"entity_id": "P2", "name": "Tablet from apple", "location": [13.22112, 80.30511]})"_json,
-                R"({"entity_id": "P3", "name": "Tablet from oppo", "location": [12.98973, 80.23095]})"_json,
-                R"({"entity_id": "P4", "name": "Tablet from vivo"})"_json,
-                R"({"entity_id": "P5", "name": "Phone from samsung"})"_json,
-                R"({"entity_id": "P6", "name": "Tablet from xiaomi", "location": [13.12752, 79.90136]})"_json,
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                "name": "stock",
-                "fields": [
-                    {"name": "entity_id", "type": "string", "reference": "product.entity_id"},
-                    {"name": "store_.*", "type": "bool", "sort": true}
-                ]
-            })"_json;
-        documents = {
-                R"({"entity_id": "P0", "store_1": true, "store_2": true})"_json,
-                R"({"entity_id": "P1", "store_1": false, "store_2": false})"_json,
-                R"({"entity_id": "P2", "store_1": false, "store_2": true})"_json,
-                R"({"entity_id": "P4", "store_1": true, "store_2": true})"_json,
-                R"({"entity_id": "P6", "store_1": false, "store_2": false})"_json,
-                R"({"entity_id": "P3", "store_1": true, "store_2": false})"_json,
-                R"({"entity_id": "P5", "store_1": true, "store_2": true})"_json,
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                    "name": "skus",
-                    "fields": [
-                        {"name": "id", "type": "string"},
-                        {"name": "sku_id", "type": "string"},
-                        {"name": "sku_name", "type": "string"},
-                        {"name": "seller_id", "type": "string"}
-                    ]
-                })"_json;
-        documents = {
-                R"({"id": "x_y_1_1", "sku_id": "1", "sku_name": "Sku Name 1", "seller_id": "1"})"_json,
-                R"({"id": "x_y_1_2", "sku_id": "2", "sku_name": "Sku Name 2", "seller_id": "1"})"_json,
-                R"({"id": "x_y_1_3", "sku_id": "3", "sku_name": "Sku Name 3", "seller_id": "1"})"_json,
-                R"({"id": "x_y_2_1", "sku_id": "1", "sku_name": "Sku Name 1", "seller_id": "2"})"_json,
-                R"({"id": "x_y_2_2", "sku_id": "2", "sku_name": "Sku Name 2", "seller_id": "2"})"_json,
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                    "name": "prices",
-                    "fields": [
-                        {"name": "id", "type": "string"},
-                        {"name": "reference", "type": "string", "reference": "skus.id"},
-                        {"name": "price", "type": "float"},
-                        {"name": "sku_id", "type": "string"},
-                        {"name": "seller_id", "type": "string"},
-                        {"name": "cluster", "type": "string"},
-                        {"name": "payment", "type": "string"}
-                    ]
-                })"_json;
-        documents = {
-                R"({"id": "x_y_1_1_null_null", "reference": "x_y_1_1", "sku_id": "1", "seller_id": "1", "price": 1, "cluster": "null", "payment": "null"})"_json,
-                R"({"id": "x_y_1_1_c1_p1", "reference": "x_y_1_1", "sku_id": "1", "seller_id": "1", "price": 1.1, "cluster": "c1", "payment": "p1"})"_json,
-                R"({"id": "x_y_1_1_c2_p2", "reference": "x_y_1_1", "sku_id": "1", "seller_id": "1", "price": 1.2, "cluster": "c2", "payment": "p2"})"_json,
-                R"({"id": "x_y_1_2_null_null", "reference": "x_y_1_2", "sku_id": "2", "seller_id": "1", "price": 2, "cluster": "null", "payment": "null" })"_json,
-                R"({"id": "x_y_1_3_null_null", "reference": "x_y_1_3", "sku_id": "3", "seller_id": "1", "price": 3, "cluster": "null", "payment": "null" })"_json,
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                    "name": "collections",
-                    "fields": [
-                        {"name": "id", "type": "string"},
-                        {"name": "sku_id", "type": "string"},
-                        {"name": "collection_id", "type": "string"},
-                        {"name": "collection_name", "type": "string"},
-                        {"name": "sort_in_collection", "type": "int32", "sort": true},
-                        {"name": "reference", "type": "string", "reference": "skus.id"}
-                    ]
-                })"_json;
-        documents = {
-                R"({"id": "1", "sku_id": "1", "collection_name": "Summer Collection", "collection_id": "abc-abc", "sort_in_collection": 1, "reference": "x_y_1_1"})"_json,
-                R"({"id": "2", "sku_id": "2", "collection_name": "Summer Collection", "collection_id": "abc-abc", "sort_in_collection": 2, "reference": "x_y_1_2"})"_json,
-                R"({"id": "3", "sku_id": "3", "collection_name": "Summer Collection", "collection_id": "abc-abc", "sort_in_collection": 3, "reference": "x_y_1_3"})"_json,
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                    "name": "movies",
-                    "fields": [
-                        {"name": "movie_id", "type": "string"},
-                        {"name": "title", "type": "string", "sort": true},
-                        {"name": "release_year", "type": "int32"}
-                    ]
-                })"_json;
-        documents = {
-                R"({"movie_id": "movie_a", "title": "Tenet", "release_year": 2020})"_json,
-                R"({"movie_id": "movie_b", "title": "Oppenheimer", "release_year": 2023})"_json,
-                R"({"movie_id": "movie_c", "title": "Barbie", "release_year": 2023})"_json,
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                    "name": "people",
-                    "fields": [
-                        {"name": "person_id", "type": "string"},
-                        {"name": "full_name", "type": "string"}
-                    ]
-                })"_json;
-        documents = {
-                R"({"person_id": "person_a", "full_name": "Christopher Nolan"})"_json,
-                R"({"person_id": "person_b", "full_name": "Greta Gerwig"})"_json,
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-
-        schema_json =
-                R"({
-                    "name": "movie_directors",
-                    "fields": [
-                        {"name": "movie_id", "type": "string", "reference": "movies.movie_id"},
-                        {"name": "person_id", "type": "string", "reference": "people.person_id"}
-                    ]
-                })"_json;
-        documents = {
-                R"({"person_id": "person_a", "movie_id": "movie_a"})"_json,
-                R"({"person_id": "person_a", "movie_id": "movie_b"})"_json,
-                R"({"person_id": "person_b", "movie_id": "movie_c"})"_json,
-        };
-        collection_create_op = collectionManager.create_collection(schema_json);
-        ASSERT_TRUE(collection_create_op.ok());
-
-        for (auto const &json: documents) {
-            auto add_op = collection_create_op.get()->add(json.dump());
-            if (!add_op.ok()) {
-                LOG(INFO) << add_op.error();
-            }
-            ASSERT_TRUE(add_op.ok());
-        }
-    }
-
-    virtual void SetUp() {
-        setupCollection();
-    }
-
-    virtual void TearDown() {
-        collectionManager.dispose();
-        delete store;
-    }
-};
-
-
 TEST_F(CollectionJoinTest, CascadeDeleteOption) {
     auto schema_json =
             R"({
-                "name": "Products",
+                "name": "coll_a",
                 "fields": [
-                    {"name": "product_idx", "type": "string"},
-                    {"name": "product_name", "type": "string", "infix": true},
-                    {"name": "product_description", "type": "string"}
+                    {"name": "ref_b", "type": "string", "cascade_delete": false}
                 ]
             })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("The `cascade_delete` property of the field `ref_b` is only applicable if `reference` is specified.",
+              collection_create_op.error());
+
+    schema_json =
+            R"({
+                "name": "coll_a",
+                "fields": [
+                    {"name": "ref_b", "type": "string", "reference": "coll_b.id", "cascade_delete": false}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("The `cascade_delete: false` option of the field `ref_b` is only applicable if `async_reference` is true.",
+              collection_create_op.error());
+
+    schema_json =
+            R"({
+                "name": "coll_a",
+                "fields": [
+                    {"name": "ref_b", "type": "string", "reference": "coll_b.id", "async_reference": true, "cascade_delete": false},
+                    {"name": "ref_c", "type": "string[]", "reference": "coll_c.id", "async_reference": true, "cascade_delete": false}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll_a = collection_create_op.get();
+
     std::vector<nlohmann::json> documents = {
             R"({
-                "product_idx": "product_a",
-                "product_name": "shampoo",
-                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair."
+                "ref_b": "b_1",
+                "ref_c": ["c_0"]
             })"_json,
             R"({
-                "product_idx": "product_b",
-                "product_name": "soap",
-                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients."
+                "ref_b": "b_0",
+                "ref_c": ["c_1", "c_2"]
             })"_json
     };
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "coll_b",
+                "fields": [
+                    {"name": "id", "type": "string"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    documents = {
+            R"({
+                "id": "b_0"
+            })"_json,
+            R"({
+                "id": "b_1"
+            })"_json
+    };
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "coll_c",
+                "fields": [
+                    {"name": "id", "type": "string"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    documents = {
+            R"({
+                "id": "c_0"
+            })"_json,
+            R"({
+                "id": "c_1"
+            })"_json,
+            R"({
+                "id": "c_2"
+            })"_json
+    };
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto doc = coll_a->get("0").get();
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(2, doc[".ref"].size());
+    ASSERT_EQ("ref_c_sequence_id", doc[".ref"].at(0));
+    ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
+    ASSERT_EQ(1, doc["ref_b_sequence_id"]);
+    ASSERT_EQ(1, doc["ref_c_sequence_id"].size());
+    ASSERT_EQ(0, doc["ref_c_sequence_id"][0]);
+
+    doc = coll_a->get("1").get();
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(2, doc[".ref"].size());
+    ASSERT_EQ("ref_c_sequence_id", doc[".ref"].at(0));
+    ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
+    ASSERT_EQ(0, doc["ref_b_sequence_id"]);
+    ASSERT_EQ(2, doc["ref_c_sequence_id"].size());
+    ASSERT_EQ(1, doc["ref_c_sequence_id"][0]);
+    ASSERT_EQ(2, doc["ref_c_sequence_id"][1]);
+
+    ASSERT_FALSE(coll_a->get_schema()["ref_b"].cascade_delete);
+    // With cascade_delete: false, we shouldn't delete any information of referencing document.
+    collectionManager.get_collection_unsafe("coll_b")->remove("b_1");
+    doc = coll_a->get("0").get();
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(2, doc[".ref"].size());
+    ASSERT_EQ("ref_c_sequence_id", doc[".ref"].at(0));
+    ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
+    ASSERT_EQ(1, doc["ref_b_sequence_id"]);
+    ASSERT_EQ(1, doc["ref_c_sequence_id"].size());
+    ASSERT_EQ(0, doc["ref_c_sequence_id"][0]);
+
+    collectionManager.get_collection_unsafe("coll_c")->remove("c_1");
+    doc = coll_a->get("1").get();
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(2, doc[".ref"].size());
+    ASSERT_EQ("ref_c_sequence_id", doc[".ref"].at(0));
+    ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
+    ASSERT_EQ(0, doc["ref_b_sequence_id"]);
+    ASSERT_EQ(2, doc["ref_c_sequence_id"].size());
+    ASSERT_EQ(1, doc["ref_c_sequence_id"][0]);
+    ASSERT_EQ(2, doc["ref_c_sequence_id"][1]);
+
+    //emulate restart
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok());
+
+    coll_a = collectionManager.get_collection_unsafe("coll_a").get();
+    ASSERT_FALSE(coll_a->get_schema()["ref_b"].cascade_delete);
+
+    collectionManager.get_collection_unsafe("coll_b")->remove("b_0");
+
+    doc = coll_a->get("1").get();
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(2, doc[".ref"].size());
+    ASSERT_EQ("ref_c_sequence_id", doc[".ref"].at(0));
+    ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
+    ASSERT_EQ(0, doc["ref_b_sequence_id"]);
+    ASSERT_EQ(2, doc["ref_c_sequence_id"].size());
+    ASSERT_EQ(1, doc["ref_c_sequence_id"][0]);
+    ASSERT_EQ(2, doc["ref_c_sequence_id"][1]);
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll_a"},
+            {"q", "*"},
+            {"filter_by", "id: 1"},
+            {"include_fields", "$coll_b(*), $coll_c(*)"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    nlohmann::json res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("b_0", res_obj["hits"][0]["document"]["ref_b"]);
+    ASSERT_EQ(0, res_obj["hits"][0]["document"].count("coll_b")); // b_0 has been deleted
+
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["ref_c"].size());
+    ASSERT_EQ("c_1", res_obj["hits"][0]["document"]["ref_c"][0]);
+    ASSERT_EQ("c_2", res_obj["hits"][0]["document"]["ref_c"][1]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["coll_c"].size()); // c_1 has been deleted
+    ASSERT_EQ("c_2", res_obj["hits"][0]["document"]["coll_c"][0]["id"]);
 }
 
 TEST_F(CollectionJoinTest, CascadeDeletion) {
