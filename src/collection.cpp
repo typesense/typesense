@@ -2,6 +2,7 @@
 
 #include <numeric>
 #include <chrono>
+#include <unordered_set>
 #include <match_score.h>
 #include <string_utils.h>
 #include <art.h>
@@ -3114,7 +3115,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                             raw_search_fields, raw_query, enable_highlight_v1, snippet_threshold,
                             highlight_affix_num_tokens, highlight_start_tag, highlight_end_tag, highlight_field_names,
                             highlight_full_field_names, highlight_items, index_symbols, field_order_kv, document,
-                            highlight_res, wrapper_doc);
+                            highlight_res, wrapper_doc, field_query_tokens[0].q_phrases);
 
             if(group_limit && group_key.empty()) {
                 for(const auto& field_name: group_by_fields) {
@@ -3405,7 +3406,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                                           highlight_affix_num_tokens, qtoken_leaves, last_valid_offset_index,
                                           prefix_token_num_chars, false, snippet_threshold, false, ftokens,
                                           last_valid_offset, highlight_start_tag, highlight_end_tag,
-                                          index_symbols, match_index);
+                                          index_symbols, match_index, raw_query, {});
                 }
 
                 nlohmann::json parent;
@@ -3533,7 +3534,8 @@ void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schem
                                  const std::vector<std::string>& highlight_full_field_names,
                                  const std::vector<highlight_field_t>& highlight_items, const uint8_t* index_symbols,
                                  const KV* field_order_kv, const nlohmann::json& document, nlohmann::json& highlight_res,
-                                 nlohmann::json& wrapper_doc) {
+                                 nlohmann::json& wrapper_doc,
+                                 const std::vector<std::vector<std::string>>& q_phrases) {
     highlight_res= nlohmann::json::object();
     if(!highlight_items.empty()) {
         copy_highlight_doc(highlight_items, enable_nested_fields, document, highlight_res);
@@ -3574,7 +3576,7 @@ void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schem
                              string_utils, snippet_threshold,
                              highlight_affix_num_tokens, highlight_item.fully_highlighted, highlight_item.infix,
                              highlight_start_tag, highlight_end_tag, index_symbols, highlight,
-                             found_highlight, found_full_highlight);
+                             found_highlight, found_full_highlight, q_phrases);
             if(!highlight.snippets.empty()) {
                 highlights.push_back(highlight);
             }
@@ -4001,7 +4003,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                             raw_search_fields, raw_query, enable_highlight_v1, snippet_threshold,
                             highlight_affix_num_tokens, highlight_start_tag, highlight_end_tag, highlight_field_names,
                             highlight_full_field_names, highlight_items, index_symbols, kv, document,
-                            highlight_res, wrapper_doc);
+                            highlight_res, wrapper_doc, {});
 
             if(group_limit && group_key.empty()) {
                 const auto& group_by_fields = searches.at(search_index).group_by_fields;
@@ -4912,7 +4914,8 @@ void Collection::highlight_result(const bool& enable_nested_fields, const std::v
                                   const uint8_t* index_symbols,
                                   highlight_t& highlight,
                                   bool& found_highlight,
-                                  bool& found_full_highlight) {
+                                  bool& found_full_highlight,
+                                  const std::vector<std::vector<std::string>>& q_phrases) {
 
     if(raw_query == "*") {
         return;
@@ -5086,7 +5089,7 @@ void Collection::highlight_result(const bool& enable_nested_fields, const std::v
                               highlight_fully, snippet_threshold, is_infix_search,
                               raw_query_tokens,
                               last_valid_offset, highlight_start_tag, highlight_end_tag,
-                              index_symbols, match_index);
+                              index_symbols, match_index, raw_query, q_phrases);
 
 
         if(array_highlight.snippets.empty() && array_highlight.values.empty()) {
@@ -5180,7 +5183,7 @@ void Collection::highlight_result(const bool& enable_nested_fields, const std::v
                               qtoken_leaves, last_valid_offset_index, prefix_token_num_chars,
                               highlight_fully, snippet_threshold, is_infix_search, raw_query_tokens,
                               last_valid_offset, highlight_start_tag, highlight_end_tag,
-                              index_symbols, match_index);
+                              index_symbols, match_index, raw_query, q_phrases);
 
         if(!highlight.snippets.empty()) {
             found_highlight = found_highlight || true;
@@ -5213,7 +5216,8 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                                        const size_t& snippet_threshold, const bool& is_infix_search,
                                        const std::vector<std::string>& raw_query_tokens, const size_t& last_valid_offset,
                                        const std::string& highlight_start_tag, const std::string& highlight_end_tag,
-                                       const uint8_t* index_symbols, const match_index_t& match_index) {
+                                       const uint8_t* index_symbols, const match_index_t& match_index, const std::string& raw_query,
+                                       const std::vector<std::vector<std::string>>& q_phrases) {
 
     const Match& match = match_index.match;
 
@@ -5280,9 +5284,52 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
         // If field is marked to be highlighted fully, or field length exceeds snippet_threshold, we will
         // locate all tokens that appear in the query / query candidates. Likewise, for text within nested array of
         // objects have to be exhaustively looked for highlight tokens.
+        // For a phrase query, we should be more restrictive and only highlight tokens that are part of
+        // the actual phrase match, not just any token that appears in the query.
         bool raw_token_found = !match_offset_found &&
                                 (highlight_fully || is_arr_obj_ele || text_len < snippet_threshold * 6) &&
                                 qtoken_leaves.find(raw_token) != qtoken_leaves.end();
+        
+        bool is_phrase_query = !q_phrases.empty();
+        
+        
+        
+        // phrase query, only highlight tokens that are part of consecutive phrase matches
+        if (is_phrase_query) {
+            if (match_offset_found) {
+                bool is_consecutive_phrase_match = false;
+                
+                std::unordered_set<size_t> offset_indices;
+                for (const auto& offset : match.offsets) {
+                    offset_indices.insert(offset.offset);
+                }
+                if (offset_indices.count(raw_token_index) > 0) {
+                    // check if the next token in the phrase is also in the match offsets
+                    size_t next_token_index = raw_token_index + 1;
+                    if (offset_indices.count(next_token_index) > 0) {
+                        is_consecutive_phrase_match = true;
+                    }
+                    
+                    if (!is_consecutive_phrase_match && raw_token_index > 0) {
+                        // the next token is not in the match offsets, check if the previous token is in the phrase
+                        size_t prev_token_index = raw_token_index - 1;
+                        if (offset_indices.count(prev_token_index) > 0) {
+                            is_consecutive_phrase_match = true;
+                        }
+                    }
+                }
+                
+                // this is not part of a consecutive phrase match, don't highlight it
+                if (!is_consecutive_phrase_match) {
+                    match_offset_found = false;
+                }
+            }
+            
+            // phrase query, also disable raw_token_found to prevent highlighting individual tokens
+            if (raw_token_found && !match_offset_found) {
+                raw_token_found = false;
+            }
+        }
 
         if (match_offset_found || raw_token_found) {
             if(qtoken_it != qtoken_leaves.end() && qtoken_it.value().is_prefix &&

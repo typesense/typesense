@@ -475,7 +475,8 @@ private:
                                       const size_t& snippet_threshold, const bool& is_infix_search,
                                       const std::vector<std::string>& raw_query_tokens, const size_t& last_valid_offset,
                                       const std::string& highlight_start_tag, const std::string& highlight_end_tag,
-                                      const uint8_t* index_symbols, const match_index_t& match_index);
+                                      const uint8_t* index_symbols, const match_index_t& match_index, const std::string& raw_query,
+                                      const std::vector<std::vector<std::string>>& q_phrases = {});
 
     static void highlight_result(const bool& enable_nested_fields, const std::vector<char>& symbols_to_index,const std::vector<char>& token_separators,
                                  const std::string& raw_query, const field& search_field,
@@ -493,7 +494,8 @@ private:
                                  const uint8_t* index_symbols,
                                  highlight_t& highlight,
                                  bool& found_highlight,
-                                 bool& found_full_highlight);
+                                 bool& found_full_highlight,
+                                 const std::vector<std::vector<std::string>>& q_phrases = {});
 
     static void do_highlighting(const tsl::htrie_map<char, field>& search_schema, const bool& enable_nested_fields,
                                 const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
@@ -504,7 +506,8 @@ private:
                                 const std::vector<std::string>& highlight_full_field_names,
                                 const std::vector<highlight_field_t>& highlight_items, const uint8_t* index_symbols,
                                 const KV* field_order_kv, const nlohmann::json& document, nlohmann::json& highlight_res,
-                                nlohmann::json& wrapper_doc);
+                                nlohmann::json& wrapper_doc,
+                                const std::vector<std::vector<std::string>>& q_phrases = {});
 
     void remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 

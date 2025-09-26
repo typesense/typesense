@@ -3767,3 +3767,43 @@ TEST_F(CollectionSpecificMoreTest, CustomStemmingDictionaryOverridesDeEnLocale) 
 
     collectionManager.drop_collection("custom_stemming_test");
 }
+
+TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightingShouldNotHighlightPartialMatches) {
+    std::vector<field> fields = {field("text", field_types::STRING, false)};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["text"] = "Thank you for being here. You are good";
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    nlohmann::json doc2;
+    doc2["id"] = "2";
+    doc2["text"] = "Thank him first. Thank you later";
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    nlohmann::json doc3;
+    doc3["id"] = "3";
+    doc3["text"] = "Thank him first";
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    auto results = coll1->search("\"Thank you\"", {"text"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "text", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback, 1000).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    std::string snippet1 = results["hits"][1]["highlights"][0]["snippet"].get<std::string>();
+    
+    ASSERT_TRUE(snippet1.find("<mark>Thank</mark> <mark>you</mark> for being here. You are good") != std::string::npos);
+    
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    std::string snippet2 = results["hits"][0]["highlights"][0]["snippet"].get<std::string>();
+    
+    ASSERT_TRUE(snippet2.find("Thank him first. <mark>Thank</mark> <mark>you</mark> later") != std::string::npos);
+    
+    collectionManager.drop_collection("coll1");
+}
