@@ -442,9 +442,9 @@ private:
     /// "field name" -> List of <collection, field> pairs where this collection is referenced and is marked as `async`.
     spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins;
 
-    /// Reference helper fields that are part of an object. The reference doc of these fields will be included in the
-    /// object rather than in the document.
-    tsl::htrie_set<char> object_reference_helper_fields;
+    /// Reference fields that are part of an object. The reference doc of these fields will be included in the object
+    /// rather than in the document.
+    tsl::htrie_set<char> object_reference_fields;
 
     // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
     Index* index;
@@ -545,7 +545,7 @@ private:
                                           std::vector<field>& new_fields,
                                           bool enable_nested_fields,
                                           const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
-                                          tsl::htrie_set<char>& object_reference_helper_fields);
+                                          tsl::htrie_set<char>& object_reference_fields);
 
     static bool check_and_add_nested_field(tsl::htrie_map<char, field>& nested_fields, const field& nested_field);
 
@@ -784,7 +784,7 @@ public:
 
     tsl::htrie_map<char, field> get_embedding_fields_unsafe();
 
-    tsl::htrie_set<char> get_object_reference_helper_fields() const;
+    tsl::htrie_set<char> get_object_reference_fields() const;
 
     std::string get_default_sorting_field();
 

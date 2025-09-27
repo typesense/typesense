@@ -1009,7 +1009,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ(1, doc.count(".ref"));
     ASSERT_EQ(1, doc[".ref"].size());
     ASSERT_EQ("object.ref_field_sequence_id", doc[".ref"][0]);
-    ASSERT_EQ(1, coll2->get_object_reference_helper_fields().count("object.ref_field_sequence_id"));
+    ASSERT_EQ(1, coll2->get_object_reference_fields().count("object.ref_field_sequence_id"));
 
     doc_json = R"({
                     "object": {
@@ -5442,6 +5442,264 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
     ASSERT_EQ(500 , res_obj["hits"][1]["document"]["portions"][0].at("quantity"));
     ASSERT_EQ("g", res_obj["hits"][1]["document"]["portions"][0].at("unit"));
     ASSERT_EQ(10 , res_obj["hits"][1]["document"]["portions"][0].at("count"));
+}
+
+TEST_F(CollectionJoinTest, CascadeDeleteOption) {
+    auto schema_json =
+            R"({
+                "name": "coll_a",
+                "fields": [
+                    {"name": "ref_b", "type": "string", "cascade_delete": false}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("The `cascade_delete` property of the field `ref_b` is only applicable if `reference` is specified.",
+              collection_create_op.error());
+
+    schema_json =
+            R"({
+                "name": "coll_a",
+                "fields": [
+                    {"name": "ref_b", "type": "string", "reference": "coll_b.id", "cascade_delete": false}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("The `cascade_delete: false` option of the field `ref_b` is only applicable if `async_reference` is true.",
+              collection_create_op.error());
+
+    schema_json =
+            R"({
+                "name": "coll_a",
+                "fields": [
+                    {"name": "ref_b", "type": "string", "reference": "coll_b.id", "async_reference": true, "cascade_delete": false},
+                    {"name": "ref_c", "type": "string[]", "reference": "coll_c.id", "async_reference": true, "cascade_delete": false}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll_a = collection_create_op.get();
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "ref_b": "b_1",
+                "ref_c": ["c_0"]
+            })"_json,
+            R"({
+                "ref_b": "b_0",
+                "ref_c": ["c_1", "c_2"]
+            })"_json
+    };
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "coll_b",
+                "fields": [
+                    {"name": "id", "type": "string"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    documents = {
+            R"({
+                "id": "b_0"
+            })"_json,
+            R"({
+                "id": "b_1"
+            })"_json
+    };
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "coll_c",
+                "fields": [
+                    {"name": "id", "type": "string"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    documents = {
+            R"({
+                "id": "c_0"
+            })"_json,
+            R"({
+                "id": "c_1"
+            })"_json,
+            R"({
+                "id": "c_2"
+            })"_json
+    };
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto doc = coll_a->get("0").get();
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(2, doc[".ref"].size());
+    ASSERT_EQ("ref_c_sequence_id", doc[".ref"].at(0));
+    ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
+    ASSERT_EQ(1, doc["ref_b_sequence_id"]);
+    ASSERT_EQ(1, doc["ref_c_sequence_id"].size());
+    ASSERT_EQ(0, doc["ref_c_sequence_id"][0]);
+
+    doc = coll_a->get("1").get();
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(2, doc[".ref"].size());
+    ASSERT_EQ("ref_c_sequence_id", doc[".ref"].at(0));
+    ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
+    ASSERT_EQ(0, doc["ref_b_sequence_id"]);
+    ASSERT_EQ(2, doc["ref_c_sequence_id"].size());
+    ASSERT_EQ(1, doc["ref_c_sequence_id"][0]);
+    ASSERT_EQ(2, doc["ref_c_sequence_id"][1]);
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll_a"},
+            {"q", "*"},
+            {"filter_by", "id: 1"},
+            {"include_fields", "$coll_b(*), $coll_c(*)"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    nlohmann::json res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("b_0", res_obj["hits"][0]["document"]["ref_b"]);
+    ASSERT_EQ("b_0", res_obj["hits"][0]["document"]["coll_b"]["id"]);
+
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["ref_c"].size());
+    ASSERT_EQ("c_1", res_obj["hits"][0]["document"]["ref_c"][0]);
+    ASSERT_EQ("c_2", res_obj["hits"][0]["document"]["ref_c"][1]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["coll_c"].size());
+    ASSERT_EQ("c_1", res_obj["hits"][0]["document"]["coll_c"][0]["id"]);
+    ASSERT_EQ("c_2", res_obj["hits"][0]["document"]["coll_c"][1]["id"]);
+
+    ASSERT_FALSE(coll_a->get_schema()["ref_b"].cascade_delete);
+    // With cascade_delete: false, we shouldn't delete any information of referencing document.
+    collectionManager.get_collection_unsafe("coll_b")->remove("b_1");
+    doc = coll_a->get("0").get();
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(2, doc[".ref"].size());
+    ASSERT_EQ("ref_c_sequence_id", doc[".ref"].at(0));
+    ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
+    // Set to sentinel value when `cascade_delete` is false and referenced document is deleted.
+    ASSERT_EQ(Join::reference_helper_sentinel_value, doc["ref_b_sequence_id"]);
+    ASSERT_EQ(1, doc["ref_c_sequence_id"].size());
+    ASSERT_EQ(0, doc["ref_c_sequence_id"][0]);
+
+    collectionManager.get_collection_unsafe("coll_c")->remove("c_1");
+    doc = coll_a->get("1").get();
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(2, doc[".ref"].size());
+    ASSERT_EQ("ref_c_sequence_id", doc[".ref"].at(0));
+    ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
+    ASSERT_EQ(0, doc["ref_b_sequence_id"]);
+    ASSERT_EQ(2, doc["ref_c_sequence_id"].size());
+    ASSERT_EQ(Join::reference_helper_sentinel_value, doc["ref_c_sequence_id"][0]);
+    ASSERT_EQ(2, doc["ref_c_sequence_id"][1]);
+
+    //emulate restart
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok());
+
+    coll_a = collectionManager.get_collection_unsafe("coll_a").get();
+    ASSERT_FALSE(coll_a->get_schema()["ref_b"].cascade_delete);
+
+    collectionManager.get_collection_unsafe("coll_b")->remove("b_0");
+
+    doc = coll_a->get("1").get();
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(2, doc[".ref"].size());
+    ASSERT_EQ("ref_c_sequence_id", doc[".ref"].at(0));
+    ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
+    ASSERT_EQ(Join::reference_helper_sentinel_value, doc["ref_b_sequence_id"]);
+    ASSERT_EQ(2, doc["ref_c_sequence_id"].size());
+    ASSERT_EQ(Join::reference_helper_sentinel_value, doc["ref_c_sequence_id"][0]);
+    ASSERT_EQ(2, doc["ref_c_sequence_id"][1]);
+
+    req_params = {
+            {"collection", "coll_a"},
+            {"q", "*"},
+            {"filter_by", "id: 1"},
+            {"include_fields", "$coll_b(*), $coll_c(*)"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("b_0", res_obj["hits"][0]["document"]["ref_b"]);
+    ASSERT_EQ(0, res_obj["hits"][0]["document"].count("coll_b")); // b_0 has been deleted
+
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["ref_c"].size());
+    ASSERT_EQ("c_1", res_obj["hits"][0]["document"]["ref_c"][0]);
+    ASSERT_EQ("c_2", res_obj["hits"][0]["document"]["ref_c"][1]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["coll_c"].size()); // c_1 has been deleted
+    ASSERT_EQ("c_2", res_obj["hits"][0]["document"]["coll_c"][0]["id"]);
+
+    // Referenced document should be included after re-indexing.
+    auto coll_c = collectionManager.get_collection_unsafe("coll_c").get();
+    auto op = coll_c->add(R"({ "id": "c_1" })");
+    ASSERT_TRUE(op.ok());
+
+    doc = coll_a->get("1").get();
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(2, doc[".ref"].size());
+    ASSERT_EQ("ref_c_sequence_id", doc[".ref"].at(0));
+    ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
+    ASSERT_EQ(Join::reference_helper_sentinel_value, doc["ref_b_sequence_id"]);
+    ASSERT_EQ(2, doc["ref_c_sequence_id"].size());
+    ASSERT_EQ(3, doc["ref_c_sequence_id"][0]); // c_1 has been re-indexed
+    ASSERT_EQ(2, doc["ref_c_sequence_id"][1]);
+
+    req_params = {
+            {"collection", "coll_a"},
+            {"q", "*"},
+            {"filter_by", "id: 1"},
+            {"include_fields", "$coll_b(*), $coll_c(*)"}
+    };
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("b_0", res_obj["hits"][0]["document"]["ref_b"]);
+    ASSERT_EQ(0, res_obj["hits"][0]["document"].count("coll_b")); // b_0 has been deleted
+
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["ref_c"].size());
+    ASSERT_EQ("c_1", res_obj["hits"][0]["document"]["ref_c"][0]);
+    ASSERT_EQ("c_2", res_obj["hits"][0]["document"]["ref_c"][1]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["coll_c"].size()); // c_1 has been re-indexed
+    ASSERT_EQ("c_2", res_obj["hits"][0]["document"]["coll_c"][0]["id"]);
+    ASSERT_EQ("c_1", res_obj["hits"][0]["document"]["coll_c"][1]["id"]);
 }
 
 TEST_F(CollectionJoinTest, CascadeDeletion) {

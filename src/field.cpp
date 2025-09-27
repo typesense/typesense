@@ -63,6 +63,9 @@ void field::add_default_json_values(nlohmann::json& json) {
     if (json.count(fields::embed) == 0) {
         json[fields::embed] = nlohmann::json();
     }
+    if (json.count(fields::model_config) == 0) {
+        json[fields::model_config] = nlohmann::json::object();
+    }
     if (json.count(fields::range_index) == 0) {
         json[fields::range_index] = false;
     }
@@ -83,6 +86,9 @@ void field::add_default_json_values(nlohmann::json& json) {
     }
     if (json.count(fields::async_reference) == 0) {
         json[fields::async_reference] = false;
+    }
+    if (json.count(fields::cascade_delete) == 0) {
+        json[fields::cascade_delete] = true;
     }
     if (json.count(fields::token_separators) == 0) {
         json[fields::token_separators] = nlohmann::json::array();
@@ -168,6 +174,21 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         return Option<bool>(400, std::string("The `async_reference` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` is only applicable if "
                                                                                            "`reference` is specified."));
+    }
+
+    if (!field_json.at(fields::cascade_delete).is_boolean()) {
+        return Option<bool>(400, std::string("The `cascade_delete` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+    } else if (!field_json[fields::cascade_delete].get<bool>()) {
+        if (field_json[fields::reference].get<std::string>().empty()) {
+            return Option<bool>(400, std::string("The `cascade_delete` property of the field `") +
+                                     field_json[fields::name].get<std::string>() + std::string("` is only applicable if "
+                                                                                               "`reference` is specified."));
+        } else if (!field_json[fields::async_reference].get<bool>()) {
+            return Option<bool>(400, std::string("The `cascade_delete: false` option of the field `") +
+                                     field_json[fields::name].get<std::string>() + std::string("` is only applicable if "
+                                                                                               "`async_reference` is true."));
+        }
     }
 
     if(!field_json.at(fields::stem).is_boolean()) {
@@ -443,7 +464,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], 
                   field_json[fields::store], field_json[fields::stem], field_json[fields::stem_dictionary],
                   field_json[fields::hnsw_params], field_json[fields::async_reference], field_json[fields::token_separators],
-                  field_json[fields::symbols_to_index])
+                  field_json[fields::symbols_to_index], field_json[fields::cascade_delete])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
@@ -889,6 +910,7 @@ nlohmann::json field::field_to_json_field(const struct field& field) {
     if (!field.reference.empty()) {
         field_val[fields::reference] = field.reference;
         field_val[fields::async_reference] = field.is_async_reference;
+        field_val[fields::cascade_delete] = field.cascade_delete;
     }
 
     if(!field.token_separators.empty()) {

@@ -286,6 +286,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
             },
             {
               "async_reference":true,
+              "cascade_delete":true,
               "facet":false,
               "index":true,
               "infix":false,
@@ -375,7 +376,9 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
                                   "\"string\", \"facet\": false}, {\"name\": \"vector_field\", \"type\": \"float[]\", \"num_dim\": 128, \"facet\": false}], \"default_sorting_field\": \"foo\"}");
 
     std::map<std::string, std::map<std::string, reference_info_t>> referenced_ins;
-    Collection *collection = collectionManager.init_collection(collection_meta1, 100, store, 1.0f, referenced_ins);
+    auto init_op = collectionManager.init_collection(collection_meta1, 100, store, 1.0f, referenced_ins);
+    ASSERT_TRUE(init_op.ok());
+    auto collection = init_op.get();
     ASSERT_EQ("foobar", collection->get_name());
     ASSERT_EQ(100, collection->get_collection_id());
     ASSERT_EQ(2, collection->get_fields().size());
@@ -398,7 +401,9 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
                                   "\"default_sorting_field\": \"foo\","
                                   "\"symbols_to_index\": [\"+\"], \"token_separators\": [\"-\"]}");
 
-    collection = collectionManager.init_collection(collection_meta2, 100, store, 1.0f, referenced_ins);
+    init_op = collectionManager.init_collection(collection_meta2, 100, store, 1.0f, referenced_ins);
+    ASSERT_TRUE(init_op.ok());
+    collection = init_op.get();
     ASSERT_EQ(12345, collection->get_created_at());
 
     std::vector<char> expected_symbols = {'+'};

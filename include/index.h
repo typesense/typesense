@@ -423,7 +423,7 @@ private:
     // Only used when the reference field is an array type otherwise sort_index is used.
     spp::sparse_hash_map<std::string, num_tree_t*> reference_index;
 
-    /// field_name => ((doc_id, object_index) => ref_doc_id)
+    /// reference_helper_field => ((doc_id, object_index) => ref_doc_id)
     /// Used when a field inside an object array has reference.
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::pair<uint32_t, uint32_t>, uint32_t, pair_hash>*> object_array_reference_index;
 
