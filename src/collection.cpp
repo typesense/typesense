@@ -5550,7 +5550,7 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
 
 void Collection::cascade_remove_docs(const std::string& field_name, const uint32_t& ref_seq_id,
                                      const nlohmann::json& ref_doc, bool remove_from_store) {
-    bool is_field_singular, is_field_optional;
+    bool is_field_singular, is_field_optional, cascade_delete;
     {
         std::unique_lock lock(mutex);
 
@@ -5559,11 +5559,10 @@ void Collection::cascade_remove_docs(const std::string& field_name, const uint32
             return;
         }
         auto& field = it.value();
-        if (!field.cascade_delete) {
-            return;
-        }
+
         is_field_singular = field.is_singular();
         is_field_optional = field.optional;
+        cascade_delete = field.cascade_delete;
     }
 
     auto const ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
@@ -5599,14 +5598,19 @@ void Collection::cascade_remove_docs(const std::string& field_name, const uint32
             bool multiple_ref_fields = existing_document.contains(fields::reference_helper_fields) &&
                                        existing_document[fields::reference_helper_fields].size() > 1;
 
+            // If `cascade_delete` is false, only update the reference helper field to sentinel value.
             // If there are other references present and the reference of an optional field is removed, don't delete the
             // document.
-            if (multiple_ref_fields && is_field_optional) {
+            if (!cascade_delete || (multiple_ref_fields && is_field_optional)) {
                 auto const id = existing_document["id"].get<std::string>();
 
                 nlohmann::json update_document;
                 update_document["id"] = id;
-                update_document[field_name] = nullptr;
+                if (cascade_delete) {
+                    update_document[field_name] = nullptr;
+                } else {
+                    update_document[ref_helper_field_name] = Join::reference_helper_sentinel_value;
+                }
 
                 buffer.push_back(update_document.dump());
             } else {
@@ -5636,7 +5640,8 @@ void Collection::cascade_remove_docs(const std::string& field_name, const uint32
             return;
         }
 
-        // Delete all references to `seq_id` in the docs.
+        // If `cascade_delete` is false, update the reference helper field to sentinel value.
+        // Otherwise, delete all references to `seq_id` in the docs.
         for (uint32_t i = 0; i < filter_result.count; i++) {
             auto const& seq_id = filter_result.docs[i];
 
@@ -5680,7 +5685,7 @@ void Collection::cascade_remove_docs(const std::string& field_name, const uint32
                            "` values differ in count.";
             }
             // If there are more than one references present in this document, we cannot delete the whole doc. Only remove
-            // `ref_seq_id` from reference helper field.
+            // `ref_seq_id` from reference helper field or update it to sentinel value if `cascade_delete` is false.
             else if (existing_document.at(field_name).size() > 1) {
                 nlohmann::json update_document;
                 update_document["id"] = existing_document["id"].get<std::string>();
@@ -5694,6 +5699,11 @@ void Collection::cascade_remove_docs(const std::string& field_name, const uint32
                     auto const& ref_value = existing_document[field_name][j];
                     if (ref_value == ref_doc.at(ref_field_name)) {
                         removed_ref_value_found = true;
+
+                        if (!cascade_delete) {
+                            update_document[field_name] += ref_value;
+                            update_document[ref_helper_field_name] += Join::reference_helper_sentinel_value;
+                        }
                         continue;
                     }
 
@@ -5710,14 +5720,19 @@ void Collection::cascade_remove_docs(const std::string& field_name, const uint32
             bool multiple_ref_fields = existing_document.contains(fields::reference_helper_fields) &&
                                        existing_document[fields::reference_helper_fields].size() > 1;
 
+            // If `cascade_delete` is false, only update the reference helper field to sentinel value.
             // If there are other references present and the reference of an optional field is removed, don't delete the
             // document.
-            if (multiple_ref_fields && is_field_optional) {
+            if (!cascade_delete || (multiple_ref_fields && is_field_optional)) {
                 auto const id = existing_document["id"].get<std::string>();
 
                 nlohmann::json update_document;
                 update_document["id"] = id;
-                update_document[field_name] = nullptr;
+                if (cascade_delete) {
+                    update_document[field_name] = nullptr;
+                } else {
+                    update_document[ref_helper_field_name] = Join::reference_helper_sentinel_value;
+                }
 
                 buffer.push_back(update_document.dump());
             } else {

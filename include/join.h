@@ -91,8 +91,7 @@ public:
                                       const tsl::htrie_set<char>& ref_include_fields_full,
                                       const tsl::htrie_set<char>& ref_exclude_fields_full,
                                       const bool& is_reference_array,
-                                      const ref_include_exclude_fields& ref_include_exclude,
-                                      const bool& cascade_delete);
+                                      const ref_include_exclude_fields& ref_include_exclude);
 
     static Option<bool> include_references(nlohmann::json& doc, const uint32_t& seq_id, Collection *const collection,
                                            const std::map<std::string, reference_filter_result_t>& reference_filter_results,

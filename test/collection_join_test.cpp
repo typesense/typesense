@@ -5570,7 +5570,8 @@ TEST_F(CollectionJoinTest, CascadeDeleteOption) {
     ASSERT_EQ(2, doc[".ref"].size());
     ASSERT_EQ("ref_c_sequence_id", doc[".ref"].at(0));
     ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
-    ASSERT_EQ(1, doc["ref_b_sequence_id"]);
+    // Set to sentinel value when `cascade_delete` is false and referenced document is deleted.
+    ASSERT_EQ(Join::reference_helper_sentinel_value, doc["ref_b_sequence_id"]);
     ASSERT_EQ(1, doc["ref_c_sequence_id"].size());
     ASSERT_EQ(0, doc["ref_c_sequence_id"][0]);
 
@@ -5582,7 +5583,7 @@ TEST_F(CollectionJoinTest, CascadeDeleteOption) {
     ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
     ASSERT_EQ(0, doc["ref_b_sequence_id"]);
     ASSERT_EQ(2, doc["ref_c_sequence_id"].size());
-    ASSERT_EQ(1, doc["ref_c_sequence_id"][0]);
+    ASSERT_EQ(Join::reference_helper_sentinel_value, doc["ref_c_sequence_id"][0]);
     ASSERT_EQ(2, doc["ref_c_sequence_id"][1]);
 
     //emulate restart
@@ -5604,9 +5605,9 @@ TEST_F(CollectionJoinTest, CascadeDeleteOption) {
     ASSERT_EQ(2, doc[".ref"].size());
     ASSERT_EQ("ref_c_sequence_id", doc[".ref"].at(0));
     ASSERT_EQ("ref_b_sequence_id", doc[".ref"].at(1));
-    ASSERT_EQ(0, doc["ref_b_sequence_id"]);
+    ASSERT_EQ(Join::reference_helper_sentinel_value, doc["ref_b_sequence_id"]);
     ASSERT_EQ(2, doc["ref_c_sequence_id"].size());
-    ASSERT_EQ(1, doc["ref_c_sequence_id"][0]);
+    ASSERT_EQ(Join::reference_helper_sentinel_value, doc["ref_c_sequence_id"][0]);
     ASSERT_EQ(2, doc["ref_c_sequence_id"][1]);
 
     std::map<std::string, std::string> req_params = {
