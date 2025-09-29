@@ -76,11 +76,11 @@ public:
     CollectionManager(CollectionManager const&) = delete;
     void operator=(CollectionManager const&) = delete;
 
-    static Collection* init_collection(const nlohmann::json & collection_meta,
-                                       const uint32_t collection_next_seq_id,
-                                       Store* store,
-                                       float max_memory_ratio,
-                                       const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos);
+    static Option<Collection*> init_collection(const nlohmann::json & collection_meta,
+                                               const uint32_t collection_next_seq_id,
+                                               Store* store,
+                                               float max_memory_ratio,
+                                               const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos);
 
     static Option<bool> load_collection(const nlohmann::json& collection_meta,
                                         const size_t batch_size,
