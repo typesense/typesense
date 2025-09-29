@@ -60,7 +60,13 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
     }
 
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
-    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config) : model_name;
+    
+    nlohmann::json model_config_with_dims = model_config;
+    if(is_remote_model(model_name)) {
+        model_config_with_dims["num_dim"] = num_dims;
+    }
+    
+    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config_with_dims) : model_name;
     auto text_embedder_it = text_embedders.find(model_key);
     if(text_embedder_it == text_embedders.end()) {
         text_embedders.emplace(model_key, std::make_shared<TextEmbedder>(model_config, num_dims, has_custom_dims));
@@ -184,14 +190,23 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
 Option<TextEmbedder*> EmbedderManager::get_text_embedder(const nlohmann::json& model_config) {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
     const std::string& model_name = model_config.at("model_name");
-    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config) : model_name;
-    auto text_embedder_it = text_embedders.find(model_key);
-
-    if(text_embedder_it == text_embedders.end()) {
-        return Option<TextEmbedder*>(404, "Text embedder was not found.");
+    
+    if(is_remote_model(model_name)) {
+        std::string model_key = RemoteEmbedder::get_model_key(model_config);
+        auto text_embedder_it = text_embedders.find(model_key);
+        
+        if(text_embedder_it == text_embedders.end()) {
+            return Option<TextEmbedder*>(404, "Text embedder was not found.");
+        }
+        
+        return Option<TextEmbedder*>(text_embedder_it->second.get());
+    } else {
+        auto text_embedder_it = text_embedders.find(model_name);
+        if(text_embedder_it == text_embedders.end()) {
+            return Option<TextEmbedder*>(404, "Text embedder was not found.");
+        }
+        return Option<TextEmbedder*>(text_embedder_it->second.get());
     }
-
-    return Option<TextEmbedder*>(text_embedder_it->second.get());
 }
 
 Option<ImageEmbedder*> EmbedderManager::get_image_embedder(const nlohmann::json& model_config) {

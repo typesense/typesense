@@ -853,9 +853,15 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
 
     const auto& model_config = field_json[fields::embed][fields::model_config];
     size_t num_dim = field_json[fields::num_dim].get<size_t>();
+    
+    nlohmann::json model_config_with_dims = model_config;
+    if (EmbedderManager::is_remote_model(model_config[fields::model_name].get<std::string>())) {
+        model_config_with_dims["num_dim"] = num_dim;
+    }
+    
     if (model_config.contains(fields::personalization_type)) {
         if (model_config[fields::personalization_type] == "recommendation") {
-            auto res = PersonalizationModelManager::validate_personalization_model(model_config, num_dim);
+            auto res = PersonalizationModelManager::validate_personalization_model(model_config_with_dims, num_dim);
             if(!res.ok()) {
                 return Option<bool>(res.code(), res.error());
             }
@@ -863,7 +869,7 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
             return Option<bool>(400, "Invalid personalization type.");
         }
     } else {
-        auto res = EmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+        auto res = EmbedderManager::get_instance().validate_and_init_model(model_config_with_dims, num_dim);
         if(!res.ok()) {
             return Option<bool>(res.code(), res.error());
         }
@@ -872,6 +878,11 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
     LOG(INFO) << "Model init done.";
     field_json[fields::num_dim] = num_dim;
     the_field.num_dim = num_dim;
+    
+    if (EmbedderManager::is_remote_model(model_config[fields::model_name].get<std::string>())) {
+        field_json[fields::embed][fields::model_config] = model_config_with_dims;
+        the_field.embed[fields::model_config] = model_config_with_dims;
+    }
 
     return Option<bool>(true);
 }

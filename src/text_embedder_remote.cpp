@@ -332,7 +332,11 @@ nlohmann::json OpenAIEmbedder::get_error_json(const nlohmann::json& req_body, lo
 }
 
 std::string OpenAIEmbedder::get_model_key(const nlohmann::json& model_config) {
-    return model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+    std::string base_key = model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+    if(model_config.count("num_dim") > 0 && model_config["num_dim"].get<size_t>() > 0) {
+        base_key += ":" + std::to_string(model_config["num_dim"].get<size_t>());
+    }
+    return base_key;
 }
 
 GoogleEmbedder::GoogleEmbedder(const std::string& google_api_key) : google_api_key(google_api_key) {
@@ -479,7 +483,11 @@ nlohmann::json GoogleEmbedder::get_error_json(const nlohmann::json& req_body, lo
 }
 
 std::string GoogleEmbedder::get_model_key(const nlohmann::json& model_config) {
-    return model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+    std::string base_key = model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+    if(model_config.count("num_dim") > 0 && model_config["num_dim"].get<size_t>() > 0) {
+        base_key += ":" + std::to_string(model_config["num_dim"].get<size_t>());
+    }
+    return base_key;
 }
 
 
@@ -1005,12 +1013,21 @@ Option<std::string> GCPEmbedder::generate_access_token(const std::string& refres
 std::string GCPEmbedder::get_model_key(const nlohmann::json& model_config) {
     const std::string name = model_config["model_name"].get<std::string>();
     const std::string project = model_config["project_id"].get<std::string>();
+    
+    std::string base_key;
     if(model_config.count("service_account") > 0 && model_config["service_account"].is_object()) {
         const auto& sa = model_config["service_account"];
         const std::string email = sa.count("client_email") && sa["client_email"].is_string() ? sa["client_email"].get<std::string>() : std::string("unknown");
-        return name + ":" + project + ":sa:" + email;
+        base_key = name + ":" + project + ":sa:" + email;
+    } else {
+        base_key = name + ":" + project + ":" + model_config["client_secret"].get<std::string>();
     }
-    return name + ":" + project + ":" + model_config["client_secret"].get<std::string>();
+    
+    if(model_config.count("num_dim") > 0 && model_config["num_dim"].get<size_t>() > 0) {
+        base_key += ":" + std::to_string(model_config["num_dim"].get<size_t>());
+    }
+    
+    return base_key;
 }
 
 
@@ -1103,5 +1120,9 @@ nlohmann::json AzureEmbedder::get_error_json(const nlohmann::json& req_body, lon
 }
 
 std::string AzureEmbedder::get_model_key(const nlohmann::json& model_config) {
-    return model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+    std::string base_key = model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+    if(model_config.count("num_dim") > 0 && model_config["num_dim"].get<size_t>() > 0) {
+        base_key += ":" + std::to_string(model_config["num_dim"].get<size_t>());
+    }
+    return base_key;
 }
