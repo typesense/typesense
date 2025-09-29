@@ -447,6 +447,8 @@ CURL *HttpClient::init_curl_stream(const std::string& url, async_stream_response
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
 
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Typesense/1.0");
+
     // to allow self-signed certs
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
@@ -483,6 +485,8 @@ CURL *HttpClient::init_curl_sse(const std::string& url, long timeout_ms,
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Typesense/1.0");
 
     // to allow self-signed certs
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
@@ -535,6 +539,8 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
 
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Typesense/1.0");
+
     // to allow self-signed certs
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
@@ -568,6 +574,8 @@ CURL *HttpClient::init_curl(const std::string& url, std::string& response, const
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Typesense/1.0");
 
     // to allow self-signed certs
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
