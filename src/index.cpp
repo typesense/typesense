@@ -643,8 +643,6 @@ size_t Index::batch_memory_index(Index *index,
 
         if(index_rec.is_update) {
             index->remove(index_rec.seq_id, index_rec.del_doc, {}, index_rec.is_update);
-        } else if(index_rec.indexed.ok()) {
-            num_indexed++;
         }
 
         for(const auto& kv: index_rec.doc.items()) {
@@ -692,6 +690,22 @@ size_t Index::batch_memory_index(Index *index,
     {
         std::unique_lock<std::mutex> lock_process(m_process);
         cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
+    }
+
+    // only count documents that were successfully indexed after all field validations
+    for(size_t i = 0; i < iter_batch.size(); i++) {
+        auto& index_rec = iter_batch[i];
+
+        if(!index_rec.indexed.ok()) {
+            // some records could have been invalidated upstream or during field validation (vector size mismatch for example)
+            continue;
+        }
+
+        if(index_rec.is_update) {
+            // updates don't increment the document count
+        } else {
+            num_indexed++;
+        }
     }
 
     return num_indexed;
