@@ -6,7 +6,7 @@ set(ICONV_TAR_PATH ${DEP_ROOT_DIR}/${ICONV_NAME}.tar.gz)
 
 if(NOT EXISTS ${ICONV_TAR_PATH})
     message(STATUS "Downloading libconv...")
-    file(DOWNLOAD https://ftp.gnu.org/pub/gnu/libiconv/libiconv-${ICONV_VERSION}.tar.gz ${ICONV_TAR_PATH})
+    file(DOWNLOAD https://mirrors.dotsrc.org/gnu/libiconv/libiconv-${ICONV_VERSION}.tar.gz ${ICONV_TAR_PATH})
 endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${ICONV_NAME})

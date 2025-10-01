@@ -36,7 +36,7 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/librocksdb.a AND BUILD_DEPS STREQU
     execute_process(COMMAND make "clean" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/)
 
     message(STATUS "Building static library...")
-    execute_process(COMMAND make "static_lib" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/
+    execute_process(COMMAND make "-j" "24" "static_lib" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/
             RESULT_VARIABLE ROCKSDB_BUILD)
     if(NOT ROCKSDB_BUILD EQUAL 0)
         message(FATAL_ERROR "${ROCKSDB_NAME} build failed!")

@@ -45,7 +45,7 @@ if [[ "$@" == *"--with-cuda"* ]]; then
 fi
 
 # Finally build Typesense
-bazel build --verbose_failures --jobs=$JOBS $CUDA_FLAGS $JEMALLOC_FLAGS \
+bazel build --subcommands --verbose_failures --sandbox_debug --jobs=$JOBS $CUDA_FLAGS $JEMALLOC_FLAGS \
   --define=TYPESENSE_VERSION=\"$TYPESENSE_VERSION\" //:$TYPESENSE_TARGET
 
 # Copy the binary to an accessible location
