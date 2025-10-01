@@ -652,7 +652,28 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
             continue;
         }
 
-        if(field_name == "id" || a_field.is_object()) {
+        if(field_name == "id") {
+            continue;
+        }
+        
+        // Handle object fields with coercion
+        if(a_field.is_object()) {
+            if(document.count(field_name) == 0) {
+                if(a_field.optional) {
+                    continue;
+                } else {
+                    return Option<>(400, "Field `" + field_name + "` has been declared in the schema, "
+                                                           "but is not found in the document.");
+                }
+            }
+            
+            nlohmann::json& obj_ele = document[field_name];
+            if(obj_ele.is_object()) {
+                auto coerce_obj_op = coerce_object_field(a_field, document, obj_ele, fallback_field_type, dirty_values);
+                if(!coerce_obj_op.ok()) {
+                    return coerce_obj_op;
+                }
+            }
             continue;
         }
 
@@ -695,6 +716,30 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
     return Option<>(200);
 }
 
+Option<uint32_t> validator_t::coerce_object_field(const field& a_field, nlohmann::json& document,
+                                                 nlohmann::json& obj_ele,
+                                                 const std::string& fallback_field_type,
+                                                 const DIRTY_VALUES& dirty_values) {
+    // For object fields, we need to check if there are any nested field definitions
+    // that might require coercion. This is a simplified version that handles
+    // basic object coercion scenarios.
+    
+    if(!obj_ele.is_object()) {
+        if(dirty_values == DIRTY_VALUES::REJECT || dirty_values == DIRTY_VALUES::COERCE_OR_REJECT) {
+            return Option<>(400, "Field `" + a_field.name + "` must be an object.");
+        } else if(dirty_values == DIRTY_VALUES::DROP || dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
+            if(!a_field.optional) {
+                return Option<>(400, "Field `" + a_field.name + "` must be an object.");
+            }
+            document.erase(a_field.name);
+            return Option<>(200);
+        }
+    }
+    
+    // For now, we'll just validate that it's an object
+    // More sophisticated coercion can be added here based on nested field definitions
+    return Option<>(200);
+}
 
 Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document, 
                                           const tsl::htrie_map<char, field>& embedding_fields, 

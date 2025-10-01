@@ -529,6 +529,42 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
             }
         }
 
+        // Apply coercion if we have a dynamic field with a specific type
+        if(found_dynamic_field && dyn_field.type != field_types::AUTO && dyn_field.type != field_types::STRING) {
+            // Create a temporary field for coercion
+            field temp_field = dyn_field;
+            temp_field.name = flat_name;
+            temp_field.optional = true;
+            temp_field.nested = true;
+            temp_field.nested_array = has_obj_array;
+            
+            // Apply coercion based on the detected type
+            if(dyn_field.type == field_types::INT64 && value.is_number_float()) {
+                value = static_cast<int64_t>(value.get<float>());
+            } else if(dyn_field.type == field_types::INT32 && value.is_number_float()) {
+                value = static_cast<int32_t>(value.get<float>());
+            } else if(dyn_field.type == field_types::FLOAT && value.is_number_integer()) {
+                value = static_cast<float>(value.get<int64_t>());
+            } else if(dyn_field.type == field_types::STRING) {
+                if(value.is_number_integer()) {
+                    value = std::to_string((int64_t)value);
+                } else if(value.is_number_float()) {
+                    value = StringUtils::float_to_str((float)value);
+                } else if(value.is_boolean()) {
+                    value = value == true ? "true" : "false";
+                }
+            } else if(dyn_field.type == field_types::BOOL) {
+                if(value.is_number_integer()) {
+                    value = value.get<int64_t>() != 0;
+                } else if(value.is_number_float()) {
+                    value = value.get<float>() != 0.0f;
+                } else if(value.is_string()) {
+                    std::string str_val = value.get<std::string>();
+                    value = (str_val == "true" || str_val == "1" || str_val == "yes");
+                }
+            }
+        }
+
         if(has_array) {
             doc[flat_name].push_back(value);
         } else {

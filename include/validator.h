@@ -47,6 +47,11 @@ public:
                                         const std::string &field_name,
                                         nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
 
+    static Option<uint32_t> coerce_object_field(const field& a_field, nlohmann::json& document,
+                                               nlohmann::json& obj_ele,
+                                               const std::string& fallback_field_type,
+                                               const DIRTY_VALUES& dirty_values);
+
     static Option<uint32_t> coerce_geopoint(const DIRTY_VALUES& dirty_values, const field& a_field,
                                             nlohmann::json &document, const std::string &field_name,
                                             nlohmann::json& lat, nlohmann::json& lng,
