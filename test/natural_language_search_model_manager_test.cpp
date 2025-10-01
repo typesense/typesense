@@ -400,7 +400,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GetSchemaPromptSuccess) {
   auto import_op = coll_create_op.get()->add_many(docs,insert_doc, UPSERT);
   ASSERT_EQ(import_op["num_imported"], 3);
 
-  auto schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name());
+  auto schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name(), "");
   ASSERT_TRUE(schema_prompt.ok());
   ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
 
@@ -459,7 +459,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptCacheExpiryOnCollectio
   auto coll_create_op = collectionManager.create_collection(titles_schema);
   ASSERT_TRUE(coll_create_op.ok());
 
-  auto schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name());
+  auto schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name(), "");
   ASSERT_TRUE(schema_prompt.ok());
   ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
 
@@ -516,7 +516,7 @@ The output should be in JSON format like this:
 
   NaturalLanguageSearchModelManager::clear_schema_prompt(coll_create_op.get()->get_name());
 
-  schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name());
+  schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name(), "");
   ASSERT_TRUE(schema_prompt.ok());
   ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
 
@@ -575,7 +575,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptCacheExpiryOnTTL) {
   auto coll_create_op = collectionManager.create_collection(titles_schema);
   ASSERT_TRUE(coll_create_op.ok());
 
-  auto schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name());
+  auto schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name(), "");
   ASSERT_TRUE(schema_prompt.ok());
   ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
 
@@ -627,7 +627,7 @@ The output should be in JSON format like this:
   auto import_op = coll_create_op.get()->add_many(docs,insert_doc, UPSERT);
   ASSERT_EQ(import_op["num_imported"], 3);
 
-  schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name());
+  schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(coll_create_op.get()->get_name(), "");
   ASSERT_TRUE(schema_prompt.ok());
   ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
 

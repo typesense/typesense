@@ -27,7 +27,7 @@ public:
     static bool migrate_model(nlohmann::json& model);
 
     static void init_schema_prompts_cache(uint32_t capacity);
-    static Option<std::string> get_schema_prompt(const std::string& collection_name, uint64_t ttl_seconds = DEFAULT_SCHEMA_PROMPT_TTL_SEC);
+    static Option<std::string> get_schema_prompt(const std::string& collection_name, const std::string& filter_by, uint64_t ttl_seconds = DEFAULT_SCHEMA_PROMPT_TTL_SEC);
     static void clear_schema_prompt(const std::string& collection_name);
     static void clear_all_schema_prompts();
     static bool has_cached_schema_prompt(const std::string& collection_name);
@@ -38,6 +38,7 @@ public:
         const std::string& nl_query, 
         const std::string& collection_name, 
         const std::string& nl_model_id = "default",
+        const std::string& filter_by = "",
         uint64_t prompt_cache_ttl_seconds = DEFAULT_SCHEMA_PROMPT_TTL_SEC);
 
     static void dispose();
@@ -81,7 +82,7 @@ private:
 
     static const std::string get_model_key(const std::string& model_id);
     static Option<nlohmann::json> delete_model_unsafe(const std::string& model_id);
-    static Option<std::string> generate_schema_prompt(const std::string& collection_name);
+    static Option<std::string> generate_schema_prompt(const std::string& collection_name, const std::string& filter_by);
     static nlohmann::json build_augmented_params(const std::map<std::string, std::string>* req_params);
     static nlohmann::json build_generated_params(const std::map<std::string, std::string>* req_params);
 

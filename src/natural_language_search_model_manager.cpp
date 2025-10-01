@@ -143,9 +143,12 @@ bool NaturalLanguageSearchModelManager::migrate_model(nlohmann::json& model) {
     return has_model_change;
 }
 
-Option<std::string> NaturalLanguageSearchModelManager::get_schema_prompt(const std::string& collection_name, uint64_t ttl_seconds) {
+Option<std::string> NaturalLanguageSearchModelManager::get_schema_prompt(
+    const std::string& collection_name,
+    const std::string& filter_by,
+    uint64_t ttl_seconds) {
     if (ttl_seconds == 0) {
-        return generate_schema_prompt(collection_name);
+        return generate_schema_prompt(collection_name, filter_by);
     }
 
     std::shared_lock lock(schema_prompts_mutex);
@@ -162,10 +165,12 @@ Option<std::string> NaturalLanguageSearchModelManager::get_schema_prompt(const s
         }
     }
     lock.unlock();
-    return generate_schema_prompt(collection_name);
+    return generate_schema_prompt(collection_name, filter_by);
 }
 
-Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(const std::string& collection_name) {
+Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(
+    const std::string& collection_name,
+    const std::string& filter_by) {
     auto collection = CollectionManager::get_instance().get_collection(collection_name);
     if (collection == nullptr) {
         return Option<std::string>(404, "Collection not found");
@@ -197,7 +202,7 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(co
     
     // Perform a single search query for all facetable fields
     if (!string_facet_fields.empty()) {
-        auto results = coll->search("*", {}, "", string_facet_fields, {}, {0}, 0, 1,
+        auto results = coll->search("*", {}, filter_by, string_facet_fields, {}, {0}, 0, 1,
           FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 20,
           "", 30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3,
           "<mark>", "</mark>", {}, 1000000, true, false, true, "", false,
@@ -314,6 +319,7 @@ Option<nlohmann::json> NaturalLanguageSearchModelManager::process_natural_langua
     const std::string& nl_query, 
     const std::string& collection_name, 
     const std::string& nl_model_id,
+    const std::string& filter_by,
     uint64_t prompt_cache_ttl_seconds) {
     nlohmann::json model_config;
     
@@ -330,7 +336,7 @@ Option<nlohmann::json> NaturalLanguageSearchModelManager::process_natural_langua
         }
         model_config = models_op.get()[0];
     }    
-    auto schema_prompt_op = get_schema_prompt(collection_name, prompt_cache_ttl_seconds);
+    auto schema_prompt_op = get_schema_prompt(collection_name, filter_by, prompt_cache_ttl_seconds);
     if (!schema_prompt_op.ok()) {
         return Option<nlohmann::json>(schema_prompt_op.code(), "Error generating schema prompt: " + schema_prompt_op.error());
     }
@@ -364,6 +370,7 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
         nl_query,
         collection_name,
         req_params.count("nl_model_id") > 0 ? req_params.at("nl_model_id") : "default",
+        req_params.count("filter_by") > 0 && !req_params["filter_by"].empty() ? req_params["filter_by"] : "",
         schema_prompt_ttl_seconds
     );
 
