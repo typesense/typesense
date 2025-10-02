@@ -248,10 +248,14 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(
                 if (values.size() > 10) enum_values += ", ...";
                 enum_values += "]";
             } else {
-                enum_values = "[Faceted field with unique values]";
+                continue;
             }
         } else {
             enum_values = "N/A";
+        }
+
+        if (!field.index) {
+            continue;
         }
 
         schema_fields += "| " + field_name + " | " + field.type + " | "
