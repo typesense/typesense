@@ -2502,6 +2502,20 @@ Option<bool> Index::run_search(search_args* search_params) {
         return filter_init_op;
     }
 
+    auto filter_result_iterator_no_groups = new filter_result_iterator_t(get_collection_name(),
+                                                                          this, filter_root.get(),
+                                                                          search_params->enable_lazy_filter,
+                                                                          search_params->max_filter_by_candidates,
+                                                                          search_begin_us,
+                                                                          search_stop_us,
+                                                                          search_params->validate_field_names);
+    std::unique_ptr<filter_result_iterator_t> filter_iterator_no_groups_guard(filter_result_iterator_no_groups);
+
+    filter_init_op = filter_result_iterator->init_status();
+    if (!filter_init_op.ok()) {
+        return filter_init_op;
+    }
+
 #ifdef TEST_BUILD
 
     if (testing_not_equals_bug || filter_result_iterator->approx_filter_ids_length > 20) {
@@ -2522,7 +2536,8 @@ Option<bool> Index::run_search(search_args* search_params) {
         auto res = search(search_params->field_query_tokens,
                           search_params->search_fields,
                           search_params->match_type,
-                          filter_result_iterator, search_params->facets, search_params->facet_query,
+                          filter_result_iterator, filter_result_iterator_no_groups,
+                          search_params->facets, search_params->facet_query,
                           search_params->max_facet_values,
                           search_params->included_ids, search_params->excluded_ids,
                           search_params->sort_fields_std, search_params->num_typos,
@@ -2679,6 +2694,8 @@ Option<bool> Index::run_search(search_args* search_params) {
         search_params->found_count = search_params->topster->getGroupsCount() + search_params->curated_topster->getGroupsCount();
         search_params->found_docs = search_params->all_result_ids_len;
 
+        filter_result_iterator_no_groups->reset();
+
         delete search_params->topster;
         delete search_params->curated_topster;
 
@@ -2693,7 +2710,9 @@ Option<bool> Index::run_search(search_args* search_params) {
     auto res = search(search_params->field_query_tokens,
                   search_params->search_fields,
                   search_params->match_type,
-                  filter_result_iterator, search_params->facets, search_params->facet_query,
+                  filter_result_iterator,
+                  filter_result_iterator_no_groups,
+                  search_params->facets, search_params->facet_query,
                   search_params->max_facet_values,
                   search_params->included_ids, search_params->excluded_ids,
                   search_params->sort_fields_std, search_params->num_typos,
@@ -3432,7 +3451,9 @@ void process_results_hnsw_index(filter_result_iterator_t* filter_result_iterator
 
 Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                    const text_match_type_t match_type,
-                   filter_result_iterator_t*& filter_result_iterator, std::vector<facet>& facets, facet_query_t facet_query,
+                   filter_result_iterator_t*& filter_result_iterator,
+                   filter_result_iterator_t*& filter_result_iterator_no_groups,
+                   std::vector<facet>& facets, facet_query_t facet_query,
                    const int max_facet_values,
                    const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                    const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
@@ -3623,10 +3644,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             goto process_search_results;
         }
 
-        if (!vector_query.field_name.empty()) {
+        if (!vector_query.field_name.empty() && !is_group_by_first_pass) {
             auto k = vector_query.k == 0 ? std::max<size_t>(vector_query.k, fetch_size) : vector_query.k;
 
-            VectorFilterFunctor filterFunctor(filter_result_iterator, excluded_result_ids, excluded_result_ids_size);
+            VectorFilterFunctor filterFunctor(filter_result_iterator_no_groups, excluded_result_ids, excluded_result_ids_size);
             auto& field_vector_index = vector_index.at(vector_query.field_name);
 
             if(vector_query.query_doc_given && filterFunctor(vector_query.seq_id)) {
@@ -3634,23 +3655,24 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 k++;
             }
 
-            filter_result_iterator->reset();
+            filter_result_iterator_no_groups->reset();
 
             std::vector<std::pair<float, single_filter_result_t>> dist_results;
 
-            filter_result_iterator->compute_iterators();
+            filter_result_iterator_no_groups->compute_iterators();
 
-            uint32_t filter_id_count = filter_result_iterator->approx_filter_ids_length;
+            uint32_t filter_id_count = filter_result_iterator_no_groups->approx_filter_ids_length;
+            auto no_group_filter_provided = filter_result_iterator_no_groups->is_filter_provided();
 
-            if (filter_by_provided && filter_id_count < vector_query.flat_search_cutoff) {
-                process_results_bruteforce(filter_result_iterator, vector_query, field_vector_index, dist_results);
-            } else if(!filter_by_provided ||
-                (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid)) {
+            if (no_group_filter_provided && filter_id_count < vector_query.flat_search_cutoff) {
+                process_results_bruteforce(filter_result_iterator_no_groups, vector_query, field_vector_index, dist_results);
+            } else if(!no_group_filter_provided ||
+                (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator_no_groups->validity == filter_result_iterator_t::valid)) {
                 dist_results.clear();
-                process_results_hnsw_index(filter_result_iterator, vector_query, field_vector_index, filterFunctor, k, dist_results, true);
+                process_results_hnsw_index(filter_result_iterator_no_groups, vector_query, field_vector_index, filterFunctor, k, dist_results, true);
             }
 
-            search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
+            search_cutoff = search_cutoff || filter_result_iterator_no_groups->validity == filter_result_iterator_t::timed_out;
 
             std::vector<uint32_t> nearest_ids;
             std::vector<uint32_t> eval_filter_indexes;
@@ -3999,7 +4021,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         filter_result_iterator->reset();
         search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
-        if(!vector_query.field_name.empty()) {
+        if(!vector_query.field_name.empty() && !is_group_by_first_pass) {
             // check at least one of sort fields is text match
             bool has_text_match = false;
             for(auto& sort_field : sort_fields_std) {
@@ -4013,25 +4035,28 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             const float VECTOR_SEARCH_WEIGHT = vector_query.alpha;
             const float TEXT_MATCH_WEIGHT = 1.0 - VECTOR_SEARCH_WEIGHT;
 
-            VectorFilterFunctor filterFunctor(filter_result_iterator, excluded_result_ids, excluded_result_ids_size);
+            VectorFilterFunctor filterFunctor(filter_result_iterator_no_groups, excluded_result_ids, excluded_result_ids_size);
             auto& field_vector_index = vector_index.at(vector_query.field_name);
 
-            uint32_t filter_id_count = filter_result_iterator->approx_filter_ids_length;
+            uint32_t filter_id_count = filter_result_iterator_no_groups->approx_filter_ids_length;
             std::vector<std::pair<float, single_filter_result_t>> dist_results;
 
-            if (filter_by_provided && filter_id_count < vector_query.flat_search_cutoff) {
-                process_results_bruteforce(filter_result_iterator, vector_query, field_vector_index, dist_results);
-            } else if (!filter_by_provided || (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid)) {
+            auto no_group_filter_provided = filter_result_iterator_no_groups->is_filter_provided();
+
+            if (no_group_filter_provided && filter_id_count < vector_query.flat_search_cutoff) {
+                process_results_bruteforce(filter_result_iterator_no_groups, vector_query, field_vector_index, dist_results);
+            } else if (!no_group_filter_provided || (filter_id_count >= vector_query.flat_search_cutoff &&
+                        filter_result_iterator_no_groups->validity == filter_result_iterator_t::valid)) {
                 dist_results.clear();
                 // use k as 100 by default for ensuring results stability in pagination
                 size_t default_k = 100;
                 auto k = vector_query.k == 0 ? std::max<size_t>(fetch_size, default_k)
                                              : vector_query.k;
 
-                process_results_hnsw_index(filter_result_iterator, vector_query, field_vector_index, filterFunctor, k, dist_results);
+                process_results_hnsw_index(filter_result_iterator_no_groups, vector_query, field_vector_index, filterFunctor, k, dist_results);
             }
 
-            filter_result_iterator->reset();
+            filter_result_iterator_no_groups->reset();
             std::unordered_map<uint32_t, uint32_t> seq_id_to_rank;
 
             for (size_t vec_index = 0; vec_index < dist_results.size(); vec_index++) {
@@ -4086,15 +4111,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
 
             for(size_t res_index = 0; res_index < dist_results.size() &&
-                            filter_result_iterator->validity != filter_result_iterator_t::timed_out; res_index++) {
+                    filter_result_iterator_no_groups->validity != filter_result_iterator_t::timed_out; res_index++) {
                 auto& dist_result = dist_results[res_index];
                 auto seq_id = dist_result.second.seq_id;
 
-                if (filter_by_provided && filter_result_iterator->is_valid(seq_id) != 1) {
+                if (no_group_filter_provided && filter_result_iterator_no_groups->is_valid(seq_id) != 1) {
                     continue;
                 }
-                auto references = std::move(filter_result_iterator->reference);
-                filter_result_iterator->reset();
+                auto references = std::move(filter_result_iterator_no_groups->reference);
+                filter_result_iterator_no_groups->reset();
 
                 KV* found_kv = nullptr;
                 if(group_limit != 0) {
@@ -4175,7 +4200,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     }
                 }
             }
-            search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
+            search_cutoff = search_cutoff || filter_result_iterator_no_groups->validity == filter_result_iterator_t::timed_out;
 
             if(!vec_search_ids.empty()) {
                 uint32_t* new_all_result_ids = nullptr;

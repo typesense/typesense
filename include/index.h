@@ -752,7 +752,9 @@ public:
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
-                filter_result_iterator_t*& filter_result_iterator, std::vector<facet>& facets, facet_query_t facet_query,
+                filter_result_iterator_t*& filter_result_iterator,
+                filter_result_iterator_t*& filter_result_iterator_no_groups,
+                std::vector<facet>& facets, facet_query_t facet_query,
                 const int max_facet_values,
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
