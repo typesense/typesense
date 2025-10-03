@@ -3631,7 +3631,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     groups_processed[distinct_id]++;
                 }
 
-                if (result_ids.size() == fetch_size && group_limit == 0) {
+                const auto comp_size = diversity.similarity_equation.empty() ? fetch_size : topster->MAX_SIZE;
+                if (result_ids.size() == comp_size && group_limit == 0) {
                     break;
                 }
 

@@ -5688,4 +5688,62 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
     for (uint32_t i = 0; i < 6; i++) {
         ASSERT_EQ(std::to_string(5 - i), res_obj["hits"][i]["document"]["id"]);
     }
+
+    req_params = {
+            {"collection", "tags"},
+            {"q", "*"},
+            {"curation_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
+            {"page", "1"},
+            {"per_page", "2"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(6, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("5", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("2", res_obj["hits"][1]["document"]["id"]);
+
+    req_params = {
+            {"collection", "tags"},
+            {"q", "*"},
+            {"curation_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
+            {"page", "2"},
+            {"per_page", "2"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(6, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("0", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("3", res_obj["hits"][1]["document"]["id"]);
+
+    req_params = {
+            {"collection", "tags"},
+            {"q", "*"},
+            {"curation_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
+            {"page", "3"},
+            {"per_page", "2"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(6, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][1]["document"]["id"]);
+
+    req_params = {
+            {"collection", "tags"},
+            {"q", "*"},
+            {"curation_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
+            {"page", "4"},
+            {"per_page", "2"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(6, res_obj["found"].get<size_t>());
+    ASSERT_EQ(0, res_obj["hits"].size());
 }
