@@ -189,20 +189,23 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(
     std::unordered_map<std::string, std::vector<std::string>> field_facet_values;
     
     // Collect all string facetable fields
-    std::vector<std::string> string_facet_fields;
+    std::vector<std::string> facet_fields;
     for (const auto& facet_field : coll->get_facet_fields()) {
         if (search_schema.count(facet_field) == 0) continue;
 
         const auto& field_type = search_schema.at(facet_field).type;
         bool is_string_type = (field_type == field_types::STRING || field_type == field_types::STRING_ARRAY);
-        if (is_string_type) {
-            string_facet_fields.push_back(facet_field);
+        bool is_bool_type = (field_type == field_types::BOOL || field_type == field_types::BOOL_ARRAY);
+        bool is_int_type = (field_type == field_types::INT32 || field_type == field_types::INT64 ||
+                            field_type == field_types::INT32_ARRAY || field_type == field_types::INT64_ARRAY);
+        if (is_string_type || is_bool_type || is_int_type) {
+            facet_fields.push_back(facet_field);
         }
     }
     
     // Perform a single search query for all facetable fields
-    if (!string_facet_fields.empty()) {
-        auto results = coll->search("*", {}, filter_by, string_facet_fields, {}, {0}, 0, 1,
+    if (!facet_fields.empty()) {
+        auto results = coll->search("*", {}, filter_by, facet_fields, {}, {0}, 0, 1,
           FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 20,
           "", 30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3,
           "<mark>", "</mark>", {}, 1000000, true, false, true, "", false,
@@ -241,12 +244,19 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(
             if (facet_values_it != field_facet_values.end() && !facet_values_it->second.empty()) {
                 enum_values = "[";
                 const auto& values = facet_values_it->second;
-                for (size_t i = 0; i < values.size() && i < 10; ++i) {
+                for (size_t i = 0; i < values.size() && i < 32; ++i) {
                     if (i > 0) enum_values += ", ";
                     enum_values += values[i];
                 }
-                if (values.size() > 10) enum_values += ", ...";
+                if (values.size() > 32) enum_values += ", ...";
                 enum_values += "]";
+            } else {
+                continue;
+            }
+        } else if (is_faceted) {
+            auto facet_values_it = field_facet_values.find(field_name);
+            if (facet_values_it != field_facet_values.end() && !facet_values_it->second.empty()) {
+                enum_values = "N/A"; // todo: make this better, this is just temporary to not send extra values to llm
             } else {
                 continue;
             }
