@@ -8389,6 +8389,7 @@ Option<bool> Index::get_related_ids(const std::string& field_name, const std::ve
             for (size_t j = 0; j < count; j++) {
                 related_ids.push_back(ref_ids[j]);
             }
+            delete [] ref_ids;
         }
     }
 
