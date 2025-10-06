@@ -441,7 +441,7 @@ private:
     /// "field name" -> List of <collection, field> pairs where this collection is referenced and is marked as `async`.
     spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins;
 
-    /// Reference fields that are part of an object. The reference doc of these fields will be included in the object
+    /// Reference fields that are part of an object. The referenced doc of these fields will be included in the object
     /// rather than in the document.
     tsl::htrie_set<char> object_reference_fields;
 
@@ -774,7 +774,7 @@ public:
 
     std::unordered_map<std::string, field> get_dynamic_fields();
 
-    tsl::htrie_map<char, field> get_schema();
+    tsl::htrie_map<char, field> get_schema() const;
 
     tsl::htrie_map<char, field> get_nested_fields();
 
@@ -809,17 +809,11 @@ public:
 
     static void remove_reference_helper_fields(nlohmann::json& document);
 
-    Option<bool> prune_doc_with_lock(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
-                                     const tsl::htrie_set<char>& exclude_names,
-                                     const std::map<std::string, reference_filter_result_t>& reference_filter_results = {},
-                                     const uint32_t& seq_id = 0,
-                                     const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec = {});
-
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",
                                   size_t depth = 0,
                                   const std::map<std::string, reference_filter_result_t>& reference_filter_results = {},
-                                  Collection *const collection = nullptr, const uint32_t& seq_id = 0,
+                                  const std::string& collection_name = {}, const uint32_t& seq_id = 0,
                                   const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec = {});
 
     const Index* _get_index() const;
@@ -1127,6 +1121,8 @@ public:
 
     bool is_referenced_in(const std::string& collection_name) const;
 
+    bool references(const std::string& collection_name) const;
+
     // Return a copy of the referenced field in the referencing collection to avoid schema lookups in the future. The
     // tradeoff is that we have to make sure any changes during collection alter operation are passed to the referencing
     // collection.
@@ -1146,7 +1142,7 @@ public:
 
     Option<std::string> get_referenced_in_field_with_lock(const std::string& collection_name) const;
 
-    Option<bool> get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
+    Option<bool> get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
                                            std::vector<uint32_t>& result) const;
 
     Option<bool> update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
@@ -1164,11 +1160,15 @@ public:
                                     const std::vector<std::vector<KV*>>& result_group_kvs,
                                     const std::vector<std::string>& raw_search_fields, std::string& first_q);
 
+    Option<bool> get_object_array_related_id_with_lock(const std::string& ref_field_name,
+                                                       const uint32_t& seq_id, const uint32_t& object_index,
+                                                       uint32_t& result) const;
+
     Option<bool> get_object_array_related_id(const std::string& ref_field_name,
                                              const uint32_t& seq_id, const uint32_t& object_index,
                                              uint32_t& result) const;
 
-    Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
+    Option<bool> get_related_ids(const std::string& ref_field_name, const std::vector<uint32_t>& seq_id_vec,
                                  std::vector<uint32_t>& result) const;
 
     Option<int64_t> get_referenced_geo_distance_with_lock(const sort_by& sort_field, const bool& is_asc, const uint32_t& seq_id,
@@ -1186,6 +1186,13 @@ public:
     bool check_store_alter_status_msg(bool success, const std::string& msg = "");
 
     std::string get_facet_str_val_with_lock(const std::string& field_name, uint32_t facet_id);
+
+    Option<bool> include_related_docs(nlohmann::json& doc, const uint32_t& seq_id,
+                                      const reference_info_t& ref_info,
+                                      const tsl::htrie_set<char>& ref_include_fields_full,
+                                      const tsl::htrie_set<char>& ref_exclude_fields_full,
+                                      const nlohmann::json& original_doc,
+                                      const ref_include_exclude_fields& ref_include_exclude) const;
 };
 
 template<class T>

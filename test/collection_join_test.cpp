@@ -1009,7 +1009,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ(1, doc.count(".ref"));
     ASSERT_EQ(1, doc[".ref"].size());
     ASSERT_EQ("object.ref_field_sequence_id", doc[".ref"][0]);
-    ASSERT_EQ(1, coll2->get_object_reference_fields().count("object.ref_field_sequence_id"));
+    ASSERT_EQ(1, coll2->get_object_reference_fields().count("object.ref_field"));
 
     doc_json = R"({
                     "object": {
@@ -1768,6 +1768,107 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
     add_doc_op = products_coll->add(doc_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
     products_coll->add(doc_json.dump());
+
+    // Indexing referencing docs and async referenced docs in parallel shouldn't run into any deadlocks.
+    std::thread t1([]() {
+        auto schema_json =
+                R"({
+                "name": "coll_A",
+                "fields": [
+                    {"name": "coll_B_id", "type": "string", "reference": "coll_B.id", "async_reference": true}
+                ]
+            })"_json;
+
+        auto collection_create_op = CollectionManager::get_instance().create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+        for (size_t i = 0; i < 100; i++) {
+            auto json = nlohmann::json::object({ {"coll_B_id", std::to_string(i)} });
+            auto add_op = collection_create_op.get()->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
+    });
+    std::thread t2([]() {
+        auto schema_json =
+                R"({
+                "name": "coll_B",
+                "fields": [
+                    {"name": "id", "type": "string"}
+                ]
+            })"_json;
+
+        auto collection_create_op = CollectionManager::get_instance().create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+        for (size_t i = 100; i != 0; i--) {
+            auto json = nlohmann::json::object({ {"id", std::to_string(i)} });
+            auto add_op = collection_create_op.get()->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
+    });
+
+    t1.join();
+    t2.join();
+
+    req_params = {
+            {"collection", "coll_A"},
+            {"q", "*"},
+            {"filter_by", "$coll_B(id: 100)"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"].get<size_t>());
+    ASSERT_EQ(0, res_obj["hits"].size());
+
+    req_params = {
+            {"collection", "coll_A"},
+            {"q", "*"},
+            {"filter_by", "$coll_B(id: 99)"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("99", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("99", res_obj["hits"][0]["document"]["coll_B"]["id"]);
+
+    req_params = {
+            {"collection", "coll_A"},
+            {"q", "*"},
+            {"filter_by", "$coll_B(id: 3)"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["coll_B"]["id"]);
+
+    req_params = {
+            {"collection", "coll_A"},
+            {"q", "*"},
+            {"filter_by", "$coll_B(id: 0)"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"].get<size_t>());
+    ASSERT_EQ(0, res_obj["hits"].size());
 }
 
 TEST_F(CollectionJoinTest, UpdateDocumentHavingReferenceField) {

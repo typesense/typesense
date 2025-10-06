@@ -87,10 +87,9 @@ Option<bool> stateful_export_docs(export_state_t* export_state, size_t batch_siz
 
         if(get_op.ok()) {
             std::map<std::string, reference_filter_result_t> refs;
-            coll->prune_doc_with_lock(doc, export_state->include_fields, export_state->exclude_fields,
-                                      (filter_result.coll_to_references == nullptr ? refs :
-                                       filter_result.coll_to_references[j]), seq_id,
-                                      export_state->ref_include_exclude_fields_vec);
+            coll->prune_doc(doc, export_state->include_fields, export_state->exclude_fields, "", 0,
+                            (filter_result.coll_to_references == nullptr ? refs : filter_result.coll_to_references[j]),
+                            coll->get_name(), seq_id, export_state->ref_include_exclude_fields_vec);
             export_state->res_body->append(doc.dump());
 
             export_state->res_body->append("\n");
