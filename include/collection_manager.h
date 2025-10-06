@@ -240,4 +240,8 @@ public:
                                         const std::string& field_name,
                                         const std::vector<uint32_t>& seq_id_vec,
                                         std::vector<uint32_t>& related_ids);
+
+    static Option<bool> process_ref_include_fields_sort(const std::string& collection_name,
+                                                        const std::string& sort_by_str, size_t limit,
+                                                        std::vector<uint32_t>& doc_ids);
 };

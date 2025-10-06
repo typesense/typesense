@@ -477,11 +477,12 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
             updated_count = ref_include_exclude.limit;
         }
 
-//        auto op = ref_collection->process_ref_include_fields_sort(ref_include_exclude.sort_by_str, updated_count, doc_ids);
-//
-//        if(!op.ok()) {
-//            return Option<bool>(op.code(), error_prefix + op.error());
-//        }
+        auto op = CollectionManager::process_ref_include_fields_sort(ref_collection_name,
+                                                                     ref_include_exclude.sort_by_str, updated_count,
+                                                                     doc_ids);
+        if(!op.ok()) {
+            return Option<bool>(op.code(), error_prefix + op.error());
+        }
     }
 
     for (uint32_t i = 0; i < updated_count; i++) {

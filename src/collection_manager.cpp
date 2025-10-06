@@ -2464,3 +2464,15 @@ Option<bool> CollectionManager::get_related_ids(const std::string& collection_na
 
     return collection->get_related_ids_with_lock(field_name, seq_id_vec, related_ids);
 }
+
+Option<bool> CollectionManager::process_ref_include_fields_sort(const std::string& collection_name,
+                                                                const std::string& sort_by_str, size_t limit,
+                                                                std::vector<uint32_t>& doc_ids) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->process_ref_include_fields_sort(sort_by_str, limit, doc_ids);
+}
