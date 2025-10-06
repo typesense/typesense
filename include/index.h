@@ -618,6 +618,9 @@ private:
                                    const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);
 
     Option<bool> get_related_ids(const std::string& reference_helper_field_name,
+                                 const std::vector<uint32_t>& seq_id_vec, std::vector<uint32_t>& related_ids) const;
+
+    Option<bool> get_related_ids(const std::string& reference_helper_field_name,
                                  const uint32_t& seq_id, std::vector<uint32_t>& result) const;
 
     static void process_embed_results(const std::vector<std::pair<index_record*, std::string>>& values_to_embed_text,
@@ -627,10 +630,6 @@ private:
                                       const std::vector<std::pair<index_record*, std::vector<std::string>>>& values_to_embed_personalization,
                                       const std::vector<embedding_res_t>& embeddings_personalization,
                                       const field& the_field);
-
-    void update_async_references(const std::string& collection_name, const field& afield,
-                                 std::vector<index_record>& iter_batch,
-                                 const std::set<reference_pair_t>& async_referenced_ins = {});
 
     std::string get_collection_name_with_lock() const {
         std::shared_lock lock(mutex);
@@ -818,18 +817,17 @@ public:
                                      const std::string& fallback_field_type,
                                      const std::vector<char>& token_separators,
                                      const std::vector<char>& symbols_to_index,
-                                     const bool do_validation, const size_t remote_embedding_batch_size = 200,
+                                     const bool do_validation,
+                                     std::unordered_set<std::string>& found_fields,
+                                     const size_t remote_embedding_batch_size = 200,
                                      const size_t remote_embedding_timeout_ms = 60000,
                                      const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true,
                                      const bool use_addition_fields = false,
                                      const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>(),
-                                     const std::string& collection_name = "",
-                                     const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins =
-                                            spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+                                     const std::string& collection_name = "");
 
     void index_field_in_memory(const std::string& collection_name, const field& afield,
-                               std::vector<index_record>& iter_batch,
-                               const std::set<reference_pair_t>& async_referenced_ins = {});
+                               std::vector<index_record>& iter_batch);
 
     template<class T>
     void iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func);
@@ -1186,8 +1184,8 @@ public:
 
     GeoPolygonIndex* get_geopolygon_index(const std::string& field_name) const;
 
-    Option<bool> get_related_ids_with_lock(const std::string& reference_helper_field_name,
-                                           const uint32_t& seq_id, std::vector<uint32_t>& result) const;
+    Option<bool> get_related_ids_with_lock(const std::string& field_name,
+                                           const std::vector<uint32_t>& seq_id_vec, std::vector<uint32_t>& related_ids) const;
 
     Option<bool> do_facets_with_lock(std::vector<facet> & facets, facet_query_t & facet_query,
                                      bool estimate_facets, size_t facet_sample_percent,
@@ -1202,6 +1200,10 @@ public:
                                      Collection const *const collection) const;
 
     Option<bool> process_ref_include_fields_sort(std::vector<sort_by>& sort_fields_std, size_t limit, std::vector<uint32_t>& doc_ids);
+
+    static void update_async_references(const std::string& collection_name, std::vector<index_record>& iter_batch,
+                                        const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins =
+                                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
 };
 
 template<class T>
