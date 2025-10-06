@@ -110,6 +110,7 @@ Option<bool> StemmerManager::upsert_stemming_dictionary(const std::string& dicti
     nlohmann::json dictionary_json;
     dictionary_json["id"] = dictionary_name;
     dictionary_json["words"] = nlohmann::json::array();
+    spp::sparse_hash_map<std::string, std::string> dictionary;
 
     for(const auto& line_str : json_lines) {
         try {
@@ -121,9 +122,11 @@ Option<bool> StemmerManager::upsert_stemming_dictionary(const std::string& dicti
         if(!json_line.contains("word") || !json_line.contains("root")) {
             return Option<bool>(400, "dictionary lines should contain `word` and `root` values.");
         }
-        stem_dictionaries[dictionary_name].emplace(json_line["word"], json_line["root"]);
+        dictionary[json_line["word"]] = json_line["root"];
         dictionary_json["words"].push_back(json_line);
     }
+
+    stem_dictionaries[dictionary_name] = dictionary;
 
     if(write_to_store) {
         bool inserted = store->insert(get_stemming_dictionary_key(dictionary_name), dictionary_json.dump());
