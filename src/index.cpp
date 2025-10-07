@@ -2547,7 +2547,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                           group_by_missing_value_ids,
                           search_params->collection,
                           search_params->synonym_sets,
-                          search_params->diversity);
+                          search_params->diversity, search_params->group_by_limit);
 
         // The filter iterator can be updated in places like `Index::do_phrase_search`.
         filter_iterator_guard.release();
@@ -2724,7 +2724,8 @@ Option<bool> Index::run_search(search_args* search_params) {
                   group_by_missing_value_ids,
                   search_params->collection,
                   search_params->synonym_sets,
-                  search_params->diversity
+                  search_params->diversity,
+                  search_params->group_by_limit
     );
 
     // The filter iterator can be updated in places like `Index::do_phrase_search`.
@@ -2732,10 +2733,16 @@ Option<bool> Index::run_search(search_args* search_params) {
     filter_iterator_guard.reset(filter_result_iterator);
 
     if (search_params->group_limit) {
-        // Doing std::max since in case of group_by, loglog_counter returns an approximate count of the number of distinct
-        // group_by values in the first pass and sometimes the count can be less than the size of returned result.
-        search_params->found_count = std::max(search_params->found_count,
-                                              search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size());
+        if (search_params->group_by_limit != DEFAULT_TOPSTER_SIZE) {
+            // User has set an appropriate upper limit of the expected group count. Assuming all the groups have been
+            // processed, no need to rely on approximate count.
+            search_params->found_count = search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size();
+        } else {
+            // Doing std::max since in case of group_by, loglog_counter returns an approximate count of the number of distinct
+            // group_by values in the first pass and sometimes the count can be less than the size of returned result.
+            search_params->found_count = std::max(search_params->found_count,
+                                                  search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size());
+        }
     } else {
         search_params->found_count = search_params->all_result_ids_len;
     }
@@ -3454,7 +3461,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool rerank_hybrid_matches, const bool& validate_field_names, bool is_group_by_first_pass,
                    std::set<uint32_t>& group_by_missing_value_ids, Collection const *const collection,
                    const std::vector<std::string>& synonym_sets,
-                   const diversity_t& diversity) const {
+                   const diversity_t& diversity, const size_t group_by_limit) const {
     std::shared_lock lock(mutex);
 
     group_found_params_t group_found_params{};
@@ -3473,7 +3480,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
     }
 
-    size_t topster_size = std::max<size_t>(fetch_size, std::max<size_t>(DEFAULT_TOPSTER_SIZE, included_ids.size()));
+    size_t topster_size = std::max<size_t>(group_by_limit, std::max<size_t>(fetch_size, std::max<size_t>(DEFAULT_TOPSTER_SIZE, included_ids.size())));
     if(filter_result_iterator->approx_filter_ids_length != 0 && filter_result_iterator->reference.empty()) {
         topster_size = std::min<size_t>(topster_size, filter_result_iterator->approx_filter_ids_length);
     } else {
