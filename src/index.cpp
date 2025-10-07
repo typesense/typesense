@@ -1517,7 +1517,7 @@ Option<bool> Index::do_facets(std::vector<facet>& facets, facet_query_t & facet_
             ref_facets[0].reference_collection_name = ref_collection_name;
             ref_facets[0].orig_index = temp_orig_index;
             a_facet = std::move(ref_facets[0]);
-            a_facet.references = std::move(ref_facet_result);
+            a_facet.references = ref_facet_result;
             continue;
         }
 
@@ -4475,6 +4475,7 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
                                     const std::string& collection_name, Collection const *const ref_collection,
                                     filter_result_iterator_t& fit,
                                     std::unordered_map<std::string, reference_filter_result_t>& reference_facet_ids) const {
+
     auto const& ref_collection_name = ref_collection->get_name();
     reference_facet_ids[ref_collection_name] = reference_filter_result_t();
 
