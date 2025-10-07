@@ -2864,12 +2864,10 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
         return Option<nlohmann::json>(init_index_search_args_op.code(), init_index_search_args_op.error());
     }
 
-    lock.unlock();
     const auto search_op = index->run_search(search_params_guard.get());
     if (!search_op.ok()) {
         return Option<nlohmann::json>(search_op.code(), search_op.error());
     }
-    lock.lock();
 
     const auto& search_params = search_params_guard.get();
     const auto& group_limit = search_params->group_limit;
@@ -3164,7 +3162,6 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             remove_flat_fields(document);
             remove_reference_helper_fields(document);
 
-            lock.unlock();
             auto prune_op = prune_doc(document,
                                       include_fields_full,
                                       exclude_fields_full,
@@ -3176,7 +3173,6 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             if (!prune_op.ok()) {
                 return Option<nlohmann::json>(prune_op.code(), prune_op.error());
             }
-            lock.lock();
 
             wrapper_doc["document"] = document;
             wrapper_doc["highlight"] = highlight_res;
