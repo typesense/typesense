@@ -2723,12 +2723,12 @@ Option<bool> Index::run_search(search_args* search_params) {
         if (search_params->group_by_limit != DEFAULT_TOPSTER_SIZE) {
             // User has set an appropriate upper limit of the expected group count. Assuming all the groups have been
             // processed, no need to rely on approximate count.
-            search_params->found_count = search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size();
+            search_params->found_count = search_params->raw_result_kvs.size() + search_params->override_result_kvs.size();
         } else {
             // Doing std::max since in case of group_by, loglog_counter returns an approximate count of the number of distinct
             // group_by values in the first pass and sometimes the count can be less than the size of returned result.
             search_params->found_count = std::max(search_params->found_count,
-                                                  search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size());
+                                                  search_params->raw_result_kvs.size() + search_params->override_result_kvs.size());
         }
     } else {
         search_params->found_count = search_params->all_result_ids_len;
