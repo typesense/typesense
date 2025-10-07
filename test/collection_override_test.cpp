@@ -5553,7 +5553,7 @@ TEST_F(CollectionOverrideTest, DiversityOverride) {
     req_params = {
             {"collection", "tags"},
             {"q", "*"},
-            {"curation_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
+            {"override_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
             {"page", "1"},
             {"per_page", "2"}
     };
@@ -5568,7 +5568,7 @@ TEST_F(CollectionOverrideTest, DiversityOverride) {
     req_params = {
             {"collection", "tags"},
             {"q", "*"},
-            {"curation_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
+            {"override_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
             {"page", "2"},
             {"per_page", "2"}
     };
@@ -5583,7 +5583,7 @@ TEST_F(CollectionOverrideTest, DiversityOverride) {
     req_params = {
             {"collection", "tags"},
             {"q", "*"},
-            {"curation_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
+            {"override_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
             {"page", "3"},
             {"per_page", "2"}
     };
@@ -5598,7 +5598,7 @@ TEST_F(CollectionOverrideTest, DiversityOverride) {
     req_params = {
             {"collection", "tags"},
             {"q", "*"},
-            {"curation_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
+            {"override_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
             {"page", "4"},
             {"per_page", "2"}
     };
