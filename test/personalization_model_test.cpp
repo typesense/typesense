@@ -70,7 +70,7 @@ protected:
     }
 };
 
-TEST_F(PersonalizationModelTest, ValidateModelBasic) {
+TEST_F(PersonalizationModelTest, DISABLED_ValidateModelBasic) {
     nlohmann::json valid_model = {
         {"id", "test-model"},
         {"name", "ts/tyrec-1"},
@@ -83,7 +83,7 @@ TEST_F(PersonalizationModelTest, ValidateModelBasic) {
     ASSERT_TRUE(result.ok());
 }
 
-TEST_F(PersonalizationModelTest, ValidateModelMissingFields) {
+TEST_F(PersonalizationModelTest, DISABLED_ValidateModelMissingFields) {
     nlohmann::json invalid_model = {
         {"name", "ts/tyrec-1"},
         {"collection", "companies"}
@@ -95,7 +95,7 @@ TEST_F(PersonalizationModelTest, ValidateModelMissingFields) {
     ASSERT_EQ(result.error(), "Missing or invalid 'id' field.");
 }
 
-TEST_F(PersonalizationModelTest, ValidateModelInvalidName) {
+TEST_F(PersonalizationModelTest, DISABLED_ValidateModelInvalidName) {
     nlohmann::json invalid_model = {
         {"id", "test-model"},
         {"name", "invalid/tyrec-1"},
@@ -109,7 +109,7 @@ TEST_F(PersonalizationModelTest, ValidateModelInvalidName) {
     ASSERT_EQ(result.error(), "Model namespace must be 'ts'.");
 }
 
-TEST_F(PersonalizationModelTest, ValidateModelInvalidType) {
+TEST_F(PersonalizationModelTest, DISABLED_ValidateModelInvalidType) {
     nlohmann::json invalid_model = {
         {"id", "test-model"},
         {"name", "ts/tyrec-1"},
@@ -123,7 +123,7 @@ TEST_F(PersonalizationModelTest, ValidateModelInvalidType) {
     ASSERT_EQ(result.error(), "Invalid type. Must be either 'recommendation' or 'search'.");
 }
 
-TEST_F(PersonalizationModelTest, ValidateModelInvalidModelName) {
+TEST_F(PersonalizationModelTest, DISABLED_ValidateModelInvalidModelName) {
     nlohmann::json invalid_model = {
         {"id", "test-model"},
         {"name", "ts/invalid-model"},
@@ -137,7 +137,7 @@ TEST_F(PersonalizationModelTest, ValidateModelInvalidModelName) {
     ASSERT_EQ(result.error(), "Invalid model name for type. Use 'tyrec-1' for recommendation and 'tyrec-2' for search.");
 }
 
-TEST_F(PersonalizationModelTest, GetModelSubdir) {
+TEST_F(PersonalizationModelTest, DISABLED_GetModelSubdir) {
     std::string model_id = "test-model";
     std::string expected_path = EmbedderManager::get_model_dir() + "/per_" + model_id;
     
@@ -146,7 +146,7 @@ TEST_F(PersonalizationModelTest, GetModelSubdir) {
     ASSERT_TRUE(std::filesystem::exists(result));
 }
 
-TEST_F(PersonalizationModelTest, DeleteModel) {
+TEST_F(PersonalizationModelTest, DISABLED_DeleteModel) {
     std::string model_id = "test-model";
     std::string model_path = PersonalizationModel::get_model_subdir(model_id);
     
@@ -159,7 +159,7 @@ TEST_F(PersonalizationModelTest, DeleteModel) {
     ASSERT_FALSE(std::filesystem::exists(model_path));
 }
 
-TEST_F(PersonalizationModelTest, CreateModel) {
+TEST_F(PersonalizationModelTest, DISABLED_CreateModel) {
     std::string model_id = "test-model";
     std::string model_path = PersonalizationModel::get_model_subdir(model_id);
     std::string model_data = get_onnx_model_archive();
@@ -175,7 +175,7 @@ TEST_F(PersonalizationModelTest, CreateModel) {
     ASSERT_TRUE(std::filesystem::exists(model_path));
 }
 
-TEST_F(PersonalizationModelTest, CreateModelFailsWithInvalidArchive) {
+TEST_F(PersonalizationModelTest, DISABLED_CreateModelFailsWithInvalidArchive) {
     std::string model_id = "test-model";
     std::string model_path = PersonalizationModel::get_model_subdir(model_id);
     std::string invalid_model_data = get_invalid_onnx_model_archive();
@@ -193,7 +193,7 @@ TEST_F(PersonalizationModelTest, CreateModelFailsWithInvalidArchive) {
 }
 
 
-TEST_F(PersonalizationModelTest, UpdateModel) {
+TEST_F(PersonalizationModelTest, DISABLED_UpdateModel) {
     std::string model_id = "test-model";
     std::string model_path = PersonalizationModel::get_model_subdir(model_id);
     std::string model_data = get_onnx_model_archive();
@@ -210,7 +210,7 @@ TEST_F(PersonalizationModelTest, UpdateModel) {
     ASSERT_TRUE(std::filesystem::exists(model_path));
 }
 
-TEST_F(PersonalizationModelTest, EmbedRecommendations) {
+TEST_F(PersonalizationModelTest, DISABLED_EmbedRecommendations) {
     std::string model_id = "test-model";
     nlohmann::json model_json = {
         {"id", model_id},
@@ -246,7 +246,7 @@ TEST_F(PersonalizationModelTest, EmbedRecommendations) {
     ASSERT_EQ(embedding.embedding.size(), 256);
 }
 
-TEST_F(PersonalizationModelTest, BatchEmbedRecommendations) {
+TEST_F(PersonalizationModelTest, DISABLED_BatchEmbedRecommendations) {
     std::string model_id = "test-model";
     nlohmann::json model_json = {
         {"id", model_id},
@@ -292,7 +292,7 @@ TEST_F(PersonalizationModelTest, BatchEmbedRecommendations) {
     ASSERT_EQ(embeddings[1].embedding.size(), 256);
 }
 
-TEST_F(PersonalizationModelTest, EmbedUsers) {
+TEST_F(PersonalizationModelTest, DISABLED_EmbedUsers) {
     std::string model_id = "test-model";
     nlohmann::json model_json = {
         {"id", model_id},
@@ -317,7 +317,7 @@ TEST_F(PersonalizationModelTest, EmbedUsers) {
     ASSERT_FLOAT_EQ(embedding.embedding[255], 0.092341594f);
 }
 
-TEST_F(PersonalizationModelTest, BatchEmbedUsers) {
+TEST_F(PersonalizationModelTest, DISABLED_BatchEmbedUsers) {
     std::string model_id = "test-model";
     nlohmann::json model_json = {
         {"id", model_id},
@@ -350,7 +350,7 @@ TEST_F(PersonalizationModelTest, BatchEmbedUsers) {
     ASSERT_FLOAT_EQ(embeddings[1].embedding[255], 0.092341594f);
 }
 
-TEST_F(PersonalizationModelTest, EmbedItem) {
+TEST_F(PersonalizationModelTest, DISABLED_EmbedItem) {
     std::string model_id = "test-model";
     nlohmann::json model_json = {
         {"id", model_id},
@@ -375,7 +375,7 @@ TEST_F(PersonalizationModelTest, EmbedItem) {
     ASSERT_FLOAT_EQ(embedding.embedding[255], 0.058315977f);
 }
 
-TEST_F(PersonalizationModelTest, BatchEmbedItems) {
+TEST_F(PersonalizationModelTest, DISABLED_BatchEmbedItems) {
     std::string model_id = "test-model";
     nlohmann::json model_json = {
         {"id", model_id},

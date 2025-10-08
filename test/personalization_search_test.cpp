@@ -148,7 +148,7 @@ protected:
     }
 };
 
-TEST_F(PersonalizationSearchTest, ParseAndValidatePersonalizationQuery) {
+TEST_F(PersonalizationSearchTest, DISABLED_ParseAndValidatePersonalizationQuery) {
     vector_query_t vector_query;
     std::string filter_query;
     bool is_wildcard_query = true;

@@ -15,3 +15,4 @@ run --define=BRPC_WITH_GLOG=true
 build --enable_platform_specific_config
 
 build:linux --action_env=BAZEL_LINKLIBS="-l%:libstdc++.a -l%:libgcc.a"
+build --compilation_mode=dbg

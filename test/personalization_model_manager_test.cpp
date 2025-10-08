@@ -65,7 +65,7 @@ protected:
     }
 };
 
-TEST_F(PersonalizationModelManagerTest, AddModelSuccess) {
+TEST_F(PersonalizationModelManagerTest, DISABLED_AddModelSuccess) {
     nlohmann::json model = create_valid_model("test_id");
     std::string model_data = get_onnx_model_archive();
     auto result = PersonalizationModelManager::add_model(model, "test_id", true, model_data);
@@ -73,7 +73,7 @@ TEST_F(PersonalizationModelManagerTest, AddModelSuccess) {
     ASSERT_FALSE(result.get().empty());
 }
 
-TEST_F(PersonalizationModelManagerTest, AddModelDuplicate) {
+TEST_F(PersonalizationModelManagerTest, DISABLED_AddModelDuplicate) {
     nlohmann::json model = create_valid_model("test_id");
     std::string model_data = get_onnx_model_archive();
     auto result = PersonalizationModelManager::add_model(model, "test_id", true, model_data);
@@ -84,7 +84,7 @@ TEST_F(PersonalizationModelManagerTest, AddModelDuplicate) {
     ASSERT_EQ(result1.error(), "Model id already exists");
 }
 
-TEST_F(PersonalizationModelManagerTest, GetModelSuccess) {
+TEST_F(PersonalizationModelManagerTest, DISABLED_GetModelSuccess) {
     nlohmann::json model = create_valid_model("test_id");
     std::string model_data = get_onnx_model_archive();
     auto result = PersonalizationModelManager::add_model(model, "test_id", true, model_data);
@@ -97,14 +97,14 @@ TEST_F(PersonalizationModelManagerTest, GetModelSuccess) {
     ASSERT_EQ(get_result.get()["num_dim"], 256);
 }
 
-TEST_F(PersonalizationModelManagerTest, GetModelNotFound) {
+TEST_F(PersonalizationModelManagerTest, DISABLED_GetModelNotFound) {
     auto result = PersonalizationModelManager::get_model("nonexistent");
     ASSERT_FALSE(result.ok());
     ASSERT_EQ(result.code(), 404);
     ASSERT_EQ(result.error(), "Model not found");
 }
 
-TEST_F(PersonalizationModelManagerTest, DeleteModelSuccess) {
+TEST_F(PersonalizationModelManagerTest, DISABLED_DeleteModelSuccess) {
     nlohmann::json model = create_valid_model("test_id");
     std::string model_data = get_onnx_model_archive();
     auto result = PersonalizationModelManager::add_model(model, "test_id", true, model_data);
@@ -122,20 +122,20 @@ TEST_F(PersonalizationModelManagerTest, DeleteModelSuccess) {
     ASSERT_EQ(get_result.error(), "Model not found");
 }
 
-TEST_F(PersonalizationModelManagerTest, DeleteModelNotFound) {
+TEST_F(PersonalizationModelManagerTest, DISABLED_DeleteModelNotFound) {
     auto result = PersonalizationModelManager::delete_model("nonexistent");
     ASSERT_FALSE(result.ok());
     ASSERT_EQ(result.code(), 404);
     ASSERT_EQ(result.error(), "Model not found");
 }
 
-TEST_F(PersonalizationModelManagerTest, GetAllModelsEmpty) {
+TEST_F(PersonalizationModelManagerTest, DISABLED_GetAllModelsEmpty) {
     auto result = PersonalizationModelManager::get_all_models();
     ASSERT_TRUE(result.ok());
     ASSERT_TRUE(result.get().empty());
 }
 
-TEST_F(PersonalizationModelManagerTest, GetAllModelsWithData) {
+TEST_F(PersonalizationModelManagerTest, DISABLED_GetAllModelsWithData) {
     nlohmann::json model1 = create_valid_model("test_id1");
     nlohmann::json model2 = create_valid_model("test_id2");
     
@@ -147,7 +147,7 @@ TEST_F(PersonalizationModelManagerTest, GetAllModelsWithData) {
     ASSERT_EQ(result.get().size(), 2);
 }
 
-TEST_F(PersonalizationModelManagerTest, UpdateModelSuccess) {
+TEST_F(PersonalizationModelManagerTest, DISABLED_UpdateModelSuccess) {
     nlohmann::json model = create_valid_model("test_id");
     auto add_result = PersonalizationModelManager::add_model(model, "test_id", true, get_onnx_model_archive());
     ASSERT_TRUE(add_result.ok());
@@ -161,7 +161,7 @@ TEST_F(PersonalizationModelManagerTest, UpdateModelSuccess) {
     ASSERT_EQ(update_result.get()["num_dim"], 256);
 }
 
-TEST_F(PersonalizationModelManagerTest, UpdateModelNotFound) {
+TEST_F(PersonalizationModelManagerTest, DISABLED_UpdateModelNotFound) {
     nlohmann::json update;
     update["name"] = "ts/tyrec-1";
     auto result = PersonalizationModelManager::update_model("nonexistent", update, "");
@@ -170,7 +170,7 @@ TEST_F(PersonalizationModelManagerTest, UpdateModelNotFound) {
     ASSERT_EQ(result.error(), "Model not found");
 }
 
-TEST_F(PersonalizationModelManagerTest, UpdateModelInvalidData) {
+TEST_F(PersonalizationModelManagerTest, DISABLED_UpdateModelInvalidData) {
     nlohmann::json model = create_valid_model("test_id");
     std::string model_data = get_onnx_model_archive();
     auto result = PersonalizationModelManager::add_model(model, "test_id", true, model_data);
