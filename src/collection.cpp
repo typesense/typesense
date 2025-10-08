@@ -2668,7 +2668,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                facet_index_types, enable_typos_for_numerical_tokens,
                                                enable_synonyms, synonym_prefix, synonyms_num_typos,
                                                enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches,
-                                               validate_field_names, this, std::move(diversity), coll_args.group_by_limit);
+                                               validate_field_names, this, std::move(diversity), coll_args.group_max_candidates);
 
     return Option<bool>(true);
 }
@@ -2752,7 +2752,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           std::string personalization_event_name,
                                           size_t personalization_n_events,
                                           float diversity_lamda,
-                                          size_t group_by_limit) const {
+                                          size_t group_max_candidates) const {
     std::shared_lock lock(mutex);
 
     auto args = collection_search_args_t(query, search_fields, filter_query,
@@ -2784,7 +2784,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                          personalization_user_id, personalization_model_id, personalization_type,
                                          personalization_user_field, personalization_item_field, personalization_event_name,
-                                         personalization_n_events, diversity_lamda, group_by_limit);
+                                         personalization_n_events, diversity_lamda, group_max_candidates);
     return search(args);
 }
 
@@ -8441,7 +8441,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     std::string hidden_hits_str;
     std::vector<std::string> group_by_fields;
     size_t group_limit = 3;
-    size_t group_by_limit = Index::DEFAULT_TOPSTER_SIZE;
+    size_t group_max_candidates = Index::DEFAULT_TOPSTER_SIZE;
     bool group_missing_values = true;
     std::string highlight_start_tag = "<mark>";
     std::string highlight_end_tag = "</mark>";
@@ -8517,7 +8517,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {PER_PAGE, &per_page},
             {LIMIT, &per_page},
             {GROUP_LIMIT, &group_limit},
-            {GROUP_BY_LIMIT, &group_by_limit},
+            {GROUP_MAX_CANDIDATES, &group_max_candidates},
             {SEARCH_CUTOFF_MS, &search_cutoff_ms},
             {MAX_EXTRA_PREFIX, &max_extra_prefix},
             {MAX_EXTRA_SUFFIX, &max_extra_suffix},
@@ -8771,7 +8771,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                     personalization_user_id, personalization_model_id, personalization_type,
                                     personalization_user_field, personalization_item_field, personalization_event_name,
-                                    personalization_n_events, diversity_lamda, group_by_limit);
+                                    personalization_n_events, diversity_lamda, group_max_candidates);
     return Option<bool>(true);
 }
 

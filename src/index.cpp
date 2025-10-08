@@ -2536,7 +2536,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                           group_by_missing_value_ids,
                           search_params->collection,
                           search_params->diversity,
-                          search_params->group_by_limit);
+                          search_params->group_max_candidates);
 
         // The filter iterator can be updated in places like `Index::do_phrase_search`.
         filter_iterator_guard.release();
@@ -2712,7 +2712,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                   group_by_missing_value_ids,
                   search_params->collection,
                   search_params->diversity,
-                  search_params->group_by_limit
+                  search_params->group_max_candidates
     );
 
     // The filter iterator can be updated in places like `Index::do_phrase_search`.
@@ -2720,7 +2720,7 @@ Option<bool> Index::run_search(search_args* search_params) {
     filter_iterator_guard.reset(filter_result_iterator);
 
     if (search_params->group_limit) {
-        if (search_params->group_by_limit != DEFAULT_TOPSTER_SIZE) {
+        if (search_params->group_max_candidates != DEFAULT_TOPSTER_SIZE) {
             // User has set an appropriate upper limit of the expected group count. Assuming all the groups have been
             // processed, no need to rely on approximate count.
             search_params->found_count = search_params->raw_result_kvs.size() + search_params->override_result_kvs.size();
@@ -3443,7 +3443,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool enable_typos_for_alpha_numerical_tokens, const size_t& max_filter_by_candidates,
                    bool rerank_hybrid_matches, const bool& validate_field_names, bool is_group_by_first_pass,
                    std::set<uint32_t>& group_by_missing_value_ids, Collection const *const collection,
-                   const diversity_t& diversity, const size_t group_by_limit) const {
+                   const diversity_t& diversity, const size_t group_max_candidates) const {
     std::shared_lock lock(mutex);
 
     group_found_params_t group_found_params{};
@@ -3462,7 +3462,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
     }
 
-    size_t topster_size = std::max<size_t>(group_by_limit, std::max<size_t>(fetch_size, std::max<size_t>(DEFAULT_TOPSTER_SIZE, included_ids.size())));
+    size_t topster_size = std::max<size_t>(group_max_candidates, std::max<size_t>(fetch_size, std::max<size_t>(DEFAULT_TOPSTER_SIZE, included_ids.size())));
     if(filter_result_iterator->approx_filter_ids_length != 0 && filter_result_iterator->reference.empty()) {
         topster_size = std::min<size_t>(topster_size, filter_result_iterator->approx_filter_ids_length);
     } else {
