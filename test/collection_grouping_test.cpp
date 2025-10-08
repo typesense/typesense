@@ -1974,7 +1974,7 @@ TEST_F(CollectionGroupingTest, InfixSearch) {
     ASSERT_EQ("0", res_obj["grouped_hits"][0]["hits"][1]["document"]["id"]);
 }
 
-TEST_F(CollectionGroupingTest, GroupByLimit) {
+TEST_F(CollectionGroupingTest, GroupMaxCandidates) {
     auto schema_json =
             R"({
                 "name": "coll",
@@ -2035,7 +2035,7 @@ TEST_F(CollectionGroupingTest, GroupByLimit) {
             {"q", "*"},
             {"group_by", "facet_field"},
             {"group_limit", "1"},
-            {"group_by_limit", "1000"}, // Upper limit of the group count.
+            {"group_max_candidates", "1000"}, // Upper limit of the group count.
             {"per_page", "50"},
             {"page", "1"}
     };

@@ -93,7 +93,7 @@ struct collection_search_args_t {
     static constexpr auto GROUP_BY = "group_by";
     static constexpr auto GROUP_LIMIT = "group_limit";
     static constexpr auto GROUP_MISSING_VALUES = "group_missing_values";
-    static constexpr auto GROUP_BY_LIMIT = "group_by_limit";
+    static constexpr auto GROUP_MAX_CANDIDATES = "group_max_candidates";
 
     static constexpr auto LIMIT_HITS = "limit_hits";
     static constexpr auto PER_PAGE = "per_page";
@@ -270,7 +270,7 @@ struct collection_search_args_t {
     std::string personalization_event_name;
     size_t personalization_n_events;
     float diversity_lamda;
-    size_t group_by_limit;
+    size_t group_max_candidates;
 
     std::vector<std::vector<KV*>> result_group_kvs{};
 
@@ -306,7 +306,7 @@ struct collection_search_args_t {
                              std::string personalization_type, std::string personalization_user_field,
                              std::string personalization_item_field, std::string personalization_event_name,
                              size_t personalization_n_events, std::vector<std::string> synonym_sets,
-                             float diversity_lamda, size_t group_by_limit) :
+                             float diversity_lamda, size_t group_max_candidates) :
             raw_query(std::move(raw_query)), search_fields(std::move(search_fields)), filter_query(std::move(filter_query)),
             facet_fields(std::move(facet_fields)), sort_fields(std::move(sort_fields)),
             num_typos(std::move(num_typos)), per_page(per_page), page(page), token_order(token_order),
@@ -338,7 +338,7 @@ struct collection_search_args_t {
             personalization_user_id(personalization_user_id), personalization_model_id(personalization_model_id),
             personalization_type(personalization_type), personalization_user_field(personalization_user_field),
             personalization_item_field(personalization_item_field), personalization_event_name(personalization_event_name), personalization_n_events(personalization_n_events),
-            synonym_sets(synonym_sets), diversity_lamda(diversity_lamda), group_by_limit(group_by_limit) {}
+            synonym_sets(synonym_sets), diversity_lamda(diversity_lamda), group_max_candidates(group_max_candidates) {}
 
     collection_search_args_t() = default;
 
@@ -974,7 +974,7 @@ public:
                                   size_t personalization_n_events = 0,
                                   const std::vector<std::string>& search_synonym_sets = {},
                                   float diversity_lamda = 0.5,
-                                  size_t group_by_limit = Index::DEFAULT_TOPSTER_SIZE) const;
+                                  size_t group_max_candidates = Index::DEFAULT_TOPSTER_SIZE) const;
 
     Option<bool> parse_and_validate_personalization_query(const std::string& personalization_user_id,
                                                           const std::string& personalization_model_id,
