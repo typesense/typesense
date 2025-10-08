@@ -483,6 +483,10 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
                         bool is_update, const field& the_field, const std::string& flat_name,
                         const std::unordered_map<std::string, field>& dyn_fields,
                         std::unordered_map<std::string, field>& flattened_fields) {
+    if (!the_field.index) {
+        return true;
+    }
+
     if(value.is_object()) {
         has_obj_array = has_array;
         auto it = value.begin();
@@ -724,7 +728,7 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
     std::unordered_map<std::string, field> flattened_fields_map;
 
     for(auto& nested_field: nested_fields) {
-        if(!nested_field.index) {
+        if(!nested_field.index && nested_field.optional) {
             continue;
         }
 
