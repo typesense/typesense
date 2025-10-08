@@ -3266,7 +3266,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
         facet_result["counts"] = nlohmann::json::array();
 
         if(!a_facet.reference_collection_name.empty()) {
-            facet_result["field_name"] = a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
+            facet_result["field_name"] = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
         }
 
         std::vector<facet_value_t> facet_values;

@@ -10079,7 +10079,7 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
 
     ASSERT_EQ(2, res_obj["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("Customers(product_price)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ("$Customers(product_price)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("143", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
     ASSERT_EQ("$Customers(product_price: 143)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
@@ -10108,7 +10108,7 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ("2", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
 
     ASSERT_EQ(2, res_obj["facet_counts"][1]["counts"].size());
-    ASSERT_EQ("Customers(product_price)", res_obj["facet_counts"][1]["field_name"].get<std::string>());
+    ASSERT_EQ("$Customers(product_price)", res_obj["facet_counts"][1]["field_name"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][1]["counts"][0]["count"]);
     ASSERT_EQ("143", res_obj["facet_counts"][1]["counts"][0]["value"].get<std::string>());
     ASSERT_EQ("$Customers(product_price: 143)", res_obj["facet_counts"][1]["counts"][0]["facet_filter"].get<std::string>());
@@ -10138,7 +10138,7 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
 
     ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("Customers(customer_name)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ("$Customers(customer_name)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
     ASSERT_EQ("$Customers(customer_name: `Joe`)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
     ASSERT_EQ(2, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("Joe", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
@@ -10172,7 +10172,7 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ("2", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
 
     ASSERT_EQ(0, res_obj["facet_counts"][1]["counts"].size());
-    ASSERT_EQ("Customers(customer_name)", res_obj["facet_counts"][1]["field_name"].get<std::string>());
+    ASSERT_EQ("$Customers(customer_name)", res_obj["facet_counts"][1]["field_name"].get<std::string>());
 
     //multiple facet fields in joined collection
     req_params = {
@@ -10193,13 +10193,13 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ(2, res_obj["hits"].size());
 
     ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("Customers(customer_name)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ("$Customers(customer_name)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
     ASSERT_EQ("$Customers(customer_name: `Joe`)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
     ASSERT_EQ(2, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("Joe", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
 
     ASSERT_EQ(2, res_obj["facet_counts"][1]["counts"].size());
-    ASSERT_EQ("Customers(product_price)", res_obj["facet_counts"][1]["field_name"].get<std::string>());
+    ASSERT_EQ("$Customers(product_price)", res_obj["facet_counts"][1]["field_name"].get<std::string>());
     ASSERT_EQ("$Customers(product_price: 143)", res_obj["facet_counts"][1]["counts"][0]["facet_filter"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][1]["counts"][0]["count"]);
     ASSERT_EQ("143", res_obj["facet_counts"][1]["counts"][0]["value"].get<std::string>());
@@ -10305,7 +10305,7 @@ TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     ASSERT_EQ("3", res_obj["hits"][0]["document"]["student_id"]);
 
     ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("Grades(grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ("$Grades(grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("B", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
     ASSERT_EQ("$Grades(grade: [60..80])", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
@@ -10327,7 +10327,7 @@ TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     ASSERT_EQ("4", res_obj["hits"][0]["document"]["student_id"]);
 
     ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("Grades(grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ("$Grades(grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("A+", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
     ASSERT_EQ("$Grades(grade: >=80)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
@@ -10348,7 +10348,7 @@ TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     ASSERT_EQ("3", res_obj["hits"][0]["document"]["student_id"]);
 
     ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("Grades(grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ("$Grades(grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("C", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
     ASSERT_EQ("$Grades(grade: <=70)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
@@ -10435,7 +10435,7 @@ TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     ASSERT_EQ("0", res_obj["hits"][2]["document"]["id"]);
 
     ASSERT_EQ(3, res_obj["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("Subjects(student_id)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ("$Subjects(student_id)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("4", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
     ASSERT_EQ("$Subjects(student_id: `4`)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
@@ -10463,7 +10463,7 @@ TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     ASSERT_EQ("0", res_obj["hits"][2]["document"]["id"]);
 
     ASSERT_EQ(3, res_obj["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("Subjects(electives.grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ("$Subjects(electives.grade)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("97", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
     ASSERT_EQ("$Subjects(electives.grade: 97)", res_obj["facet_counts"][0]["counts"][0]["facet_filter"].get<std::string>());
