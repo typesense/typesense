@@ -3172,9 +3172,20 @@ bool filter_result_iterator_t::validate_object_filter_helper(Index const* const 
                     val.pop_back();
                 }
 
-                filter_val = val;
-                doc_val = doc[nested_field].get<std::string>();
-
+                const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
+                const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
+                Tokenizer tokenizer(val, true, false, f.locale, symbols, separators, f.get_stemmer());
+                
+                std::string tokenized_filter_val;
+                size_t token_index = 0;
+                filter_val = tokenizer.next(tokenized_filter_val, token_index) ? tokenized_filter_val : val;
+                
+                std::string doc_str = doc[nested_field].get<std::string>();
+                Tokenizer doc_tokenizer(doc_str, true, false, f.locale, symbols, separators, f.get_stemmer());
+                
+                std::string tokenized_doc_val;
+                size_t doc_token_index = 0;
+                doc_val = doc_tokenizer.next(tokenized_doc_val, doc_token_index) ? tokenized_doc_val : doc_str;
             } else if (f.is_float()) {
                 filter_val = std::stof(val);
                 doc_val = doc[nested_field].get<float>();
