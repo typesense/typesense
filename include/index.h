@@ -151,6 +151,7 @@ struct search_args {
     token_ordering token_order;
     std::vector<bool> prefixes;
     size_t drop_tokens_threshold;
+    size_t max_dropped_tokens;
     size_t typo_tokens_threshold;
     std::vector<std::string> group_by_fields;
     size_t group_limit;
@@ -212,7 +213,7 @@ struct search_args {
                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by>& sort_fields_std, facet_query_t facet_query, const std::vector<uint32_t>& num_typos,
                 size_t max_facet_values, size_t fetch_size, size_t per_page, size_t offset, token_ordering token_order,
-                const std::vector<bool>& prefixes, size_t drop_tokens_threshold, size_t typo_tokens_threshold,
+                const std::vector<bool>& prefixes, size_t drop_tokens_threshold, size_t max_dropped_tokens, size_t typo_tokens_threshold,
                 const std::vector<std::string>& group_by_fields, size_t group_limit,
                 const bool group_missing_values,
                 const string& default_sorting_field, bool prioritize_exact_match,
@@ -234,7 +235,7 @@ struct search_args {
             facet_query(facet_query), num_typos(num_typos), max_facet_values(max_facet_values),
             fetch_size(fetch_size), per_page(per_page),
             offset(offset), token_order(token_order), prefixes(prefixes),
-            drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
+            drop_tokens_threshold(drop_tokens_threshold), max_dropped_tokens(max_dropped_tokens), typo_tokens_threshold(typo_tokens_threshold),
             group_by_fields(group_by_fields), group_limit(group_limit),
             group_missing_values(group_missing_values),
             default_sorting_field(default_sorting_field),
@@ -676,6 +677,9 @@ public:
     // If the number of results found is less than this threshold, Typesense will attempt to drop the tokens
     // in the query that have the least individual hits one by one until enough results are found.
     static const int DROP_TOKENS_THRESHOLD = 1;
+    
+    // Maximum number of tokens that can be dropped during search to prevent infinite loops
+    static const int MAX_DROPPED_TOKENS = 20;
 
     enum {DEFAULT_TOPSTER_SIZE = 250};
 
@@ -768,7 +772,7 @@ public:
                 const size_t fetch_size,
                 const size_t per_page,
                 const size_t offset, const token_ordering token_order, const std::vector<bool>& prefixes,
-                const size_t drop_tokens_threshold, size_t& all_result_ids_len,
+                const size_t drop_tokens_threshold, const size_t max_dropped_tokens, size_t& all_result_ids_len,
                 spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                 std::vector<std::vector<art_leaf*>>& searched_queries,
                 tsl::htrie_map<char, token_leaf>& qtoken_set,

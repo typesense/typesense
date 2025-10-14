@@ -2503,7 +2503,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                           search_params->topster, search_params->curated_topster,
                           search_params->fetch_size,
                           search_params->per_page, search_params->offset, search_params->token_order,
-                          search_params->prefixes, search_params->drop_tokens_threshold,
+                          search_params->prefixes, search_params->drop_tokens_threshold, search_params->max_dropped_tokens,
                           search_params->all_result_ids_len, search_params->groups_processed,
                           search_params->searched_queries,
                           search_params->qtoken_set,
@@ -2680,7 +2680,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                   search_params->topster, search_params->curated_topster,
                   search_params->fetch_size,
                   search_params->per_page, search_params->offset, search_params->token_order,
-                  search_params->prefixes, search_params->drop_tokens_threshold,
+                  search_params->prefixes, search_params->drop_tokens_threshold, search_params->max_dropped_tokens,
                   search_params->all_result_ids_len, search_params->groups_processed,
                   search_params->searched_queries,
                   search_params->qtoken_set,
@@ -3435,7 +3435,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const size_t fetch_size,
                    const size_t per_page,
                    const size_t offset, const token_ordering token_order, const std::vector<bool>& prefixes,
-                   const size_t drop_tokens_threshold, size_t& all_result_ids_len,
+                   const size_t drop_tokens_threshold, const size_t max_dropped_tokens, size_t& all_result_ids_len,
                    spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                    std::vector<std::vector<art_leaf*>>& searched_queries,
                    tsl::htrie_map<char, token_leaf>& qtoken_set,
@@ -3908,7 +3908,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 auto curr_direction = drop_tokens_mode.mode;
                 bool drop_both_sides = false;
-                size_t orig_tokens_size = std::min<size_t>(orig_tokens.size(), 20);  // drop only upto N tokens
+                size_t orig_tokens_size = orig_tokens.size();  // Use original token count, not limited by max_dropped_tokens
 
                 if(drop_tokens_mode.mode == both_sides) {
                     if(orig_tokens_size <= drop_tokens_mode.token_limit) {
@@ -3918,7 +3918,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     }
                 }
 
-                while(exhaustive_search || all_result_ids_len < drop_tokens_threshold || drop_both_sides) {
+                while((exhaustive_search || all_result_ids_len < drop_tokens_threshold || drop_both_sides) && 
+                      num_tokens_dropped < max_dropped_tokens) {
                     // When atleast two tokens from the query are available we can drop one
                     std::vector<token_t> truncated_tokens;
                     std::vector<token_t> dropped_tokens;
