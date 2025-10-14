@@ -2898,6 +2898,76 @@ TEST_F(CollectionSpecificTest, NegationOfTokens) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, HyphenDetectionInQueryTokens) {
+    std::vector<field> fields = {field("url", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "points", 0, "", {}, {"-", "_", "."}
+    ).get();
+
+    std::vector<std::vector<std::string>> records = {
+            {"https://example-site.com/page_name"},
+    };
+
+    nlohmann::json doc;
+
+    doc["url"] = records[0][0];
+    doc["points"] = 0;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("https://example-site.com/page_name", {"url"},
+                                 "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("example-site.com/page_name", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("example-site.com/page", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("example-site.com", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("example-site", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("site.com/page", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("site", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("com/page_name", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSpecificTest, PhraseSearchOnLongText) {
     std::vector<field> fields = {field("title", field_types::STRING, false),};
 
