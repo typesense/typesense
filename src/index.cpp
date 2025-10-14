@@ -8975,7 +8975,7 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
     }
 
     // Diversify the response.
-    similarity_t similarity;
+    auto max_similarities = std::vector<double>(topster->size, std::numeric_limits<double>::lowest());
     result_kvs.push_back({topster->getKV(0)});
     std::set<uint32_t> processed_seq_ids{(uint32_t) topster->getKeyAt(0)};
     while (result_kvs.size() < topster->size) {
@@ -8990,15 +8990,14 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
             }
 
             auto left = diversity.lambda * kv_i->vector_distance;
-            auto max_similarity = std::numeric_limits<double>::lowest();
-            for (const auto& kv_j: result_kvs) {
-                const auto& seq_id_j = (uint32_t) kv_j[0]->key;
-                auto sim_op = similarity.calculate(seq_id_i, seq_id_j, diversity, sort_index, facet_index_v4);
-                if (!sim_op.ok()) {
-                    return Option<bool>(sim_op.code(), sim_op.error());
-                }
-                max_similarity = std::max(max_similarity, sim_op.get());
+            auto& max_similarity = max_similarities[i];
+            const auto& kv_j = result_kvs.back();
+            const auto& seq_id_j = (uint32_t) kv_j[0]->key;
+            auto sim_op = similarity_t::calculate(seq_id_i, seq_id_j, diversity, sort_index, facet_index_v4);
+            if (!sim_op.ok()) {
+                return Option<bool>(sim_op.code(), sim_op.error());
             }
+            max_similarity = std::max(max_similarity, sim_op.get());
 
             auto right = (1 - diversity.lambda) * max_similarity;
             auto mr = left - right;

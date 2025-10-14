@@ -92,16 +92,6 @@ void diversity_t::to_json(const diversity_t &diversity, nlohmann::json& json) {
 Option<double> similarity_t::calculate(uint32_t seq_id_i, uint32_t seq_id_j, const diversity_t& diversity,
                                        const spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*>& sort_index,
                                        const facet_index_t* facet_index_v4) {
-    // Since similarity(i, j) == similarity(j, i), we use {lower_seq_id, higher_seq_id} as the similarity_map key.
-    if (seq_id_j < seq_id_i) {
-        std::swap(seq_id_i, seq_id_j);
-    }
-
-    auto sim_it = similarity_map.find(std::make_pair(seq_id_i, seq_id_j));
-    if (sim_it != similarity_map.end()) {
-        return Option<double>(sim_it->second);
-    }
-
     double similarity = 0;
     for (const auto& metric: diversity.similarity_equation) {
 
@@ -192,6 +182,5 @@ Option<double> similarity_t::calculate(uint32_t seq_id_i, uint32_t seq_id_j, con
         }
     }
 
-    similarity_map[std::make_pair(seq_id_i, seq_id_j)] = similarity;
     return Option<double>(similarity);
 }

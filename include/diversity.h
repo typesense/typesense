@@ -45,10 +45,7 @@ struct pair_hash {
 };
 
 struct similarity_t {
-    Option<double> calculate(uint32_t seq_id_i, uint32_t seq_id_j, const diversity_t& diversity,
-                             const spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*>& sort_index,
-                             const facet_index_t* facet_index_v4);
-
-private:
-    spp::sparse_hash_map<std::pair<uint32_t, uint32_t>, double, pair_hash> similarity_map{};
+    static Option<double> calculate(uint32_t seq_id_i, uint32_t seq_id_j, const diversity_t& diversity,
+                                    const spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*>& sort_index,
+                                    const facet_index_t* facet_index_v4);
 };
