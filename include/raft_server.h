@@ -249,6 +249,10 @@ public:
 
     void decr_pending_writes();
 
+    // Preprocess request on leader before replication (e.g., generate embeddings)
+    Option<bool> preprocess_leader_write(std::shared_ptr<http_req>& request,
+                                         const std::shared_ptr<http_res>& response);
+
 private:
 
     friend class ReplicationClosure;

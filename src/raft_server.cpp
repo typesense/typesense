@@ -1,3 +1,5 @@
+#include <butil/logging.h>
+#include <braft/gflags_compat.h>
 #include "store.h"
 #include "raft_server.h"
 #include <butil/files/file_enumerator.h>
@@ -12,6 +14,7 @@
 #include "thread_local_vars.h"
 #include "core_api.h"
 #include "personalization_model_manager.h"
+#include "embedder_manager.h"
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -299,6 +302,13 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
         return write_to_leader(request, response);
     }
 
+    // Preprocess on leader: generate embeddings before replication
+    auto preprocess_op = preprocess_leader_write(request, response);
+    if(!preprocess_op.ok()) {
+        LOG(WARNING) << "Preprocessing failed: " << preprocess_op.error();
+        // Continue anyway - preprocessing is best-effort
+    }
+
     //check if it's first gzip chunk or is gzip stream initialized
     if(((request->body.size() > 2) &&
         (31 == (int)request->body[0] && -117 == (int)request->body[1])) || request->zstream_initialized) {
@@ -469,7 +479,7 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         request_generated->log_index = iter.index();
 
         // To avoid blocking the serial Raft write thread persist the log entry in local storage.
-        // Actual operations will be done in collection-sharded batch indexing threads.
+        // Actual operations will be done in collection-shared batch indexing threads.
 
         batched_indexer->enqueue(request_generated, response_generated);
 
@@ -1207,4 +1217,216 @@ void OnDemandSnapshotClosure::Run() {
 
     // wait for response to be sent
     res->wait();
+}
+
+Option<bool> ReplicationState::preprocess_leader_write(std::shared_ptr<http_req>& request,
+                                                       const std::shared_ptr<http_res>& response) {
+    // Check if this is a document import/upsert request that might need embedding preprocessing
+    const std::string& path = request->path_without_query;
+
+    // Only preprocess collection document writes
+    if(path.find("/collections/") == std::string::npos ||
+       path.find("/documents") == std::string::npos) {
+        return Option<bool>(true);  // Not a document write, skip preprocessing
+    }
+
+    // Skip if not a write operation (POST, PUT, PATCH)
+    if(request->http_method != "POST" && request->http_method != "PUT" &&
+       request->http_method != "PATCH") {
+        return Option<bool>(true);
+    }
+
+    try {
+        // Parse the request body to check if it contains documents
+        if(request->body.empty()) {
+            return Option<bool>(true);
+        }
+
+        // Extract collection name from path
+        std::string collection_name;
+        size_t coll_pos = path.find("/collections/");
+        if(coll_pos != std::string::npos) {
+            size_t start = coll_pos + 13;  // length of "/collections/"
+            size_t end = path.find("/", start);
+            if(end != std::string::npos) {
+                collection_name = path.substr(start, end - start);
+            }
+        }
+
+        if(collection_name.empty()) {
+            return Option<bool>(true);
+        }
+
+        // Get the collection to check if it has embedding fields
+        Collection* collection = server->get_collection(collection_name);
+        if(collection == nullptr) {
+            return Option<bool>(true);  // Collection not found, let normal flow handle error
+        }
+
+        auto embedding_fields = collection->get_embedding_fields_unsafe();
+        if(embedding_fields.empty()) {
+            return Option<bool>(true);  // No embedding fields, skip preprocessing
+        }
+
+        // Parse documents from request body
+        std::vector<std::string> json_lines;
+        std::stringstream ss(request->body);
+        std::string line;
+
+        while(std::getline(ss, line)) {
+            if(!line.empty()) {
+                json_lines.push_back(line);
+            }
+        }
+
+        if(json_lines.empty()) {
+            return Option<bool>(true);
+        }
+
+        // Get timeout and retry settings from request params or use defaults
+        size_t timeout_ms = 60000;
+        size_t num_tries = 2;
+        size_t batch_size = 200;
+
+        if(request->params.count("remote_embedding_timeout_ms")) {
+            timeout_ms = std::stoul(request->params["remote_embedding_timeout_ms"]);
+        }
+        if(request->params.count("remote_embedding_num_tries")) {
+            num_tries = std::stoul(request->params["remote_embedding_num_tries"]);
+        }
+        if(request->params.count("remote_embedding_batch_size")) {
+            batch_size = std::stoul(request->params["remote_embedding_batch_size"]);
+        }
+
+        bool modified = false;
+        EmbedderManager& embedder_manager = EmbedderManager::get_instance();
+
+        // Process each embedding field
+        for(auto& kv: embedding_fields) {
+            const auto& field_name = kv.key();
+            const auto& field = kv.value();
+
+            // Check if we have the source fields to generate embeddings
+            if(field.embed.count(fields::from) == 0) {
+                continue;
+            }
+
+            auto embedder_op = embedder_manager.get_text_embedder(field.embed[fields::model_config]);
+            if(!embedder_op.ok()) {
+                LOG(WARNING) << "Failed to get embedder for field " << field_name
+                            << ": " << embedder_op.error();
+                continue;
+            }
+
+            auto embedder = embedder_op.get();
+            auto embed_from_fields = field.embed[fields::from].get<std::vector<std::string>>();
+            std::string prefix = embedder_manager.get_indexing_prefix(field.embed[fields::model_config]);
+
+            // Collect texts to embed and track which documents need embeddings
+            std::vector<std::string> texts_to_embed;
+            std::vector<size_t> doc_indices;
+
+            for(size_t i = 0; i < json_lines.size(); i++) {
+                try {
+                    nlohmann::json doc = nlohmann::json::parse(json_lines[i]);
+
+                    // Skip if embedding already exists
+                    if(doc.contains(field_name) && doc[field_name].is_array() &&
+                       !doc[field_name].empty() && doc[field_name][0].is_number()) {
+                        continue;
+                    }
+
+                    std::vector<std::string> source_texts;
+                    bool has_all_sources = true;
+
+                    for(const auto& from_field: embed_from_fields) {
+                        if(!doc.contains(from_field)) {
+                            has_all_sources = false;
+                            break;
+                        }
+
+                        // Collect source text
+                        if(doc[from_field].is_string()) {
+                            source_texts.push_back(doc[from_field].get<std::string>());
+                        } else if(doc[from_field].is_array()) {
+                            for(const auto& elem: doc[from_field]) {
+                                if(elem.is_string()) {
+                                    source_texts.push_back(elem.get<std::string>());
+                                }
+                            }
+                        }
+                    }
+
+                    if(has_all_sources && !source_texts.empty()) {
+                        std::string combined_text = StringUtils::join(source_texts, " ");
+                        texts_to_embed.push_back(prefix + combined_text);
+                        doc_indices.push_back(i);
+                    }
+
+                } catch(const std::exception& e) {
+                    LOG(WARNING) << "Error parsing document " << i << ": " << e.what();
+                    continue;
+                }
+            }
+
+            if(texts_to_embed.empty()) {
+                continue;
+            }
+
+            // Batch generate embeddings
+            auto embedding_results = embedder->embed_documents(texts_to_embed, batch_size, timeout_ms, num_tries);
+
+            if(embedding_results.size() != texts_to_embed.size()) {
+                LOG(WARNING) << "Embedding result size mismatch for field " << field_name;
+                continue;
+            }
+
+            // Apply embeddings back to documents
+            for(size_t j = 0; j < embedding_results.size(); j++) {
+                const auto& embedding_res = embedding_results[j];
+
+                if(!embedding_res.success) {
+                    LOG(WARNING) << "Failed to generate embedding for document " << doc_indices[j]
+                                << ", field " << field_name << ": " << embedding_res.error;
+                    continue;
+                }
+
+                try {
+                    nlohmann::json doc = nlohmann::json::parse(json_lines[doc_indices[j]]);
+                    doc[field_name] = embedding_res.embedding;
+                    json_lines[doc_indices[j]] = doc.dump();
+                    modified = true;
+
+                } catch(const std::exception& e) {
+                    LOG(WARNING) << "Error updating document " << doc_indices[j] << " with embedding: " << e.what();
+                }
+            }
+
+            if(modified) {
+                LOG(INFO) << "Leader generated " << embedding_results.size()
+                         << " embeddings for field " << field_name << " before replication";
+            }
+        }
+
+        if(modified) {
+            // Reconstruct request body with embeddings
+            std::string new_body;
+            for(size_t i = 0; i < json_lines.size(); i++) {
+                if(i > 0) {
+                    new_body += "\n";
+                }
+                new_body += json_lines[i];
+            }
+            request->body = new_body;
+
+            LOG(INFO) << "Leader preprocessed " << json_lines.size()
+                     << " documents with embeddings before replication";
+        }
+
+    } catch(const std::exception& e) {
+        LOG(WARNING) << "Error in preprocess_leader_write: " << e.what();
+        // Don't fail the write, just skip preprocessing
+    }
+
+    return Option<bool>(true);
 }
