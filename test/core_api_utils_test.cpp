@@ -1997,7 +1997,7 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
               "store": true,
               "type":"string",
               "stem_dictionary": "",
-              "truncate": true
+              "truncate": 100
             }
           ],
           "name":"cp2",
@@ -2208,7 +2208,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "range_index":false,
                     "stem":false,
                     "stem_dictionary": "",
-                    "truncate": true
+                    "truncate": 100
                 },
                 {
                     "facet":true,
@@ -2225,7 +2225,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "range_index":false,
                     "stem":false,
                     "stem_dictionary": "",
-                    "truncate": true
+                    "truncate": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -2241,7 +2241,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "range_index":false,
                     "stem":false,
                     "stem_dictionary": "",
-                    "truncate": true
+                    "truncate": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -2257,7 +2257,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "range_index":false,
                     "stem":false,
                     "stem_dictionary": "",
-                    "truncate": true
+                    "truncate": 100
                 }
             ],
             "id":1,
@@ -2313,7 +2313,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "range_index":false,
                     "stem":false,
                     "stem_dictionary": "",
-                    "truncate": true
+                    "truncate": 100
                 },
                 {
                     "facet":true,
@@ -2330,7 +2330,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "range_index":false,
                     "stem":false,
                     "stem_dictionary": "",
-                    "truncate": true
+                    "truncate": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -2346,7 +2346,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "range_index":false,
                     "stem":false,
                     "stem_dictionary": "",
-                    "truncate": true
+                    "truncate": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -2362,7 +2362,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "range_index":false,
                     "stem":false,
                     "stem_dictionary": "",
-                    "truncate": true
+                    "truncate": 100
                 }
             ],
             "id":1,
@@ -2672,7 +2672,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "store":false,
                     "type":"string",
                     "stem_dictionary": "",
-                    "truncate":true
+                    "truncate":100
                 },
                 {
                     "facet":false,
@@ -2686,7 +2686,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "store":true,
                     "type":"int32",
                     "stem_dictionary": "",
-                    "truncate":true
+                    "truncate":100
                 }],
                 "name":"collection3",
                 "num_documents":0,
@@ -2701,7 +2701,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
 }
 
 TEST_F(CoreAPIUtilsTest, TruncateFieldValidation) {
-    // `truncate` must be a boolean
+    // `truncate` must be an integer
     nlohmann::json schema = R"({
         "name": "truncate_validation",
         "fields": [
@@ -2711,7 +2711,20 @@ TEST_F(CoreAPIUtilsTest, TruncateFieldValidation) {
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_FALSE(op.ok());
-    ASSERT_EQ("The `truncate` property of the field `title` should be a boolean.", op.error());
+    ASSERT_EQ("The `truncate` property of the field `title` should be an integer.", op.error());
+}
+
+TEST_F(CoreAPIUtilsTest, TruncateFieldValidationNegative) {
+    nlohmann::json schema = R"({
+        "name": "truncate_validation_negative",
+        "fields": [
+            {"name": "title", "type": "string", "truncate": -1}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("The `truncate` property of the field `title` should be a non-negative integer.", op.error());
 }
 
 TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {

@@ -159,7 +159,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "range_index":false,
               "stem":false,
               "stem_dictionary": "",
-              "truncate": true
+              "truncate": 100
             },
             {
               "facet":false,
@@ -175,7 +175,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "range_index":false,
               "stem":false,
               "stem_dictionary": "",
-              "truncate": true
+              "truncate": 100
             },
             {
               "facet":true,
@@ -191,7 +191,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "range_index":false,
               "stem":false,
               "stem_dictionary": "",
-              "truncate": true
+              "truncate": 100
             },
             {
               "facet":true,
@@ -207,7 +207,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "range_index":false,
               "stem":false,
               "stem_dictionary": "",
-              "truncate": true
+              "truncate": 100
             },
             {
               "facet":false,
@@ -223,7 +223,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "range_index":false,
               "stem":false,
               "stem_dictionary": "",
-              "truncate": true
+              "truncate": 100
             },
             {
               "facet":false,
@@ -239,7 +239,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "range_index":false,
               "stem":false,
               "stem_dictionary": "",
-              "truncate": true
+              "truncate": 100
             },
             {
               "facet":false,
@@ -255,7 +255,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "range_index":false,
               "stem":false,
               "stem_dictionary": "",
-              "truncate": true
+              "truncate": 100
             },
             {
               "facet":false,
@@ -272,7 +272,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "range_index":false,
               "stem":false,
               "stem_dictionary": "",
-              "truncate": true
+              "truncate": 100
             },
             {
               "facet":false,
@@ -291,7 +291,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "range_index":false,
               "stem":false,
               "stem_dictionary": "",
-              "truncate": true
+              "truncate": 100
             },
             {
               "async_reference":true,
@@ -310,7 +310,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "range_index":false,
               "stem":false,
               "stem_dictionary": "",
-              "truncate": true
+              "truncate": 100
             },
             {
               "facet":false,
@@ -326,7 +326,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "range_index":false,
               "stem":false,
               "stem_dictionary": "",
-              "truncate": true
+              "truncate": 100
             }
           ],
           "id":0,
@@ -1731,7 +1731,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "range_index":false,
                     "stem":false,
                     "stem_dictionary": "",
-                    "truncate": true
+                    "truncate": 100
                 },
                 {
                     "facet":true,
@@ -1748,7 +1748,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "range_index":false,
                     "stem":false,
                     "stem_dictionary": "",
-                    "truncate": true
+                    "truncate": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -1764,7 +1764,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "range_index":false,
                     "stem":false,
                     "stem_dictionary": "",
-                    "truncate": true
+                    "truncate": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -1780,7 +1780,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "range_index":false,
                     "stem":false,
                     "stem_dictionary": "",
-                    "truncate": true
+                    "truncate": 100
                 }
             ],
             "id":1,
