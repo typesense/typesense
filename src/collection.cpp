@@ -2,6 +2,8 @@
 
 #include <numeric>
 #include <chrono>
+#include <unordered_set>
+#include <sstream>
 #include <match_score.h>
 #include <string_utils.h>
 #include <art.h>
@@ -4579,11 +4581,27 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         if(already_segmented) {
             StringUtils::split(query, tokens, " ");
         } else {
-            std::vector<char> custom_symbols = symbols_to_index;
-            custom_symbols.push_back('-');
+            std::vector<char> custom_symbols = curation_symbols_to_index.empty() ? symbols_to_index : curation_symbols_to_index;
             custom_symbols.push_back('"');
 
-            Tokenizer(query, true, false, locale, custom_symbols, token_separators, stemmer).tokenize(tokens);
+            const auto& separators = curation_token_separators.empty() ? token_separators : curation_token_separators;
+
+            bool has_hyphen_prefix = false;
+            
+            std::istringstream iss(query);
+            std::string word;
+            while(iss >> word) {
+                if(!word.empty() && word[0] == '-') {
+                    has_hyphen_prefix = true;
+                    break;
+                }
+            }
+            
+            if(has_hyphen_prefix) {
+                custom_symbols.push_back('-');
+            }
+            
+            Tokenizer(query, true, false, locale, custom_symbols, separators, stemmer).tokenize(tokens);
             if(stemmer) {
                 Tokenizer(query, true, false, locale, custom_symbols, token_separators, nullptr).tokenize(tokens_non_stemmed);
             }
