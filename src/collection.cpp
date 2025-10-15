@@ -4581,11 +4581,10 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         if(already_segmented) {
             StringUtils::split(query, tokens, " ");
         } else {
-            std::vector<char> custom_symbols = curation_symbols_to_index.empty() ? symbols_to_index : curation_symbols_to_index;
+            std::vector<char> custom_symbols = symbols_to_index;
             custom_symbols.push_back('"');
 
-            const auto& separators = curation_token_separators.empty() ? token_separators : curation_token_separators;
-
+            const auto& separators = token_separators;
             bool has_hyphen_prefix = false;
             
             std::istringstream iss(query);
