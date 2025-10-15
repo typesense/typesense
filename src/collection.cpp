@@ -4712,7 +4712,6 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             std::string word;
             while(iss >> word) {
                 if(!word.empty() && word[0] == '-') {
-                    LOG(INFO) << "Found hyphen-prefixed word: '" << word << "'";
                     has_hyphen_prefix = true;
                     break;
                 }
