@@ -4682,8 +4682,8 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                                     std::vector<std::vector<std::string>>& q_exclude_tokens,
                                     std::vector<std::vector<std::string>>& q_phrases,
                                     const std::string& locale, const bool already_segmented, const std::string& stopwords_set, std::shared_ptr<Stemmer> stemmer,
-                                    const std::vector<char>& curation_symbols_to_index,
-                                    const std::vector<char>& curation_token_separators) const {
+                                    const std::vector<char>& most_weighted_field_symbols_to_index,
+                                    const std::vector<char>& most_weighted_field_token_separators) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
@@ -4702,10 +4702,10 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         if(already_segmented) {
             StringUtils::split(query, tokens, " ");
         } else {
-            std::vector<char> custom_symbols = curation_symbols_to_index.empty() ? symbols_to_index : curation_symbols_to_index;
+            std::vector<char> custom_symbols = most_weighted_field_symbols_to_index.empty() ? symbols_to_index : most_weighted_field_symbols_to_index;
             custom_symbols.push_back('"');
 
-            const auto& separators = curation_token_separators.empty() ? token_separators : curation_token_separators;
+            const auto& separators = most_weighted_field_token_separators.empty() ? token_separators : most_weighted_field_token_separators;
 
             bool has_hyphen_prefix = false;
             
