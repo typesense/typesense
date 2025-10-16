@@ -1283,8 +1283,8 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
             continue;
         }
 
-        if(token.size() > a_field.truncate && a_field.truncate > 0) {
-            token.erase(a_field.truncate);
+        if(token.size() > a_field.truncate_len && a_field.truncate_len > 0) {
+            token.erase(a_field.truncate_len);
         }
         
         token_to_offsets[token].push_back(token_index + 1);
