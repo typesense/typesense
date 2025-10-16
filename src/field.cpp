@@ -72,6 +72,9 @@ void field::add_default_json_values(nlohmann::json& json) {
     if (json.count(fields::store) == 0) {
         json[fields::store] = true;
     }
+    if (json.count(fields::truncate_len) == 0) {
+        json[fields::truncate_len] = (uint32_t) 100;
+    }
     if (json.count(fields::stem) == 0) {
         json[fields::stem] = false;
     }
@@ -147,6 +150,12 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         return Option<bool>(400, std::string("The `infix` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
     }
+
+    if(!field_json.at(fields::truncate_len).is_number_unsigned()) {
+        return Option<bool>(400, std::string("The `truncate_len` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a non-negative integer."));
+    }
+
 
     if(!field_json.at(fields::locale).is_string()) {
         return Option<bool>(400, std::string("The `locale` property of the field `") +
@@ -460,7 +469,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], 
                   field_json[fields::store], field_json[fields::stem], field_json[fields::stem_dictionary],
                   field_json[fields::hnsw_params], field_json[fields::async_reference], field_json[fields::token_separators],
-                  field_json[fields::symbols_to_index], field_json[fields::cascade_delete])
+                  field_json[fields::symbols_to_index], field_json[fields::cascade_delete], field_json[fields::truncate_len])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
@@ -889,6 +898,7 @@ nlohmann::json field::field_to_json_field(const struct field& field) {
     field_val[fields::locale] = field.locale;
 
     field_val[fields::store] = field.store;
+    field_val[fields::truncate_len] = field.truncate_len;
     field_val[fields::stem] = field.stem;
     field_val[fields::range_index] = field.range_index;
     field_val[fields::stem_dictionary] = field.stem_dictionary;
