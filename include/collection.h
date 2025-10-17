@@ -856,7 +856,9 @@ public:
                        std::vector<std::vector<std::string>>& q_exclude_tokens,
                        std::vector<std::vector<std::string>>& q_phrases, bool& exclude_operator_prior, 
                        bool& phrase_search_op_prior, std::vector<std::string>& phrase, const std::string& stopwords_set, 
-                       const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer) const;
+                       const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer,
+                       const std::vector<char>& most_weighted_field_symbols_to_index,
+                       const std::vector<char>& most_weighted_field_token_separators) const;
 
     // PUBLIC OPERATIONS
 
