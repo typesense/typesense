@@ -430,6 +430,14 @@ num_tree_t::~num_tree_t() {
     }
 }
 
+std::map<int64_t, void *>::const_iterator num_tree_t::_get_num_tree_iterator() const {
+    return int64map.begin();
+}
+
+std::map<int64_t, void *>::const_iterator num_tree_t::_get_num_tree_iterator_end() const {
+    return int64map.end();
+}
+
 num_tree_t::iterator_t::iterator_t(num_tree_t* num_tree, NUM_COMPARATOR comparator, int64_t value) {
     if (num_tree == nullptr || num_tree->int64map.empty() || comparator != EQUALS) {
         is_valid = false;

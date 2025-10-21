@@ -2604,3 +2604,28 @@ Option<bool> CollectionManager::process_ref_include_fields_sort(const std::strin
 
     return collection->process_ref_include_fields_sort(sort_by_str, limit, doc_ids);
 }
+
+Option<bool> CollectionManager::insert_lazy_join_evaluation_field(const string& collection_name, const string& field_id,
+                                                                  const uint32_t& seq_id,
+                                                                  const std::vector<uint32_t>& ref_doc_ids) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->insert_lazy_join_evaluation_field(field_id, seq_id, ref_doc_ids);
+}
+
+Option<bool> CollectionManager::update_lazy_join_evaluation_field(const string& collection_name, const string& field_id,
+                                                                  const uint32_t& seq_id,
+                                                                  const std::vector<uint32_t>& ref_doc_ids,
+                                                                  const std::vector<uint32_t>& old_ref_doc_ids) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->update_lazy_join_evaluation_field(field_id, seq_id, ref_doc_ids, old_ref_doc_ids);
+}

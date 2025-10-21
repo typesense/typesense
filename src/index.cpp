@@ -221,16 +221,23 @@ Index::~Index() {
         delete vec_index_kv.second;
     }
 
-    for(auto & name_tree: reference_index) {
-        delete name_tree.second;
-        name_tree.second = nullptr;
+    for(auto& num_tree: reference_index) {
+        delete num_tree.second;
+        num_tree.second = nullptr;
     }
 
     reference_index.clear();
 
-    for(auto & name_tree: object_array_reference_index) {
-        delete name_tree.second;
-        name_tree.second = nullptr;
+    for(auto& num_tree: lazy_join_evaluation) {
+        delete num_tree.second;
+        num_tree.second = nullptr;
+    }
+
+    lazy_join_evaluation.clear();
+
+    for(auto& num_tree: object_array_reference_index) {
+        delete num_tree.second;
+        num_tree.second = nullptr;
     }
 
     object_array_reference_index.clear();
@@ -9172,6 +9179,88 @@ GeoPolygonIndex* Index::get_geopolygon_index(const std::string &field_name) cons
     }
 
     return find_it->second;
+}
+
+void Index::add_lazy_join_evaluation_field(const string& field_id) {
+    std::unique_lock lock(mutex);
+
+    auto num_tree = new num_tree_t;
+    lazy_join_evaluation.emplace(field_id, num_tree);
+}
+
+num_tree_t* Index::_get_lazy_join_evaluation_field(const std::string& field_id) const {
+    std::shared_lock lock(mutex);
+
+    auto it = lazy_join_evaluation.find(field_id);
+    if (it != lazy_join_evaluation.end()) {
+        return it->second;
+    }
+
+    return nullptr;
+}
+
+void Index::remove_lazy_join_evaluation_field(const string& field_id) {
+    std::unique_lock lock(mutex);
+
+    auto it = lazy_join_evaluation.find(field_id);
+    if (it != lazy_join_evaluation.end()) {
+        delete it->second;
+        lazy_join_evaluation.erase(it);
+    }
+}
+
+Option<bool> Index::insert_lazy_join_evaluation_field(const string& field_id, const uint32_t& seq_id,
+                                                      const std::vector<uint32_t>& ref_doc_ids) {
+    std::unique_lock lock(mutex);
+
+    auto it = lazy_join_evaluation.find(field_id);
+    if (it == lazy_join_evaluation.end()) {
+        return Option<bool>(400, "Field `" + field_id + "` not found in the lazy join index.");
+    }
+
+    for (const auto& ref_doc_id: ref_doc_ids) {
+        // seq_id doc references the ref_doc_ids of this collection.
+        it->second->insert(ref_doc_id, seq_id);
+    }
+    return Option<bool>(true);
+}
+
+Option<bool> Index::remove_lazy_join_evaluation_field(const std::string& field_id,
+                                                      const uint32_t& seq_id,
+                                                      const std::vector<uint32_t>& ref_doc_ids) {
+    std::unique_lock lock(mutex);
+
+    auto it = lazy_join_evaluation.find(field_id);
+    if (it == lazy_join_evaluation.end()) {
+        return Option<bool>(400, "Field `" + field_id + "` not found in the lazy join index.");
+    }
+
+    for (const auto& ref_doc_id: ref_doc_ids) {
+        // seq_id doc references the ref_doc_ids of this collection.
+        it->second->remove(ref_doc_id, seq_id);
+    }
+    return Option<bool>(true);
+}
+
+Option<bool> Index::update_lazy_join_evaluation_field(const string& field_id, const uint32_t& seq_id,
+                                                      const std::vector<uint32_t>& ref_doc_ids,
+                                                      const std::vector<uint32_t>& old_ref_doc_ids) {
+    std::unique_lock lock(mutex);
+
+    auto it = lazy_join_evaluation.find(field_id);
+    if (it == lazy_join_evaluation.end()) {
+        return Option<bool>(400, "Field `" + field_id + "` not found in the lazy join index.");
+    }
+
+    for (const auto& old_ref_doc_id: old_ref_doc_ids) {
+        it->second->remove(old_ref_doc_id, seq_id);
+    }
+
+    for (const auto& ref_doc_id: ref_doc_ids) {
+        // seq_id doc references the ref_doc_ids of this collection.
+        it->second->insert(ref_doc_id, seq_id);
+    }
+    return Option<bool>(true);
 }
 
 /*

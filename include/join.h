@@ -131,6 +131,15 @@ public:
                                  F&& get_doc_id, const bool& is_match_all_ids_filter, std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
                                  std::set<uint32_t>& unique_doc_ids,
                                  negate_left_join_t& negate_left_join_info);
+
+    static std::string get_lazy_join_evaluation_field_id(const std::string& referencing_collection_name,
+                                                         const std::string& referencing_field_name);
+
+    static Option<bool> populate_lazy_join_evaluation_field(const std::string& collection_name,
+                                                            const tsl::htrie_map<char, field>& schema,
+                                                            const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
+                                                            const nlohmann::json& document, const uint32_t& seq_id,
+                                                            const nlohmann::json& old_doc, const bool& is_update);
 };
 
 template <typename F>

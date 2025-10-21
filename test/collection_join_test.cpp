@@ -2087,7 +2087,7 @@ TEST_F(CollectionJoinTest, UpdateDocumentHavingReferenceField) {
     ASSERT_EQ("Dan", res_obj["hits"][0]["document"]["Users"][0]["name"]);
 }
 
-TEST_F(CollectionJoinTest, JoinAfterUpdateOfArrayField) {
+TEST_F(CollectionJoinTest, UpdateDocumentHavingArrayReferenceField) {
     auto exercise_schema =
             R"({
                 "name": "exercises",
@@ -11632,4 +11632,252 @@ TEST_F(CollectionJoinTest, MutualReferences) {
               " collection's `author_id` field. `reference_field` field is not indexed.", alter_op.error());
 
     ASSERT_EQ(0, collection_create_op.get()->get_schema().count("reference_field"));
+}
+
+class CollectionLazyJoinTest : public ::testing::Test {
+protected:
+    Store *store;
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    std::atomic<bool> quit = false;
+
+    std::vector<std::string> query_fields;
+    std::vector<sort_by> sort_fields;
+    std::string state_dir_path = "/tmp/typesense_test/collection_lazy_join";
+
+    Collection* products_collection{};
+    Collection* customers_collection{};
+
+    void setupCollection() {
+        LOG(INFO) << "Truncating and creating: " << state_dir_path;
+        system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+
+        store = new Store(state_dir_path);
+        collectionManager.init(store, 1.0, "auth_key", quit);
+        collectionManager.load(8, 1000);
+    }
+
+    virtual void SetUp() {
+        setupCollection();
+    }
+
+    virtual void TearDown() {
+        collectionManager.dispose();
+        delete store;
+    }
+
+    void setupProductsCustomersCollections() {
+        auto schema_json =
+                R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string"},
+                    {"name": "product_description", "type": "string"}
+                ]
+            })"_json;
+        std::vector<nlohmann::json> documents = {
+                R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair."
+            })"_json,
+                R"({
+                "product_id": "product_b",
+                "product_name": "soap",
+                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients."
+            })"_json
+        };
+
+        auto collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+        for (auto const &json: documents) {
+            auto add_op = collection_create_op.get()->add(json.dump());
+            ASSERT_TRUE(add_op.ok());
+        }
+        products_collection = collection_create_op.get();
+
+        schema_json =
+                R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "customer_id", "type": "string"},
+                    {"name": "customer_name", "type": "string", "sort": true},
+                    {"name": "product_price", "type": "float"},
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id", "optional": true}
+                ]
+            })"_json;
+        documents = {
+                R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product_price": 143,
+                "product_id": "product_a"
+            })"_json,
+                R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product_price": 73.5,
+                "product_id": "product_b"
+            })"_json,
+                R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product_price": 75,
+                "product_id": "product_a"
+            })"_json,
+                R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product_price": 140,
+                "product_id": "product_b"
+            })"_json
+        };
+        collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+        for (auto const &json: documents) {
+            auto add_op = collection_create_op.get()->add(json.dump());
+            ASSERT_TRUE(add_op.ok());
+        }
+        customers_collection = collection_create_op.get();
+    }
+};
+
+TEST_F(CollectionLazyJoinTest, LazyJoinEvaluationField) {
+    auto schema_json =
+            R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id"},
+                    {"name": "customer_name", "type": "string"},
+                    {"name": "product_price", "type": "float"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto products_schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string"},
+                    {"name": "product_description", "type": "string"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(products_schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto collection = collection_create_op.get();
+    auto products_index = collection->_get_index();
+
+    ASSERT_EQ(nullptr, products_index->_get_lazy_join_evaluation_field("foo"));
+    ASSERT_NE(nullptr, products_index->_get_lazy_join_evaluation_field("$Customers.product_id"));
+
+    schema_json =
+            R"({
+                "name": "reference_existing_coll_test",
+                "fields": [
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    ASSERT_NE(nullptr, products_index->_get_lazy_join_evaluation_field("$reference_existing_coll_test.product_id"));
+
+    collectionManager.drop_collection("reference_existing_coll_test");
+    ASSERT_EQ(nullptr, products_index->_get_lazy_join_evaluation_field("$reference_existing_coll_test.product_id"));
+}
+
+TEST_F(CollectionLazyJoinTest, IndexLazyJoinEvaluationField) {
+    setupProductsCustomersCollections();
+
+    auto products_index = products_collection->_get_index();
+    auto num_tree = products_index->_get_lazy_join_evaluation_field("$Customers.product_id");
+    auto it = num_tree->_get_num_tree_iterator();
+    auto it_end = num_tree->_get_num_tree_iterator_end();
+    ASSERT_NE(it, it_end);
+
+    auto seq_ids = std::vector<uint32_t>({0, 1}); // product_a, product_b
+    auto ref_ids = std::vector<std::vector<uint32_t>>({{0, 2}, {1, 3}}); // Corresponding referencing seq_ids of Customers.
+    for (size_t i = 0; i < seq_ids.size(); i++) {
+        ASSERT_EQ(seq_ids[i], it->first);
+
+        uint32_t* ids = nullptr;
+        size_t ids_len = 0;
+        num_tree->search(NUM_COMPARATOR::EQUALS, it->first, &ids, ids_len);
+
+        ASSERT_EQ(ref_ids[i].size(), ids_len);
+        for (size_t j = 0; j < ref_ids[i].size(); j++) {
+            ASSERT_EQ(ref_ids[i][j], ids[j]);
+        }
+        it++;
+
+        delete [] ids;
+    }
+    ASSERT_EQ(it, it_end);
+
+    customers_collection->remove("3");
+
+    it = num_tree->_get_num_tree_iterator();
+    it_end = num_tree->_get_num_tree_iterator_end();
+    ASSERT_NE(it, it_end);
+    seq_ids = std::vector<uint32_t>({0, 1}); // product_a, product_b
+    ref_ids = std::vector<std::vector<uint32_t>>({{0, 2}, {1}}); // Corresponding referencing seq_ids of Customers.
+    for (size_t i = 0; i < seq_ids.size(); i++) {
+        ASSERT_EQ(seq_ids[i], it->first);
+
+        uint32_t* ids = nullptr;
+        size_t ids_len = 0;
+        num_tree->search(NUM_COMPARATOR::EQUALS, it->first, &ids, ids_len);
+
+        ASSERT_EQ(ref_ids[i].size(), ids_len);
+        for (size_t j = 0; j < ref_ids[i].size(); j++) {
+            ASSERT_EQ(ref_ids[i][j], ids[j]);
+        }
+        it++;
+
+        delete [] ids;
+    }
+    ASSERT_EQ(it, it_end);
+
+    std::string dirty_values = "REJECT";
+    // Now no document references product_a.
+    auto update_op = customers_collection->update_matching_filter("product_id: product_a",
+                                                                  R"({"product_id": "product_b"})", dirty_values);
+    ASSERT_TRUE(update_op.ok());
+
+    it = num_tree->_get_num_tree_iterator();
+    it_end = num_tree->_get_num_tree_iterator_end();
+    ASSERT_NE(it, it_end);
+    seq_ids = std::vector<uint32_t>({1}); // Only product_b is referenced.
+    ref_ids = std::vector<std::vector<uint32_t>>({{0, 1, 2}}); // Corresponding referencing seq_ids of Customers.
+    for (size_t i = 0; i < seq_ids.size(); i++) {
+        ASSERT_EQ(seq_ids[i], it->first);
+
+        uint32_t* ids = nullptr;
+        size_t ids_len = 0;
+        num_tree->search(NUM_COMPARATOR::EQUALS, it->first, &ids, ids_len);
+
+        ASSERT_EQ(ref_ids[i].size(), ids_len);
+        for (size_t j = 0; j < ref_ids[i].size(); j++) {
+            ASSERT_EQ(ref_ids[i][j], ids[j]);
+        }
+        it++;
+
+        delete [] ids;
+    }
+    ASSERT_EQ(it, it_end);
+}
+
+TEST_F(CollectionLazyJoinTest, LazyJoinEvaluation) {
+    setupProductsCustomersCollections();
+
+    const auto doc_id_prefix = std::to_string(products_collection->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+
+    auto const enable_lazy_evaluation = true;
+
+    Option<bool> filter_op = filter::parse_filter_query("$Customers(product_price: >100)", products_collection->get_schema(),
+                                                        store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
 }

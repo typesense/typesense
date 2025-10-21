@@ -61,6 +61,10 @@ public:
 
     std::pair<int64_t, int64_t> get_min_max(const uint32_t* result_ids, size_t result_ids_len);
 
+    [[nodiscard]] std::map<int64_t, void*>::const_iterator _get_num_tree_iterator() const;
+
+    [[nodiscard]] std::map<int64_t, void*>::const_iterator _get_num_tree_iterator_end() const;
+
     class iterator_t {
         /// If true, `id_list_array` is initialized otherwise `id_list_iterator` is.
         bool is_compact_id_list = true;

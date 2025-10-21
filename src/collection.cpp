@@ -530,6 +530,24 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
     std::set<std::string> batch_doc_ids;
     bool found_batch_new_field = false;
 
+    std::string fallback_field_type_copy;
+    std::unordered_map<std::string, field> dynamic_fields_copy;
+    tsl::htrie_map<char, field> nested_fields_copy;
+    spp::sparse_hash_map<std::string, reference_info_t> reference_fields_copy;
+    spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins_copy;
+    tsl::htrie_map<char, field> search_schema_copy;
+    tsl::htrie_set<char> object_reference_fields_copy;
+    {
+        std::shared_lock lock(mutex);
+        fallback_field_type_copy = fallback_field_type;
+        dynamic_fields_copy = dynamic_fields;
+        nested_fields_copy = nested_fields;
+        reference_fields_copy = reference_fields;
+        async_referenced_ins_copy = async_referenced_ins;
+        search_schema_copy = search_schema;
+        object_reference_fields_copy = object_reference_fields;
+    }
+
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
         Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_line, document, operation, dirty_values, id);
@@ -562,24 +580,6 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             }
 
             batch_doc_ids.insert(doc_id);
-
-            std::string fallback_field_type_copy;
-            std::unordered_map<std::string, field> dynamic_fields_copy;
-            tsl::htrie_map<char, field> nested_fields_copy;
-            spp::sparse_hash_map<std::string, reference_info_t> reference_fields_copy;
-            spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins_copy;
-            tsl::htrie_map<char, field> search_schema_copy;
-            tsl::htrie_set<char> object_reference_fields_copy;
-            {
-                std::shared_lock lock(mutex);
-                fallback_field_type_copy = fallback_field_type;
-                dynamic_fields_copy = dynamic_fields;
-                nested_fields_copy = nested_fields;
-                reference_fields_copy = reference_fields;
-                async_referenced_ins_copy = async_referenced_ins;
-                search_schema_copy = search_schema;
-                object_reference_fields_copy = object_reference_fields;
-            }
 
             // if `fallback_field_type` or `dynamic_fields` is enabled, update schema first before indexing
             if(!fallback_field_type_copy.empty() || !dynamic_fields_copy.empty() || !nested_fields_copy.empty() ||
@@ -629,6 +629,19 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
             if(found_batch_new_field) {
                 persist_collection_meta();
+            }
+
+            for (auto& rec: index_records) {
+                if (!rec.indexed.ok()) {
+                    continue;
+                }
+                const auto is_update = rec.is_update;
+                auto op = Join::populate_lazy_join_evaluation_field(name, search_schema_copy, reference_fields_copy, rec.doc,
+                                                                    rec.seq_id, is_update ? rec.old_doc : nlohmann::json(),
+                                                                    is_update);
+                if (!op.ok()) {
+                    LOG(ERROR) << op.error();
+                }
             }
 
             // to return the document for the single doc add cases
@@ -5636,19 +5649,32 @@ Option<nlohmann::json> Collection::get(const std::string & id) const {
 
 void Collection::remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store) {
     spp::sparse_hash_map<std::string, std::string> referenced_in_copy;
+    spp::sparse_hash_map<std::string, reference_info_t> reference_fields_copy;
     {
-        std::unique_lock lock(mutex);
+        std::shared_lock lock(mutex);
         referenced_in_copy = referenced_in;
+        reference_fields_copy = reference_fields;
     }
 
+    CollectionManager& collectionManager = CollectionManager::get_instance();
     // Cascade delete all the references.
-    if (!referenced_in_copy.empty()) {
-        CollectionManager& collectionManager = CollectionManager::get_instance();
-        for (const auto &item: referenced_in_copy) {
-            auto coll = collectionManager.get_collection(item.first);
-            if (coll != nullptr) {
-                coll->cascade_remove_docs(item.second, seq_id, document, remove_from_store);
-            }
+    for (const auto& item: referenced_in_copy) {
+        auto coll = collectionManager.get_collection(item.first);
+        if (coll != nullptr) {
+            coll->cascade_remove_docs(item.second, seq_id, document, remove_from_store);
+        }
+    }
+
+    // Remove this doc from lazy join field in the referenced collection.
+    for (const auto& reference_field: reference_fields_copy) {
+        const auto& field_name = reference_field.first;
+        const auto& collection_name = reference_field.second.collection;
+        auto coll = collectionManager.get_collection(collection_name);
+        if (coll != nullptr) {
+            std::vector<uint32_t> ref_doc_ids;
+            get_related_ids_with_lock(field_name, {seq_id}, ref_doc_ids);
+            coll->remove_lazy_join_evaluation_field(Join::get_lazy_join_evaluation_field_id(name, field_name), seq_id,
+                                                    ref_doc_ids);
         }
     }
 
@@ -8059,6 +8085,8 @@ std::set<update_reference_info_t> Collection::add_referenced_in(const std::strin
         async_referenced_ins[referenced_field_name].emplace(collection_name, field_name);
     }
 
+    index->add_lazy_join_evaluation_field(Join::get_lazy_join_evaluation_field_id(collection_name, field_name));
+
     referenced_field = referenced_field_name == "id" ? field("id", "string", false) : *it;
     auto ref_info = update_reference_info_t(collection_name, field_name, referenced_field);
     ref_info.is_mutual_reference = references(collection_name);
@@ -8085,6 +8113,8 @@ void Collection::remove_referenced_in(const std::string& collection_name, const 
     if (is_async) {
         async_referenced_ins[referenced_field_name].erase(reference_pair_t(collection_name, field_name));
     }
+
+    index->remove_lazy_join_evaluation_field(Join::get_lazy_join_evaluation_field_id(collection_name, field_name));
 }
 
 Option<std::string> Collection::get_referenced_in_field_with_lock(const std::string& collection_name) const {
@@ -9085,4 +9115,29 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
     }
 
     return Option<bool>(true);
+}
+
+Option<bool> Collection::insert_lazy_join_evaluation_field(const std::string& field_id,
+                                                           const uint32_t& seq_id,
+                                                           const std::vector<uint32_t>& ref_doc_ids) {
+    std::unique_lock lock(mutex);
+
+    return index->insert_lazy_join_evaluation_field(field_id, seq_id, ref_doc_ids);
+}
+
+Option<bool> Collection::remove_lazy_join_evaluation_field(const std::string& field_id,
+                                                           const uint32_t& seq_id,
+                                                           const std::vector<uint32_t>& ref_doc_ids) {
+    std::unique_lock lock(mutex);
+
+    return index->remove_lazy_join_evaluation_field(field_id, seq_id, ref_doc_ids);
+}
+
+Option<bool> Collection::update_lazy_join_evaluation_field(const std::string& field_id,
+                                                           const uint32_t& seq_id,
+                                                           const std::vector<uint32_t>& ref_doc_ids,
+                                                           const std::vector<uint32_t>& old_ref_doc_ids) {
+    std::unique_lock lock(mutex);
+
+    return index->update_lazy_join_evaluation_field(field_id, seq_id, ref_doc_ids, old_ref_doc_ids);
 }
