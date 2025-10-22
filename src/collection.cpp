@@ -2706,7 +2706,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                match_type, facets, included_ids, excluded_ids,
                                                sort_fields_std, facet_query, num_typos, max_facet_values,
                                                fetch_size, per_page, offset, token_order, prefixes,
-                                               drop_tokens_threshold, typo_tokens_threshold,
+                                               drop_tokens_threshold, coll_args.max_dropped_tokens, typo_tokens_threshold,
                                                group_by_fields, group_limit, group_missing_values,
                                                default_sorting_field,
                                                prioritize_exact_match, prioritize_token_position,
@@ -2807,7 +2807,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           size_t personalization_n_events,
                                           const std::vector<std::string>& search_synonym_sets,
                                           float diversity_lamda,
-                                          size_t group_max_candidates) const {
+                                          size_t group_max_candidates,
+                                          size_t max_dropped_tokens) const {
     std::shared_lock lock(mutex);
 
     auto args = collection_search_args_t(query, search_fields, filter_query,
@@ -2839,7 +2840,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                          personalization_user_id, personalization_model_id, personalization_type,
                                          personalization_user_field, personalization_item_field, personalization_event_name,
-                                         personalization_n_events, search_synonym_sets, diversity_lamda, group_max_candidates);
+                                         personalization_n_events, search_synonym_sets, diversity_lamda, group_max_candidates, max_dropped_tokens);
     return search(args);
 }
 
@@ -3312,7 +3313,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 auto facet_range_iter = a_facet.facet_range_map.find(kv.first);
                 if(facet_range_iter != a_facet.facet_range_map.end()){
                     auto & facet_count = kv.second;
-                    facet_value_t facet_value = {facet_range_iter->second.range_label, std::string(), facet_count.count};
+                    facet_value_t facet_value = {facet_range_iter->second.range_label, std::string(), facet_count.count, 0, nlohmann::json(), std::string()};
 
                     if(!a_facet.reference_collection_name.empty()) {
                         std::string facet_filter = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ": ";
@@ -3461,7 +3462,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
 
                 const auto& highlighted_text = highlight.snippets.empty() ? value : highlight.snippets[0];
                 facet_value_t facet_value = {value, highlighted_text, facet_count.count,
-                                             facet_count.sort_field_val, parent};
+                                             facet_count.sort_field_val, parent, std::string()};
 
                 if(!a_facet.reference_collection_name.empty()) {
                     std::string facet_filter = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ": ";
@@ -8493,6 +8494,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     size_t min_len_2typo = 7;
     std::vector<bool> prefixes = {true};
     size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD;
+    size_t max_dropped_tokens = Index::MAX_DROPPED_TOKENS;
     size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD;
 
     std::vector<std::string> search_fields;
@@ -8593,6 +8595,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {MIN_LEN_1TYPO, &min_len_1typo},
             {MIN_LEN_2TYPO, &min_len_2typo},
             {DROP_TOKENS_THRESHOLD, &drop_tokens_threshold},
+            {MAX_DROPPED_TOKENS, &max_dropped_tokens},
             {TYPO_TOKENS_THRESHOLD, &typo_tokens_threshold},
             {MAX_FACET_VALUES, &max_facet_values},
             {LIMIT_HITS, &limit_hits},
@@ -8863,7 +8866,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                     personalization_user_id, personalization_model_id, personalization_type,
                                     personalization_user_field, personalization_item_field, personalization_event_name,
-                                    personalization_n_events, synonym_sets, diversity_lamda, group_max_candidates);
+                                    personalization_n_events, synonym_sets, diversity_lamda, group_max_candidates, max_dropped_tokens);
     return Option<bool>(true);
 }
 

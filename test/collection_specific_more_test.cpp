@@ -3089,6 +3089,84 @@ TEST_F(CollectionSpecificMoreTest, NumDroppedTokensTest) {
     ASSERT_EQ(1, res["hits"][0]["text_match_info"]["num_tokens_dropped"]);
 }
 
+TEST_F(CollectionSpecificMoreTest, MaxDroppedTokensTest) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection *coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "alpha beta";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "beta gamma";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "gamma delta";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "delta epsilon";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "epsilon alpha";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    std::cout << "DEBUG: Added documents:" << std::endl;
+    std::cout << "  - alpha beta" << std::endl;
+    std::cout << "  - beta gamma" << std::endl;
+    std::cout << "  - gamma delta" << std::endl;
+    std::cout << "  - delta epsilon" << std::endl;
+    std::cout << "  - epsilon alpha" << std::endl;
+
+    // Test with max_dropped_tokens = 1, should only drop 1 token maximum
+    // Use a query that can match with only 1 token dropped: "alpha beta" matches "alpha zeta" (drop "zeta")
+    auto res = coll1->search("alpha zeta", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                             5, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 1000000, true, false, true, "", false, 6000000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX, 2, false, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, false, "", "", "", "", true, true, false, false, 0, false, true, 100000, false, true, true, "", "", "", "", "", "", "", 0, {}, 0.5, 250, 1).get();
+    // Should find results but with limited token dropping
+    ASSERT_GT(res["hits"].size(), 0);
+    
+    // Check that no result has more than 1 dropped token
+    for (const auto& hit : res["hits"]) {
+        if (hit.contains("text_match_info") && hit["text_match_info"].contains("num_tokens_dropped")) {
+            ASSERT_LE(hit["text_match_info"]["num_tokens_dropped"].get<int>(), 1);
+        }
+    }
+
+    // Test with max_dropped_tokens = 0, should not drop any tokens
+    // Use a query that exactly matches a document: "alpha beta" matches "alpha beta" exactly
+    res = coll1->search("alpha beta", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                        5, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 1000000, true, false, true, "", false, 6000000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX, 2, false, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, false, "", "", "", "", true, true, false, false, 0, false, true, 100000, false, true, true, "", "", "", "", "", "", "", 0, {}, 0.5, 250, 0).get();
+
+    // Should find results but with no token dropping
+    ASSERT_GT(res["hits"].size(), 0);
+    
+    // Check that no result has any dropped tokens
+    for (const auto& hit : res["hits"]) {
+        if (hit.contains("text_match_info") && hit["text_match_info"].contains("num_tokens_dropped")) {
+            ASSERT_EQ(hit["text_match_info"]["num_tokens_dropped"].get<int>(), 0);
+        }
+    }
+
+    // Test with max_dropped_tokens = 3, should allow up to 3 dropped tokens
+    // Use the original query that needs 2 tokens dropped to match documents
+    res = coll1->search("alpha zeta gamma", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                        5, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 1000000, true, false, true, "", false, 6000000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX, 2, false, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, false, "", "", "", "", true, true, false, false, 0, false, true, 100000, false, true, true, "", "", "", "", "", "", "", 0, {}, 0.5, 250, 3).get();
+
+    // Should find results with up to 3 dropped tokens
+    ASSERT_GT(res["hits"].size(), 0);
+    
+    // Check that no result has more than 3 dropped tokens
+    for (const auto& hit : res["hits"]) {
+        if (hit.contains("text_match_info") && hit["text_match_info"].contains("num_tokens_dropped")) {
+            ASSERT_LE(hit["text_match_info"]["num_tokens_dropped"].get<int>(), 3);
+        }
+    }
+}
+
 TEST_F(CollectionSpecificMoreTest, TestStemming2) {
     nlohmann::json schema = R"({
          "name": "words",
