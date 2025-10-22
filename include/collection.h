@@ -962,7 +962,7 @@ public:
                                   std::string personalization_item_field = "",
                                   std::string personalization_event_name = "",
                                   size_t personalization_n_events = 0,
-                                  float diversity_lamda = 0.5,
+                                  float diversity_lamda = diversity_t::DEFAULT_LAMDA_VALUE,
                                   size_t group_max_candidates = Index::DEFAULT_TOPSTER_SIZE,
                                   size_t diversity_limit = Index::DEFAULT_TOPSTER_SIZE) const;
 

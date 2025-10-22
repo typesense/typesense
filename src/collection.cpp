@@ -8397,6 +8397,15 @@ Option<bool> add_unsigned_int_param(const std::string& param_name, const std::st
     return Option<bool>(true);
 }
 
+Option<bool> add_float_param(const std::string& param_name, const std::string& str_val, float* float_val) {
+    if(!StringUtils::is_float(str_val)) {
+        return Option<bool>(400, "Parameter `" + std::string(param_name) + "` must be a float.");
+    }
+
+    *float_val = std::stof(str_val);
+    return Option<bool>(true);
+}
+
 Option<bool> add_unsigned_int_list_param(const std::string& param_name, const std::string& str_val,
                                          std::vector<uint32_t>* int_vals) {
     std::vector<std::string> str_vals;
@@ -8525,7 +8534,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     std::string personalization_item_field;
     std::string personalization_event_name;
     size_t personalization_n_events = 0;
-    float diversity_lamda = 0.5;
+    float diversity_lamda = diversity_t::DEFAULT_LAMDA_VALUE;
     size_t diversity_limit = Index::DEFAULT_TOPSTER_SIZE;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
@@ -8616,7 +8625,10 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
 
     std::unordered_map<std::string, std::vector<uint32_t>*> int_list_values = {
             {QUERY_BY_WEIGHTS, &query_by_weights},
-            {NUM_TYPOS, &num_typos},
+    };
+
+    std::unordered_map<std::string, float*> float_values = {
+            {DIVERSITY_LAMBDA, &diversity_lamda}
     };
 
     for(const auto& kv: req_params) {
@@ -8654,15 +8666,6 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             if(match_op.has_value()) {
                 match_type = match_op.value();
             }
-        }
-
-        else if (key == DIVERSITY_LAMBDA) {
-            try {
-                auto temp = std::stof(val);
-                if (temp >= 0 && temp <= 1) {
-                    diversity_lamda = temp;
-                }
-            } catch (...) {}
         }
 
         else {
@@ -8709,6 +8712,17 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             auto find_int_list_it = int_list_values.find(key);
             if(find_int_list_it != int_list_values.end()) {
                 add_unsigned_int_list_param(key, val, find_int_list_it->second);
+                continue;
+            }
+
+            auto find_float_it = float_values.find(key);
+            if(find_float_it != float_values.end()) {
+                auto& float_val = find_float_it->second;
+                const auto& op = add_float_param(key, val, float_val);
+                if(!op.ok()) {
+                    return op;
+                }
+
                 continue;
             }
         }
@@ -8766,6 +8780,10 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
         max_candidates = exhaustive_search ? Index::COMBINATION_MAX_LIMIT :
                          (coll_num_documents < 500000 ? Index::NUM_CANDIDATES_DEFAULT_MAX :
                           Index::NUM_CANDIDATES_DEFAULT_MIN);
+    }
+
+    if (diversity_lamda < 0 || diversity_lamda > 1) {
+        diversity_lamda = diversity_t::DEFAULT_LAMDA_VALUE;
     }
 
     args = collection_search_args_t(raw_query, search_fields, filter_query,

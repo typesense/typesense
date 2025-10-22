@@ -12,6 +12,8 @@ struct Hasher32 {
 };
 
 struct diversity_t {
+    static constexpr float DEFAULT_LAMDA_VALUE = 0.5;
+
     float lambda{};
     size_t limit{};
 
