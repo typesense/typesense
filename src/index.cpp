@@ -3626,9 +3626,19 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             VectorFilterFunctor filterFunctor(filter_result_iterator_no_groups, excluded_result_ids, excluded_result_ids_size);
             auto& field_vector_index = vector_index.at(vector_query.field_name);
 
-            if(vector_query.query_doc_given && filterFunctor(vector_query.seq_id)) {
-                // since query doc will be omitted from results, we will request for 1 more doc
-                k++;
+            if(vector_query.query_doc_given) {
+                // since query doc(s) will be omitted from results, we will request for more docs
+                if(!vector_query.seq_ids.empty()) {
+                    // multiple IDs provided
+                    for(const auto& query_seq_id : vector_query.seq_ids) {
+                        if(filterFunctor(query_seq_id)) {
+                            k++;
+                        }
+                    }
+                } else if(filterFunctor(vector_query.seq_id)) {
+                    // single ID
+                    k++;
+                }
             }
 
             filter_result_iterator_no_groups->reset();
@@ -3662,8 +3672,24 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 auto& seq_id = dist_result.second.seq_id;
                 auto references = std::move(dist_result.second.reference_filter_results);
 
-                if(vector_query.query_doc_given && vector_query.seq_id == seq_id) {
-                    continue;
+                if(vector_query.query_doc_given) {
+                    bool is_source_doc = false;
+                    if(!vector_query.seq_ids.empty()) {
+                        // multiple IDs provided
+                        for(const auto& query_seq_id : vector_query.seq_ids) {
+                            if(query_seq_id == seq_id) {
+                                is_source_doc = true;
+                                break;
+                            }
+                        }
+                    } else if(vector_query.seq_id == seq_id) {
+                        // single ID
+                        is_source_doc = true;
+                    }
+                    
+                    if(is_source_doc) {
+                        continue;
+                    }
                 }
 
                 uint64_t distinct_id = seq_id;

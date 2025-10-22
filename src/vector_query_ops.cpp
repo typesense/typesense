@@ -117,33 +117,85 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                                                  "and `id` parameter.");
                     }
 
-                    Option<uint32_t> id_op = coll->doc_id_to_seq_id(param_kv[1]);
-                    if(!id_op.ok()) {
-                        return Option<bool>(400, "Document id referenced in vector query is not found.");
+                    std::vector<std::string> doc_ids;
+                    bool is_array = false;
+                    
+                    // check for array syntax: [id1, id2, id3]
+                    if(param_kv[1].front() == '[' && param_kv[1].back() == ']') {
+                        is_array = true;
+                        std::string ids_str = param_kv[1].substr(1, param_kv[1].size() - 2);
+                        StringUtils::split(ids_str, doc_ids, ",");
+                        for(auto& doc_id : doc_ids) {
+                            StringUtils::trim(doc_id);
+                        }
+                    } else {
+                        // single ID
+                        doc_ids.push_back(param_kv[1]);
                     }
 
-                    nlohmann::json document;
-                    auto doc_op  = coll->get_document_from_store(id_op.get(), document);
-                    if(!doc_op.ok()) {
-                        return Option<bool>(400, "Document id referenced in vector query is not found.");
+                    if(doc_ids.empty()) {
+                        return Option<bool>(400, "Document id referenced in vector query is empty.");
                     }
 
-                    if(!document.contains(vector_query.field_name) || !document[vector_query.field_name].is_array()) {
-                        return Option<bool>(400, "Document referenced in vector query does not contain a valid "
-                                                 "vector field.");
-                    }
+                    std::vector<std::vector<float>> embeddings;
+                    
+                    for(const auto& doc_id : doc_ids) {
+                        Option<uint32_t> id_op = coll->doc_id_to_seq_id(doc_id);
+                        if(!id_op.ok()) {
+                            return Option<bool>(400, "Document id `" + doc_id + "` referenced in vector query is not found.");
+                        }
 
-                    for(auto& fvalue: document[vector_query.field_name]) {
-                        if(!fvalue.is_number()) {
-                            return Option<bool>(400, "Document referenced in vector query does not contain a valid "
+                        nlohmann::json document;
+                        auto doc_op = coll->get_document_from_store(id_op.get(), document);
+                        if(!doc_op.ok()) {
+                            return Option<bool>(400, "Document id `" + doc_id + "` referenced in vector query is not found.");
+                        }
+
+                        if(!document.contains(vector_query.field_name) || !document[vector_query.field_name].is_array()) {
+                            return Option<bool>(400, "Document `" + doc_id + "` referenced in vector query does not contain a valid "
                                                      "vector field.");
                         }
 
-                        vector_query.values.push_back(fvalue.get<float>());
+                        std::vector<float> doc_embedding;
+                        for(auto& fvalue: document[vector_query.field_name]) {
+                            if(!fvalue.is_number()) {
+                                return Option<bool>(400, "Document `" + doc_id + "` referenced in vector query does not contain a valid "
+                                                         "vector field.");
+                            }
+
+                            doc_embedding.push_back(fvalue.get<float>());
+                        }
+                        
+                        embeddings.push_back(doc_embedding);
+                        vector_query.seq_ids.push_back(id_op.get());
+                    }
+
+                    // average the embeddings if multiple IDs are provided
+                    if(embeddings.size() > 1) {
+                        size_t dim = embeddings[0].size();
+                        std::vector<float> avg_embedding(dim, 0.0f);
+                        
+                        for(const auto& embedding : embeddings) {
+                            if(embedding.size() != dim) {
+                                return Option<bool>(400, "All documents referenced in vector query must have the same embedding dimensions.");
+                            }
+                            for(size_t i = 0; i < dim; i++) {
+                                avg_embedding[i] += embedding[i];
+                            }
+                        }
+                        
+                        for(size_t i = 0; i < dim; i++) {
+                            avg_embedding[i] /= embeddings.size();
+                        }
+                        
+                        vector_query.values = avg_embedding;
+                    } else {
+                        // single ID
+                        vector_query.values = embeddings[0];
+                        vector_query.seq_id = vector_query.seq_ids[0];
                     }
 
                     vector_query.query_doc_given = true;
-                    vector_query.seq_id = id_op.get();
                 }
 
                 if(param_kv[0] == "k") {

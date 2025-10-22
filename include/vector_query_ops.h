@@ -15,6 +15,7 @@ struct vector_query_t {
     std::vector<float> values;
 
     uint32_t seq_id = 0;
+    std::vector<uint32_t> seq_ids;  // for multiple document IDs
     bool query_doc_given = false;
     float alpha = 0.3;
 
@@ -30,6 +31,7 @@ struct vector_query_t {
         distance_threshold = 2.01;
         values.clear();
         seq_id = 0;
+        seq_ids.clear();
         query_doc_given = false;
     }
 };
