@@ -1101,47 +1101,73 @@ TEST_F(PostingListTest, CompactPostingListUpserts) {
 }
 
 TEST_F(PostingListTest, CompactPostingListUpdateWithLessOffsets) {
+    // ids: 0, 1000, 1002
+    // offsets per id at creation:
+    //   id=0    -> 3 offsets
+    //   id=1000 -> 6 offsets  <-- ensures old_n >= 2*new_n + 2 when we shrink to 2
+    //   id=1002 -> 3 offsets
     uint32_t ids[] = {0, 1000, 1002};
-    uint32_t offset_index[] = {0, 3, 6};
-    uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4};
+    uint32_t offset_index[] = {0, 3, 9}; // 0..2 -> 3, 3..8 -> 6, 9..11 -> 3
+    uint32_t offsets[] = {
+            0, 3, 4,                 // id 0
+            10, 11, 12, 13, 14, 15,  // id 1000 (6 offsets)
+            20, 21, 22               // id 1002
+    };
 
-    compact_posting_list_t* list = compact_posting_list_t::create(3, ids, offset_index, 9, offsets);
-    ASSERT_EQ(15, list->length);
-    ASSERT_EQ(15, list->capacity);
+    // total offsets = 12
+    compact_posting_list_t* list = compact_posting_list_t::create(3, ids, offset_index, 12, offsets);
+    ASSERT_EQ(18, list->length);     // (3+2) + (6+2) + (3+2) = 5 + 8 + 5 = 18
+    ASSERT_EQ(18, list->capacity);
     ASSERT_EQ(1002, list->last_id());
     ASSERT_EQ(3, list->num_ids());
 
-    // update middle
-
+    // --- update middle: shrink from 6 offsets to 2 offsets ---
+    // This used to corrupt when the left-shift started at i+1+offset_diff
+    // instead of i+1+new_n (here: old_n=6, new_n=2, diff=4).
     list->upsert(1000, {1, 2});
-    ASSERT_EQ(14, list->length);
-    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(14, list->length);   // 18 - (6-2) = 14
+    ASSERT_EQ(18, list->capacity);
     ASSERT_EQ(1002, list->last_id());
     ASSERT_EQ(3, list->num_ids());
-    uint32_t expected_id_offsets[] = {3, 0, 3, 4, 0, 2, 1, 2, 1000, 3, 0, 3, 4, 1002};
-    for(size_t i = 0; i < list->length; i++) {
+    uint32_t expected_id_offsets[] = {
+            // id=0 stays 3 offsets
+            3, 0, 3, 4, 0,
+            // id=1000 now 2 offsets
+            2, 1, 2, 1000,
+            // id=1002 unchanged (3 offsets)
+            3, 20, 21, 22, 1002
+    };
+    for (size_t i = 0; i < list->length; i++) {
         ASSERT_EQ(expected_id_offsets[i], list->id_offsets[i]);
     }
 
-    // update start
+    // --- update start: shrink from 3 -> 2 ---
     list->upsert(0, {2, 4});
-    ASSERT_EQ(13, list->length);
-    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(13, list->length);   // 14 - 1
+    ASSERT_EQ(18, list->capacity);
     ASSERT_EQ(1002, list->last_id());
     ASSERT_EQ(3, list->num_ids());
-    uint32_t expected_id_offsets2[] = {2, 2, 4, 0, 2, 1, 2, 1000, 3, 0, 3, 4, 1002};
-    for(size_t i = 0; i < list->length; i++) {
+    uint32_t expected_id_offsets2[] = {
+            2, 2, 4, 0,
+            2, 1, 2, 1000,
+            3, 20, 21, 22, 1002
+    };
+    for (size_t i = 0; i < list->length; i++) {
         ASSERT_EQ(expected_id_offsets2[i], list->id_offsets[i]);
     }
 
-    // update end
+    // --- update end: shrink from 3 -> 2 ---
     list->upsert(1002, {2, 4});
-    ASSERT_EQ(12, list->length);
-    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(12, list->length);   // 13 - 1
+    ASSERT_EQ(18, list->capacity);
     ASSERT_EQ(1002, list->last_id());
     ASSERT_EQ(3, list->num_ids());
-    uint32_t expected_id_offsets3[] = {2, 2, 4, 0, 2, 1, 2, 1000, 2, 2, 4, 1002};
-    for(size_t i = 0; i < list->length; i++) {
+    uint32_t expected_id_offsets3[] = {
+            2, 2, 4, 0,
+            2, 1, 2, 1000,
+            2, 2, 4, 1002
+    };
+    for (size_t i = 0; i < list->length; i++) {
         ASSERT_EQ(expected_id_offsets3[i], list->id_offsets[i]);
     }
 

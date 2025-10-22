@@ -53,7 +53,7 @@ int64_t compact_posting_list_t::upsert(const uint32_t id, const uint32_t* offset
                     // [num_offsets][0][2][4][id]
                     // [num_offsets][0][id]
                     size_t offset_diff = (num_existing_offsets - num_offsets);
-                    size_t start_index = i + 1 + offset_diff;
+                    size_t start_index = i + 1 + num_offsets;
                     while(start_index < length - offset_diff) {
                        id_offsets[start_index] = id_offsets[start_index + offset_diff];
                        start_index++;
