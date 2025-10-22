@@ -201,6 +201,84 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
+    // pass multiple IDs in array format, should average embeddings and exclude all source docs
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([], id: [0, 1])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    // doc 0 and 1 should be excluded, only doc 2 remains
+    ASSERT_STREQ("2", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // test multiple IDs with all three documents - should return empty results
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([], id: [0, 1, 2])").get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+    ASSERT_EQ(0, results["hits"].size());
+
+    // test multiple IDs with k parameter
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([], id: [1, 2], k: 1)").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    // doc 1 and 2 should be excluded, only doc 0 remains
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // test multiple IDs with filtering
+    results = coll1->search("*", {}, "points:[0,1]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([], id: [0, 2])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    // doc 0 excluded by id param, doc 2 excluded by filter, only doc 1 remains
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // one of multiple IDs doesn't exist
+    res_op = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 32767, 32767, 2,
+                           false, true, "vec:([], id: [0, 100])");
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Document id `100` referenced in vector query is not found.", res_op.error());
+
+    // test empty array of IDs
+    res_op = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 32767, 32767, 2,
+                           false, true, "vec:([], id: [])");
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Document id referenced in vector query is empty.", res_op.error());
+
     // when id does not match filter, don't return k+1 hits
     results = coll1->search("*", {}, "id:!=1", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                             spp::sparse_hash_set<std::string>(),
@@ -260,7 +338,7 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
                            false, true, "vec:([], id: 100)");
 
     ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Document id referenced in vector query is not found.", res_op.error());
+    ASSERT_EQ("Document id `100` referenced in vector query is not found.", res_op.error());
 
     // support num_dim on only float array fields
     schema = R"({
@@ -925,6 +1003,57 @@ TEST_F(CollectionVectorTest, VecSearchWithFiltering) {
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
+
+    // test multiple IDs with filtering
+    results = coll1->search("*", {}, "points:<5", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                            fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([], id: [0, 1], flat_search_cutoff: 1000)").get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    // Doc 0 and 1 are excluded, docs 2, 3, 4 match filter points:<5 (returned by vector similarity order)
+    std::set<std::string> returned_ids;
+    for(const auto& hit : results["hits"]) {
+        std::string id = hit["document"]["id"].get<std::string>();
+        returned_ids.insert(id);
+        // Ensure excluded docs 0 and 1 are not in results
+        ASSERT_NE("0", id);
+        ASSERT_NE("1", id);
+        // Ensure results match the filter points:<5
+        int points = hit["document"]["points"].get<int>();
+        ASSERT_LT(points, 5);
+    }
+    // Verify we got exactly docs 2, 3, 4 (in any order)
+    ASSERT_EQ(3, returned_ids.size());
+    ASSERT_TRUE(returned_ids.count("2") > 0);
+    ASSERT_TRUE(returned_ids.count("3") > 0);
+    ASSERT_TRUE(returned_ids.count("4") > 0);
+
+    // test multiple IDs with flat search disabled
+    results = coll1->search("*", {}, "points:<10", {}, {}, {0}, 5, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                            fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([], id: [5, 9], flat_search_cutoff: 0)").get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    // Doc 5 and 9 are excluded, should get 5 closest docs within points:<10 filter
+    for(const auto& hit : results["hits"]) {
+        std::string id = hit["document"]["id"].get<std::string>();
+        // Ensure excluded docs 5 and 9 are not in results
+        ASSERT_NE("5", id);
+        ASSERT_NE("9", id);
+        // Ensure results match the filter points:<10
+        int points = hit["document"]["points"].get<int>();
+        ASSERT_LT(points, 10);
+    }
 }
 
 TEST_F(CollectionVectorTest, VecSearchWithFilteringWithMissingVectorValues) {
