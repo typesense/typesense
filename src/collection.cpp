@@ -2503,6 +2503,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                    pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_overrides, filter_curated_hits_overrides,
                    curated_sort_by, override_metadata, diversity);
     diversity.lambda = coll_args.diversity_lamda;
+    // We allow only a maximum of `Index::DEFAULT_TOPSTER_SIZE` top hits for MMR diversification.
+    diversity.limit = std::min<size_t>(coll_args.diversity_limit, Index::DEFAULT_TOPSTER_SIZE);
 
     bool filter_curated_hits = filter_curated_hits_option || filter_curated_hits_overrides;
 
@@ -2756,7 +2758,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           std::string personalization_event_name,
                                           size_t personalization_n_events,
                                           float diversity_lamda,
-                                          size_t group_max_candidates) const {
+                                          size_t group_max_candidates,
+                                          size_t diversity_limit) const {
     std::shared_lock lock(mutex);
 
     auto args = collection_search_args_t(query, search_fields, filter_query,
@@ -2788,7 +2791,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                          personalization_user_id, personalization_model_id, personalization_type,
                                          personalization_user_field, personalization_item_field, personalization_event_name,
-                                         personalization_n_events, diversity_lamda, group_max_candidates);
+                                         personalization_n_events, diversity_lamda, group_max_candidates, diversity_limit);
     return search(args);
 }
 
@@ -8523,6 +8526,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     std::string personalization_event_name;
     size_t personalization_n_events = 0;
     float diversity_lamda = 0.5;
+    size_t diversity_limit = Index::DEFAULT_TOPSTER_SIZE;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
             {MIN_LEN_1TYPO, &min_len_1typo},
@@ -8551,7 +8555,8 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
             {SYNONYM_NUM_TYPOS, &synonym_num_typos},
             {MAX_FILTER_BY_CANDIDATES, &max_filter_by_candidates},
-            {PERSONALIZATION_N_EVENTS, &personalization_n_events}
+            {PERSONALIZATION_N_EVENTS, &personalization_n_events},
+            {DIVERSITY_LIMIT, &diversity_limit}
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -8792,7 +8797,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                     personalization_user_id, personalization_model_id, personalization_type,
                                     personalization_user_field, personalization_item_field, personalization_event_name,
-                                    personalization_n_events, diversity_lamda, group_max_candidates);
+                                    personalization_n_events, diversity_lamda, group_max_candidates, diversity_limit);
     return Option<bool>(true);
 }
 

@@ -13,6 +13,7 @@ struct Hasher32 {
 
 struct diversity_t {
     float lambda{};
+    size_t limit{};
 
 // ": int" fixes "In template: no matching function for call to 'is_valid'" for magic_enum::enum_cast
 // https://github.com/Neargye/magic_enum/issues/204#issuecomment-1238393619
