@@ -2546,6 +2546,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         return curate_results_op;
     }
     diversity.lambda = coll_args.diversity_lamda;
+    // We allow only a maximum of `Index::DEFAULT_TOPSTER_SIZE` top hits for MMR diversification.
+    diversity.limit = std::min<size_t>(coll_args.diversity_limit, Index::DEFAULT_TOPSTER_SIZE);
 
     bool filter_curated_hits = filter_curated_hits_option || filter_curated_hits_curations;
 
@@ -2807,7 +2809,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           size_t personalization_n_events,
                                           const std::vector<std::string>& search_synonym_sets,
                                           float diversity_lamda,
-                                          size_t group_max_candidates) const {
+                                          size_t group_max_candidates,
+                                          size_t diversity_limit) const {
     std::shared_lock lock(mutex);
 
     auto args = collection_search_args_t(query, search_fields, filter_query,
@@ -2839,7 +2842,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                          personalization_user_id, personalization_model_id, personalization_type,
                                          personalization_user_field, personalization_item_field, personalization_event_name,
-                                         personalization_n_events, search_synonym_sets, diversity_lamda, group_max_candidates);
+                                         personalization_n_events, search_synonym_sets, diversity_lamda, group_max_candidates, diversity_limit);
     return search(args);
 }
 
@@ -8457,6 +8460,15 @@ Option<bool> add_unsigned_int_param(const std::string& param_name, const std::st
     return Option<bool>(true);
 }
 
+Option<bool> add_float_param(const std::string& param_name, const std::string& str_val, float* float_val) {
+    if(!StringUtils::is_float(str_val)) {
+        return Option<bool>(400, "Parameter `" + std::string(param_name) + "` must be a float.");
+    }
+
+    *float_val = std::stof(str_val);
+    return Option<bool>(true);
+}
+
 Option<bool> add_unsigned_int_list_param(const std::string& param_name, const std::string& str_val,
                                          std::vector<uint32_t>* int_vals) {
     std::vector<std::string> str_vals;
@@ -8587,7 +8599,8 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     std::string personalization_item_field;
     std::string personalization_event_name;
     size_t personalization_n_events = 0;
-    float diversity_lamda = 0.5;
+    float diversity_lamda = diversity_t::DEFAULT_LAMDA_VALUE;
+    size_t diversity_limit = Index::DEFAULT_TOPSTER_SIZE;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
             {MIN_LEN_1TYPO, &min_len_1typo},
@@ -8616,7 +8629,8 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
             {SYNONYM_NUM_TYPOS, &synonym_num_typos},
             {MAX_FILTER_BY_CANDIDATES, &max_filter_by_candidates},
-            {PERSONALIZATION_N_EVENTS, &personalization_n_events}
+            {PERSONALIZATION_N_EVENTS, &personalization_n_events},
+            {DIVERSITY_LIMIT, &diversity_limit},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -8681,6 +8695,10 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {NUM_TYPOS, &num_typos},
     };
 
+    std::unordered_map<std::string, float*> float_values = {
+            {DIVERSITY_LAMBDA, &diversity_lamda}
+    };
+
     for(const auto& kv: req_params) {
         const std::string& key = kv.first;
         const std::string& val = kv.second;
@@ -8716,15 +8734,6 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             if(match_op.has_value()) {
                 match_type = match_op.value();
             }
-        }
-
-        else if (key == DIVERSITY_LAMBDA) {
-            try {
-                auto temp = std::stof(val);
-                if (temp >= 0 && temp <= 1) {
-                    diversity_lamda = temp;
-                }
-            } catch (...) {}
         }
 
         else {
@@ -8771,6 +8780,17 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             auto find_int_list_it = int_list_values.find(key);
             if(find_int_list_it != int_list_values.end()) {
                 add_unsigned_int_list_param(key, val, find_int_list_it->second);
+                continue;
+            }
+
+            auto find_float_it = float_values.find(key);
+            if(find_float_it != float_values.end()) {
+                auto& float_val = find_float_it->second;
+                const auto& op = add_float_param(key, val, float_val);
+                if(!op.ok()) {
+                    return op;
+                }
+
                 continue;
             }
         }
@@ -8834,6 +8854,10 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
         group_limit = 0;
     }
 
+    if (diversity_lamda < 0 || diversity_lamda > 1) {
+        diversity_lamda = diversity_t::DEFAULT_LAMDA_VALUE;
+    }
+
     args = collection_search_args_t(raw_query, search_fields, filter_query,
                                     facet_fields, sort_fields,
                                     num_typos, per_page, page, token_order,
@@ -8863,7 +8887,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     rerank_hybrid_matches, enable_analytics, validate_field_names, analytics_tags,
                                     personalization_user_id, personalization_model_id, personalization_type,
                                     personalization_user_field, personalization_item_field, personalization_event_name,
-                                    personalization_n_events, synonym_sets, diversity_lamda, group_max_candidates);
+                                    personalization_n_events, synonym_sets, diversity_lamda, group_max_candidates, diversity_limit);
     return Option<bool>(true);
 }
 

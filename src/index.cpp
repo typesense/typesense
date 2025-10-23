@@ -9051,14 +9051,15 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
     }
 
     // Diversify the response.
-    auto max_similarities = std::vector<double>(topster->size, std::numeric_limits<double>::lowest());
+    const auto diversity_limit = std::min<size_t>(topster->size, diversity.limit);
+    auto max_similarities = std::vector<double>(diversity_limit, std::numeric_limits<double>::lowest());
     result_kvs.push_back({topster->getKV(0)});
     std::set<uint32_t> processed_seq_ids{(uint32_t) topster->getKeyAt(0)};
-    while (result_kvs.size() < topster->size) {
+    while (result_kvs.size() < diversity_limit) {
         auto mmr = std::numeric_limits<double>::lowest();
         KV* max_kv = nullptr;
 
-        for (uint32_t i = 1; i < topster->size; i++) {
+        for (uint32_t i = 1; i < diversity_limit; i++) {
             auto kv_i = topster->getKV(i);
             const auto& seq_id_i = (uint32_t) kv_i->key;
             if (processed_seq_ids.count(seq_id_i) > 0) {
@@ -9085,6 +9086,10 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
 
         processed_seq_ids.insert((uint32_t) max_kv->key);
         result_kvs.push_back({max_kv});
+    }
+
+    for (size_t i = diversity_limit; i < topster->size; i++) {
+        result_kvs.push_back({topster->getKV(i)});
     }
 
     return Option<bool>(true);
