@@ -4469,10 +4469,15 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
                                 std::vector<std::vector<std::string>>& q_exclude_tokens,
                                 std::vector<std::vector<std::string>>& q_phrases, bool& exclude_operator_prior, 
                                 bool& phrase_search_op_prior, std::vector<std::string>& phrase, const std::string& stopwords_set,
-                                const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer) const{
+                                const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer,
+                                const std::vector<char>& most_weighted_field_symbols_to_index,
+                                const std::vector<char>& most_weighted_field_token_separators) const{
+
+    const auto& custom_symbols = most_weighted_field_symbols_to_index.empty() ? symbols_to_index : most_weighted_field_symbols_to_index;
+    const auto& custom_separators = most_weighted_field_token_separators.empty() ? token_separators : most_weighted_field_token_separators;
 
     auto symbols_to_index_has_minus =
-            std::find(symbols_to_index.begin(), symbols_to_index.end(), '-') != symbols_to_index.end();
+            std::find(custom_symbols.begin(), custom_symbols.end(), '-') != custom_symbols.end();
 
     for(auto& token: tokens) {
         bool end_of_phrase = false;
@@ -4510,7 +4515,7 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
         if(already_segmented) {
             StringUtils::split(token, sub_tokens, " ");
         } else {
-            Tokenizer(token, true, false, locale, symbols_to_index, token_separators).tokenize(sub_tokens);
+            Tokenizer(token, true, false, locale, custom_symbols, custom_separators).tokenize(sub_tokens);
         }
 
         for(auto& sub_token: sub_tokens) {
@@ -4622,7 +4627,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         bool phrase_search_op_prior = false;
         std::vector<std::string> phrase;
 
-        process_tokens(tokens, q_include_tokens, q_exclude_tokens, q_phrases, exclude_operator_prior, phrase_search_op_prior, phrase, stopwords_set, already_segmented, locale, stemmer);
+        process_tokens(tokens, q_include_tokens, q_exclude_tokens, q_phrases, exclude_operator_prior, phrase_search_op_prior, phrase, stopwords_set, already_segmented, locale, stemmer, most_weighted_field_symbols_to_index, most_weighted_field_token_separators);
 
         if(stemmer) {
             exclude_operator_prior = false;
@@ -4635,7 +4640,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
 
             process_tokens(tokens_non_stemmed, q_unstemmed_tokens, q_exclude_tokens_dummy, q_phrases_dummy,
                            exclude_operator_prior, phrase_search_op_prior, phrase, stopwords_set,
-                           already_segmented, locale, nullptr);
+                           already_segmented, locale, nullptr, most_weighted_field_symbols_to_index, most_weighted_field_token_separators);
         }
     }
 }

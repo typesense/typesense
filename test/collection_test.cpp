@@ -4409,6 +4409,94 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionTest, QueryParsingWithFieldLevelSymbolsToIndex) {
+    nlohmann::json schema = R"({
+        "name": "coll_symbols",
+        "fields": [
+            {"name": "title", "type": "string", "symbols_to_index": ["-"]},
+            {"name": "points", "type": "int32"}
+        ],
+        "default_sorting_field": "points"
+    })"_json;
+    
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll1 = coll_op.get();
+    
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "test-driven development";
+    doc1["points"] = 100;
+    
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "test driven development";
+    doc2["points"] = 90;
+    
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    
+    std::vector<std::string> q_include_tokens, q_unstemmed_tokens;
+    std::vector<std::vector<std::string>> q_exclude_tokens;
+    std::vector<std::vector<std::string>> q_phrases;
+    
+    const auto& search_schema = coll1->get_schema();
+    std::vector<char> field_symbols_to_index;
+    std::vector<char> field_token_separators;
+    
+    for (const auto& field : search_schema) {
+        if (field.name == "title") {
+            field_symbols_to_index = field.symbols_to_index;
+            field_token_separators = field.token_separators;
+            break;
+        }
+    }
+    
+    // query with hyphenated term
+    std::string q = "test-driven";
+    coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, 
+                              "en", false, "", nullptr, field_symbols_to_index, field_token_separators);
+    
+    // field-level symbols_to_index including "-", "test-driven" should be kept as one token
+    ASSERT_EQ(1, q_include_tokens.size());
+    ASSERT_EQ("test-driven", q_include_tokens[0]);
+    ASSERT_EQ(0, q_exclude_tokens.size());
+    ASSERT_EQ(0, q_phrases.size());
+    
+    // multiple hyphenated terms
+    q = "test-driven code-review";
+    q_include_tokens.clear();
+    q_unstemmed_tokens.clear();
+    q_exclude_tokens.clear();
+    q_phrases.clear();
+    
+    coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, 
+                              "en", false, "", nullptr, field_symbols_to_index, field_token_separators);
+    
+    ASSERT_EQ(2, q_include_tokens.size());
+    ASSERT_EQ("test-driven", q_include_tokens[0]);
+    ASSERT_EQ("code-review", q_include_tokens[1]);
+    
+    // phrase search (should still respect field-level symbols in sub-tokenization)
+    q = "\"test-driven development\"";
+    q_include_tokens.clear();
+    q_unstemmed_tokens.clear();
+    q_exclude_tokens.clear();
+    q_phrases.clear();
+    
+    coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, 
+                              "en", false, "", nullptr, field_symbols_to_index, field_token_separators);
+    
+    ASSERT_EQ(1, q_include_tokens.size());
+    ASSERT_EQ("*", q_include_tokens[0]);
+    ASSERT_EQ(1, q_phrases.size());
+    ASSERT_EQ(2, q_phrases[0].size());
+    ASSERT_EQ("test-driven", q_phrases[0][0]);
+    ASSERT_EQ("development", q_phrases[0][1]);
+    
+    collectionManager.drop_collection("coll_symbols");
+}
+
 TEST_F(CollectionTest, WildcardQueryBy) {
     nlohmann::json schema = R"({
          "name": "posts",
