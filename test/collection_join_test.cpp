@@ -11880,4 +11880,7 @@ TEST_F(CollectionLazyJoinTest, LazyJoinEvaluation) {
     Option<bool> filter_op = filter::parse_filter_query("$Customers(product_price: >100)", products_collection->get_schema(),
                                                         store, doc_id_prefix, filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
+//temp
+    auto iter = filter_result_iterator_t(products_collection->get_name(), products_collection->_get_index(), filter_tree_root,
+                                         enable_lazy_evaluation);
 }
