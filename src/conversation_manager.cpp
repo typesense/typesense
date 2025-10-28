@@ -456,7 +456,11 @@ Option<Collection*> ConversationManager::get_history_collection(const nlohmann::
     }
 
     auto history_collection = model["history_collection"].get<std::string>();
-    auto collection_op = CollectionManager::get_instance().get_collection(history_collection);
+    std::shared_ptr<Collection> coll = CollectionManager::get_instance().get_collection(history_collection);
 
-    return Option<Collection*>(collection_op.get());
+    if(!coll.get()) {
+        return Option<Collection*>(404, "Model's history_collection is not found.");
+    }
+
+    return Option<Collection*>(coll.get());
 }
