@@ -906,21 +906,32 @@ Option<bool> NaturalLanguageSearchModel::validate_azure_model(const nlohmann::js
         return Option<bool>(400, "Property `url` is missing or is not a non-empty string.");
     }
 
-    if(model_config.count("temperature") != 0 && 
-       (!model_config["temperature"].is_number() || 
-        model_config["temperature"].get<float>() < 0 || 
-        model_config["temperature"].get<float>() > 2)) {
-        return Option<bool>(400, "Property `temperature` must be a number between 0 and 2.");
-    }
-
     const std::string& model_name = model_config["model_name"].get<std::string>();
     const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
+    bool is_o_model = (model_name_without_namespace.size() >= 2 && model_name_without_namespace[0] == 'o' 
+                        && isdigit(model_name_without_namespace[1]));
+    bool is_gpt5_model = model_name_without_namespace.find("gpt-5") != std::string::npos;
+
+    if(model_config.count("temperature") != 0) {
+        if(is_o_model || is_gpt5_model) {
+            return Option<bool>(400, "Property `temperature` is not supported for the o-series and gpt-5 models.");
+        }
+        if(!model_config["temperature"].is_number() || 
+           model_config["temperature"].get<float>() < 0 || 
+           model_config["temperature"].get<float>() > 2) {
+            return Option<bool>(400, "Property `temperature` must be a number between 0 and 2.");
+        }
+    }
 
     nlohmann::json test_request;
     test_request["model"] = model_name_without_namespace;
     test_request["messages"] = R"([{"role":"user","content":"hello"}])"_json;
-    test_request["max_tokens"] = 10;
-    test_request["temperature"] = 0;
+    if(is_o_model || is_gpt5_model) {
+        test_request["max_completion_tokens"] = 10;
+    } else {
+        test_request["max_tokens"] = 10;
+        test_request["temperature"] = 0;
+    }
 
     auto result = call_azure_api(test_request, model_config, VALIDATION_TIMEOUT_MS);
     if(!result.ok()) {
@@ -940,10 +951,18 @@ Option<nlohmann::json> NaturalLanguageSearchModel::azure_generate_search_params(
     float temperature = model_config.value("temperature", 0.0f);
     size_t max_bytes = model_config["max_bytes"].get<size_t>();
 
+    bool is_o_model = (model_name_without_namespace.size() >= 2 && model_name_without_namespace[0] == 'o' 
+                        && isdigit(model_name_without_namespace[1]));
+    bool is_gpt5_model = model_name_without_namespace.find("gpt-5") != std::string::npos;
+
     nlohmann::json request_body;
     request_body["model"] = model_name_without_namespace;
-    request_body["temperature"] = temperature;
-    request_body["max_tokens"] = max_bytes;
+    if(is_o_model || is_gpt5_model) {
+        request_body["max_completion_tokens"] = max_bytes;
+    } else {
+        request_body["max_tokens"] = max_bytes;
+        request_body["temperature"] = temperature;
+    }
     request_body["messages"] = {
         {{"role", "system"}, {"content", system_prompt}},
         {{"role", "user"}, {"content", query}}
