@@ -3599,8 +3599,7 @@ TEST_F(CollectionCurationTest, DynamicSorting) {
             {"id",   "dynamic-sort2"},
             {
              "rule", {
-                             {"filter_by", "store:={store}"},
-                             {"match", curation_t::MATCH_CONTAINS}
+                             {"filter_by", "store:={store}"}
                      }
             },
             {"remove_matched_tokens", true},
@@ -3636,7 +3635,6 @@ TEST_F(CollectionCurationTest, DynamicSorting) {
             {
              "rule",                {
                                             {"filter_by", "store:={store} && size:={size}"},
-                                            {"match", curation_t::MATCH_CONTAINS},
                                             {"tags", {"size"}}
                                     }
             },
@@ -4499,6 +4497,36 @@ TEST_F(CollectionCurationTest, MetadataValidation) {
     ov_manager.upsert_curation_item("index", curation_json1);
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionCurationTest, MatchRequiresQuery) {
+    nlohmann::json curation_json = R"({
+       "id": "ov-1",
+       "rule": {
+            "match": "exact",
+            "tags": ["tag_id"]
+        },
+        "includes": [{"id": "0", "position": 0}]
+    })"_json;
+
+    curation_t curation;
+    auto op = curation_t::parse(curation_json, "ov-1", curation);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("The `match` field requires a `query` field to be present.", op.error());
+
+    // both query and match - should succeed
+    curation_json = R"({
+       "id": "ov-3",
+       "rule": {
+            "query": "test",
+            "match": "exact"
+        },
+        "includes": [{"id": "0", "position": 0}]
+    })"_json;
+
+    curation_t curation3;
+    op = curation_t::parse(curation_json, "ov-3", curation3);
+    ASSERT_TRUE(op.ok());
 }
 
 TEST_F(CollectionCurationTest, WildcardSearchOverride) {

@@ -20,6 +20,10 @@ Option<bool> curation_t::parse(const nlohmann::json& curation_json, const std::s
         return Option<bool>(400, "The `rule` definition must contain either a `tags` or a `query` and `match`.");
     }
 
+    if (curation_json["rule"].count("match") != 0 && curation_json["rule"].count("query") == 0) {
+        return Option<bool>(400, "The `match` field requires a `query` field to be present.");
+    }
+
     if(curation_json.count("includes") == 0 && curation_json.count("excludes") == 0 &&
        curation_json.count("filter_by") == 0 && curation_json.count("sort_by") == 0 &&
        curation_json.count("remove_matched_tokens") == 0 && curation_json.count("metadata") == 0 &&
