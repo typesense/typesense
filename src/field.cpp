@@ -546,22 +546,32 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
         bool found_dynamic_field = false;
         field dyn_field(the_field.name, field_types::STRING, false);
 
-        for(auto dyn_field_it = dyn_fields.begin(); dyn_field_it != dyn_fields.end(); dyn_field_it++) {
-            auto& dynamic_field = dyn_field_it->second;
-
-            if(dynamic_field.is_auto() || dynamic_field.is_string_star()) {
-                continue;
+        auto exact_match_it = dyn_fields.find(flat_name);
+        if(exact_match_it != dyn_fields.end()) {
+            found_dynamic_field = true;
+            dyn_field = exact_match_it->second;
+            if(!dyn_field.is_auto() && !dyn_field.is_string_star()) {
+                detected_type = dyn_field.type;
             }
+        } else {
+            for(auto dyn_field_it = dyn_fields.begin(); dyn_field_it != dyn_fields.end(); dyn_field_it++) {
+                auto& dynamic_field = dyn_field_it->second;
 
-            if(std::regex_match(flat_name, std::regex(dynamic_field.name))) {
-                detected_type = dynamic_field.type;
-                found_dynamic_field = true;
-                dyn_field = dynamic_field;
-                break;
+                if(dynamic_field.is_auto() || dynamic_field.is_string_star()) {
+                    continue;
+                }
+
+                if(std::regex_match(flat_name, std::regex(dynamic_field.name))) {
+                    detected_type = dynamic_field.type;
+                    found_dynamic_field = true;
+                    dyn_field = dynamic_field;
+                    break;
+                }
             }
         }
 
-        if(!found_dynamic_field) {
+        if(!found_dynamic_field || dyn_field.is_auto() || dyn_field.is_string_star()) {
+            // Detect type from value if no match found or if the matched field is auto
             if(!field::get_type(value, detected_type)) {
                 return false;
             }
