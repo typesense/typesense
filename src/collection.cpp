@@ -6820,17 +6820,14 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
                 // should also remove children if the field being dropped is an object
                 if(field_it.value().nested && enable_nested_fields) {
-                    auto prefix_it = search_schema.equal_prefix_range(field_name);
+                    auto prefix_it = search_schema.equal_prefix_range(field_name + ".");
                     for(auto prefix_kv = prefix_it.first; prefix_kv != prefix_it.second; ++prefix_kv) {
-                        bool exact_key_match = (prefix_kv.key().size() == field_name.size());
-                        if(!exact_key_match) {
-                            del_fields.push_back(prefix_kv.value());
-                            updated_search_schema.erase(prefix_kv.key());
-                            updated_nested_fields.erase(prefix_kv.key());
+                        del_fields.push_back(prefix_kv.value());
+                        updated_search_schema.erase(prefix_kv.key());
+                        updated_nested_fields.erase(prefix_kv.key());
 
-                            if(prefix_kv.value().embed.count(fields::from) != 0) {
-                                updated_embedding_fields.erase(prefix_kv.key());
-                            }
+                        if(prefix_kv.value().embed.count(fields::from) != 0) {
+                            updated_embedding_fields.erase(prefix_kv.key());
                         }
                     }
                 }
@@ -6948,22 +6945,19 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     check_and_add_nested_field(updated_nested_fields, f);
 
                     // should also add children if the field is an object
-                    auto prefix_it = search_schema.equal_prefix_range(field_name);
+                    auto prefix_it = search_schema.equal_prefix_range(field_name + ".");
                     for(auto prefix_kv = prefix_it.first; prefix_kv != prefix_it.second; ++prefix_kv) {
-                        bool exact_key_match = (prefix_kv.key().size() == field_name.size());
-                        if(!exact_key_match) {
-                            updated_search_schema.emplace(prefix_kv.key(), prefix_kv.value());
-                            check_and_add_nested_field(updated_nested_fields, prefix_kv.value());
+                        updated_search_schema.emplace(prefix_kv.key(), prefix_kv.value());
+                        check_and_add_nested_field(updated_nested_fields, prefix_kv.value());
 
-                            if(prefix_kv.value().embed.count(fields::from) != 0) {
-                                embedding_fields.emplace(prefix_kv.key(), prefix_kv.value());
-                            }
+                        if(prefix_kv.value().embed.count(fields::from) != 0) {
+                            embedding_fields.emplace(prefix_kv.key(), prefix_kv.value());
+                        }
 
-                            if(is_reindex) {
-                                reindex_fields.push_back(prefix_kv.value());
-                            } else {
-                                addition_fields.push_back(prefix_kv.value());
-                            }
+                        if(is_reindex) {
+                            reindex_fields.push_back(prefix_kv.value());
+                        } else {
+                            addition_fields.push_back(prefix_kv.value());
                         }
                     }
                 }
