@@ -607,11 +607,14 @@ TEST_F(CollectionAllFieldsTest, NormalFieldWithAutoType) {
     ASSERT_EQ(1, results["hits"].size());
 
     auto schema = coll1->get_fields();
-    ASSERT_EQ("city", schema[2].name);
-    ASSERT_EQ(field_types::STRING, schema[2].type);
+    ASSERT_EQ("city", schema[0].name);
+    ASSERT_EQ(field_types::STRING, schema[0].type);
 
-    ASSERT_EQ("publication_year", schema[3].name);
-    ASSERT_EQ(field_types::INT64, schema[3].type);
+    ASSERT_EQ("publication_year", schema[1].name);
+    ASSERT_EQ(field_types::INT64, schema[1].type);
+
+    ASSERT_EQ("title", schema[2].name);
+    ASSERT_EQ(field_types::STRING, schema[2].type);
 
     collectionManager.drop_collection("coll1");
 }
@@ -1015,19 +1018,19 @@ TEST_F(CollectionAllFieldsTest, AutoAndStringStarFieldsShouldAcceptNullValues) {
     ASSERT_TRUE(add_op.ok());
 
     schema = coll1->get_fields();
-    ASSERT_EQ(8, schema.size());
+    ASSERT_EQ(7, schema.size());
 
-    ASSERT_EQ("bar_one", schema[4].name);
-    ASSERT_EQ(field_types::STRING, schema[4].type);
+    ASSERT_EQ("bar_one", schema[3].name);
+    ASSERT_EQ(field_types::STRING, schema[3].type);
 
-    ASSERT_EQ("baz_one", schema[5].name);
-    ASSERT_EQ(field_types::BOOL, schema[5].type);
+    ASSERT_EQ("baz_one", schema[4].name);
+    ASSERT_EQ(field_types::BOOL, schema[4].type);
 
-    ASSERT_EQ("buzz", schema[6].name);
-    ASSERT_EQ(field_types::INT64, schema[6].type);
+    ASSERT_EQ("buzz", schema[5].name);
+    ASSERT_EQ(field_types::INT64, schema[5].type);
 
-    ASSERT_EQ("foo", schema[7].name);
-    ASSERT_EQ(field_types::STRING_ARRAY, schema[7].type);
+    ASSERT_EQ("foo", schema[6].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[6].type);
 
     collectionManager.drop_collection("coll1");
 }
