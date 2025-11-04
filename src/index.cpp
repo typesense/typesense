@@ -9070,7 +9070,14 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
     // Diversify the response.
     const auto diversity_limit = std::min<size_t>(topster->size, diversity.limit);
     auto max_similarities = std::vector<double>(diversity_limit, std::numeric_limits<double>::lowest());
-    result_kvs.push_back({topster->getKV(0)});
+    auto max_q_similarity_kv = topster->getKV(0);
+    auto max_score = max_q_similarity_kv->match_score_index == -1 ? 0 :
+                                max_q_similarity_kv->scores[max_q_similarity_kv->match_score_index];
+    size_t decimal_scaling_j = 0;
+    while ((max_score /= 10) != 0) {
+        decimal_scaling_j++;
+    }
+    result_kvs.push_back({max_q_similarity_kv});
     std::set<uint32_t> processed_seq_ids{(uint32_t) topster->getKeyAt(0)};
     while (result_kvs.size() < diversity_limit) {
         auto mmr = std::numeric_limits<double>::lowest();
@@ -9083,7 +9090,9 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
                 continue;
             }
 
-            auto left = diversity.lambda * kv_i->vector_distance;
+            double normalized_score = kv_i->match_score_index == -1 ? 0 :
+                                                kv_i->scores[kv_i->match_score_index] / std::pow(10, decimal_scaling_j);
+            double left = diversity.lambda * normalized_score;
             auto& max_similarity = max_similarities[i];
             const auto& kv_j = result_kvs.back();
             const auto& seq_id_j = (uint32_t) kv_j[0]->key;
@@ -9093,8 +9102,8 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
             }
             max_similarity = std::max(max_similarity, sim_op.get());
 
-            auto right = (1 - diversity.lambda) * max_similarity;
-            auto mr = left - right;
+            double right = (1 - diversity.lambda) * max_similarity;
+            double mr = left - right;
             if (mr > mmr) {
                 max_kv = kv_i;
                 mmr = mr;
