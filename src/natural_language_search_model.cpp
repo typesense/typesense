@@ -4,6 +4,9 @@
 #include "text_embedder_remote.h"
 #include "string_utils.h"
 #include "logger.h"
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <ctime>
 
 Option<nlohmann::json> NaturalLanguageSearchModel::extract_search_params_from_content(
     const std::string& content,
@@ -438,8 +441,211 @@ Option<nlohmann::json> NaturalLanguageSearchModel::google_generate_search_params
     return extract_search_params_from_content(content, model_name_without_namespace);
 }
 
+// Helper methods for GCP service account authentication
+static void normalize_pem_newlines(std::string& pem) {
+    std::string::size_type pos = 0;
+    while((pos = pem.find("\\n", pos)) != std::string::npos) {
+        pem.replace(pos, 2, "\n");
+        pos += 1;
+    }
+}
+
+static std::string base64url_encode(const std::string& input) {
+    std::string out = StringUtils::base64_encode(input);
+    for(char& c : out) {
+        if(c == '+') c = '-';
+        else if(c == '/') c = '_';
+    }
+    // strip padding '='
+    while(!out.empty() && out.back() == '=') out.pop_back();
+    return out;
+}
+
+static Option<std::string> sign_jwt_rs256(const std::string& message, const std::string& private_key_pem) {
+    BIO* bio = BIO_new_mem_buf(private_key_pem.data(), static_cast<int>(private_key_pem.size()));
+    if(!bio) return Option<std::string>(500, "Internal error: BIO_new_mem_buf failed");
+    EVP_PKEY* pkey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+    BIO_free(bio);
+    if(!pkey) return Option<std::string>(400, "Invalid service_account.private_key format.");
+
+    EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+    if(!mdctx) { EVP_PKEY_free(pkey); return Option<std::string>(500, "Internal error: EVP_MD_CTX_new failed"); }
+    if(EVP_DigestSignInit(mdctx, nullptr, EVP_sha256(), nullptr, pkey) != 1) {
+        EVP_MD_CTX_free(mdctx); EVP_PKEY_free(pkey); return Option<std::string>(500, "Internal error: EVP_DigestSignInit failed");
+    }
+    if(EVP_DigestSignUpdate(mdctx, message.data(), message.size()) != 1) {
+        EVP_MD_CTX_free(mdctx); EVP_PKEY_free(pkey); return Option<std::string>(500, "Internal error: EVP_DigestSignUpdate failed");
+    }
+    size_t siglen = 0;
+    if(EVP_DigestSignFinal(mdctx, nullptr, &siglen) != 1) {
+        EVP_MD_CTX_free(mdctx); EVP_PKEY_free(pkey); return Option<std::string>(500, "Internal error: EVP_DigestSignFinal size failed");
+    }
+    std::string signature;
+    signature.resize(siglen);
+    if(EVP_DigestSignFinal(mdctx, reinterpret_cast<unsigned char*>(&signature[0]), &siglen) != 1) {
+        EVP_MD_CTX_free(mdctx); EVP_PKEY_free(pkey); return Option<std::string>(500, "Internal error: EVP_DigestSignFinal failed");
+    }
+    signature.resize(siglen);
+    EVP_MD_CTX_free(mdctx);
+    EVP_PKEY_free(pkey);
+    return Option<std::string>(signature);
+}
+
+static Option<std::pair<std::string,long long>> mint_sa_access_token_once(const std::string& client_email, const std::string& private_key_pem, const std::string& token_uri) {
+    const long long now = static_cast<long long>(std::time(nullptr));
+    const long long exp = now + 3600; // 1 hour
+    nlohmann::json header = {{"alg","RS256"},{"typ","JWT"}};
+    nlohmann::json claims = {
+        {"iss", client_email},
+        {"scope", "https://www.googleapis.com/auth/cloud-platform"},
+        {"aud", token_uri},
+        {"exp", exp},
+        {"iat", now}
+    };
+    const std::string signing_input = base64url_encode(header.dump()) + "." + base64url_encode(claims.dump());
+    auto sig_op = sign_jwt_rs256(signing_input, private_key_pem);
+    if(!sig_op.ok()) return Option<std::pair<std::string,long long>>(sig_op.code(), sig_op.error());
+    const std::string assertion = signing_input + "." + base64url_encode(sig_op.get());
+
+    std::unordered_map<std::string, std::string> headers;
+    headers["Content-Type"] = "application/x-www-form-urlencoded";
+    std::map<std::string, std::string> res_headers;
+    std::string res;
+    std::string req_body = "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=" + assertion;
+    
+    const std::string GCP_AUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
+    auto res_code = NaturalLanguageSearchModel::post_response(token_uri, req_body, res, res_headers, headers, 30000);
+    if(res_code != 200) {
+        if(res_code == 408) return Option<std::pair<std::string,long long>>(408, "GCP API timeout.");
+        nlohmann::json json_res;
+        try { json_res = nlohmann::json::parse(res); } catch (...) {
+            return Option<std::pair<std::string,long long>>(400, "Got malformed response from GCP API.");
+        }
+        std::string msg = json_res.count("error") ? json_res["error"].dump() : res;
+        return Option<std::pair<std::string,long long>>(400, "GCP API error: " + msg);
+    }
+
+    nlohmann::json res_json;
+    try { res_json = nlohmann::json::parse(res); } catch (...) {
+        return Option<std::pair<std::string,long long>>(400, "Got malformed response from GCP API.");
+    }
+
+    if(res_json.count("access_token") == 0 || res_json.count("expires_in") == 0) {
+        return Option<std::pair<std::string,long long>>(400, "GCP API error: access_token missing in response");
+    }
+
+    const std::string token = res_json["access_token"].get<std::string>();
+    const long long expires_at = now + res_json["expires_in"].get<long long>();
+    return Option<std::pair<std::string,long long>>(std::make_pair(token, expires_at));
+}
+
+static Option<std::string> ensure_gcp_access_token(const nlohmann::json& model_config, bool force_refresh = false) {
+    // Check for service account authentication
+    if(model_config.count("service_account") > 0 && model_config["service_account"].is_object()) {
+        const nlohmann::json& sa = model_config["service_account"];
+        const std::string client_email = sa["client_email"].get<std::string>();
+        std::string private_key = sa["private_key"].get<std::string>();
+        normalize_pem_newlines(private_key);
+        const std::string token_uri = sa.count("token_uri") > 0 && sa["token_uri"].is_string() ? 
+                                       sa["token_uri"].get<std::string>() : "https://oauth2.googleapis.com/token";
+        
+
+        auto mint_op = mint_sa_access_token_once(client_email, private_key, token_uri);
+        if(!mint_op.ok()) {
+            return Option<std::string>(mint_op.code(), mint_op.error());
+        }
+        return Option<std::string>(mint_op.get().first);
+    }
+    
+    if(!force_refresh && model_config.count("access_token") > 0 && 
+       model_config["access_token"].is_string() && 
+       !model_config["access_token"].get<std::string>().empty()) {
+        return Option<std::string>(model_config["access_token"].get<std::string>());
+    }
+    
+    if(!model_config.count("refresh_token") || !model_config.count("client_id") || !model_config.count("client_secret")) {
+        return Option<std::string>(400, "Missing OAuth credentials (refresh_token, client_id, client_secret)");
+    }
+
+    const std::string& refresh_token = model_config["refresh_token"].get<std::string>();
+    const std::string& client_id = model_config["client_id"].get<std::string>();
+    const std::string& client_secret = model_config["client_secret"].get<std::string>();
+
+    return NaturalLanguageSearchModel::generate_gcp_access_token(refresh_token, client_id, client_secret);
+}
+
 Option<bool> NaturalLanguageSearchModel::validate_gcp_model(const nlohmann::json& model_config) {
-    // Required fields
+    if(model_config.count("service_account") > 0 && model_config["service_account"].is_object()) {
+        if(model_config.count("project_id") == 0 || !model_config["project_id"].is_string() || 
+           model_config["project_id"].get<std::string>().empty()) {
+            return Option<bool>(400, "Property `project_id` is missing or is not a non-empty string.");
+        }
+
+        const std::string& model_name = model_config["model_name"].get<std::string>();
+        const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
+        const std::string& project_id = model_config["project_id"].get<std::string>();
+        std::string region = model_config.value("region", std::string("us-central1"));
+        
+        if(model_name.find("/") == std::string::npos || model_name.substr(0, model_name.find("/")) != "gcp") {
+            return Option<bool>(400, "Invalid GCP model name");
+        }
+
+        const nlohmann::json& sa = model_config["service_account"];
+        if(sa.count("client_email") == 0 || !sa["client_email"].is_string() || 
+           sa.count("private_key") == 0 || !sa["private_key"].is_string()) {
+            return Option<bool>(400, "Property `service_account.client_email/private_key` missing or not a string.");
+        }
+        
+        const std::string client_email = sa["client_email"].get<std::string>();
+        std::string private_key = sa["private_key"].get<std::string>();
+        normalize_pem_newlines(private_key);
+        const std::string token_uri = sa.count("token_uri") > 0 && sa["token_uri"].is_string() ? 
+                                       sa["token_uri"].get<std::string>() : "https://oauth2.googleapis.com/token";
+        
+        auto mint_op = mint_sa_access_token_once(client_email, private_key, token_uri);
+        if(!mint_op.ok()) {
+            return Option<bool>(mint_op.code(), mint_op.error());
+        }
+        const std::string access_token_tmp = mint_op.get().first;
+
+        std::string api_url = "https://" + region + "-aiplatform.googleapis.com/v1/projects/" + 
+                             project_id + "/locations/" + region + "/publishers/google/models/" + 
+                             model_name_without_namespace + ":generateContent";
+
+        std::unordered_map<std::string, std::string> headers = {
+            {"Content-Type", "application/json"},
+            {"Authorization", "Bearer " + access_token_tmp}
+        };
+
+        nlohmann::json test_request;
+        test_request["contents"] = {{
+            {"role", "user"},
+            {"parts", {{{"text", "hello"}}}}
+        }};
+        test_request["generationConfig"] = {
+            {"temperature", 0},
+            {"maxOutputTokens", 10}
+        };
+
+        std::string response;
+        std::map<std::string, std::string> response_headers;
+        long status_code = post_response(api_url, test_request.dump(), response, response_headers, headers, VALIDATION_TIMEOUT_MS);
+
+        if(status_code != 200) {
+            nlohmann::json json_res;
+            try { json_res = nlohmann::json::parse(response); } catch (...) {
+                return Option<bool>(400, "Got malformed response from GCP API.");
+            }
+            if(status_code == 408) return Option<bool>(408, "GCP API timeout.");
+            if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
+                return Option<bool>(400, "GCP API error: " + response);
+            }
+            return Option<bool>(400, "GCP API error: " + json_res["error"]["message"].get<std::string>());
+        }
+
+        return Option<bool>(true);
+    }
+
     if(model_config.count("project_id") == 0 || !model_config["project_id"].is_string() || 
        model_config["project_id"].get<std::string>().empty()) {
         return Option<bool>(400, "Property `project_id` is missing or is not a non-empty string.");
@@ -836,10 +1042,12 @@ Option<nlohmann::json> NaturalLanguageSearchModel::call_gcp_api(
     const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
     const std::string& project_id = model_config["project_id"].get<std::string>();
     const std::string& region = model_config.value("region", std::string("us-central1"));
-    std::string access_token = model_config["access_token"].get<std::string>();
-    const std::string& refresh_token = model_config["refresh_token"].get<std::string>();
-    const std::string& client_id = model_config["client_id"].get<std::string>();
-    const std::string& client_secret = model_config["client_secret"].get<std::string>();
+    
+    auto token_op = ensure_gcp_access_token(model_config, false);
+    if(!token_op.ok()) {
+        return Option<nlohmann::json>(token_op.code(), "Failed to get GCP access token: " + token_op.error());
+    }
+    std::string access_token = token_op.get();
     
     std::string api_url = "https://" + region + "-aiplatform.googleapis.com/v1/projects/" + 
                          project_id + "/locations/" + region + "/publishers/google/models/" + 
@@ -856,7 +1064,7 @@ Option<nlohmann::json> NaturalLanguageSearchModel::call_gcp_api(
 
     // Handle 401 Unauthorized - refresh token and retry
     if(status_code == 401) {
-        auto refresh_op = generate_gcp_access_token(refresh_token, client_id, client_secret);
+        auto refresh_op = ensure_gcp_access_token(model_config, true);
         if(!refresh_op.ok()) {
             return Option<nlohmann::json>(401, "Failed to refresh GCP access token: " + refresh_op.error());
         }
