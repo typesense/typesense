@@ -93,13 +93,44 @@ Option<nlohmann::json> NaturalLanguageSearchModelManager::update_model(const std
         return Option<nlohmann::json>(validate_res.code(), validate_res.error());
     }
 
-    auto model_key = get_model_key(model_id);
-    bool insert_op = store->insert(model_key, model_copy.dump(0));
-    if(!insert_op) {
-        return Option<nlohmann::json>(500, "Error while inserting model into the store");
-    }
+    std::string new_model_id = model_copy["id"].get<std::string>();
+    bool id_changed = (new_model_id != model_id);
 
-    models[model_id] = model_copy;
+    if (id_changed) {
+        if (models.find(new_model_id) != models.end()) {
+            return Option<nlohmann::json>(409, "Model id already exists");
+        }
+
+        nlohmann::json old_model = it->second;
+
+        models.erase(it);
+
+        auto old_model_key = get_model_key(model_id);
+        bool remove_op = store->remove(old_model_key);
+        if(!remove_op) {
+            // If removal fails, restore the old entry
+            models[model_id] = old_model;
+            return Option<nlohmann::json>(500, "Error while removing old model from the store");
+        }
+
+        models[new_model_id] = model_copy;
+        auto new_model_key = get_model_key(new_model_id);
+        bool insert_op = store->insert(new_model_key, model_copy.dump(0));
+        if(!insert_op) {
+            // If insertion fails, restore the old entry
+            models.erase(new_model_id);
+            models[model_id] = old_model;
+            return Option<nlohmann::json>(500, "Error while inserting model into the store");
+        }
+    } else {
+        auto model_key = get_model_key(model_id);
+        bool insert_op = store->insert(model_key, model_copy.dump(0));
+        if(!insert_op) {
+            return Option<nlohmann::json>(500, "Error while inserting model into the store");
+        }
+
+        models[model_id] = model_copy;
+    }
 
     return Option<nlohmann::json>(model_copy);
 }
