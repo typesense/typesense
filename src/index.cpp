@@ -9071,6 +9071,9 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
     const auto diversity_limit = std::min<size_t>(topster->size, diversity.limit);
     auto max_similarities = std::vector<double>(diversity_limit, std::numeric_limits<double>::lowest());
     auto max_q_similarity_kv = topster->getKV(0);
+
+    // Using decimal scaling to normalize the match score of the document so it can be effectively used in the MMR
+    // algorithm otherwise the `left` side is usually too large for `right` side to make any difference to the response.
     auto max_score = max_q_similarity_kv->match_score_index == -1 ? 0 :
                                 max_q_similarity_kv->scores[max_q_similarity_kv->match_score_index];
     size_t decimal_scaling_j = 0;
