@@ -6889,6 +6889,12 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                         update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
                                                                        ref_field_name, ref_field);
                     }
+                    if (!update_ref_infos.empty() && update_ref_infos.begin()->is_mutual_reference) {
+                        auto info = collectionManager.is_referenced_in(name, ref_coll_name);
+                        return Option<bool>(400, "Collections having reference to each other are not allowed. `" +
+                                                 name + "` collection is referenced by `" + ref_coll_name + "` collection's `" +
+                                                 info.get().field + "` field. `" + field.name + "` field is not indexed.");
+                    }
 
                     auto ref_info = reference_info_t{name, field.name, field.is_async_reference, field.is_array(),
                                                      ref_field_name};
@@ -7358,6 +7364,15 @@ Index* Collection::init_index() {
                 ref_coll_name = ref_coll->name;
                 update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
                                                                ref_field_name, ref_field);
+            }
+            if (!update_ref_infos.empty() && update_ref_infos.begin()->is_mutual_reference) {
+                auto info = collectionManager.is_referenced_in(name, ref_coll_name);
+                LOG(ERROR) << "Collections having reference to each other are not allowed. `" +
+                              name + "` collection is referenced by `" + ref_coll_name + "` collection's `" +
+                              info.get().field + "` field. `" + field.name + "` field is not indexed.";
+                search_schema.erase(field.name);
+                nested_fields.erase(field.name);
+                continue;
             }
 
             auto ref_info = reference_info_t{name, field.name, field.is_async_reference, field.is_array(), ref_field_name};
@@ -8045,7 +8060,10 @@ std::set<update_reference_info_t> Collection::add_referenced_in(const std::strin
     }
 
     referenced_field = referenced_field_name == "id" ? field("id", "string", false) : *it;
-    update_ref_infos.insert({collection_name, field_name, referenced_field});
+    auto ref_info = update_reference_info_t(collection_name, field_name, referenced_field);
+    ref_info.is_mutual_reference = references(collection_name);
+    update_ref_infos.insert(ref_info);
+
     return update_ref_infos;
 }
 

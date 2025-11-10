@@ -10,6 +10,7 @@
 struct base_reference_info_t {
     std::string collection{};
     std::string field{};
+    bool is_mutual_reference = false;
 
     base_reference_info_t() = default;
 
