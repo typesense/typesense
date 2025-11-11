@@ -7330,6 +7330,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
 }
 
 Index* Collection::init_index() {
+    std::set<std::string> skipped_reference_helper_fields;
     for(const field& field: fields) {
         if(field.is_dynamic()) {
             // regexp fields and fields with auto type are treated as dynamic fields
@@ -7372,6 +7373,7 @@ Index* Collection::init_index() {
                               info.get().field + "` field. `" + field.name + "` field is not indexed.";
                 search_schema.erase(field.name);
                 nested_fields.erase(field.name);
+                skipped_reference_helper_fields.insert(field.name + fields::REFERENCE_HELPER_FIELD_SUFFIX);
                 continue;
             }
 
@@ -7388,6 +7390,11 @@ Index* Collection::init_index() {
             for (auto& update_ref_info: update_ref_infos) {
                 update_reference_field(update_ref_info.field, update_ref_info.referenced_field);
             }
+        }
+
+        if (field.is_reference_helper && skipped_reference_helper_fields.count(field.name) != 0) {
+            search_schema.erase(field.name);
+            nested_fields.erase(field.name);
         }
     }
 
