@@ -67,14 +67,15 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        spp::sparse_hash_map<std::string, std::string> referenced_in,
                        const nlohmann::json& metadata,
                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins,
-                       const std::vector<std::string>& synonym_sets, const std::vector<std::string>& curation_sets) :
+                       const std::vector<std::string>& synonym_sets, const std::vector<std::string>& curation_sets,
+                       const bool& is_live_request) :
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
         max_memory_ratio(max_memory_ratio),
         fallback_field_type(fallback_field_type), dynamic_fields({}),
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
-        index(init_index()), vq_model(vq_model),
+        index(init_index(is_live_request)), vq_model(vq_model),
         referenced_in(std::move(referenced_in)),
         metadata(metadata), async_referenced_ins(std::move(async_referenced_ins)), synonym_sets(synonym_sets), curation_sets(curation_sets)  {
     
@@ -6132,6 +6133,10 @@ const Index* Collection::_get_index() const {
     return index;
 }
 
+const Option<bool> Collection::_get_index_init_op() const {
+    return index_init_op;
+}
+
 Option<bool> Collection::parse_pinned_hits(const std::string& pinned_hits_str,
                                            std::map<size_t, std::vector<std::string>>& pinned_hits) {
     if(!pinned_hits_str.empty()) {
@@ -7329,7 +7334,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
     return Option<bool>(true);
 }
 
-Index* Collection::init_index() {
+Index* Collection::init_index(const bool& is_live_request) {
     std::set<std::string> skipped_reference_helper_fields;
     for(const field& field: fields) {
         if(field.is_dynamic()) {
@@ -7368,9 +7373,15 @@ Index* Collection::init_index() {
             }
             if (!update_ref_infos.empty() && update_ref_infos.begin()->is_mutual_reference) {
                 auto info = collectionManager.is_referenced_in(name, ref_coll_name);
-                LOG(ERROR) << "Collections having reference to each other are not allowed. `" +
-                              name + "` collection is referenced by `" + ref_coll_name + "` collection's `" +
-                              info.get().field + "` field. `" + field.name + "` field is not indexed.";
+                const auto error = "Collections having reference to each other are not allowed. `" + name +
+                                    "` collection is referenced by `" + ref_coll_name + "` collection's `" +
+                                    info.get().field + "` field.";
+                if (is_live_request) {
+                    // Return an error in case the collection is not being loaded from disk.
+                    index_init_op = Option<bool>(400, error);
+                    return nullptr;
+                }
+                LOG(ERROR) << error + " `" + field.name + "` field is not indexed.";
                 search_schema.erase(field.name);
                 nested_fields.erase(field.name);
                 skipped_reference_helper_fields.insert(field.name + fields::REFERENCE_HELPER_FIELD_SUFFIX);

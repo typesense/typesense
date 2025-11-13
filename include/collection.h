@@ -452,6 +452,8 @@ private:
     /// rather than in the document.
     tsl::htrie_set<char> object_reference_fields;
 
+    Option<bool> index_init_op = Option<bool>(true);
+
     // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
     Index* index;
 
@@ -578,7 +580,7 @@ private:
 
     static Option<drop_tokens_param_t> parse_drop_tokens_mode(const std::string& drop_tokens_mode);
 
-    Index* init_index();
+    Index* init_index(const bool& is_live_request);
 
     static std::vector<char> to_char_array(const std::vector<std::string>& strs);
 
@@ -754,7 +756,8 @@ public:
                const nlohmann::json& metadata = {},
                spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins =
                         spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
-               const std::vector<std::string>& collection_synonym_sets = {}, const std::vector<std::string>& collection_curation_sets = {});
+               const std::vector<std::string>& collection_synonym_sets = {}, const std::vector<std::string>& collection_curation_sets = {},
+               const bool& is_live_request = true);
 
     ~Collection();
 
@@ -834,6 +837,7 @@ public:
                                   const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec = {});
 
     const Index* _get_index() const;
+    const Option<bool> _get_index_init_op() const;
 
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, nlohmann::json &document,
                                std::string &value) const;

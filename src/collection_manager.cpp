@@ -271,7 +271,7 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
                                             metadata,
                                             async_referenced_ins,
                                             synonym_sets,
-                                            curation_sets);
+                                            curation_sets, false);
 
     for (const auto& ref_field: collection->get_reference_fields()) {
         const auto& ref_info = ref_field.second;
@@ -770,7 +770,15 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                 enable_nested_fields, model,
                                                 spp::sparse_hash_map<std::string, std::string>(),
                                                 metadata,
-                                                spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(), synonym_sets, curation_sets);
+                                                spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
+                                                synonym_sets, curation_sets, true);
+    if (new_collection->_get_index() == nullptr) {
+        store->remove(Collection::get_next_seq_id_key(name));
+        store->remove(Collection::get_meta_key(name));
+        auto op = Option<Collection*>(new_collection->_get_index_init_op().code(), new_collection->_get_index_init_op().error());
+        delete new_collection;
+        return op;
+    }
 
     add_to_collections(new_collection);
     lock.lock();
