@@ -255,24 +255,28 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
         }
     }
 
-    Collection* collection = new Collection(this_collection_name,
-                                            collection_meta[Collection::COLLECTION_ID_KEY].get<uint32_t>(),
-                                            created_at,
-                                            collection_next_seq_id,
-                                            store,
-                                            fields,
-                                            default_sorting_field,
-                                            max_memory_ratio,
-                                            fallback_field_type,
-                                            symbols_to_index,
-                                            token_separators,
-                                            enable_nested_fields, model,
-                                            referenced_in,
-                                            metadata,
-                                            async_referenced_ins,
-                                            synonym_sets,
-                                            curation_sets, false);
+    auto collection_op = Collection::new_collection(this_collection_name,
+                                                    collection_meta[Collection::COLLECTION_ID_KEY].get<uint32_t>(),
+                                                    created_at,
+                                                    collection_next_seq_id,
+                                                    store,
+                                                    fields,
+                                                    default_sorting_field,
+                                                    max_memory_ratio,
+                                                    fallback_field_type,
+                                                    symbols_to_index,
+                                                    token_separators,
+                                                    enable_nested_fields, model,
+                                                    referenced_in,
+                                                    metadata,
+                                                    async_referenced_ins,
+                                                    synonym_sets,
+                                                    curation_sets, false);
+    if (!collection_op.ok()) {
+        return collection_op;
+    }
 
+    auto collection = collection_op.get();
     for (const auto& ref_field: collection->get_reference_fields()) {
         const auto& ref_info = ref_field.second;
         ref_info_it = referenced_infos.find(ref_info.collection);
@@ -763,23 +767,22 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
 
     lock.unlock();
 
-    Collection* new_collection = new Collection(name, new_coll_id, created_at, 0, store, fields,
-                                                default_sorting_field,
-                                                this->max_memory_ratio, fallback_field_type,
-                                                symbols_to_index, token_separators,
-                                                enable_nested_fields, model,
-                                                spp::sparse_hash_map<std::string, std::string>(),
-                                                metadata,
-                                                spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
-                                                synonym_sets, curation_sets, true);
-    if (new_collection->_get_index() == nullptr) {
+    auto collection_op = Collection::new_collection(name, new_coll_id, created_at, 0, store, fields,
+                                                    default_sorting_field,
+                                                    this->max_memory_ratio, fallback_field_type,
+                                                    symbols_to_index, token_separators,
+                                                    enable_nested_fields, model,
+                                                    spp::sparse_hash_map<std::string, std::string>(),
+                                                    metadata,
+                                                    spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
+                                                    synonym_sets, curation_sets, true);
+    if (!collection_op.ok()) {
         store->remove(Collection::get_next_seq_id_key(name));
         store->remove(Collection::get_meta_key(name));
-        auto op = Option<Collection*>(new_collection->_get_index_init_op().code(), new_collection->_get_index_init_op().error());
-        delete new_collection;
-        return op;
+        return collection_op;
     }
 
+    auto new_collection = collection_op.get();
     add_to_collections(new_collection);
     lock.lock();
 

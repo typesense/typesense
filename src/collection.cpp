@@ -57,28 +57,40 @@ struct sort_fields_guard_t {
     }
 };
 
-Collection::Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
-                       const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
+Collection::Collection(const std::string& name, const uint32_t& collection_id, const uint64_t& created_at,
+                       const uint32_t& next_seq_id, Store* store, const std::vector<field>& fields,
                        const std::string& default_sorting_field,
-                       const float max_memory_ratio, const std::string& fallback_field_type,
-                       const std::vector<std::string>& symbols_to_index,
-                       const std::vector<std::string>& token_separators,
-                       const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model,
+                       const float& max_memory_ratio, const std::string& fallback_field_type,
+                       std::vector<char>&& symbols_to_index, std::vector<char>&& token_separators,
+                       const bool& enable_nested_fields, std::shared_ptr<VQModel> vq_model,
                        spp::sparse_hash_map<std::string, std::string> referenced_in,
                        const nlohmann::json& metadata,
-                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins,
-                       const std::vector<std::string>& synonym_sets, const std::vector<std::string>& curation_sets,
-                       const bool& is_live_request) :
+                       spp::sparse_hash_map<std::string, std::set<reference_pair_t>>&& async_referenced_ins,
+                       const std::vector<std::string>& collection_synonym_sets,
+                       const std::vector<std::string>& collection_curation_sets,
+                       Index* index,
+                       std::unordered_map<std::string, field>&& dynamic_fields,
+                       tsl::htrie_map<char, field>&& nested_fields,
+                       tsl::htrie_map<char, field>&& search_schema,
+                       tsl::htrie_map<char, field>&& embedding_fields,
+                       spp::sparse_hash_map<std::string, reference_info_t>&& reference_fields,
+                       tsl::htrie_set<char>&& object_reference_fields,
+                       std::set<update_reference_info_t>&& update_ref_infos):
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
-        fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
+        fields(fields), search_schema(search_schema), default_sorting_field(default_sorting_field),
         max_memory_ratio(max_memory_ratio),
-        fallback_field_type(fallback_field_type), dynamic_fields({}),
-        symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
-        index(init_index(is_live_request)), vq_model(vq_model),
-        referenced_in(std::move(referenced_in)),
-        metadata(metadata), async_referenced_ins(std::move(async_referenced_ins)), synonym_sets(synonym_sets), curation_sets(curation_sets)  {
-    
+        fallback_field_type(fallback_field_type), dynamic_fields(std::move(dynamic_fields)),
+        nested_fields(std::move(nested_fields)),
+        embedding_fields(std::move(embedding_fields)),
+        enable_nested_fields(enable_nested_fields),
+        symbols_to_index(std::move(symbols_to_index)), token_separators(std::move(token_separators)),
+        synonym_sets(collection_synonym_sets), curation_sets(collection_curation_sets),
+        reference_fields(std::move(reference_fields)),
+        referenced_in(std::move(referenced_in)), async_referenced_ins(std::move(async_referenced_ins)),
+        object_reference_fields(std::move(object_reference_fields)),
+        index(index), vq_model(vq_model),
+        metadata(metadata) {
     if (vq_model) {
         vq_model->inc_collection_ref_count();
     }
@@ -86,6 +98,68 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
     this->alter_in_progress = false;
     this->altered_docs= 0;
     this->validated_docs= 0;
+
+    for (auto& update_ref_info: update_ref_infos) {
+        update_reference_field(update_ref_info.field, update_ref_info.referenced_field);
+    }
+}
+
+Option<Collection*> Collection::new_collection(const std::string& name, const uint32_t& collection_id,
+                                               const uint64_t& created_at,
+                                               const uint32_t& next_seq_id, Store *store, const std::vector<field>& fields,
+                                               const std::string& default_sorting_field,
+                                               const float& max_memory_ratio, const std::string& fallback_field_type,
+                                               const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
+                                               const bool& enable_nested_fields, std::shared_ptr<VQModel> vq_model,
+                                               spp::sparse_hash_map<std::string, std::string> referenced_in,
+                                               const nlohmann::json& metadata,
+                                               spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins,
+                                               const std::vector<std::string>& collection_synonym_sets,
+                                               const std::vector<std::string>& collection_curation_sets,
+                                               const bool& is_live_request) {
+    auto char_symbols_to_index = to_char_array(symbols_to_index);
+    auto char_token_separators = to_char_array(token_separators);
+    std::unordered_map<std::string, field> dynamic_fields;
+    tsl::htrie_map<char, field> nested_fields;
+    tsl::htrie_map<char, field> search_schema;
+    tsl::htrie_map<char, field> embedding_fields;
+    spp::sparse_hash_map<std::string, reference_info_t> reference_fields;
+    tsl::htrie_set<char> object_reference_fields;
+    std::set<update_reference_info_t> update_ref_infos;
+    auto op = init_index(is_live_request, name, collection_id,
+                         fields, store,
+                         char_symbols_to_index, char_token_separators,
+                         dynamic_fields,
+                         nested_fields,
+                         search_schema,
+                         embedding_fields,
+                         reference_fields,
+                         object_reference_fields,
+                         update_ref_infos);
+    if (!op.ok()) {
+        return Option<Collection*>(op.code(), op.error());
+    }
+
+    return Option<Collection*>(new Collection(name, collection_id, created_at,
+                                              next_seq_id, store, fields,
+                                              default_sorting_field,
+                                              max_memory_ratio, fallback_field_type,
+                                              std::move(char_symbols_to_index), std::move(char_token_separators),
+                                              enable_nested_fields, vq_model,
+                                              referenced_in,
+                                              metadata,
+                                              std::move(async_referenced_ins),
+                                              collection_synonym_sets,
+                                              collection_curation_sets,
+                                              op.get(),
+                                              std::move(dynamic_fields),
+                                              std::move(nested_fields),
+                                              std::move(search_schema),
+                                              std::move(embedding_fields),
+                                              std::move(reference_fields),
+                                              std::move(object_reference_fields),
+                                              std::move(update_ref_infos)
+                                              ));
 }
 
 Collection::~Collection() {
@@ -6133,10 +6207,6 @@ const Index* Collection::_get_index() const {
     return index;
 }
 
-const Option<bool> Collection::_get_index_init_op() const {
-    return index_init_op;
-}
-
 Option<bool> Collection::parse_pinned_hits(const std::string& pinned_hits_str,
                                            std::map<size_t, std::vector<std::string>>& pinned_hits) {
     if(!pinned_hits_str.empty()) {
@@ -6897,8 +6967,8 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     if (!update_ref_infos.empty() && update_ref_infos.begin()->is_mutual_reference) {
                         auto info = collectionManager.is_referenced_in(name, ref_coll_name);
                         return Option<bool>(400, "Collections having reference to each other are not allowed. `" +
-                                                 name + "` collection is referenced by `" + ref_coll_name + "` collection's `" +
-                                                 info.get().field + "` field. `" + field.name + "` field is not indexed.");
+                                                 name + "` collection is referenced by `" += ref_coll_name +
+                                                 "` collection's `" += info.get().field + "` field.");
                     }
 
                     auto ref_info = reference_info_t{name, field.name, field.is_async_reference, field.is_array(),
@@ -7334,7 +7404,16 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
     return Option<bool>(true);
 }
 
-Index* Collection::init_index(const bool& is_live_request) {
+Option<Index*> Collection::init_index(const bool& is_live_request, const std::string& name, const uint32_t& collection_id,
+                                      const std::vector<field>& fields, Store *store,
+                                      const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
+                                      std::unordered_map<std::string, field>& dynamic_fields,
+                                      tsl::htrie_map<char, field>& nested_fields,
+                                      tsl::htrie_map<char, field>& search_schema,
+                                      tsl::htrie_map<char, field>& embedding_fields,
+                                      spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
+                                      tsl::htrie_set<char>& object_reference_fields,
+                                      std::set<update_reference_info_t>& update_ref_infos) {
     std::set<std::string> skipped_reference_helper_fields;
     for(const field& field: fields) {
         if(field.is_dynamic()) {
@@ -7362,24 +7441,23 @@ Index* Collection::init_index(const bool& is_live_request) {
             auto ref_coll_name = field.reference.substr(0, dot_index);
             auto ref_field_name = field.reference.substr(dot_index + 1);
             struct field ref_field;
-            std::set<update_reference_info_t> update_ref_infos{};
+            std::set<update_reference_info_t> _update_ref_infos{};
 
             auto& collectionManager = CollectionManager::get_instance();
             auto ref_coll = collectionManager.get_collection(ref_coll_name); // resolves alias
             if (ref_coll != nullptr) {
                 ref_coll_name = ref_coll->name;
-                update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
+                _update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
                                                                ref_field_name, ref_field);
             }
-            if (!update_ref_infos.empty() && update_ref_infos.begin()->is_mutual_reference) {
+            if (!_update_ref_infos.empty() && _update_ref_infos.begin()->is_mutual_reference) {
                 auto info = collectionManager.is_referenced_in(name, ref_coll_name);
                 const auto error = "Collections having reference to each other are not allowed. `" + name +
-                                    "` collection is referenced by `" + ref_coll_name + "` collection's `" +
-                                    info.get().field + "` field.";
+                                   "` collection is referenced by `" += ref_coll_name + "` collection's `" +=
+                                   info.get().field + "` field.";
                 if (is_live_request) {
                     // Return an error in case the collection is not being loaded from disk.
-                    index_init_op = Option<bool>(400, error);
-                    return nullptr;
+                    return Option<Index*>(400, error);
                 }
                 LOG(ERROR) << error + " `" + field.name + "` field is not indexed.";
                 search_schema.erase(field.name);
@@ -7398,9 +7476,7 @@ Index* Collection::init_index(const bool& is_live_request) {
                 object_reference_fields.insert(field.name);
             }
 
-            for (auto& update_ref_info: update_ref_infos) {
-                update_reference_field(update_ref_info.field, update_ref_info.referenced_field);
-            }
+            update_ref_infos.insert(_update_ref_infos.begin(), _update_ref_infos.end());
         }
 
         if (field.is_reference_helper && skipped_reference_helper_fields.count(field.name) != 0) {
@@ -7409,12 +7485,12 @@ Index* Collection::init_index(const bool& is_live_request) {
         }
     }
 
-    return new Index(name+std::to_string(0),
-                     collection_id,
-                     store,
-                     CollectionManager::get_instance().get_thread_pool(),
-                     search_schema,
-                     symbols_to_index, token_separators);
+    return Option<Index*>(new Index(name+std::to_string(0),
+                                    collection_id,
+                                    store,
+                                    CollectionManager::get_instance().get_thread_pool(),
+                                    search_schema,
+                                    symbols_to_index, token_separators));
 }
 
 DIRTY_VALUES Collection::parse_dirty_values_option(std::string& dirty_values) const {

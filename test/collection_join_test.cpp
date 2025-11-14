@@ -11615,7 +11615,7 @@ TEST_F(CollectionJoinTest, MutualReferences) {
     auto alter_op = coll->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
     ASSERT_EQ("Collections having reference to each other are not allowed. `authors` collection is referenced by `books`"
-              " collection's `author_id` field. `reference_field` field is not indexed.", alter_op.error());
+              " collection's `author_id` field.", alter_op.error());
 
     ASSERT_EQ(0, collection_create_op.get()->get_schema().count("reference_field"));
 }

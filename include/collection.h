@@ -452,8 +452,6 @@ private:
     /// rather than in the document.
     tsl::htrie_set<char> object_reference_fields;
 
-    Option<bool> index_init_op = Option<bool>(true);
-
     // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
     Index* index;
 
@@ -466,6 +464,26 @@ private:
     std::atomic<size_t> validated_docs;
 
     std::deque<nlohmann::json> alter_history;
+
+    Collection(const std::string& name, const uint32_t& collection_id, const uint64_t& created_at,
+               const uint32_t& next_seq_id, Store* store, const std::vector<field>& fields,
+               const std::string& default_sorting_field,
+               const float& max_memory_ratio, const std::string& fallback_field_type,
+               std::vector<char>&& symbols_to_index, std::vector<char>&& token_separators,
+               const bool& enable_nested_fields, std::shared_ptr<VQModel> vq_model,
+               spp::sparse_hash_map<std::string, std::string> referenced_in,
+               const nlohmann::json& metadata,
+               spp::sparse_hash_map<std::string, std::set<reference_pair_t>>&& async_referenced_ins,
+               const std::vector<std::string>& collection_synonym_sets,
+               const std::vector<std::string>& collection_curation_sets,
+               Index* index,
+               std::unordered_map<std::string, field>&& dynamic_fields,
+               tsl::htrie_map<char, field>&& nested_fields,
+               tsl::htrie_map<char, field>&& search_schema,
+               tsl::htrie_map<char, field>&& embedding_fields,
+               spp::sparse_hash_map<std::string, reference_info_t>&& reference_fields,
+               tsl::htrie_set<char>&& object_reference_fields,
+               std::set<update_reference_info_t>&& update_ref_infos);
 
     // methods
 
@@ -580,7 +598,16 @@ private:
 
     static Option<drop_tokens_param_t> parse_drop_tokens_mode(const std::string& drop_tokens_mode);
 
-    Index* init_index(const bool& is_live_request);
+    static Option<Index*> init_index(const bool& is_live_request, const std::string& name, const uint32_t& collection_id,
+                                     const std::vector<field>& fields, Store *store,
+                                     const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
+                                     std::unordered_map<std::string, field>& dynamic_fields,
+                                     tsl::htrie_map<char, field>& nested_fields,
+                                     tsl::htrie_map<char, field>& search_schema,
+                                     tsl::htrie_map<char, field>& embedding_fields,
+                                     spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
+                                     tsl::htrie_set<char>& object_reference_fields,
+                                     std::set<update_reference_info_t>& update_ref_infos);
 
     static std::vector<char> to_char_array(const std::vector<std::string>& strs);
 
@@ -746,18 +773,19 @@ public:
 
     Collection() = delete;
 
-    Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
-               const uint32_t next_seq_id, Store *store, const std::vector<field>& fields,
-               const std::string& default_sorting_field,
-               const float max_memory_ratio, const std::string& fallback_field_type,
-               const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
-               const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model = nullptr,
-               spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>(),
-               const nlohmann::json& metadata = {},
-               spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins =
-                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
-               const std::vector<std::string>& collection_synonym_sets = {}, const std::vector<std::string>& collection_curation_sets = {},
-               const bool& is_live_request = true);
+    static Option<Collection*> new_collection(const std::string& name, const uint32_t& collection_id,
+                                              const uint64_t& created_at,
+                                              const uint32_t& next_seq_id, Store *store, const std::vector<field>& fields,
+                                              const std::string& default_sorting_field,
+                                              const float& max_memory_ratio, const std::string& fallback_field_type,
+                                              const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
+                                              const bool& enable_nested_fields, std::shared_ptr<VQModel> vq_model,
+                                              spp::sparse_hash_map<std::string, std::string> referenced_in,
+                                              const nlohmann::json& metadata,
+                                              spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins,
+                                              const std::vector<std::string>& collection_synonym_sets,
+                                              const std::vector<std::string>& collection_curation_sets,
+                                              const bool& is_live_request);
 
     ~Collection();
 
@@ -837,7 +865,6 @@ public:
                                   const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec = {});
 
     const Index* _get_index() const;
-    const Option<bool> _get_index_init_op() const;
 
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, nlohmann::json &document,
                                std::string &value) const;
