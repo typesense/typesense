@@ -403,6 +403,7 @@ nlohmann::json Collection::get_summary_json() const {
         if (!coll_field.reference.empty()) {
             field_json[fields::reference] = coll_field.reference;
             field_json[fields::async_reference] = coll_field.is_async_reference;
+            field_json[fields::cascade_delete] = coll_field.cascade_delete;
         }
 
         if(!coll_field.token_separators.empty()) {

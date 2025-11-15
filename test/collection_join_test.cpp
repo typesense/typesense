@@ -5692,6 +5692,8 @@ TEST_F(CollectionJoinTest, CascadeDeleteOption) {
     ASSERT_EQ("c_2", res_obj["hits"][0]["document"]["coll_c"][1]["id"]);
 
     ASSERT_FALSE(coll_a->get_schema()["ref_b"].cascade_delete);
+    ASSERT_EQ("ref_b", coll_a->get_summary_json()["fields"][0]["name"]);
+    ASSERT_FALSE(coll_a->get_summary_json()["fields"][0]["cascade_delete"]);
     // With cascade_delete: false, we shouldn't delete any information of referencing document.
     collectionManager.get_collection_unsafe("coll_b")->remove("b_1");
     doc = coll_a->get("0").get();
@@ -5726,6 +5728,8 @@ TEST_F(CollectionJoinTest, CascadeDeleteOption) {
 
     coll_a = collectionManager.get_collection_unsafe("coll_a").get();
     ASSERT_FALSE(coll_a->get_schema()["ref_b"].cascade_delete);
+    ASSERT_EQ("ref_b", coll_a->get_summary_json()["fields"][0]["name"]);
+    ASSERT_FALSE(coll_a->get_summary_json()["fields"][0]["cascade_delete"]);
 
     collectionManager.get_collection_unsafe("coll_b")->remove("b_0");
 
