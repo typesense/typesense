@@ -8419,12 +8419,19 @@ Option<bool> Index::get_related_ids(const std::string& field_name, const std::ve
         if (search_schema_it->is_singular()) {
             auto const& ref_index = sort_index_it->second;
             auto const it = ref_index->find(seq_id);
-            if (it == ref_index->end() || it->second == Join::reference_helper_sentinel_value) {
-                return Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
-                                           std::to_string(seq_id) + "`.");
-            }
 
-            related_ids.push_back(it->second);
+            if (it == ref_index->end()) {
+                auto coll = CollectionManager::get_instance().get_collection(get_collection_name());
+                nlohmann::json doc;
+                if (coll != nullptr) {
+                    coll->get_document_from_store(seq_id, doc);
+                }
+                const auto id = doc.contains("id") ? doc["id"].get<std::string>() : std::to_string(seq_id);
+                return Option<bool>(404, "Could not find `" + reference_helper_field_name +=
+                                            "` value for doc `" + id += "`.");
+            } else if (it->second != Join::reference_helper_sentinel_value) {
+                related_ids.push_back(it->second);
+            }
         } else {
             auto const& ref_index = reference_index_it->second;
             size_t count = 0;
@@ -8432,8 +8439,14 @@ Option<bool> Index::get_related_ids(const std::string& field_name, const std::ve
             ref_index->search(EQUALS, seq_id, &ref_ids, count);
 
             if (count == 0) {
-                return Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
-                                         std::to_string(seq_id) + "`.");
+                auto coll = CollectionManager::get_instance().get_collection(get_collection_name());
+                nlohmann::json doc;
+                if (coll != nullptr) {
+                    coll->get_document_from_store(seq_id, doc);
+                }
+                const auto id = doc.contains("id") ? doc["id"].get<std::string>() : std::to_string(seq_id);
+                return Option<bool>(404, "Could not find `" + reference_helper_field_name +=
+                        "` value for doc `" + id += "`.");
             }
 
             for (size_t j = 0; j < count; j++) {
@@ -8451,67 +8464,7 @@ Option<bool> Index::get_related_ids(const std::string& field_name, const std::ve
 
 Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_t& seq_id,
                                     std::vector<uint32_t>& result) const {
-
-    auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
-    if (search_schema.count(reference_helper_field_name) == 0) {
-        return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" +
-                                    get_collection_name() + "`.");
-    }
-
-    nlohmann::json doc;
-    auto coll = CollectionManager::get_instance().get_collection(get_collection_name());
-
-    auto const field_not_found_op = Option<bool>(400, "Could not find `" + reference_helper_field_name +
-                                                      "` in the collection `" + get_collection_name() + "`.");
-
-    if (search_schema.at(reference_helper_field_name).is_singular()) {
-        if (sort_index.count(reference_helper_field_name) == 0) {
-            return field_not_found_op;
-        }
-
-        auto const& ref_index = sort_index.at(reference_helper_field_name);
-        auto const it = ref_index->find(seq_id);
-        if (it == ref_index->end()) {
-            if(coll != nullptr) {
-                auto op = coll->get_document_from_store(seq_id, doc);
-                if (!op.ok()) {
-                    return op;
-                }
-            }
-            return Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
-                                     doc["id"].get<std::string>() + "`.");
-        }
-
-        const uint32_t id = it->second;
-        if (id != Join::reference_helper_sentinel_value) {
-            result.emplace_back(id);
-        }
-        return Option<bool>(true);
-    }
-
-    if (reference_index.count(reference_helper_field_name) == 0) {
-        return field_not_found_op;
-    }
-
-    size_t ids_len = 0;
-    uint32_t* ids = nullptr;
-    reference_index.at(reference_helper_field_name)->search(EQUALS, seq_id, &ids, ids_len);
-    if (ids_len == 0) {
-        if(coll != nullptr) {
-            auto op = coll->get_document_from_store(seq_id, doc);
-            if (!op.ok()) {
-                return op;
-            }
-        }
-        return Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
-                                 doc["id"].get<std::string>() + "`.");
-    }
-
-    for (uint32_t i = 0; i < ids_len; i++) {
-        result.emplace_back(ids[i]);
-    }
-    delete [] ids;
-    return Option<bool>(true);
+    return get_related_ids(field_name, {seq_id}, result);
 }
 
 Option<bool> Index::get_object_array_related_id(const std::string& collection_name,
