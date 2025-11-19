@@ -1208,8 +1208,9 @@ void Index::update_async_references(const std::string& collection_name, std::vec
                 auto& cm = CollectionManager::get_instance();
                 auto referencing_coll = cm.get_collection(referencing_collection_name);
                 if (referencing_coll == nullptr) {
-                    record.index_failure(400, "Collection `" + referencing_collection_name + "` with async_reference to the"
-                                                                                             " collection `" += collection_name + "` not found.");
+                    // Since the collections get created and indexed in parallel on server restart, we might run into a
+                    // scenario where the referencing collection hasn't yet been created. We can safely skip update of
+                    // referencing collection as the references will be created normally.
                     continue;
                 }
 
