@@ -3227,6 +3227,56 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 }
             }
 
+            if(geo_distances.empty() && search_params->filter_tree_root_guard.get()) {
+                //sort params were not having geopoint, should check if filter params contain geopoint
+                auto filter_exp = search_params->filter_tree_root_guard.get()->filter_exp;
+                auto field_name = filter_exp.field_name;
+                auto values = filter_exp.values;
+                bool is_geopoint = false;
+                bool is_reference_filter = !filter_exp.referenced_collection_name.empty();
+
+                if(!field_name.empty()) {
+                    std::string full_expr = field_name;
+                    std::string coll = is_reference_filter ? filter_exp.referenced_collection_name : get_name();
+
+                    if(filter::extract_geo_field_value(full_expr, coll, field_name, values, is_reference_filter)) {
+                        is_geopoint = true;
+                        filter_exp.referenced_collection_name = coll;
+                        filter_exp.field_name = field_name;
+                    }
+                }
+
+                if(is_geopoint && values.size() == 1 && StringUtils::isValidGeoDistanceFilter(values[0])) {
+                    //only geopoint is supported, no geopolygon or arrays
+                    std::vector<std::string> tokens;
+
+                    StringUtils::split(values[0], tokens, ",");
+                    const auto& lat = std::stod(tokens[0]);
+                    const auto& lng = std::stod(tokens[1]);
+                    S2LatLng reference_lat_lng = S2LatLng::FromDegrees(lat, lng);
+
+                    if (is_reference_filter) {
+                        auto get_geo_distance_op = index->get_referenced_geo_distance(filter_exp,
+                                                                                      field_order_kv->key,
+                                                                                      field_order_kv->reference_filter_results,
+                                                                                      reference_lat_lng, true);
+                        if (!get_geo_distance_op.ok()) {
+                            return Option<nlohmann::json>(get_geo_distance_op.code(), get_geo_distance_op.error());
+                        }
+                        field_name = "$" + filter_exp.referenced_collection_name + "(" + field_name + ")";
+                        geo_distances[field_name] = get_geo_distance_op.get();
+                    } else {
+                        auto get_geo_distance_op = index->get_geo_distance_with_lock(field_name, false,
+                                                                                     {(uint32_t) field_order_kv->key},
+                                                                                     reference_lat_lng, true);
+                        if (!get_geo_distance_op.ok()) {
+                            return Option<nlohmann::json>(get_geo_distance_op.code(), get_geo_distance_op.error());
+                        }
+                        geo_distances[field_name] = get_geo_distance_op.get();
+                    }
+                }
+            }
+
             if(!geo_distances.empty()) {
                 wrapper_doc["geo_distance_meters"] = geo_distances;
             }

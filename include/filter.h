@@ -86,6 +86,10 @@ struct filter {
     static Option<bool> tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens);
 
     static Option<bool> parse_filter_string(const std::string& filter_query, std::string& token, size_t& index);
+
+    static bool extract_geo_field_value(const std::string& expr, std::string& ref_coll,
+                                                      std::string& field_name, std::vector<std::string>& value,
+                                                      bool is_reference_filter);
 };
 
 struct filter_node_t {

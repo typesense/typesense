@@ -906,3 +906,57 @@ TEST_F(GeoFilteringTest, GeoPolygonTestRealCoordinates) {
         ASSERT_EQ("Geopolygon for seq_id 3 is invalid: Loop 0: empty loops are not allowed", op.error());
     }
 }
+
+TEST_F(GeoFilteringTest, GeoDistanceMeters) {
+    nlohmann::json schema = R"({
+            "name": "companies",
+            "fields": [
+                {"name": "company_name", "type": "string" },
+                {"name": "num_employees", "type": "int32" },
+                {"name": "location", "type": "geopoint" }
+            ],
+            "default_sorting_field": "num_employees"
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll1 = coll_op.get();
+
+    std::vector<std::vector<std::string>> records = {
+            {"Stark Industries", "5215", "48.8, 2.3"},
+            {"Acme Corp", "2133", "48.8, 2.4"}
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        std::vector<std::string> lat_lng;
+        StringUtils::split(records[i][2], lat_lng, ", ");
+
+        double lat = std::stod(lat_lng[0]);
+        double lng = std::stod(lat_lng[1]);
+
+        doc["id"] = std::to_string(i);
+        doc["company_name"] = records[i][0];
+        doc["location"] = {lat, lng};
+        doc["num_employees"] = std::stoul(records[i][1]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("*",
+                                 {}, "location:(48.9, 2.3, 25.0 km)",
+                                 {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ(1, results["hits"][0].count("geo_distance_meters"));
+    ASSERT_EQ(1, results["hits"][0]["geo_distance_meters"].count("location"));
+    ASSERT_EQ(11117, results["hits"][0]["geo_distance_meters"]["location"]);
+
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ(1, results["hits"][1].count("geo_distance_meters"));
+    ASSERT_EQ(1, results["hits"][1]["geo_distance_meters"].count("location"));
+    ASSERT_EQ(13308, results["hits"][1]["geo_distance_meters"]["location"]);
+}
