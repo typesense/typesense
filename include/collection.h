@@ -713,6 +713,15 @@ private:
 
     std::string get_facet_str_val(const std::string& field_name, uint32_t facet_id);
 
+    Option<bool> populate_facets(std::vector<facet> facets, size_t max_facet_values,
+                                        const std::vector<std::string>& facet_return_parent,
+                                        const facet_query_t& facet_query, size_t highlight_affix_num_tokens,
+                                        size_t snippet_threshold, const std::string& highlight_start_tag,
+                                        const std::string& highlight_end_tag, const std::string& raw_query,
+                                        nlohmann::json& results) const;
+
+    static Option<bool> merge_facet_results(nlohmann::json& result);
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
