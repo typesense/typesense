@@ -19,7 +19,7 @@ HttpServer::HttpServer(const std::string & version, const std::string & listen_a
                        const uint64_t ssl_refresh_interval_ms, bool cors_enabled,
                        const std::set<std::string>& cors_domains, ThreadPool* thread_pool):
         SSL_REFRESH_INTERVAL_MS(ssl_refresh_interval_ms),
-        exit_loop(false), version(version), listen_address(listen_address), listen_port(listen_port),
+        exit_loop(false), unhealthy(false), version(version), listen_address(listen_address), listen_port(listen_port),
         ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path),
         cors_enabled(cors_enabled), cors_domains(cors_domains), thread_pool(thread_pool) {
     accept_ctx = new h2o_accept_ctx_t();
@@ -1092,6 +1092,15 @@ ReplicationState* HttpServer::get_replication_state() const {
 
 bool HttpServer::is_alive() const {
     return replication_state->is_alive();
+}
+
+bool HttpServer::unhealthy_set() const {
+    return unhealthy;
+}
+
+bool HttpServer::set_unhealthy() {
+    unhealthy = true;
+    return unhealthy;
 }
 
 bool HttpServer::get_route(uint64_t hash, route_path** found_rpath) {

@@ -138,6 +138,8 @@ private:
 
     std::atomic<bool> exit_loop;
 
+    std::atomic<bool> unhealthy;
+
     std::string version;
 
     // must be a vector since order of routes entered matter
@@ -217,6 +219,10 @@ public:
     ReplicationState* get_replication_state() const;
 
     bool is_alive() const;
+
+    bool unhealthy_set() const;
+
+    bool set_unhealthy();
 
     bool is_leader() const;
 
