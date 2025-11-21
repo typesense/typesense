@@ -425,6 +425,10 @@ private:
     // Only used when the reference field is an array type otherwise sort_index is used.
     spp::sparse_hash_map<std::string, num_tree_t*> reference_index;
 
+    /// Collection name => (ref_seq_ids => seq_id)
+    /// Stores all the seq_ids of the documents that reference document(s) of this collection.
+    spp::sparse_hash_map<std::string, num_tree_t*> lazy_join_evaluation;
+
     /// reference_helper_field => ((doc_id, object_index) => ref_doc_id)
     /// Used when a field inside an object array has reference.
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::pair<uint32_t, uint32_t>, uint32_t, pair_hash>*> object_array_reference_index;
@@ -1225,6 +1229,25 @@ public:
     static void update_async_references(const std::string& collection_name, std::vector<index_record>& iter_batch,
                                         const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins =
                                         spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+
+    void add_lazy_join_evaluation_field(const std::string& field_id);
+
+    num_tree_t* _get_lazy_join_evaluation_field(const std::string& field_id) const;
+
+    void remove_lazy_join_evaluation_field(const std::string& field_id);
+
+    Option<bool> insert_lazy_join_evaluation_field(const std::string& field_id,
+                                                   const uint32_t& seq_id,
+                                                   const std::vector<uint32_t>& ref_doc_ids);
+
+    Option<bool> remove_lazy_join_evaluation_field(const std::string& field_id,
+                                                   const uint32_t& seq_id,
+                                                   const std::vector<uint32_t>& ref_doc_ids);
+
+    Option<bool> update_lazy_join_evaluation_field(const std::string& field_id,
+                                                   const uint32_t& seq_id,
+                                                   const std::vector<uint32_t>& ref_doc_ids,
+                                                   const std::vector<uint32_t>& old_ref_doc_ids);
 };
 
 template<class T>

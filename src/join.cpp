@@ -1375,3 +1375,89 @@ bool Join::merge_join_conditions(string& embedded_filter, string& query_filter) 
 
     return true;
 }
+
+std::string Join::get_lazy_join_evaluation_field_id(const std::string& referencing_collection_name,
+                                                    const std::string& referencing_field_name) {
+    return "$" + referencing_collection_name + "." + referencing_field_name;
+}
+
+Option<bool> Join::populate_lazy_join_evaluation_field(const std::string& collection_name,
+                                                       const tsl::htrie_map<char, field>& schema,
+                                                       const spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
+                                                       const nlohmann::json& document, const uint32_t& seq_id,
+                                                       const nlohmann::json& old_doc, const bool& is_update) {
+    for (auto const& pair: reference_fields) {
+        auto field_name = pair.first;
+        auto const reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+        auto const& it = schema.find(reference_helper_field);
+        if (it == schema.end()) {
+            continue;
+        }
+        auto const& field = it.value();
+        if (field.nested) {
+            continue;
+        }
+
+        auto const& optional = field.optional;
+        // Strict checking for presence of non-optional reference field during indexing operation.
+        auto is_required = !is_update && !optional;
+        if (is_required) {
+            if (!document.contains(reference_helper_field)) {
+                return Option<bool>(400, "Missing the required reference field `" + reference_helper_field
+                                         + "` in the document.");
+            } else if (is_update && !old_doc.contains(reference_helper_field)) {
+                return Option<bool>(400, "Missing the required reference field `" + reference_helper_field
+                                         + "` in the old document.");
+            }
+        } else if (!document.contains(reference_helper_field) && !old_doc.contains(reference_helper_field)) {
+            continue;
+        }
+
+        std::vector<uint32_t> ref_doc_ids;
+        std::vector<uint32_t> old_ref_doc_ids;
+        if (field.is_array()) {
+            if (document.contains(reference_helper_field)) {
+                for (const auto& ref_id: document[reference_helper_field]) {
+                    if (ref_id == reference_helper_sentinel_value) {
+                        continue;
+                    }
+                    ref_doc_ids.emplace_back(ref_id);
+                }
+            }
+            if (old_doc.contains(reference_helper_field)) {
+                for (const auto& ref_id: old_doc[reference_helper_field]) {
+                    if (ref_id == reference_helper_sentinel_value) {
+                        continue;
+                    }
+                    old_ref_doc_ids.emplace_back(ref_id);
+                }
+            }
+        } else {
+            if (document.contains(reference_helper_field) &&
+                        document[reference_helper_field].get<uint32_t>() != reference_helper_sentinel_value) {
+                ref_doc_ids.emplace_back(document[reference_helper_field].get<uint32_t>());
+            }
+            if (old_doc.contains(reference_helper_field) &&
+                        old_doc[reference_helper_field].get<uint32_t>() != reference_helper_sentinel_value) {
+                old_ref_doc_ids.emplace_back(old_doc[reference_helper_field].get<uint32_t>());
+            }
+        }
+
+        auto op = Option<bool>(true);
+        const auto& ref_info = pair.second;
+        const auto& reference_collection_name = ref_info.collection;
+        if (is_update) {
+            op = CollectionManager::update_lazy_join_evaluation_field(reference_collection_name,
+                                                                      get_lazy_join_evaluation_field_id(collection_name, field_name),
+                                                                      seq_id, ref_doc_ids, old_ref_doc_ids);
+        } else {
+            op = CollectionManager::insert_lazy_join_evaluation_field(reference_collection_name,
+                                                                      get_lazy_join_evaluation_field_id(collection_name, field_name),
+                                                                      seq_id, ref_doc_ids);
+        }
+        if (!op.ok()) {
+            return op;
+        }
+    }
+    return Option<bool>(true);
+}

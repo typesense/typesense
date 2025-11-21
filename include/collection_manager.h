@@ -244,4 +244,15 @@ public:
     static Option<bool> process_ref_include_fields_sort(const std::string& collection_name,
                                                         const std::string& sort_by_str, size_t limit,
                                                         std::vector<uint32_t>& doc_ids);
+
+    static Option<bool> insert_lazy_join_evaluation_field(const std::string& collection_name,
+                                                          const std::string& field_id,
+                                                          const uint32_t& seq_id,
+                                                          const std::vector<uint32_t>& ref_doc_ids);
+
+    static Option<bool> update_lazy_join_evaluation_field(const std::string& collection_name,
+                                                          const std::string& field_id,
+                                                          const uint32_t& seq_id,
+                                                          const std::vector<uint32_t>& ref_doc_ids,
+                                                          const std::vector<uint32_t>& old_ref_doc_ids);
 };

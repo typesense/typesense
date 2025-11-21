@@ -1200,6 +1200,19 @@ public:
                                       const tsl::htrie_set<char>& ref_exclude_fields_full,
                                       const nlohmann::json& original_doc,
                                       const ref_include_exclude_fields& ref_include_exclude) const;
+
+    Option<bool> insert_lazy_join_evaluation_field(const std::string& field_id,
+                                                   const uint32_t& seq_id,
+                                                   const std::vector<uint32_t>& ref_doc_ids);
+
+    Option<bool> remove_lazy_join_evaluation_field(const std::string& field_id,
+                                                   const uint32_t& seq_id,
+                                                   const std::vector<uint32_t>& ref_doc_ids);
+
+    Option<bool> update_lazy_join_evaluation_field(const std::string& field_id,
+                                                   const uint32_t& seq_id,
+                                                   const std::vector<uint32_t>& ref_doc_ids,
+                                                   const std::vector<uint32_t>& old_ref_doc_ids);
 };
 
 template<class T>
