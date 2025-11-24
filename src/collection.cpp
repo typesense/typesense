@@ -3893,7 +3893,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                   search_params->facet_query, coll_args.highlight_affix_num_tokens,
                                   coll_args.snippet_threshold,
                                   coll_args.highlight_start_tag, coll_args.highlight_end_tag, coll_args.raw_query,
-                                  result["facet_counts"]);
+                                  result["facet_counts"], true);
         }
     }
 
@@ -8720,7 +8720,7 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
                                          const facet_query_t& facet_query,size_t highlight_affix_num_tokens,
                                          size_t snippet_threshold, const std::string& highlight_start_tag,
                                          const std::string& highlight_end_tag, const std::string& raw_query,
-                                         nlohmann::json& results) const {
+                                         nlohmann::json& results, bool is_union) const {
     for(facet& a_facet: facets) {
         // Don't return zero counts for a wildcard facet.
         if (a_facet.is_wildcard_match &&
@@ -9007,6 +9007,12 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
         }
 
         facet_result["stats"]["total_values"] = facet_counts.size();
+
+        if(is_union) {
+            facet_result["is_sortby_alpha"] = a_facet.is_sort_by_alpha;
+            facet_result["sort_order"] = a_facet.sort_order;
+        }
+
         results.push_back(facet_result);
     }
 
@@ -9026,6 +9032,8 @@ Option<bool> Collection::merge_facet_results(nlohmann::json& result) {
                     field_to_facet_counts[field_name]["counts"] = nlohmann::json::array();
                     field_to_facet_counts[field_name]["field_name"] = field_name;
                     field_to_facet_counts[field_name]["sampled"] = facet_count["sampled"];
+                    field_to_facet_counts[field_name]["is_sortby_alpha"] = facet_count["is_sortby_alpha"];
+                    field_to_facet_counts[field_name]["sort_order"] = facet_count["sort_order"];
                 }
 
                 field_to_facet_counts[field_name]["counts"].push_back(count);
@@ -9053,11 +9061,40 @@ Option<bool> Collection::merge_facet_results(nlohmann::json& result) {
             }
 
             facet_counts["stats"]["total_values"] = facet_counts["counts"].size();
-        }
 
-        result["facet_counts"].clear();
-        for(const auto& kv : field_to_facet_counts) {
-            result["facet_counts"].push_back(kv.second);
+            if (facet_counts["is_sortby_alpha"].get<bool>()) {
+                //sort by alpha per field
+                auto is_asc = facet_counts["sort_order"] == "asc";
+                std::stable_sort(facet_counts["counts"].begin(), facet_counts["counts"].end(),
+                                 [&](const nlohmann::json& item1, const nlohmann::json& item2) {
+                                     if (is_asc) {
+                                         return item1["value"] < item2["value"];
+                                     }
+
+                                     return item1["value"] > item2["value"];
+                                 });
+            } else {
+                //sort on facet counts
+                std::stable_sort(facet_counts["counts"].begin(), facet_counts["counts"].end(),
+                                 [&](const nlohmann::json& item1, const nlohmann::json& item2) {
+                                      size_t a_count = item1["count"].get<size_t>();
+                                      size_t b_count = item2["count"].get<size_t>();
+
+                                     const auto& a_value = item1["value"];
+                                     const auto& b_value = item2["value"];
+
+                                     size_t a_value_size = UINT64_MAX - a_value.size();
+                                     size_t b_value_size = UINT64_MAX - b_value.size();
+
+                                     return std::tie(a_count, a_value_size, a_value) >
+                                            std::tie(b_count, b_value_size, b_value);
+                                 });
+            }
+
+            result["facet_counts"].clear();
+            for (const auto& kv: field_to_facet_counts) {
+                result["facet_counts"].push_back(kv.second);
+            }
         }
     }
     return Option<bool>(true);

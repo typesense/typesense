@@ -1550,10 +1550,6 @@ Option<bool> CollectionManager::validate_facet_params(const std::vector<collecti
         }
 
         for(const auto& field : args.facet_fields) {
-            if (field.find("sort_by") != std::string::npos) {
-                return Option<bool>(400, "`sort_by` is not supported for union search faceting.");
-            }
-
             std::string field_name = field;
             if (field[0] == '$') {
                 return Option<bool>(400, "facet referencing is not supported for union search faceting.");
