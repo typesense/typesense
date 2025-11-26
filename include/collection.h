@@ -359,6 +359,7 @@ class Collection: std::enable_shared_from_this<Collection> {
 private:
 
     mutable std::shared_mutex mutex;
+    mutable std::shared_mutex alter_mutex;
 
     static const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 

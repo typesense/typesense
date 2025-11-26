@@ -854,7 +854,8 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
 
 Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t seq_id,
                                              const index_operation_t op, const DIRTY_VALUES& dirty_values) {
-    std::unique_lock lock(mutex);
+    std::shared_lock alter_shlock(alter_mutex);
+    std::shared_lock shlock(mutex);
 
     Option<uint32_t> validation_op = validator_t::validate_index_in_memory(document, seq_id, default_sorting_field,
                                                                      search_schema, embedding_fields, op, false,
@@ -870,8 +871,12 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     index_batch.emplace_back(std::move(rec));
 
     std::unordered_set<std::string> dummy;
+    Index::batch_validate_and_preprocess(index, index_batch, default_sorting_field, search_schema, embedding_fields,
+                           fallback_field_type, token_separators, symbols_to_index, true);
+    shlock.unlock();
+    std::unique_lock lock(mutex);
     Index::batch_memory_index(index, index_batch, default_sorting_field, search_schema, embedding_fields,
-                              fallback_field_type, token_separators, symbols_to_index, true, dummy);
+                              fallback_field_type, token_separators, symbols_to_index, dummy);
 
     num_documents += 1;
     return Option<>(200);
@@ -879,14 +884,18 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 
 size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
                                          const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings) {
+    std::shared_lock alter_shlock(alter_mutex);
+    std::shared_lock shlock(mutex);
+    Index::batch_validate_and_preprocess(index, index_records, default_sorting_field, search_schema, embedding_fields,
+                    fallback_field_type, token_separators, symbols_to_index, true, remote_embedding_batch_size,
+                    remote_embedding_timeout_ms, remote_embedding_num_tries, generate_embeddings);
+    shlock.unlock();
     std::unique_lock lock(mutex);
     const auto collection_name = name;
     std::unordered_set<std::string> found_fields;
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
                                                    search_schema, embedding_fields, fallback_field_type,
-                                                   token_separators, symbols_to_index, true, found_fields,
-                                                   remote_embedding_batch_size, remote_embedding_timeout_ms,
-                                                   remote_embedding_num_tries, generate_embeddings,
+                                                   token_separators, symbols_to_index, found_fields,
                                                    false, tsl::htrie_map<char, field>(), collection_name);
     num_documents += num_indexed;
 
@@ -902,7 +911,6 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
     lock.unlock();
 
     Index::update_async_references(collection_name, index_records, found_async_referenced_ins);
-
     return num_indexed;
 }
 
@@ -1526,6 +1534,9 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 }
             } else {
                 if(field_it == search_schema.end()) {
+                    if(!validate_field_names) {
+                        continue;
+                    }
                     std::string error = "Could not find a field named `" + actual_field_name + "` in the schema for sorting.";
                     return Option<bool>(404, error);
                 }
@@ -1709,6 +1720,9 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             const auto field_it = search_schema.find(sort_field_std.name);
 
             if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
+                if(!validate_field_names) {
+                    continue;
+                }
                 std::string error = "Could not find a field named `" + sort_field_std.name +
                                     "` in the schema for sorting.";
                 return Option<bool>(404, error);
@@ -6016,7 +6030,8 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     bool found_embedding_field = false;
     bool found_reference_field = false;
 
-    std::unique_lock ulock(mutex);
+  std::unique_lock alter_ulock(alter_mutex);
+  std::unique_lock ulock(mutex);
 
     for(auto& f: alter_fields) {
         if(f.name == ".*") {
@@ -6119,10 +6134,14 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             }
 
             std::unordered_set<std::string> dummy;
+            Index::batch_validate_and_preprocess(index, iter_batch, default_sorting_field, search_schema, embedding_fields,
+                                    fallback_field_type, token_separators, symbols_to_index, true, 200, 60000, 2, found_embedding_field);
+            shlock.unlock();
+            ulock.lock();
             Index::batch_memory_index(index, iter_batch, default_sorting_field, search_schema, embedding_fields,
-                                      fallback_field_type, token_separators, symbols_to_index, true, dummy,
-                                      200, 60000, 2, found_embedding_field, true, schema_additions);
-
+                                      fallback_field_type, token_separators, symbols_to_index, dummy, true, schema_additions);
+            ulock.unlock();
+            shlock.lock();
             if(found_embedding_field) {
                 for(auto& index_record : iter_batch) {
                     if(index_record.indexed.ok()) {

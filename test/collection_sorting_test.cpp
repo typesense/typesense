@@ -3801,3 +3801,51 @@ TEST_F(CollectionSortingTest, EvalExpressionWithIdField) {
     ASSERT_EQ("5", res_obj["hits"][3]["document"]["id"].get<std::string>());
     ASSERT_EQ("4", res_obj["hits"][4]["document"]["id"].get<std::string>());
 }
+
+TEST_F(CollectionSortingTest, IgnoreInvalidFieldsIfNotValidateFieldNames) {
+    auto schema_json = R"({
+            "name": "products_ignore_invalid",
+            "fields":[
+                {"name": "title","type": "string"},
+                {"name": "points","type": "int32"}
+            ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+    nlohmann::json doc;
+    doc["title"] = "test1";
+    doc["points"] = 100;
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+    doc["title"] = "test2";
+    doc["points"] = 200;
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    sort_fields = {
+            sort_by("non_existing_field", "DESC"),
+            sort_by("points", "ASC"),
+    };
+
+    auto results = coll->search("test", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "", true, 0UL, max_score, 100UL, 0UL, 0UL, 0UL, "exhaustive", 3000UL, 2UL, "", {},
+                                {}, "right_to_left", true, true, false, "", "", "", "", true, true, false, false, 0U, false, true, DEFAULT_FILTER_BY_CANDIDATES, false, true);
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("Could not find a field named `non_existing_field` in the schema for sorting.", results.error());
+
+    results = coll->search("test", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "", true, 0UL, max_score, 100UL, 0UL, 0UL, 0UL, "exhaustive", 3000UL, 2UL, "", {},
+                                {}, "right_to_left", true, true, false, "", "", "", "", true, true, false, false, 0U, false, true, DEFAULT_FILTER_BY_CANDIDATES, false, false);
+    ASSERT_TRUE(results.ok());
+    ASSERT_EQ(2, results.get()["hits"].size());
+}

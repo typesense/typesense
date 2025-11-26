@@ -452,6 +452,61 @@ bool validate_object_field(nlohmann::json& doc, const field& a_field) {
     return false;
 }
 
+void Index::batch_validate_and_preprocess(Index* index, std::vector<index_record>&  iter_batch,
+                                        const std::string& default_sorting_field,
+                                        const tsl::htrie_map<char, field> & actual_search_schema,
+                                        const tsl::htrie_map<char, field> & embedding_fields,
+                                        const std::string& fallback_field_type,
+                                        const std::vector<char>& token_separators,
+                                        const std::vector<char>& symbols_to_index,
+                                        const bool do_validation,
+                                        const size_t remote_embedding_batch_size,
+                                        const size_t remote_embedding_timeout_ms,
+                                        const size_t remote_embedding_num_tries, const bool generate_embeddings) {
+    const size_t concurrency = Config::get_instance().get_max_indexing_concurrency();
+    const size_t num_threads = std::min(concurrency, iter_batch.size());
+    const size_t window_size = (num_threads == 0) ? 0 :
+                               (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
+
+    size_t num_indexed = 0;
+    size_t num_processed = 0;
+    std::mutex m_process;
+    std::condition_variable cv_process;
+
+    size_t num_queued = 0;
+    size_t batch_index = 0;
+
+    // local is need to propogate the thread local inside threads launched below
+    auto local_write_log_index = write_log_index;
+    for(size_t thread_id = 0; thread_id < num_threads && batch_index < iter_batch.size(); thread_id++) {
+        size_t batch_len = window_size;
+
+        if(batch_index + window_size > iter_batch.size()) {
+            batch_len = iter_batch.size() - batch_index;
+        }
+
+        num_queued++;
+
+        index->thread_pool->enqueue([&, batch_index, batch_len]() {
+            write_log_index = local_write_log_index;
+            Index::validate_and_preprocess(index, iter_batch, batch_index, batch_len, default_sorting_field, actual_search_schema,
+                                    embedding_fields, fallback_field_type, token_separators, symbols_to_index, do_validation, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries, generate_embeddings);
+
+            std::unique_lock<std::mutex> lock(m_process);
+            num_processed++;
+
+            cv_process.notify_one();
+        });
+
+        batch_index += batch_len;
+    }
+
+    {
+        std::unique_lock<std::mutex> lock_process(m_process);
+        cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
+    }
+}
+
 void Index::validate_and_preprocess(Index *index,
                                     std::vector<index_record>& iter_batch,
                                     const size_t batch_start_index, const size_t batch_size,
@@ -580,11 +635,7 @@ size_t Index::batch_memory_index(Index *index,
                                  const std::string& fallback_field_type,
                                  const std::vector<char>& token_separators,
                                  const std::vector<char>& symbols_to_index,
-                                 const bool do_validation,
                                  std::unordered_set<std::string>& found_fields,
-                                 const size_t remote_embedding_batch_size,
-                                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
-                                 const bool generate_embeddings,
                                  const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
                                  const std::string& collection_name) {
     const size_t concurrency = Config::get_instance().get_max_indexing_concurrency();
@@ -599,39 +650,10 @@ size_t Index::batch_memory_index(Index *index,
     std::condition_variable cv_process;
 
     size_t num_queued = 0;
-    size_t batch_index = 0;
 
     // local is need to propogate the thread local inside threads launched below
     auto local_write_log_index = write_log_index;
-
-    for(size_t thread_id = 0; thread_id < num_threads && batch_index < iter_batch.size(); thread_id++) {
-        size_t batch_len = window_size;
-
-        if(batch_index + window_size > iter_batch.size()) {
-            batch_len = iter_batch.size() - batch_index;
-        }
-
-        num_queued++;
-
-        index->thread_pool->enqueue([&, batch_index, batch_len]() {
-            write_log_index = local_write_log_index;
-            validate_and_preprocess(index, iter_batch, batch_index, batch_len, default_sorting_field, actual_search_schema,
-                                    embedding_fields, fallback_field_type, token_separators, symbols_to_index, do_validation, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries, generate_embeddings);
-
-            std::unique_lock<std::mutex> lock(m_process);
-            num_processed++;
-
-            cv_process.notify_one();
-        });
-
-        batch_index += batch_len;
-    }
-
-    {
-        std::unique_lock<std::mutex> lock_process(m_process);
-        cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
-    }
-
+    
     for(size_t i = 0; i < iter_batch.size(); i++) {
         auto& index_rec = iter_batch[i];
 
@@ -651,7 +673,6 @@ size_t Index::batch_memory_index(Index *index,
         }
     }
 
-    num_queued = num_processed = 0;
     std::unique_lock ulock(index->mutex);
 
     for(const auto& field_name: found_fields) {
@@ -1208,8 +1229,9 @@ void Index::update_async_references(const std::string& collection_name, std::vec
                 auto& cm = CollectionManager::get_instance();
                 auto referencing_coll = cm.get_collection(referencing_collection_name);
                 if (referencing_coll == nullptr) {
-                    record.index_failure(400, "Collection `" + referencing_collection_name + "` with async_reference to the"
-                                                                                             " collection `" += collection_name + "` not found.");
+                    // Since the collections get created and indexed in parallel on server restart, we might run into a
+                    // scenario where the referencing collection hasn't yet been created. We can safely skip update of
+                    // referencing collection as the references will be created normally.
                     continue;
                 }
 

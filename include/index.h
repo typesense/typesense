@@ -817,7 +817,19 @@ public:
                                           const std::vector<char>& symbols_to_index,
                                           const bool do_validation, const size_t remote_embedding_batch_size = 200,
                                           const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true);
-
+    
+    static void batch_validate_and_preprocess(Index* index, std::vector<index_record>&  iter_batch,
+                                        const std::string& default_sorting_field,
+                                        const tsl::htrie_map<char, field> & actual_search_schema,
+                                        const tsl::htrie_map<char, field> & embedding_fields,
+                                        const std::string& fallback_field_type,
+                                        const std::vector<char>& token_separators,
+                                        const std::vector<char>& symbols_to_index,
+                                        const bool do_validation,
+                                        const size_t remote_embedding_batch_size = 200,
+                                        const size_t remote_embedding_timeout_ms = 60000,
+                                        const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true);
+                
     static size_t batch_memory_index(Index *index,
                                      std::vector<index_record>& iter_batch,
                                      const std::string& default_sorting_field,
@@ -826,11 +838,7 @@ public:
                                      const std::string& fallback_field_type,
                                      const std::vector<char>& token_separators,
                                      const std::vector<char>& symbols_to_index,
-                                     const bool do_validation,
                                      std::unordered_set<std::string>& found_fields,
-                                     const size_t remote_embedding_batch_size = 200,
-                                     const size_t remote_embedding_timeout_ms = 60000,
-                                     const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true,
                                      const bool use_addition_fields = false,
                                      const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>(),
                                      const std::string& collection_name = "");
