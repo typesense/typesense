@@ -1865,7 +1865,8 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
                     {"name": "name", "type": "string"},
                     {"name": "country", "type": "string", "facet": true},
                     {"name": "rating", "type": "float", "facet": true},
-                    {"name" : "country_id", "type": "string", "reference": "Countries.country_id"}
+                    {"name" : "country_id", "type": "string", "reference": "Countries.country_id"},
+                    {"name" : "region_id", "type": "string", "reference": "Region.region_id"}
                 ]
             })"_json;
 
@@ -1889,6 +1890,15 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
                 ]
             })"_json;
 
+    auto schema_json4 =
+            R"({
+                "name": "Region",
+                "fields": [
+                    {"name": "region_id", "type": "string", "facet": true},
+                    {"name": "name", "type": "string", "facet": true}
+                ]
+            })"_json;
+
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
 
@@ -1896,6 +1906,9 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
     ASSERT_TRUE(collection_create_op.ok());
 
     collection_create_op = collectionManager.create_collection(schema_json3);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    collection_create_op = collectionManager.create_collection(schema_json4);
     ASSERT_TRUE(collection_create_op.ok());
 
     embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
@@ -2044,4 +2057,27 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(0, json_res.count("code"));
     ASSERT_EQ(0, json_res.count("error"));
+
+    //reference facets fails if not sharing common joined collection
+    req_params.clear();
+    json_res.clear();
+    searches = R"OVR([
+                    {
+                        "collection": "Cars",
+                        "q": "*",
+                        "filter_by": "$Region(id:*)",
+                        "facet_by": "$Region(region_id)"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "*",
+                        "filter_by": "$Region(id:*)",
+                        "facet_by": "$Region(region_id)"
+                    }
+                ])OVR"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res.count("code"));
+    ASSERT_EQ(1, json_res.count("error"));
 }
