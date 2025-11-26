@@ -1457,13 +1457,63 @@ TEST_F(UnionTest, GroupingWithUnions) {
 }
 
 TEST_F(UnionTest, FacetingWithUnion) {
+    auto schema_json_countries =
+            R"({
+                "name": "Countries",
+                "fields": [
+                    {"name": "country_id", "type": "string"},
+                    {"name": "country_name", "type": "string", "facet": true}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json_countries);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    std::vector<nlohmann::json> countries = {
+            R"({
+                "country_id": "ENG",
+                "country_name": "England"
+            })"_json,
+            R"({
+                "country_id": "ITA",
+                "country_name": "Italy"
+            })"_json,
+            R"({
+                "country_id": "USA",
+                "country_name": "United States"
+            })"_json,
+            R"({
+                "country_id": "GER",
+                "country_name": "Germany"
+            })"_json,
+            R"({
+                "country_id": "SUI",
+                "country_name": "Switzerland"
+            })"_json,
+            R"({
+                "country_id": "FRA",
+                "country_name": "France"
+            })"_json
+    };
+
+    auto coll_countries = collection_create_op.get();
+    for (auto i = 0; i < 6; ++i) {
+        const auto& json = countries[i];
+        auto add_op = coll_countries->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
     auto schema_json =
             R"({
                 "name": "Cars",
                 "fields": [
                     {"name": "name", "type": "string"},
                     {"name": "country", "type": "string", "facet": true},
-                    {"name": "rating", "type": "float", "facet": true}
+                    {"name": "rating", "type": "float", "facet": true},
+                    {"name": "country_id", "type": "string", "facet": true, "reference": "Countries.country_id"}
                 ]
             })"_json;
 
@@ -1473,7 +1523,8 @@ TEST_F(UnionTest, FacetingWithUnion) {
                 "fields": [
                     {"name": "name", "type": "string"},
                     {"name": "country", "type": "string", "facet": true},
-                    {"name": "rating", "type": "float", "facet":true}
+                    {"name": "rating", "type": "float", "facet":true},
+                    {"name": "country_id", "type": "string", "facet": true, "reference": "Countries.country_id"}
                 ]
             })"_json;
 
@@ -1481,56 +1532,66 @@ TEST_F(UnionTest, FacetingWithUnion) {
             R"({
                 "name": "McLaren",
                 "country" : "England",
+                "country_id": "ENG",
                 "rating": 4.4
             })"_json,
             R"({
                 "name": "Lamborghini",
                 "country" : "Italy",
+                "country_id": "ITA",
                 "rating": 4.7
             })"_json,
             R"({
                 "name": "Ford",
                 "country" : "United States",
+                "country_id": "USA",
                 "rating": 4.1
             })"_json,
             R"({
                 "name": "BMW",
                 "country" : "Germany",
+                "country_id": "GER",
                 "rating": 4.8
             })"_json,
             R"({
                 "name": "Audi",
                 "country" : "Germany",
+                "country_id": "GER",
                 "rating": 4.5
             })"_json,
             R"({
                 "name": "Rado",
                 "country" : "Switzerland",
+                "country_id": "SUI",
                 "rating": 4.2
             })"_json,
             R"({
                 "name": "Tissot",
                 "country" : "Switzerland",
+                "country_id": "SUI",
                 "rating": 4.8
             })"_json,
             R"({
                 "name": "Cartier",
                 "country" : "France",
+                "country_id": "FRA",
                 "rating": 4.1
             })"_json,
             R"({
                 "name": "Panerai",
                 "country" : "Italy",
+                "country_id": "ITA",
                 "rating": 4.4
             })"_json,
             R"({
                 "name": "A. Lange & Sohne",
                 "country" : "Germany",
+                "country_id": "GER",
                 "rating": 4.7
             })"_json
     };
 
-    auto collection_create_op = collectionManager.create_collection(schema_json);
+    collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
 
     auto coll = collection_create_op.get();
@@ -1753,6 +1814,47 @@ TEST_F(UnionTest, FacetingWithUnion) {
     ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][4]["count"].get<size_t>());
     ASSERT_EQ("England", json_res["facet_counts"][0]["counts"][5]["value"]);
     ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][5]["count"].get<size_t>());
+
+    // facet with reference - join on faceted fields and get response
+    req_params.clear();
+    json_res.clear();
+    searches = R"OVR([
+                    {
+                        "collection": "Cars",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(country_name)"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(country_name)"
+                    }
+                ])OVR"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(10, json_res["found"].get<size_t>());
+    ASSERT_EQ(10, json_res["hits"].size());
+
+    ASSERT_EQ(1, json_res["facet_counts"].size());
+    ASSERT_EQ("$Countries(country_name)", json_res["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(6, json_res["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(6, json_res["facet_counts"][0]["stats"]["total_values"]);
+
+    ASSERT_EQ("Italy", json_res["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(2, json_res["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    ASSERT_EQ("Germany", json_res["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ(2, json_res["facet_counts"][0]["counts"][1]["count"].get<size_t>());
+    ASSERT_EQ("United States", json_res["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][2]["count"].get<size_t>());
+    ASSERT_EQ("Switzerland", json_res["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][3]["count"].get<size_t>());
+    ASSERT_EQ("France", json_res["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][4]["count"].get<size_t>());
+    ASSERT_EQ("England", json_res["facet_counts"][0]["counts"][5]["value"]);
+    ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][5]["count"].get<size_t>());
 }
 
 TEST_F(UnionTest, FacetingWithUnionsValidation) {
@@ -1919,30 +2021,6 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
     ASSERT_EQ(400, json_res["code"]);
     ASSERT_EQ(1, json_res.count("error"));
     ASSERT_EQ("`facet_return_parent` should be uniform across searches for faceting with union search.", json_res["error"]);
-
-    //facet referencing is not supported with union search
-    req_params.clear();
-    json_res.clear();
-    searches = R"OVR([
-                    {
-                        "collection": "Cars",
-                        "q": "*",
-                        "filter_by": "$Countries(id:= *)",
-                        "facet_by": "$Countries(name)"
-                    },
-                    {
-                        "collection": "Watches",
-                        "q": "*",
-                        "facet_by": "country"
-                    }
-                ])OVR"_json;
-
-    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-    ASSERT_EQ(1, json_res.count("code"));
-    ASSERT_EQ(400, json_res["code"]);
-    ASSERT_EQ(1, json_res.count("error"));
-    ASSERT_EQ("facet referencing is not supported for union search faceting.", json_res["error"]);
 
     // if facet fields are different then it's alright
     req_params.clear();

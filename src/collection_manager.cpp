@@ -1551,9 +1551,6 @@ Option<bool> CollectionManager::validate_facet_params(const std::vector<collecti
 
         for(const auto& field : args.facet_fields) {
             std::string field_name = field;
-            if (field[0] == '$') {
-                return Option<bool>(400, "facet referencing is not supported for union search faceting.");
-            }
 
             auto pos = field_name.find("(");
             field_name = field_name.substr(0, pos);
