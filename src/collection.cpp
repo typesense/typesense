@@ -9106,3 +9106,11 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
 
     return Option<bool>(true);
 }
+
+void Collection::reset_async_reference_field(const std::string& field_name) {
+    nlohmann::json doc;
+    doc[field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX] = Join::reference_helper_sentinel_value;
+    std::string req_dirty_values = "reject";
+
+    update_matching_filter("id: *", doc.dump(), req_dirty_values, true, 5000);
+}
