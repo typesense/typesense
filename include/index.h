@@ -592,7 +592,8 @@ private:
                               const bool group_missing_values,
                               std::vector<std::vector<art_leaf*>> & searched_queries,
                               bool is_group_by_first_pass,
-                              std::set<uint32_t>& group_by_missing_value_ids) const;
+                              std::set<uint32_t>& group_by_missing_value_ids,
+                              const std::map<std::string, reference_filter_result_t>& references) const;
 
     static void compute_facet_stats(facet &a_facet, const std::string& raw_value,
                                     const std::string & field_type, const size_t count);
