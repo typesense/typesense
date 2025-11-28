@@ -2962,7 +2962,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             }
 
             // sort again based on bucketed match score
-            std::partial_sort(raw_result_kvs.begin(), raw_result_kvs.begin() + max_kvs_bucketed, raw_result_kvs.end(),
+            std::stable_sort(raw_result_kvs.begin(), raw_result_kvs.begin() + max_kvs_bucketed,
                               KV::is_greater_kv_group);
 
             // restore original scores
@@ -3009,7 +3009,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             }
 
             // sort again based on bucketed match score
-            std::partial_sort(raw_result_kvs.begin(), raw_result_kvs.begin() + max_kvs_bucketed, raw_result_kvs.end(),
+            std::stable_sort(raw_result_kvs.begin(), raw_result_kvs.begin() + max_kvs_bucketed,
                               KV::is_greater_kv_group);
 
             // restore original scores
