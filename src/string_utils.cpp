@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <join.h>
 #include "logger.h"
+#include <regex>
 
 StringUtils::StringUtils() {
     UErrorCode errcode = U_ZERO_ERROR;
@@ -471,4 +472,10 @@ size_t StringUtils::split_facet(const std::string &s, std::vector<std::string> &
 
 size_t StringUtils::get_occurence_count(const std::string &str, char symbol) {
     return std::count(str.begin(), str.end(), symbol);
+}
+
+bool StringUtils::isValidGeoDistanceFilter(const std::string& str) {
+    static const std::regex re(
+            R"(^\s*([-+]?[0-9]*\.?[0-9]+)\s*,\s*([-+]?[0-9]*\.?[0-9]+)\s*,\s*(.+?)(?:\s*,\s*([A-Za-z]+))?\s*$)");
+    return std::regex_match(str, re);
 }

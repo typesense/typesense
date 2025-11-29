@@ -1184,7 +1184,14 @@ public:
                                                 const std::map<basic_string<char>, reference_filter_result_t>& references,
                                                 const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
 
+    Option<int64_t> get_referenced_geo_distance(const filter& filter_exp, const uint32_t& seq_id,
+                                                const std::map<basic_string<char>, reference_filter_result_t>& references,
+                                                const S2LatLng& reference_lat_lng, const bool& round_distance = false) const;
+
     Option<std::vector<uint32_t>> get_ref_seq_ids(const sort_by& sort_field, const uint32_t& seq_id,
+                                                  const std::map<std::string, reference_filter_result_t>& references) const;
+
+    Option<std::vector<uint32_t>> get_ref_seq_ids(const filter& filter_exp, const uint32_t& seq_id,
                                                   const std::map<std::string, reference_filter_result_t>& references) const;
 
     void get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<uint32_t>& result_ids) const;

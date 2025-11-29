@@ -8698,6 +8698,26 @@ Option<std::vector<uint32_t>> Index::get_ref_seq_ids(const sort_by& sort_field, 
     return get_ref_seq_ids_helper(ref_seq_ids, collection_name, references_ptr, ref_collection_name);;
 }
 
+Option<std::vector<uint32_t>> Index::get_ref_seq_ids(const filter& filter_exp, const uint32_t& seq_id,
+                                                      const std::map<std::string, reference_filter_result_t>& references) const {
+    std::vector<uint32_t> ref_seq_ids;
+    std::string ref_collection_name = filter_exp.referenced_collection_name;
+
+    // For filter-based references, check if the referenced collection is in the references map
+    if (references.count(ref_collection_name) > 0) { // Join specified in filter_by.
+        const auto& ref_result = references.at(ref_collection_name);
+        ref_seq_ids = std::vector<uint32_t>(ref_result.docs, ref_result.docs + ref_result.count);
+        return Option<std::vector<uint32_t>>(ref_seq_ids);
+    }
+
+    auto collection_name = get_collection_name_with_lock();
+    auto const* references_ptr = &(references);
+    ref_seq_ids.emplace_back(seq_id);
+
+    // todo?: update references to include the ref_ids of the seq_id for future use.
+    return get_ref_seq_ids_helper(ref_seq_ids, collection_name, references_ptr, ref_collection_name);
+}
+
 Option<std::vector<uint32_t>> Index::get_ref_seq_ids_helper(const std::vector<uint32_t>& seq_ids_vec,
                                                             std::string& coll_name,
                                                             std::map<std::string, reference_filter_result_t> const*& references,
@@ -8797,6 +8817,30 @@ Option<int64_t> Index::get_referenced_geo_distance(const sort_by& sort_field, co
     return ref_collection->get_geo_distance_with_lock(sort_field.name, is_asc, get_ref_seq_id_op.get(), reference_lat_lng,
                                                       round_distance);
 }
+
+Option<int64_t> Index::get_referenced_geo_distance(const filter& filter_exp, const uint32_t& seq_id,
+                                                   const std::map<basic_string<char>, reference_filter_result_t>& references,
+                                                   const S2LatLng& reference_lat_lng, const bool& round_distance) const {
+    // Get reference sequence IDs using the filter expression
+    auto get_ref_seq_ids_op = get_ref_seq_ids(filter_exp, seq_id, references);
+    if (!get_ref_seq_ids_op.ok()) {
+        return Option<int64_t>(400, get_ref_seq_ids_op.error());
+    } else if (get_ref_seq_ids_op.get().empty()) { // No references found.
+        return Option<int64_t>(0);
+    }
+
+    auto& cm = CollectionManager::get_instance();
+    const auto& ref_collection_name = filter_exp.referenced_collection_name;
+    auto ref_collection = cm.get_collection(ref_collection_name);
+    if (ref_collection == nullptr) {
+        return Option<int64_t>(400, "Referenced collection `" + ref_collection_name + "` in filter not found.");
+    }
+
+    // Get the geo distance from the referenced collection
+    return ref_collection->get_geo_distance_with_lock(filter_exp.field_name, false, get_ref_seq_ids_op.get(), reference_lat_lng,
+                                                      round_distance);
+}
+
 
 void Index::get_top_k_result_ids(const std::vector<std::vector<KV*>>& raw_result_kvs,
                                  std::vector<uint32_t>& result_ids) const{

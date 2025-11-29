@@ -385,4 +385,6 @@ struct StringUtils {
 
         return escaped.str();
     }
+
+    static bool isValidGeoDistanceFilter(const std::string& str);
 };

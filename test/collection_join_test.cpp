@@ -11807,3 +11807,236 @@ TEST_F(CollectionJoinTest, MutualReferences) {
 
     ASSERT_EQ(0, collection_create_op.get()->get_schema().count("reference_field"));
 }
+
+TEST_F(CollectionJoinTest, GeoFilterReferenceDistanceTest) {
+    nlohmann::json products_schema = R"({
+        "name": "Products",
+        "fields": [
+            {"name": "product_id", "type": "string"},
+            {"name": "product_name", "type": "string"},
+            {"name": "customer_id", "type": "string", "reference": "Customers.customer_id"}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(products_schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto products_collection = collection_create_op.get();
+
+    nlohmann::json customers_schema = R"({
+        "name": "Customers",
+        "fields": [
+            {"name": "customer_id", "type": "string"},
+            {"name": "name", "type": "string"},
+            {"name": "product_location", "type": "geopoint"}
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(customers_schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto customers_collection = collection_create_op.get();
+
+    std::vector<nlohmann::json> customers = {
+            R"({
+                "customer_id": "customer_a",
+                "name": "Joe",
+                "product_location": [48.87538726829884, 2.296113163780903]
+            })"_json,
+            R"({
+                "customer_id": "customer_b",
+                "name": "Jane",
+                "product_location": [48.85468534184446, 2.342317694452325]
+            })"_json,
+    };
+
+    for (const auto & customer : customers) {
+        auto add_op = customers_collection->add(customer.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::vector<nlohmann::json> products = {
+            R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "customer_id": "customer_a"
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "conditioner",
+                "customer_id": "customer_b"
+            })"_json,
+    };
+
+    for (const auto & product : products) {
+        auto add_op = products_collection->add(product.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // Test: Use geo filter on reference collection and verify geo_distance_meters is populated
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(product_location:(48.87709, 2.33495, 25km))"},  // Geo filter on referenced collection
+    };
+
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    nlohmann::json embedded_params;
+    std::string json_res;
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+
+    // Verify that geo_distance_meters is populated for the referenced geo filter
+    ASSERT_TRUE(res_obj["hits"][0].contains("geo_distance_meters"));
+    ASSERT_TRUE(res_obj["hits"][0]["geo_distance_meters"].contains("$Customers(product_location)"));
+    ASSERT_EQ(2548, res_obj["hits"][0]["geo_distance_meters"]["$Customers(product_location)"]);
+
+    ASSERT_TRUE(res_obj["hits"][1].contains("geo_distance_meters"));
+    ASSERT_TRUE(res_obj["hits"][1]["geo_distance_meters"].contains("$Customers(product_location)"));
+    ASSERT_EQ(2845, res_obj["hits"][1]["geo_distance_meters"]["$Customers(product_location)"]);
+}
+
+TEST_F(CollectionJoinTest, GeoFilterDeepNestedReferenceDistanceTest) {
+    // Create a nested reference scenario
+    nlohmann::json products_schema = R"({
+        "name": "Products",
+        "fields": [
+            {"name": "product_id", "type": "string"},
+            {"name": "product_name", "type": "string"},
+            {"name": "customer_id", "type": "string", "reference": "Customers.customer_id"}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(products_schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto products_collection = collection_create_op.get();
+
+    nlohmann::json customers_schema = R"({
+        "name": "Customers",
+        "fields": [
+            {"name": "customer_id", "type": "string"},
+            {"name": "name", "type": "string"},
+            {"name": "address_id", "type": "string", "reference": "Addresses.address_id"}
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(customers_schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto customers_collection = collection_create_op.get();
+
+    nlohmann::json addresses_schema = R"({
+        "name": "Addresses",
+        "fields": [
+            {"name": "address_id", "type": "string"},
+            {"name": "city", "type": "string"},
+            {"name": "location", "type": "geopoint"}
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(addresses_schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto addresses_collection = collection_create_op.get();
+
+    // Add documents to Addresses (deepest level)
+    std::vector<nlohmann::json> addresses = {
+            R"({
+                "address_id": "addr_a",
+                "city": "Paris",
+                "location": [48.8566, 2.3522]
+            })"_json,
+            R"({
+                "address_id": "addr_b",
+                "city": "London",
+                "location": [51.5074, -0.1278]
+            })"_json,
+    };
+
+    for (const auto & address : addresses) {
+        auto add_op = addresses_collection->add(address.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // Add documents to Customers
+    std::vector<nlohmann::json> customers = {
+            R"({
+                "customer_id": "customer_a",
+                "name": "Joe",
+                "address_id": "addr_a"
+            })"_json,
+            R"({
+                "customer_id": "customer_b",
+                "name": "Jane",
+                "address_id": "addr_b"
+            })"_json,
+    };
+
+    for (const auto & customer : customers) {
+        auto add_op = customers_collection->add(customer.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // Add documents to Products
+    std::vector<nlohmann::json> products = {
+            R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "customer_id": "customer_a"
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "conditioner",
+                "customer_id": "customer_b"
+            })"_json,
+    };
+
+    for (const auto & product : products) {
+        auto add_op = products_collection->add(product.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // Test: Use deep nested geo filter and verify geo_distance_meters is populated
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers($Addresses(location:(48.85, 2.35, 50km)))"},  // Deep nested geo filter
+            {"include_fields", "product_id, $Customers(name, strategy:merge)"},
+    };
+
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    nlohmann::json embedded_params;
+    std::string json_res;
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+
+    // Verify that geo_distance_meters is populated for the referenced geo filter
+    ASSERT_TRUE(res_obj["hits"][0].contains("geo_distance_meters"));
+    ASSERT_TRUE(res_obj["hits"][0]["geo_distance_meters"].contains("$Addresses(location)"));
+    ASSERT_EQ(751, res_obj["hits"][0]["geo_distance_meters"]["$Addresses(location)"]);
+}

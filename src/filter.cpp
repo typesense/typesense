@@ -1072,3 +1072,51 @@ Option<bool> filter::parse_filter_string(const std::string& filter_query, std::s
     token += filter_query.substr(token_start_index, index - token_start_index);
     return Option<bool>(true);
 }
+
+bool filter::extract_geo_field_value(const std::string& expr, std::string& coll,
+                                                   std::string& field_name, std::vector<std::string>& values,
+                                                   bool is_reference_filter) {
+    if (is_reference_filter) {
+        auto full_expr = expr;
+        while (full_expr[0] == '$') {
+            //skip to inner most reference
+            auto pos = full_expr.find('(');
+            coll = full_expr.substr(1, pos - 1); //exclude '('
+            full_expr = full_expr.substr(pos + 1); //start after '('
+            full_expr.pop_back(); //remove trailing ')'
+        }
+
+        size_t colon_pos = full_expr.find(':');
+        auto count = std::count(full_expr.begin(), full_expr.end(), ':');
+        if (count == 1 && colon_pos != std::string::npos) { //avoid AND/OR filtering
+            std::string extracted_field_name = full_expr.substr(0, colon_pos);
+            std::string value_part = full_expr.substr(colon_pos + 1);
+
+            // Trim whitespace
+            extracted_field_name = StringUtils::trim(extracted_field_name);
+            value_part = StringUtils::trim(value_part);
+
+            if (value_part[0] == '(' || value_part[0] == '[') {
+                value_part = value_part.substr(1, value_part.size() - 2); //remove '(' ')' '[' ']'
+            }
+
+            field_name = extracted_field_name;
+            values.clear();
+            values.push_back(value_part);
+        } else {
+            return false;
+        }
+    }
+    //for normal geopoint filter, values , field are already processed
+    auto collection = CollectionManager::get_instance().get_collection(coll);
+    if (field_name != "id" && collection) {
+        const auto& schema = collection->get_schema();
+        if(schema.find(field_name) != schema.end()) {
+            return schema.at(field_name).is_geopoint();
+        } else {
+            LOG(ERROR) << "field_name not found in schema : " << field_name;
+        }
+    }
+
+    return false;
+}
