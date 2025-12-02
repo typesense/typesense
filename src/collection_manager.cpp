@@ -3,8 +3,8 @@
 #include <json.hpp>
 #include <app_metrics.h>
 #include <analytics_manager.h>
-#include <event_manager.h>
 #include "collection_manager.h"
+#include "analytics_manager.h"
 #include "batched_indexer.h"
 #include "logger.h"
 #include "magic_enum.hpp"
@@ -12,6 +12,8 @@
 #include "conversation_model.h"
 #include "field.h"
 #include "core_api_utils.h"
+#include "synonym_index_manager.h"
+#include "curation_index_manager.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -19,13 +21,16 @@ CollectionManager::CollectionManager() {
 
 }
 
-Collection* CollectionManager::init_collection(const nlohmann::json & collection_meta,
-                                               const uint32_t collection_next_seq_id,
-                                               Store* store,
-                                               float max_memory_ratio,
-                                               const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos) {
+Option<Collection*> CollectionManager::init_collection(const nlohmann::json & collection_meta,
+                                                       const uint32_t collection_next_seq_id,
+                                                       Store* store,
+                                                       float max_memory_ratio,
+                                                       const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos) {
     std::string this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
+    bool enable_nested_fields = collection_meta.count(Collection::COLLECTION_ENABLE_NESTED_FIELDS) != 0 ?
+                                collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS].get<bool>() :
+                                false;
     std::vector<field> fields;
     nlohmann::json fields_map = collection_meta[Collection::COLLECTION_SEARCH_FIELDS_KEY];
 
@@ -99,6 +104,10 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::store] = true;
         }
 
+        if(field_obj.count(fields::truncate_len) == 0) {
+            field_obj[fields::truncate_len] = 100;
+        }
+
         if(field_obj.count(fields::token_separators) == 0) {
             field_obj[fields::token_separators] = nlohmann::json::array();
         }
@@ -107,10 +116,16 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::symbols_to_index] = nlohmann::json::array();
         }
 
+        if (field_obj.count(fields::cascade_delete) == 0) {
+            field_obj[fields::cascade_delete] = true;
+        }
+
         vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
 
-        if(field_obj.count(fields::vec_dist) != 0) {
-            auto vec_dist_type_op = magic_enum::enum_cast<vector_distance_type_t>(fields::vec_dist);
+        if(field_obj.count(fields::vec_dist) != 0 && field_obj[fields::vec_dist].is_string()) {
+            auto val = field_obj[fields::vec_dist].get<std::string>();
+            StringUtils::tolowercase(val);
+            auto vec_dist_type_op = magic_enum::enum_cast<vector_distance_type_t>(val);
             if(vec_dist_type_op.has_value()) {
                 vec_dist_type = vec_dist_type_op.value();
             }
@@ -139,7 +154,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
                 field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed],
                 field_obj[fields::range_index], field_obj[fields::store], field_obj[fields::stem], field_obj[fields::stem_dictionary],
-                field_obj[fields::hnsw_params], field_obj[fields::async_reference], field_obj[fields::token_separators], field_obj[fields::symbols_to_index]);
+                field_obj[fields::hnsw_params], field_obj[fields::async_reference], field_obj[fields::token_separators],
+                field_obj[fields::symbols_to_index], field_obj[fields::cascade_delete], field_obj[fields::truncate_len]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
@@ -163,10 +179,6 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     std::string fallback_field_type = collection_meta.count(Collection::COLLECTION_FALLBACK_FIELD_TYPE) != 0 ?
                               collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE].get<std::string>() :
                               "";
-
-    bool enable_nested_fields = collection_meta.count(Collection::COLLECTION_ENABLE_NESTED_FIELDS) != 0 ?
-                                 collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS].get<bool>() :
-                                 false;
 
     std::vector<std::string> symbols_to_index;
     std::vector<std::string> token_separators;
@@ -225,6 +237,24 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         metadata = collection_meta[Collection::COLLECTION_METADATA];
     }
 
+    std::vector<std::string> synonym_sets;
+    std::vector<std::string> curation_sets;
+    if (collection_meta.count(Collection::COLLECTION_SYNONYM_SETS) != 0) {
+        if (!collection_meta[Collection::COLLECTION_SYNONYM_SETS].is_array()) {
+            LOG(ERROR) << "Parameter `synonym_sets` must be an array.";
+        } else {
+            synonym_sets = collection_meta[Collection::COLLECTION_SYNONYM_SETS].get<std::vector<std::string>>();
+        }
+    }
+
+    if (collection_meta.count(Collection::COLLECTION_curation_sets) != 0) {
+        if (!collection_meta[Collection::COLLECTION_curation_sets].is_array()) {
+            LOG(ERROR) << "Parameter `curation_sets` must be an array.";
+        } else {
+            curation_sets = collection_meta[Collection::COLLECTION_curation_sets].get<std::vector<std::string>>();
+        }
+    }
+
     Collection* collection = new Collection(this_collection_name,
                                             collection_meta[Collection::COLLECTION_ID_KEY].get<uint32_t>(),
                                             created_at,
@@ -239,7 +269,9 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             enable_nested_fields, model,
                                             referenced_in,
                                             metadata,
-                                            async_referenced_ins);
+                                            async_referenced_ins,
+                                            synonym_sets,
+                                            curation_sets);
 
     for (const auto& ref_field: collection->get_reference_fields()) {
         const auto& ref_info = ref_field.second;
@@ -254,7 +286,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         }
         collection->update_reference_field_with_lock(ref_field.first, it->second.referenced_field);
     }
-    return collection;
+
+    return Option<Collection*>(collection);
 }
 
 void CollectionManager::add_to_collections(Collection* collection) {
@@ -370,7 +403,13 @@ void CollectionManager::_populate_referenced_ins(const std::vector<std::string>&
                 async_ref = true;
             }
 
-            auto ref_info = reference_info_t(collection_name, field_name, async_ref);
+            bool is_array = false;
+            if (field.contains(fields::type) && field[fields::type].is_string()) {
+                auto const& type = field[fields::type].get<std::string>();
+                is_array = (type.size() > 2 && type[type.size() - 2] == '[' && type[type.size() - 1] == ']');
+            }
+
+            auto ref_info = reference_info_t(collection_name, field_name, async_ref, is_array);
             if (!ref_field.name.empty()) {
                 ref_info.referenced_field = std::move(ref_field);
             }
@@ -572,18 +611,38 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     }
     delete iter;
 
-    // restore query suggestions configs
+    // restore new analytics configs
     std::vector<std::string> analytics_config_jsons;
     store->scan_fill(AnalyticsManager::ANALYTICS_RULE_PREFIX,
                      std::string(AnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
                      analytics_config_jsons);
 
+    LOG(INFO) << "Loaded " << num_collections << " collection(s).";
+    LOG(INFO) << "Found " << analytics_config_jsons.size() << " analytics config(s).";
     for(const auto& analytics_config_json: analytics_config_jsons) {
         nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
-        AnalyticsManager::get_instance().create_rule(analytics_config, false, false);
+        AnalyticsManager::get_instance().create_rule(analytics_config, false, false, false);
     }
+    LOG(INFO) << "Loaded " << analytics_config_jsons.size() << " analytics config(s).";
 
-    LOG(INFO) << "Loaded " << num_collections << " collection(s).";
+    // restore old analytics configs
+    std::vector<std::string> old_analytics_config_jsons;
+    store->scan_fill(AnalyticsManager::OLD_ANALYTICS_RULE_PREFIX,
+                     std::string(AnalyticsManager::OLD_ANALYTICS_RULE_PREFIX) + "`",
+                     old_analytics_config_jsons);
+    LOG(INFO) << "Found " << old_analytics_config_jsons.size() << " old analytics config(s) on disk.";
+
+    size_t restored_old_analytics_configs = 0;
+    for(const auto& old_analytics_config_json: old_analytics_config_jsons) {
+        nlohmann::json old_analytics_config = nlohmann::json::parse(old_analytics_config_json);
+        auto create_op = AnalyticsManager::get_instance().create_old_rule(old_analytics_config);
+        if(!create_op.ok() && create_op.code() != 409) {
+            LOG(ERROR) << "Error while creating old analytics config. " << create_op.error();
+        }
+        restored_old_analytics_configs++;
+    }
+    LOG(INFO) << "Restored " << restored_old_analytics_configs << " old analytics config(s)." << " from " << old_analytics_config_jsons.size() << " old analytics config(s) on disk.";
+    LOG(INFO) << "Removing restored old analytics config(s) from disk.";
 
     loading_pool.shutdown();
 
@@ -641,7 +700,9 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::vector<std::string>& symbols_to_index,
                                                          const std::vector<std::string>& token_separators,
                                                          const bool enable_nested_fields, std::shared_ptr<VQModel> model,
-                                                         const nlohmann::json& metadata) {
+                                                         const nlohmann::json& metadata,
+                                                         const std::vector<std::string>& synonym_sets,
+                                                         const std::vector<std::string>& curation_sets) {
     std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -678,6 +739,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX] = symbols_to_index;
     collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
     collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS] = enable_nested_fields;
+    collection_meta[Collection::COLLECTION_SYNONYM_SETS] = synonym_sets;
+    collection_meta[Collection::COLLECTION_curation_sets] = curation_sets;
 
     if(model != nullptr) {
         collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL] = nlohmann::json::object();
@@ -706,7 +769,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                 symbols_to_index, token_separators,
                                                 enable_nested_fields, model,
                                                 spp::sparse_hash_map<std::string, std::string>(),
-                                                metadata, spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+                                                metadata,
+                                                spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(), synonym_sets, curation_sets);
 
     add_to_collections(new_collection);
     lock.lock();
@@ -842,35 +906,6 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
             store->compact_range(del_key_prefix, del_end_prefix);
         }
 
-        // delete overrides
-        const std::string& del_override_prefix =
-                std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" + actual_coll_name + "_";
-        std::string upper_bound_key = std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" +
-                                      actual_coll_name + "`";  // cannot inline this
-        rocksdb::Slice upper_bound(upper_bound_key);
-
-        rocksdb::Iterator* iter = store->scan(del_override_prefix, &upper_bound);
-        while(iter->Valid() && iter->key().starts_with(del_override_prefix)) {
-            store->remove(iter->key().ToString());
-            iter->Next();
-        }
-        delete iter;
-
-        // delete synonyms
-        const std::string& del_synonym_prefix =
-                std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + actual_coll_name + "_";
-
-        std::string syn_upper_bound_key = std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" +
-                                      actual_coll_name + "`";  // cannot inline this
-        rocksdb::Slice syn_upper_bound(syn_upper_bound_key);
-
-        iter = store->scan(del_synonym_prefix, &syn_upper_bound);
-        while(iter->Valid() && iter->key().starts_with(del_synonym_prefix)) {
-            store->remove(iter->key().ToString());
-            iter->Next();
-        }
-        delete iter;
-
         store->remove(Collection::get_next_seq_id_key(actual_coll_name));
         store->remove(Collection::get_meta_key(actual_coll_name));
     }
@@ -894,6 +929,23 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         }
 
         ref_coll->remove_referenced_in(actual_coll_name, field_name, reference_info.is_async, reference_info.field);
+    }
+
+    auto async_referenced_ins = collection->get_async_referenced_ins();
+    for (const auto& item: async_referenced_ins) {
+        for (const auto& async_referenced_in: item.second) {
+            const auto& ref_coll_name = async_referenced_in.collection;
+            const auto& ref_field_name = async_referenced_in.field;
+
+            auto& cm = CollectionManager::get_instance();
+            auto ref_coll = cm.get_collection(ref_coll_name);
+            if (ref_coll == nullptr) {
+                LOG(ERROR) << "Referenced collection `" + ref_coll_name + "` not found.";
+                continue;
+            }
+
+            ref_coll->reset_async_reference_field(ref_field_name);
+        }
     }
 
     std::unique_lock u_lock(mutex);
@@ -992,10 +1044,13 @@ bool parse_multi_eval(const std::string& sort_by_str, uint32_t& index, std::vect
         index = open_paren_pos;
         std::string eval_expr = "(";
         int paren_count = 1;
+        bool in_backtick = false;
         while (++index < sort_by_str.size() && paren_count > 0) {
-            if (sort_by_str[index] == '(') {
+            if (sort_by_str[index] == '`') {
+                in_backtick = !in_backtick;
+            } else if (!in_backtick && sort_by_str[index] == '(') {
                 paren_count++;
-            } else if (sort_by_str[index] == ')') {
+            } else if (!in_backtick && sort_by_str[index] == ')') {
                 paren_count--;
             }
             eval_expr += sort_by_str[index];
@@ -1046,10 +1101,13 @@ bool parse_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sor
     // _eval(<expr>):<order>
     std::string eval_expr = "(";
     int paren_count = 1;
+    bool in_backtick = false;
     while (++index < sort_by_str.size() && paren_count > 0) {
-        if (sort_by_str[index] == '(') {
+        if (sort_by_str[index] == '`') {
+            in_backtick = !in_backtick;
+        } else if (!in_backtick && sort_by_str[index] == '(') {
             paren_count++;
-        } else if (sort_by_str[index] == ')') {
+        } else if (!in_backtick && sort_by_str[index] == ')') {
             paren_count--;
         }
         eval_expr += sort_by_str[index];
@@ -1400,9 +1458,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     Option<nlohmann::json> result_op = collection->search(args);
 
-    auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                        std::chrono::high_resolution_clock::now() - begin).count();
-    update_app_metrics(timeMillis);
+    auto reqTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now().time_since_epoch()).count() - start_ts;
+    update_app_metrics(reqTimeMillis);
 
     if(!result_op.ok()) {
         return Option<bool>(result_op.code(), result_op.error());
@@ -1413,23 +1471,34 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     if(Config::get_instance().get_enable_search_analytics()) {
         if(args.enable_analytics && result.contains("found")) {
             std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(args.raw_query);
-
+            search_internal_event_t internal_event = {
+                SearchAnalytics::LOG_TYPE,
+                orig_coll_name,
+                analytics_query,
+                "",
+                req_params["x-typesense-user-id"],
+                args.filter_query,
+                args.analytics_tag
+            };
             if(result["found"].get<size_t>() != 0) {
                 const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
                         result["request_params"]["first_q"].get<std::string>());
-                AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query, expanded_query,
-                                                                true, req_params["x-typesense-user-id"],
-                                                                args.filter_query, args.analytics_tag);
+                internal_event.expanded_q = expanded_query;
+                AnalyticsManager::get_instance().add_internal_event(internal_event);
+                internal_event.type = SearchAnalytics::POPULAR_QUERIES_TYPE;
+                AnalyticsManager::get_instance().add_internal_event(internal_event);
             } else {
-                AnalyticsManager::get_instance().add_nohits_query(orig_coll_name, analytics_query,
-                                                                  true, req_params["x-typesense-user-id"],
-                                                                  args.filter_query, args.analytics_tag);
+                AnalyticsManager::get_instance().add_internal_event(internal_event);
+                internal_event.type = SearchAnalytics::NO_HIT_QUERIES_TYPE;
+                AnalyticsManager::get_instance().add_internal_event(internal_event);
             }
         }
     }
 
     if(args.exclude_fields.count("search_time_ms") == 0) {
-        result["search_time_ms"] = timeMillis;
+        auto searchTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::high_resolution_clock::now() - begin).count();
+        result["search_time_ms"] = searchTimeMillis;
     }
 
     if(args.page == 0 && args.offset != 0) {
@@ -1475,7 +1544,7 @@ void remove_global_params(std::map<std::string, std::string>& req_params) {
 
 Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req_params,
                                          std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
-                                         nlohmann::json& response, uint64_t start_ts) {
+                                         nlohmann::json& response, uint64_t start_ts, bool remove_duplicates) {
     union_global_params_t union_params(req_params);
     if (!union_params.init_op.ok()) {
         const auto& op = union_params.init_op;
@@ -1489,6 +1558,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
     std::vector<collection_search_args_t> coll_searches;
     std::vector<uint32_t> collection_ids;
     auto result_op = Option<bool>(true);
+    auto group_by_args_count = 0;
 
     for(size_t i = 0; i < searches.size(); i++) {
         auto& search_params = searches[i];
@@ -1543,8 +1613,17 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
             break;
         }
 
+        if(args.group_limit) {
+            group_by_args_count++;
+        }
+
+        args.curation_union_global_params(union_params);
         coll_searches.emplace_back(std::move(args));
         collection_ids.emplace_back(collection->get_collection_id());
+    }
+
+    if(result_op.ok() && group_by_args_count > 0 && group_by_args_count != searches.size()) {
+        result_op = Option<bool>(400, "Invalid group_by searches count. All searches with union search should be uniform.");
     }
 
     if (!result_op.ok()) {
@@ -1555,11 +1634,11 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
 
     std::vector<long> searchTimeMillis;
 
-    auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, union_params, response);
+    auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, union_params, response, remove_duplicates);
 
-    for (const auto& time: searchTimeMillis) {
-        update_app_metrics(time);
-    }
+    auto reqTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now().time_since_epoch()).count() - start_ts;
+    update_app_metrics(reqTimeMillis);
 
     if (!union_op.ok()) {
         if (union_op.code() == 408) {
@@ -1591,6 +1670,7 @@ Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limi
     std::vector<std::shared_ptr<Collection>> colls = collections_op.get();
 
     nlohmann::json json_summaries = nlohmann::json::array();
+    auto begin = std::chrono::high_resolution_clock::now();
 
     for(std::shared_ptr<Collection> collection: colls) {
         nlohmann::json collection_json = collection->get_summary_json();
@@ -1599,6 +1679,13 @@ Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limi
         }
 
         json_summaries.push_back(collection_json);
+
+        uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::high_resolution_clock::now() - begin).count();
+
+        if(timeMillis > 30000) {
+            return Option<nlohmann::json>(408, "Request Timeout. Please use `offset` and `limit` pagination parameters.");
+        }
     }
 
     return Option<nlohmann::json>(json_summaries);
@@ -1611,6 +1698,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     const char* ENABLE_NESTED_FIELDS = "enable_nested_fields";
     const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
     const char* METADATA = "metadata";
+    const char* SYNONYM_SETS = "synonym_sets";
+    const char* curation_sets = "curation_sets";
 
     // validate presence of mandatory fields
 
@@ -1618,7 +1707,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         return Option<Collection*>(400, "Parameter `name` is required.");
     }
 
-    if(!req_json["name"].is_string() || req_json["name"].get<std::string>().empty()) {
+    const auto& collection_name = req_json["name"];
+    if(!collection_name.is_string() || collection_name.get<std::string>().empty()) {
         return Option<Collection*>(400, "Parameter `name` must be a non-empty string.");
     }
 
@@ -1632,6 +1722,14 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     if(req_json.count(TOKEN_SEPARATORS) == 0) {
         req_json[TOKEN_SEPARATORS] = std::vector<std::string>();
+    }
+
+    if(req_json.count(SYNONYM_SETS) == 0) {
+        req_json[SYNONYM_SETS] = nlohmann::json::array();
+    }
+
+    if(req_json.count(curation_sets) == 0) {
+        req_json[curation_sets] = nlohmann::json::array();
     }
 
     if(req_json.count(ENABLE_NESTED_FIELDS) == 0) {
@@ -1665,6 +1763,36 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     if(!req_json[ENABLE_NESTED_FIELDS].is_boolean()) {
         return Option<Collection*>(400, std::string("`") + ENABLE_NESTED_FIELDS + "` should be a boolean.");
+    }
+
+    if(!req_json[SYNONYM_SETS].is_array()) {
+        return Option<Collection*>(400, std::string("`") + SYNONYM_SETS + "` should be an array of synonym sets.");
+    }
+
+    if(!req_json[curation_sets].is_array()) {
+        return Option<Collection*>(400, std::string("`") + curation_sets + "` should be an array of curation sets.");
+    }
+
+    for (const auto& synonym_set_name : req_json[SYNONYM_SETS]) {
+        if (!synonym_set_name.is_string() || synonym_set_name.get<std::string>().empty()) {
+            return Option<Collection*>(400, std::string("`") + SYNONYM_SETS + "` should be an array of non-empty strings.");
+        }
+        SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
+        auto get_op = synonym_index_manager.get_synonym_index(synonym_set_name.get<std::string>());
+        if (!get_op.ok()) {
+            return Option<Collection*>(404, "Synonym set `" + synonym_set_name.get<std::string>() + "` not found.");
+        }
+    }
+
+    for (const auto& curation_set_name : req_json[curation_sets]) {
+        if (!curation_set_name.is_string() || curation_set_name.get<std::string>().empty()) {
+            return Option<Collection*>(400, std::string("`") + curation_sets + "` should be an array of non-empty strings.");
+        }
+        CurationIndexManager& curation_index_manager = CurationIndexManager::get_instance();
+        auto get_op = curation_index_manager.get_curation_index(curation_set_name.get<std::string>());
+        if (!get_op.ok()) {
+            return Option<Collection*>(404, "Curation set `" + curation_set_name.get<std::string>() + "` not found.");
+        }
     }
 
     for (auto it = req_json[SYMBOLS_TO_INDEX].begin(); it != req_json[SYMBOLS_TO_INDEX].end(); ++it) {
@@ -1708,7 +1836,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     std::string fallback_field_type;
     std::vector<field> fields;
     auto parse_op = field::json_fields_to_fields(req_json[ENABLE_NESTED_FIELDS].get<bool>(),
-                                                 req_json["fields"], fallback_field_type, fields);
+                                                 req_json["fields"], fallback_field_type, fields, collection_name);
 
     if(!parse_op.ok()) {
         return Option<Collection*>(parse_op.code(), parse_op.error());
@@ -1743,13 +1871,13 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     const auto created_at = static_cast<uint64_t>(std::time(nullptr));
 
-    return CollectionManager::get_instance().create_collection(req_json["name"], num_memory_shards,
+    return CollectionManager::get_instance().create_collection(collection_name, num_memory_shards,
                                                                 fields, default_sorting_field, created_at,
                                                                 fallback_field_type,
                                                                 req_json[SYMBOLS_TO_INDEX],
                                                                 req_json[TOKEN_SEPARATORS],
                                                                 req_json[ENABLE_NESTED_FIELDS],
-                                                                model, req_json[METADATA]);
+                                                                model, req_json[METADATA], req_json[SYNONYM_SETS], req_json[curation_sets]);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
@@ -1802,37 +1930,98 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
     }
 
-    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f, referenced_infos);
+    auto op = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f, referenced_infos);
+    if (!op.ok()) {
+        return Option<bool>(op.code(), op.error());
+    }
+    Collection* collection = op.get();
 
     LOG(INFO) << "Loading collection " << collection->get_name();
 
-    // initialize overrides
-    std::vector<std::string> collection_override_jsons;
-    cm.store->scan_fill(Collection::get_override_key(this_collection_name, ""),
-                        std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" + this_collection_name + "`",
-                        collection_override_jsons);
+    // migrate synonyms if exists
+    const std::string& syn_lower_bound_key =
+                std::string(SynonymIndex::OLD_COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "_";
 
-    for(const auto & collection_override_json: collection_override_jsons) {
-        nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
-        override_t override;
-        auto parse_op = override_t::parse(collection_override, "", override, "", collection->get_symbols_to_index(),
-                                          collection->get_token_separators());
-        if(parse_op.ok()) {
-            collection->add_override(override, false);
+    std::string syn_upper_bound_key = std::string(SynonymIndex::OLD_COLLECTION_SYNONYM_PREFIX) + "_" +
+                                      this_collection_name + "`";  // cannot inline this
+    std::vector<std::string> collection_synonym_jsons;
+    cm.store->scan_fill(syn_lower_bound_key, syn_upper_bound_key,
+                        collection_synonym_jsons);
+    if(!collection_synonym_jsons.empty()) {
+        SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
+        auto get_op = synonym_index_manager.get_synonym_index(this_collection_name + "_synonyms_index");
+        if(get_op.ok()) {
+            LOG(INFO) << "Synonym index already exists for collection " << this_collection_name
+                       << ", skipping migration";
         } else {
-            LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
+          auto synonym_index_op = synonym_index_manager.add_synonym_index(this_collection_name + "_synonyms_index");
+          if(!synonym_index_op.ok()) {
+              LOG(ERROR) << "Error while creating synonym index for collection " << this_collection_name
+                        << ": " << synonym_index_op.error();
+              return Option<bool>(synonym_index_op.code(), synonym_index_op.error());
+          }
+          SynonymIndex* synonym_index = synonym_index_op.get();
+
+          for(const auto & collection_synonym_json: collection_synonym_jsons) {
+              nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
+              synonym_t synonym;
+              auto parse_op = synonym_t::parse(collection_synonym, synonym);
+              if(!parse_op.ok()) {
+                  LOG(ERROR) << "Skipping loading of synonym: " << parse_op.error();
+                  continue;
+              }
+              auto add_op = synonym_index->add_synonym(synonym, true);
+              if(!add_op.ok()) {
+                  LOG(ERROR) << "Error while adding synonym: " << add_op.error();
+              }
+          }
+
+          // Add the SynonymIndex to the collection
+          collection->set_synonym_sets({this_collection_name + "_synonyms_index"});
+
+          LOG(INFO) << "Migrated synonyms for collection " << this_collection_name;
         }
     }
 
-    // initialize synonyms
-    std::vector<std::string> collection_synonym_jsons;
-    cm.store->scan_fill(SynonymIndex::get_synonym_key(this_collection_name, ""),
-                        std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "`",
-                        collection_synonym_jsons);
-
-    for(const auto & collection_synonym_json: collection_synonym_jsons) {
-        nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
-        collection->add_synonym(collection_synonym, false);
+    // migrate curations if exists
+    const std::string& ov_lower_bound_key =
+                std::string(CurationIndex::OLD_COLLECTION_OVERRIDE_PREFIX) + "_" + this_collection_name + "_";
+    std::string ov_upper_bound_key = std::string(CurationIndex::OLD_COLLECTION_OVERRIDE_PREFIX) + "_" +
+                                      this_collection_name + "`";  // cannot inline this
+    std::vector<std::string> collection_curation_jsons;
+    cm.store->scan_fill(ov_lower_bound_key, ov_upper_bound_key, collection_curation_jsons);
+    if(!collection_curation_jsons.empty()) {
+        CurationIndexManager& curation_index_manager = CurationIndexManager::get_instance();
+        // Create a new CurationIndex for the collection
+        auto get_op = curation_index_manager.get_curation_index(this_collection_name + "_curations_index");
+        if(get_op.ok()) {
+            LOG(INFO) << "Curation index already exists for collection " << this_collection_name
+                       << ", skipping migration";
+        } else {
+          auto curation_index_op = curation_index_manager.add_curation_index(this_collection_name + "_curations_index");
+          if(!curation_index_op.ok()) {
+              LOG(ERROR) << "Error while creating curation index for collection " << this_collection_name
+                        << ": " << curation_index_op.error();
+              return Option<bool>(curation_index_op.code(), curation_index_op.error());
+          }
+          CurationIndex* curation_index = curation_index_op.get();
+          for(const auto & collection_curation_json: collection_curation_jsons) {
+              nlohmann::json collection_curation = nlohmann::json::parse(collection_curation_json);
+              curation_t curation;
+              std::string curation_id = collection_curation.value("id", std::string{});
+              auto parse_op = curation_t::parse(collection_curation, curation_id, curation);
+              if(!parse_op.ok()) {
+                  LOG(ERROR) << "Skipping loading of curation: " << parse_op.error();
+                  continue;
+              }
+              auto add_op = curation_index->add_curation(curation, true);
+              if(!add_op.ok()) {
+                  LOG(ERROR) << "Error while adding curation: " << add_op.error();
+              }
+          }
+          collection->set_curation_sets({this_collection_name + "_curations_index"});
+          LOG(INFO) << "Migrated curations for collection " << this_collection_name;
+        }
     }
 
     // Fetch records from the store and re-create memory index
@@ -1870,7 +2059,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
         if(collection->get_enable_nested_fields()) {
             std::vector<field> flattened_fields;
-            field::flatten_doc(document, collection->get_nested_fields(), {}, true, flattened_fields);
+            field::flatten_doc(document, collection->get_nested_fields(), {}, false, flattened_fields);
         }
 
         auto dirty_values = DIRTY_VALUES::COERCE_OR_DROP;
@@ -1974,7 +2163,8 @@ Option<bool> CollectionManager::delete_preset(const string& preset_name) {
     return Option<bool>(true);
 }
 
-Option<Collection*> CollectionManager::clone_collection(const string& existing_name, const nlohmann::json& req_json) {
+Option<Collection*> CollectionManager::clone_collection(const string& existing_name, const nlohmann::json& req_json,
+                                                       const bool copy_documents) {
     std::shared_lock lock(mutex);
 
     if(collections.count(existing_name) == 0) {
@@ -2009,7 +2199,8 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     auto coll_create_op = create_collection(new_name, DEFAULT_NUM_MEMORY_SHARDS, existing_coll->get_fields(),
                               existing_coll->get_default_sorting_field(), static_cast<uint64_t>(std::time(nullptr)),
                               existing_coll->get_fallback_field_type(), symbols_to_index, token_separators,
-                              existing_coll->get_enable_nested_fields(), existing_coll->get_vq_model());
+                              existing_coll->get_enable_nested_fields(), existing_coll->get_vq_model(),
+                              {}, existing_coll->get_synonym_sets(), existing_coll->get_curation_sets());
 
     lock.lock();
 
@@ -2019,16 +2210,84 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
 
     Collection* new_coll = coll_create_op.get();
 
-    // copy synonyms
-    auto synonyms = existing_coll->get_synonyms().get();
-    for(const auto& synonym: synonyms) {
-        new_coll->get_synonym_index()->add_synonym(new_name, *synonym.second);
-    }
 
-    // copy overrides
-    auto overrides = existing_coll->get_overrides().get();
-    for(const auto& kv: overrides) {
-        new_coll->add_override(*kv.second);
+    // copy documents if requested
+    if(copy_documents) {
+        lock.unlock();
+
+        LOG(INFO) << "Copying documents from " << existing_name << " to " << new_name;
+
+        // Fetch records from the store and index them in the new collection using add_many
+        const std::string seq_id_prefix = existing_coll->get_seq_id_collection_prefix();
+        std::string upper_bound_key = existing_coll->get_seq_id_collection_prefix() + "`";
+        rocksdb::Slice upper_bound(upper_bound_key);
+
+        rocksdb::Iterator* iter = store->scan(seq_id_prefix, &upper_bound);
+        std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
+
+        std::vector<std::string> json_batch;
+        size_t num_found_docs = 0;
+        size_t num_indexed_docs = 0;
+        size_t batch_doc_str_size = 0;
+        const size_t batch_size = 1000;
+
+        auto begin = std::chrono::high_resolution_clock::now();
+
+        while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
+            num_found_docs++;
+
+            nlohmann::json document;
+            const std::string& doc_string = iter->value().ToString();
+
+            try {
+                document = nlohmann::json::parse(doc_string);
+            } catch(const std::exception& e) {
+                LOG(ERROR) << "JSON error during document copy: " << e.what();
+                iter->Next();
+                continue;
+            }
+
+            batch_doc_str_size += doc_string.size();
+            json_batch.emplace_back(doc_string);
+
+            // Peek and check for last record
+            iter->Next();
+            bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
+
+            // Check memory threshold and batch processing
+            bool exceeds_batch_mem_threshold = ((batch_doc_str_size * 7) > (250 * 1024 * 1024));
+
+            if(exceeds_batch_mem_threshold || (json_batch.size() >= batch_size) || last_record) {
+                // Use add_many which handles both indexing and storage properly
+                nlohmann::json dummy_doc;
+                auto add_result = new_coll->add_many(json_batch, dummy_doc, CREATE, "", DIRTY_VALUES::COERCE_OR_DROP);
+
+                size_t num_imported = 0;
+                if(add_result.contains("num_imported")) {
+                    num_imported = add_result["num_imported"].get<size_t>();
+                }
+
+                num_indexed_docs += num_imported;
+                batch_doc_str_size = 0;
+                json_batch.clear();
+
+                // Progress logging
+                if(num_found_docs % 10000 == 0 && num_found_docs > 0) {
+                    auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                            std::chrono::high_resolution_clock::now() - begin).count();
+
+                    if(time_elapsed > 30) {
+                        begin = std::chrono::high_resolution_clock::now();
+                        LOG(INFO) << "Copied " << num_found_docs << " documents so far.";
+                    }
+                }
+            }
+        }
+
+        LOG(INFO) << "Successfully copied " << num_indexed_docs << "/" << num_found_docs
+                  << " documents from " << existing_name << " to " << new_name;
+
+        lock.lock();
     }
 
     return Option<Collection*>(new_coll);
@@ -2178,4 +2437,187 @@ void CollectionManager::remove_internal_fields(std::map<std::string, std::string
             ++it;
         }
     }
+}
+
+Option<bool> CollectionManager::update_collection_synonym_sets(const std::string& collection,
+                                                               const std::vector<std::string>& synonym_sets) {
+    auto collection_ptr = get_collection(collection);
+    if (collection_ptr == nullptr) {
+        return Option<bool>(400, "failed to get collection.");
+    }
+
+    auto& synonym_index_manager = SynonymIndexManager::get_instance();
+    for (const auto& synonym_set_name : synonym_sets) {
+        auto get_op = synonym_index_manager.get_synonym_index(synonym_set_name);
+        if (!get_op.ok()) {
+            return Option<bool>(404, "Synonym set `" + synonym_set_name + "` not found.");
+        }
+    }
+
+    collection_ptr->update_synonym_sets(synonym_sets);
+
+    std::string collection_meta_str;
+
+    auto collection_metakey = Collection::get_meta_key(collection);
+    store->get(collection_metakey, collection_meta_str);
+
+    auto collection_meta_json = nlohmann::json::parse(collection_meta_str);
+
+    collection_meta_json[Collection::COLLECTION_SYNONYM_SETS] = synonym_sets;
+
+    if(store->insert(collection_metakey, collection_meta_json.dump())) {
+        return Option<bool>(true);
+    }
+
+    return Option<bool>(400, "failed to insert into store.");
+}
+
+Option<bool> CollectionManager::update_collection_curation_sets(const std::string& collection,
+                                                                const std::vector<std::string>& curation_sets) {
+    auto collection_ptr = get_collection(collection);
+    if (collection_ptr == nullptr) {
+        return Option<bool>(400, "failed to get collection.");
+    }
+
+    auto &curation_index_manager = CurationIndexManager::get_instance();
+    for (const auto &curation_set_name: curation_sets) {
+        auto get_op = curation_index_manager.get_curation_index(curation_set_name);
+        if (!get_op.ok()) {
+            return Option<bool>(404, "Curation set `" + curation_set_name + "` not found.");
+        }
+    }
+
+    collection_ptr->update_curation_sets(curation_sets);
+
+    std::string collection_meta_str;
+
+    auto collection_metakey = Collection::get_meta_key(collection);
+    store->get(collection_metakey, collection_meta_str);
+
+    auto collection_meta_json = nlohmann::json::parse(collection_meta_str);
+
+    collection_meta_json[Collection::COLLECTION_curation_sets] = curation_sets;
+
+    if (store->insert(collection_metakey, collection_meta_json.dump())) {
+        return Option<bool>(true);
+    }
+
+    return Option<bool>(400, "failed to insert into store.");
+}
+
+Option<bool> CollectionManager::get_document_from_store(const std::string collection_name, const uint32_t& seq_id,
+                                                        nlohmann::json& document, bool raw_doc) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->get_document_from_store(seq_id, document, raw_doc);
+}
+
+Option<uint32_t> CollectionManager::doc_id_to_seq_id(const std::string collection_name, const std::string& doc_id) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<uint32_t>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->doc_id_to_seq_id(doc_id);
+}
+
+Option<bool> CollectionManager::get_filter_ids(const std::string collection_name, const std::string& filter_query,
+                                               filter_result_t& filter_result,
+                                               const bool& should_timeout, const bool& validate_field_names) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->get_filter_ids(filter_query, filter_result, should_timeout, validate_field_names);
+}
+
+Option<reference_info_t> CollectionManager::is_referenced_in(const std::string& referenced_coll_name,
+                                                             const std::string& referring_coll_name) const {
+    std::unique_lock lock(mutex);
+    auto it = referenced_ins.find(referenced_coll_name);
+    if (it == referenced_ins.end()) {
+        return Option<reference_info_t>(400, "referenced_coll_name: `" + referenced_coll_name + "` not found.");
+    }
+
+    auto inner_it = it->second.find(referring_coll_name);
+    if (inner_it == it->second.end()) {
+        return Option<reference_info_t>(400, "referring_coll_name: `" + referring_coll_name +
+                                                "` in referenced_coll_name: `" + referenced_coll_name + "` not found.");
+    }
+
+    return Option<reference_info_t>(inner_it->second);
+}
+
+Option<bool> CollectionManager::populate_include_exclude_fields(const std::string& collection_name,
+                                                                const std::string& ref_include,
+                                                                const std::string& ref_exclude,
+                                                                tsl::htrie_set<char>& include_fields_full,
+                                                                tsl::htrie_set<char>& exclude_fields_full) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    std::vector<std::string> ref_include_fields_vec, ref_exclude_fields_vec;
+    StringUtils::split(ref_include, ref_include_fields_vec, ",");
+    StringUtils::split(ref_exclude, ref_exclude_fields_vec, ",");
+
+    spp::sparse_hash_set<std::string> ref_include_fields, ref_exclude_fields;
+    ref_include_fields.insert(ref_include_fields_vec.begin(), ref_include_fields_vec.end());
+    ref_exclude_fields.insert(ref_exclude_fields_vec.begin(), ref_exclude_fields_vec.end());
+
+    return collection->populate_include_exclude_fields_lk(ref_include_fields,
+                                                          ref_exclude_fields,
+                                                          include_fields_full,
+                                                          exclude_fields_full);
+}
+
+Option<bool> CollectionManager::include_related_docs(const std::string& collection_name,
+                                                     nlohmann::json& doc, const uint32_t& seq_id,
+                                                     const reference_info_t& ref_info,
+                                                     const tsl::htrie_set<char>& ref_include_fields_full,
+                                                     const tsl::htrie_set<char>& ref_exclude_fields_full,
+                                                     const nlohmann::json& original_doc,
+                                                     const ref_include_exclude_fields& ref_include_exclude) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->include_related_docs(doc, seq_id, ref_info, ref_include_fields_full, ref_exclude_fields_full,
+                                            original_doc, ref_include_exclude);
+}
+
+Option<bool> CollectionManager::get_related_ids(const std::string& collection_name,
+                                                const std::string& field_name,
+                                                const std::vector<uint32_t>& seq_id_vec,
+                                                std::vector<uint32_t>& related_ids) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->get_related_ids_with_lock(field_name, seq_id_vec, related_ids);
+}
+
+Option<bool> CollectionManager::process_ref_include_fields_sort(const std::string& collection_name,
+                                                                const std::string& sort_by_str, size_t limit,
+                                                                std::vector<uint32_t>& doc_ids) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->process_ref_include_fields_sort(sort_by_str, limit, doc_ids);
 }

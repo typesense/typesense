@@ -6,4 +6,5 @@ RUN mkdir -p /opt
 COPY typesense-server /opt
 RUN chmod +x /opt/typesense-server
 EXPOSE 8108
+STOPSIGNAL SIGINT
 ENTRYPOINT ["/opt/typesense-server"]

@@ -93,13 +93,44 @@ Option<nlohmann::json> NaturalLanguageSearchModelManager::update_model(const std
         return Option<nlohmann::json>(validate_res.code(), validate_res.error());
     }
 
-    auto model_key = get_model_key(model_id);
-    bool insert_op = store->insert(model_key, model_copy.dump(0));
-    if(!insert_op) {
-        return Option<nlohmann::json>(500, "Error while inserting model into the store");
-    }
+    std::string new_model_id = model_copy["id"].get<std::string>();
+    bool id_changed = (new_model_id != model_id);
 
-    models[model_id] = model_copy;
+    if (id_changed) {
+        if (models.find(new_model_id) != models.end()) {
+            return Option<nlohmann::json>(409, "Model id already exists");
+        }
+
+        nlohmann::json old_model = it->second;
+
+        models.erase(it);
+
+        auto old_model_key = get_model_key(model_id);
+        bool remove_op = store->remove(old_model_key);
+        if(!remove_op) {
+            // If removal fails, restore the old entry
+            models[model_id] = old_model;
+            return Option<nlohmann::json>(500, "Error while removing old model from the store");
+        }
+
+        models[new_model_id] = model_copy;
+        auto new_model_key = get_model_key(new_model_id);
+        bool insert_op = store->insert(new_model_key, model_copy.dump(0));
+        if(!insert_op) {
+            // If insertion fails, restore the old entry
+            models.erase(new_model_id);
+            models[model_id] = old_model;
+            return Option<nlohmann::json>(500, "Error while inserting model into the store");
+        }
+    } else {
+        auto model_key = get_model_key(model_id);
+        bool insert_op = store->insert(model_key, model_copy.dump(0));
+        if(!insert_op) {
+            return Option<nlohmann::json>(500, "Error while inserting model into the store");
+        }
+
+        models[model_id] = model_copy;
+    }
 
     return Option<nlohmann::json>(model_copy);
 }
@@ -182,22 +213,36 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(co
     schema_prompt += "|------------|-----------|------------|------------|-------------|\n";
 
     std::unordered_map<std::string, std::vector<std::string>> field_facet_values;
+    
+    // Collect all string facetable fields
+    std::vector<std::string> string_facet_fields;
     for (const auto& facet_field : coll->get_facet_fields()) {
         if (search_schema.count(facet_field) == 0) continue;
 
         const auto& field_type = search_schema.at(facet_field).type;
         bool is_string_type = (field_type == field_types::STRING || field_type == field_types::STRING_ARRAY);
-        if (!is_string_type) continue;
-
-        auto results = coll->search("*", {facet_field}, "", {facet_field}, {}, {0}, 0, 1,
-          FREQUENCY, {false}, 0, {}, {}, 20).get();
+        if (is_string_type) {
+            string_facet_fields.push_back(facet_field);
+        }
+    }
+    
+    // Perform a single search query for all facetable fields
+    if (!string_facet_fields.empty()) {
+        auto results = coll->search("*", {}, "", string_facet_fields, {}, {0}, 0, 1,
+          FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 20,
+          "", 30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3,
+          "<mark>", "</mark>", {}, 1000000, true, false, true, "", false,
+          6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX, 2,
+          false, false, "", true, 0, max_score, 20, 1000).get();
 
         if (results.contains("facet_counts") && results["facet_counts"].is_array()) {
             for (const auto& facet_result : results["facet_counts"]) {
-                if (facet_result["field_name"] == facet_field &&
+                if (facet_result.contains("field_name") && facet_result["field_name"].is_string() &&
                     facet_result.contains("counts") && facet_result["counts"].is_array()) {
-
-                    auto& values = field_facet_values[facet_field];
+                    
+                    std::string field_name = facet_result["field_name"].get<std::string>();
+                    auto& values = field_facet_values[field_name];
+                    
                     for (const auto& count : facet_result["counts"]) {
                         if (count.contains("value") && count["value"].is_string()) {
                             values.push_back(count["value"].get<std::string>());
@@ -269,6 +314,8 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(co
     schema_prompt += "  \"sort_by\": \"typesense sort syntax explained above\"\n";
     schema_prompt += "}\n";
     
+    // LOG(INFO) << "Schema prompt for'" << collection_name << "': " << schema_prompt;
+    
     std::unique_lock lock(schema_prompts_mutex);
     schema_prompts.insert(collection_name, SchemaPromptEntry(schema_prompt));
 
@@ -332,8 +379,30 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
     bool has_nl_query = false;
     auto start_time = std::chrono::high_resolution_clock::now();
 
+    if(req_params.count("preset") != 0) {
+        nlohmann::json preset_json;
+        auto preset_op = CollectionManager::get_instance().get_preset(req_params["preset"], preset_json);
+        if(preset_op.ok()) {
+            if(preset_json.is_object() && preset_json.count("value") != 0 && preset_json["value"].is_object()) {
+                preset_json = preset_json["value"];
+                if(preset_json.contains("nl_query") && preset_json["nl_query"].is_boolean()) {
+                    req_params["nl_query"] = preset_json["nl_query"].get<bool>() ? "true" : "false";
+                }
+
+                if(preset_json.contains("q") && preset_json["q"].is_string() && !preset_json["q"].get<std::string>().empty()) {
+                    req_params["q"] = preset_json["q"].get<std::string>();
+                }
+
+                if(preset_json.contains("nl_model_id") && preset_json["nl_model_id"].is_string() && !preset_json["nl_model_id"].get<std::string>().empty()) {
+                    req_params["nl_model_id"] = preset_json["nl_model_id"].get<std::string>();
+                }
+            }
+        }
+    }
+
     if(req_params.count("nl_query") != 0 && req_params["nl_query"] == "true" && req_params.count("q") != 0 && !req_params["q"].empty()) {
         nl_query = req_params["q"];
+        req_params["raw_query"] = nl_query;
         req_params["_original_nl_query"] = nl_query;
         has_nl_query = true;
     }

@@ -8,6 +8,8 @@
 #include "raft_server.h"
 #include "conversation_model_manager.h"
 #include "conversation_manager.h"
+#include "synonym_index_manager.h"
+#include "curation_index_manager.h"
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
@@ -1253,6 +1255,53 @@ TEST_F(CoreAPIUtilsTest, TestParseAPIKeyIPFromMetadata) {
     res = get_api_key_and_ip(only_ip);
     EXPECT_FALSE(res.ok());
 }
+
+TEST_F(CoreAPIUtilsTest, DualStackIPValidation) {
+    // Standard IPv4 address
+    std::string ipv4_metadata = "4:abcd127.0.0.1";
+    Option<std::pair<std::string, std::string>> res = get_api_key_and_ip(ipv4_metadata);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("127.0.0.1", res.get().second);
+
+    // Standard IPv6 address format
+    std::string ipv6_metadata = "4:abcd2001:db8::1";
+    res = get_api_key_and_ip(ipv6_metadata);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("2001:db8::1", res.get().second);
+
+    // Compressed IPv6 address format (localhost)
+    std::string compressed_ipv6 = "4:abcd::1";
+    res = get_api_key_and_ip(compressed_ipv6);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("::1", res.get().second);
+
+    // IPv4-mapped IPv6 address
+    std::string ipv4_mapped_ipv6 = "4:abcd::ffff:192.0.2.1";
+    res = get_api_key_and_ip(ipv4_mapped_ipv6);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("::ffff:192.0.2.1", res.get().second);
+
+    // Empty API key with IPv6
+    std::string empty_key_ipv6 = "0:2001:db8::1";
+    res = get_api_key_and_ip(empty_key_ipv6);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("", res.get().first);
+    EXPECT_EQ("2001:db8::1", res.get().second);
+
+    // Invalid IP addresses
+    std::string invalid_ipv4 = "4:abcd999.999.999.999";
+    res = get_api_key_and_ip(invalid_ipv4);
+    EXPECT_FALSE(res.ok());
+
+    std::string invalid_ipv6 = "4:abcdzzzz::1";
+    res = get_api_key_and_ip(invalid_ipv6);
+    EXPECT_FALSE(res.ok());
+}
+
 TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -1446,7 +1495,6 @@ TEST_F(CoreAPIUtilsTest, TestProxy) {
     ASSERT_EQ(expected_status_code, resp->status_code);
     ASSERT_EQ(res, resp->body);
 }
-
 
 TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
     nlohmann::json body;
@@ -1645,7 +1693,7 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
                                  0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
                                  10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
                                  true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
-                                 true, 0, max_score, 100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, true, model_id);
+                                 true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true, true, model_id);
     
     ASSERT_TRUE(results_op.ok());
 
@@ -1948,12 +1996,15 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
               "stem":false,
               "store": true,
               "type":"string",
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             }
           ],
           "name":"cp2",
           "num_documents":0,
           "symbols_to_index":[],
+          "synonym_sets":[],
+          "curation_sets": [],
           "token_separators":[]
         }
     )"_json;
@@ -1982,6 +2033,9 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
 
 TEST_F(CoreAPIUtilsTest, OverridesPagination) {
     Collection *coll2;
+    CurationIndexManager& ov_manager = CurationIndexManager::get_instance();
+    ov_manager.init_store(store);
+    ov_manager.add_curation_index("index");
 
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false)};
@@ -1992,38 +2046,37 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
     }
 
     for(int i = 0; i < 5; ++i) {
-        nlohmann::json override_json = {
-                {"id",       "override"},
+        nlohmann::json curation_json = {
+                {"id",       "curation"},
                 {
                  "rule",     {
                                      {"query", "not-found"},
-                                     {"match", override_t::MATCH_EXACT}
+                                     {"match", curation_t::MATCH_EXACT}
                              }
                 },
                 {"metadata", {       {"foo",   "bar"}}},
         };
 
-        override_json["id"] = override_json["id"].get<std::string>() + std::to_string(i + 1);
-        override_t override;
-        override_t::parse(override_json, "", override);
+        curation_json["id"] = curation_json["id"].get<std::string>() + std::to_string(i + 1);
+        curation_t curation;
+        curation_t::parse(curation_json, "", curation);
 
-        coll2->add_override(override);
+        ov_manager.upsert_curation_item("index", curation_json);
     }
 
     auto req = std::make_shared<http_req>();
     auto resp = std::make_shared<http_res>(nullptr);
 
-    req->params["collection"] = "coll2";
+    req->params["name"] = "index";
     req->params["offset"] = "0";
     req->params["limit"] = "1";
 
-    get_overrides(req, resp);
-    nlohmann::json expected_json = R"({
-        "overrides":[
+    get_curation_set_items(req, resp);
+    nlohmann::json expected_json = R"([
                     {
                         "excludes":[],
                         "filter_curated_hits":false,
-                        "id":"override1",
+                        "id":"curation1",
                         "includes":[],
                         "metadata":{"foo":"bar"},
                         "remove_matched_tokens":false,
@@ -2032,8 +2085,7 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
                                 "query":"not-found"
                         },
                         "stop_processing":true
-                    }]
-    })"_json;
+                    }])"_json;
 
     ASSERT_EQ(expected_json.dump(), resp->body);
 
@@ -2053,15 +2105,9 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
 }
 
 TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
-    Collection *coll3;
-
-    std::vector<field> fields = {field("title", field_types::STRING, false),
-                                 field("points", field_types::INT32, false)};
-
-    coll3 = collectionManager.get_collection("coll3").get();
-    if (coll3 == nullptr) {
-        coll3 = collectionManager.create_collection("coll3", 1, fields, "points").get();
-    }
+    SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
+    synonym_index_manager.init_store(store);
+    synonym_index_manager.add_synonym_index("test");
 
     for (int i = 0; i < 5; ++i) {
         nlohmann::json synonym_json = R"(
@@ -2072,26 +2118,25 @@ TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
 
         synonym_json["id"] = synonym_json["id"].get<std::string>() + std::to_string(i + 1);
 
-        coll3->add_synonym(synonym_json);
+        synonym_index_manager.upsert_synonym_item("test", synonym_json);
     }
 
     auto req = std::make_shared<http_req>();
     auto resp = std::make_shared<http_res>(nullptr);
 
-    req->params["collection"] = "coll3";
+    req->params["name"] = "test";
     req->params["offset"] = "0";
     req->params["limit"] = "1";
 
-    get_synonyms(req, resp);
+    get_synonym_set_items(req, resp);
 
-    nlohmann::json expected_json = R"({
-        "synonyms":[
+    nlohmann::json expected_json = R"([
                     {
                         "id":"foobar1",
                         "root":"",
                         "synonyms":["blazer","suit"]
-                    }]
-    })"_json;
+                    }
+    ])"_json;
 
     ASSERT_EQ(expected_json.dump(), resp->body);
 
@@ -2162,7 +2207,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"string",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 },
                 {
                     "facet":true,
@@ -2178,7 +2224,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -2193,7 +2240,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -2208,7 +2256,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 }
             ],
             "id":1,
@@ -2220,6 +2269,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
             "name":"collection_meta",
             "num_memory_shards":4,
             "symbols_to_index":[],
+            "synonym_sets":[],
+            "curation_sets": [],
             "token_separators":[]
     })"_json;
 
@@ -2261,7 +2312,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"string",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 },
                 {
                     "facet":true,
@@ -2277,7 +2329,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -2292,7 +2345,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -2307,7 +2361,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 }
             ],
             "id":1,
@@ -2316,6 +2371,8 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
             "name":"collection_meta",
             "num_memory_shards":4,
             "symbols_to_index":[],
+            "synonym_sets":[],
+            "curation_sets": [],
             "token_separators":[]
     })"_json;
 
@@ -2371,7 +2428,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields` and `metadata` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
         "symbols_to_index":[]
@@ -2379,7 +2436,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields` and `metadata` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
         "name": "collection_meta2",
@@ -2391,7 +2448,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields` and `metadata` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
     })"_json;
@@ -2614,7 +2671,8 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "stem":false,
                     "store":false,
                     "type":"string",
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len":100
                 },
                 {
                     "facet":false,
@@ -2627,16 +2685,46 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "stem":false,
                     "store":true,
                     "type":"int32",
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len":100
                 }],
                 "name":"collection3",
                 "num_documents":0,
                 "symbols_to_index":[],
+                "synonym_sets":[],
+                "curation_sets": [],
                 "token_separators":[]
     })"_json;
 
     expected_json["created_at"] = res_json["created_at"];
     ASSERT_EQ(expected_json, res_json);
+}
+
+TEST_F(CoreAPIUtilsTest, TruncateFieldValidation) {
+    // `truncate_len` must be an integer
+    nlohmann::json schema = R"({
+        "name": "truncate_validation",
+        "fields": [
+            {"name": "title", "type": "string", "truncate_len": "false"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("The `truncate_len` property of the field `title` should be a non-negative integer.", op.error());
+}
+
+TEST_F(CoreAPIUtilsTest, TruncateFieldValidationNegative) {
+    nlohmann::json schema = R"({
+        "name": "truncate_validation_negative",
+        "fields": [
+            {"name": "title", "type": "string", "truncate_len": -1}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("The `truncate_len` property of the field `title` should be a non-negative integer.", op.error());
 }
 
 TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
@@ -2941,4 +3029,94 @@ TEST_F(CoreAPIUtilsTest, RemoveDocumentsWithReturnValues) {
     ASSERT_FALSE(res_json.contains("ids"));
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CoreAPIUtilsTest, CurlVersionSupportsOnlyHTTP1) {
+    ASSERT_FALSE(HttpServer::curl_only_http1(R"(FME/2023.7.48.23764  libcurl/8.4.0 (OpenSSL/3.0.11)
+                    Schannel zlib/1.2.13 WinIDN libssh2/1.11.0 nghttp2/1.44.0)"));
+    ASSERT_TRUE(HttpServer::curl_only_http1(R"(curl/7.15.1 (i386-pc-win32) libcurl/7.15.1 OpenSSL/0.9.8a zlib/1.2.3)"));
+    ASSERT_FALSE(HttpServer::curl_only_http1(R"(curl/7.81.0 (x86_64-pc-linux-gnu)"));
+    ASSERT_FALSE(HttpServer::curl_only_http1(R"(curl/100.81.28 (x86_64-pc-linux-gnu)"));
+}
+
+TEST_F(CoreAPIUtilsTest, UnionRemoveDuplicates) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    nlohmann::json doc = R"({"name": "anti dandruff shampoo" })"_json;
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    doc = R"({"name": "sliky hair shampoo" })"_json;
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json searches = R"([
+                    {
+                        "collection": "coll1",
+                        "q": "shampoo",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "dandruff",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "silky",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "hair",
+                        "query_by": "name"
+                    }
+                ])"_json;
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json body;
+
+    body["union"] = true;
+    body["remove_duplicates"] = true;
+    body["searches"] = searches;
+
+    req->body = body.dump();
+    nlohmann::json embedded_params;
+    req->embedded_params_vec = std::vector<nlohmann::json>(4, embedded_params);
+
+    post_multi_search(req, res);
+    nlohmann::json response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(2, response["found"]);
+    ASSERT_EQ(2, response["hits"].size());
+    ASSERT_EQ("1", response["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", response["hits"][1]["document"]["id"]);
+
+    //check setting remove_duplicates to false
+    req->params.clear();
+    body.clear();
+    body["searches"] = searches;
+    body["union"] = true;
+    body["remove_duplicates"] = false;
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(5, response["found"].get<size_t>());
+    ASSERT_EQ(5, response["hits"].size());
+    ASSERT_EQ("1", response["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", response["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", response["hits"][2]["document"]["id"]);
+    ASSERT_EQ("1", response["hits"][3]["document"]["id"]);
+    ASSERT_EQ("1", response["hits"][4]["document"]["id"]);
 }

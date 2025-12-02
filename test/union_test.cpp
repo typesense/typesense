@@ -344,6 +344,31 @@ protected:
         infile.close();
     }
 
+    void setupFiveHundredCollection() {
+        auto schema_json =
+                R"({
+                "name": "FiveHundred",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+
+        auto collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+
+        auto products = collection_create_op.get();
+        for (auto i = 0; i < 500; i++) {
+            nlohmann::json json = {
+                    {"title", "title_" + std::to_string(i)}
+            };
+            auto add_op = products->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
+    }
+
     virtual void SetUp() {
         setupCollection();
     }
@@ -782,18 +807,18 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_EQ("coll_bool", json_res["hits"][0]["collection"]);
     ASSERT_EQ("9", json_res["hits"][0]["document"]["id"]);
     ASSERT_EQ("The Legend of the Titanic", json_res["hits"][0]["document"]["title"]);
-    ASSERT_EQ(578730123365187705, json_res["hits"][0]["text_match"]);
+    ASSERT_EQ(578730123365189753, json_res["hits"][0]["text_match"]);
 
     ASSERT_EQ(0, json_res["hits"][1]["search_index"]);
     ASSERT_EQ("coll_bool", json_res["hits"][1]["collection"]);
     ASSERT_EQ("4", json_res["hits"][1]["document"]["id"]);
     ASSERT_EQ("The Wizard of Oz", json_res["hits"][1]["document"]["title"]);
-    ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
+    ASSERT_EQ(578730123365189753, json_res["hits"][1]["text_match"]);
 
     ASSERT_EQ(5, json_res["union_request_params"][0]["found"]);
-    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection"]);
+    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection_name"]);
     ASSERT_EQ(5, json_res["union_request_params"][1]["found"]);
-    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection"]);
+    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection_name"]);
     json_res.clear();
     req_params.clear();
 
@@ -826,17 +851,17 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_EQ("coll_bool", json_res["hits"][0]["collection"]);
     ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]);
     ASSERT_EQ("The Godfather", json_res["hits"][0]["document"]["title"]);
-    ASSERT_EQ(578730123365187705, json_res["hits"][0]["text_match"]);
+    ASSERT_EQ(578730123365189753, json_res["hits"][0]["text_match"]);
 
     ASSERT_EQ("coll_array_fields", json_res["hits"][1]["collection"]);
     ASSERT_EQ("4", json_res["hits"][1]["document"]["id"]);
     ASSERT_EQ("Jeremy Howard", json_res["hits"][1]["document"]["name"]);
-    ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
+    ASSERT_EQ(578730123365189753, json_res["hits"][1]["text_match"]);
 
     ASSERT_EQ(2, json_res["union_request_params"][0]["per_page"]);
-    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection"]);
+    ASSERT_EQ("coll_bool", json_res["union_request_params"][0]["collection_name"]);
     ASSERT_EQ(2, json_res["union_request_params"][1]["per_page"]);
-    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection"]);
+    ASSERT_EQ("coll_array_fields", json_res["union_request_params"][1]["collection_name"]);
     json_res.clear();
     req_params.clear();
 
@@ -866,12 +891,34 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_EQ("coll_array_fields", json_res["hits"][0]["collection"]);
     ASSERT_EQ("3", json_res["hits"][0]["document"]["id"]);
     ASSERT_EQ("Jeremy Howard", json_res["hits"][0]["document"]["name"]);
-    ASSERT_EQ(578730123365187705, json_res["hits"][0]["text_match"]);
+    ASSERT_EQ(578730123365189753, json_res["hits"][0]["text_match"]);
 
     ASSERT_EQ("coll_array_fields", json_res["hits"][1]["collection"]);
     ASSERT_EQ("2", json_res["hits"][1]["document"]["id"]);
     ASSERT_EQ("Jeremy Howard", json_res["hits"][1]["document"]["name"]);
-    ASSERT_EQ(578730123365187705, json_res["hits"][1]["text_match"]);
+    ASSERT_EQ(578730123365189753, json_res["hits"][1]["text_match"]);
+    json_res.clear();
+    req_params.clear();
+
+    setupFiveHundredCollection();
+
+    req_params = {
+            {"page", "4"},
+            {"per_page", "100"}
+    };
+    searches = R"([
+                    {
+                        "collection": "FiveHundred",
+                        "q": "*"
+                    }
+                ])"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(500, json_res["found"]);
+    ASSERT_EQ(500, json_res["out_of"]);
+    ASSERT_EQ(4, json_res["page"]);
+    ASSERT_EQ(100, json_res["hits"].size());
     json_res.clear();
     req_params.clear();
 }
@@ -1003,4 +1050,408 @@ TEST_F(UnionTest, Sorting) {
     ASSERT_EQ(9.999, json_res["hits"][9]["document"]["rating"]);
     json_res.clear();
     req_params.clear();
+}
+
+TEST_F(UnionTest, PinnedHits) {
+    auto schema_json =
+            R"({
+                "name": "Cars",
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+
+    auto schema_json2 =
+            R"({
+                "name": "Watches",
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "name": "Black McLaren"
+            })"_json,
+            R"({
+                "name": "Black Lamborghini"
+            })"_json,
+            R"({
+                "name": "Black Buggati"
+            })"_json,
+            R"({
+                "name": "Black Rolex"
+            })"_json,
+            R"({
+                "name": "Black Tissot"
+            })"_json,
+            R"({
+                "name": "Black Rado"
+            })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+    for (auto i = 0; i < 3; ++i) {
+        const auto& json = documents[i];
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    collection_create_op = collectionManager.create_collection(schema_json2);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    coll = collection_create_op.get();
+    for (auto i = 3; i < 6; ++i) {
+        const auto& json = documents[i];
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {{"pinned_hits", "1:1"}};
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+
+    searches = R"([
+                    {
+                        "collection": "Cars",
+                        "q": "black",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "black",
+                        "query_by": "name"
+                    }
+                ])"_json;
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(6, json_res["found"]);
+    ASSERT_EQ(6, json_res["out_of"]);
+    ASSERT_EQ(6, json_res["hits"].size());
+    ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]); //any one id will be pinned incase of same ids across multiple collections
+    ASSERT_EQ("2", json_res["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", json_res["hits"][2]["document"]["id"]);
+    ASSERT_EQ("2", json_res["hits"][3]["document"]["id"]);
+    ASSERT_EQ("0", json_res["hits"][4]["document"]["id"]);
+    ASSERT_EQ("1", json_res["hits"][5]["document"]["id"]);
+
+    //with different id across collections
+    auto schema_json3 =
+            R"({
+                "name": "Cars2",
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+
+    auto schema_json4 =
+            R"({
+                "name": "Watches2",
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+
+    documents = {
+            R"({
+                "id": "C0",
+                "name": "Black McLaren"
+            })"_json,
+            R"({
+                "id": "C1",
+                "name": "Black Lamborghini"
+            })"_json,
+            R"({
+                "id": "C2",
+                "name": "Black Buggati"
+            })"_json,
+            R"({
+                "id": "W0",
+                "name": "Black Rolex"
+            })"_json,
+            R"({
+                "id": "W1",
+                "name": "Black Tissot"
+            })"_json,
+            R"({
+                "id": "W2",
+                "name": "Black Rado"
+            })"_json
+    };
+
+    collection_create_op = collectionManager.create_collection(schema_json3);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    coll = collection_create_op.get();
+    for (auto i = 0; i < 3; ++i) {
+        const auto& json = documents[i];
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    collection_create_op = collectionManager.create_collection(schema_json4);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    coll = collection_create_op.get();
+    for (auto i = 3; i < 6; ++i) {
+        const auto& json = documents[i];
+        auto add_op = coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {{"pinned_hits", "C1:1"}};
+
+    searches = R"([
+                    {
+                        "collection": "Cars2",
+                        "q": "black",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "Watches2",
+                        "q": "black",
+                        "query_by": "name"
+                    }
+                ])"_json;
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(6, json_res["found"]);
+    ASSERT_EQ(6, json_res["out_of"]);
+    ASSERT_EQ(6, json_res["hits"].size());
+    ASSERT_EQ("C1", json_res["hits"][0]["document"]["id"]);  //with unique ids, given ids will be pinned
+    ASSERT_EQ("C2", json_res["hits"][1]["document"]["id"]);
+    ASSERT_EQ("C0", json_res["hits"][2]["document"]["id"]);
+    ASSERT_EQ("W2", json_res["hits"][3]["document"]["id"]);
+    ASSERT_EQ("W1", json_res["hits"][4]["document"]["id"]);
+    ASSERT_EQ("W0", json_res["hits"][5]["document"]["id"]);
+}
+
+TEST_F(UnionTest, HybridSearchHasVectorDistance) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vec",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                }
+            }
+        ]
+    })"_json;
+
+    auto schema2 = schema;
+    schema2["name"] = "coll2";
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto collection_create_op2 = collectionManager.create_collection(schema2);
+    ASSERT_TRUE(collection_create_op2.ok());
+
+    // index docs
+    nlohmann::json doc1 = R"({"name": "hello" })"_json;
+    auto coll1 = collection_create_op.get();
+    auto add_op1 = coll1->add(doc1.dump());
+    ASSERT_TRUE(add_op1.ok());
+
+    nlohmann::json doc2 = R"({"name": "world" })"_json;
+    auto coll2 = collection_create_op2.get();
+    auto add_op2 = coll2->add(doc2.dump());
+    ASSERT_TRUE(add_op2.ok());
+
+    // Do union search with hybrid search
+    req_params = {{"q", "hello"}};
+    auto embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    
+    auto searches = R"([
+        {
+            "collection": "coll1",
+            "query_by": "name, vec"
+        },
+        {
+            "collection": "coll2",
+            "query_by": "name, vec"
+        }
+    ])"_json;
+    nlohmann::json json_res;
+    
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    ASSERT_EQ(2, json_res["hits"].size());
+    ASSERT_EQ("coll1", json_res["hits"][0]["collection"]);
+    ASSERT_EQ("coll2", json_res["hits"][1]["collection"]);
+    ASSERT_TRUE(json_res["hits"][0].contains("vector_distance"));
+    ASSERT_TRUE(json_res["hits"][1].contains("vector_distance"));
+}
+
+TEST_F(UnionTest, RemoveDuplicatesWithUnion) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    nlohmann::json doc = R"({"name": "anti dandruff shampoo" })"_json;
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    doc = R"({"name": "sliky hair shampoo" })"_json;
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    req_params = {{"remove_duplicates", "true"}};
+    auto embedded_params = std::vector<nlohmann::json>(4, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "coll1",
+                        "q": "shampoo",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "dandruff",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "silky",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "hair",
+                        "query_by": "name"
+                    }
+                ])"_json;
+
+    //default to remove duplicates
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(2, json_res["found"].get<size_t>());
+    ASSERT_EQ(2, json_res["hits"].size());
+    ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", json_res["hits"][1]["document"]["id"]);
+
+    //should explicitly set to false if not intending to remove duplicates
+    req_params = {{"remove_duplicates", "false"}};
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts, false);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(5, json_res["found"].get<size_t>());
+    ASSERT_EQ(5, json_res["hits"].size());
+    ASSERT_EQ("1", json_res["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", json_res["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", json_res["hits"][2]["document"]["id"]);
+    ASSERT_EQ("1", json_res["hits"][3]["document"]["id"]);
+    ASSERT_EQ("1", json_res["hits"][4]["document"]["id"]);
+}
+
+TEST_F(UnionTest, GroupingWithUnions) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "category", "type": "string", "facet": true},
+            {"name": "fieldId", "type": "int32"}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    nlohmann::json doc;
+    doc["name"] = "Head & Shoulders";
+    doc["category"] = "Shampoo";
+    doc["fieldId"] = 0;
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    doc["name"] = "Dove";
+    doc["category"] = "Shampoo";
+    doc["fieldId"] = 1;
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    doc["name"] = "Heads Up";
+    doc["category"] = "Shampoo";
+    doc["fieldId"] = 2;
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "coll1",
+                        "q": "head",
+                        "query_by": "name",
+                        "group_by": "category"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "do",
+                        "query_by": "name",
+                        "group_by": "category"
+                    }
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(2, json_res["found"].get<size_t>());
+    ASSERT_EQ(2, json_res["grouped_hits"].size());
+
+    ASSERT_EQ(2, json_res["grouped_hits"][0]["found"].get<size_t>());
+    ASSERT_EQ("Shampoo", json_res["grouped_hits"][0]["group_key"][0]);
+    ASSERT_EQ("0", json_res["grouped_hits"][0]["hits"][0]["document"]["id"]);
+
+    ASSERT_EQ(1, json_res["grouped_hits"][1]["found"].get<size_t>());
+    ASSERT_EQ("Shampoo", json_res["grouped_hits"][1]["group_key"][0]);
+    ASSERT_EQ("1", json_res["grouped_hits"][1]["hits"][0]["document"]["id"]);
+
+
+    //uneven searches
+    searches = R"([
+                    {
+                        "collection": "coll1",
+                        "q": "heads",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "dov",
+                        "query_by": "name",
+                        "group_by": "category"
+                    }
+                ])"_json;
+
+    req_params.clear();
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res.count("code"));
+    ASSERT_EQ(400, json_res["code"]);
+    ASSERT_EQ(1, json_res.count("error"));
+    ASSERT_EQ("Invalid group_by searches count. All searches with union search should be uniform.", json_res["error"]);
 }

@@ -76,11 +76,11 @@ public:
     CollectionManager(CollectionManager const&) = delete;
     void operator=(CollectionManager const&) = delete;
 
-    static Collection* init_collection(const nlohmann::json & collection_meta,
-                                       const uint32_t collection_next_seq_id,
-                                       Store* store,
-                                       float max_memory_ratio,
-                                       const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos);
+    static Option<Collection*> init_collection(const nlohmann::json & collection_meta,
+                                               const uint32_t collection_next_seq_id,
+                                               Store* store,
+                                               float max_memory_ratio,
+                                               const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos);
 
     static Option<bool> load_collection(const nlohmann::json& collection_meta,
                                         const size_t batch_size,
@@ -88,7 +88,8 @@ public:
                                         const std::atomic<bool>& quit,
                                         const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos);
 
-    Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json);
+    Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json, 
+                                         const bool copy_documents = false);
 
     void add_to_collections(Collection* collection);
 
@@ -129,7 +130,7 @@ public:
                                           const std::vector<std::string>& symbols_to_index = {},
                                           const std::vector<std::string>& token_separators = {},
                                           const bool enable_nested_fields = false, std::shared_ptr<VQModel> model = nullptr,
-                                          const nlohmann::json& metadata = {});
+                                          const nlohmann::json& metadata = {}, const std::vector<std::string>& synonym_sets = {}, const std::vector<std::string>& curation_sets = {});
 
     std::shared_ptr<Collection> get_collection(const std::string & collection_name) const;
 
@@ -162,7 +163,7 @@ public:
 
     static Option<bool> do_union(std::map<std::string, std::string>& req_params,
                                  std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
-                                 nlohmann::json& response, uint64_t start_ts);
+                                 nlohmann::json& response, uint64_t start_ts, bool remove_duplicates = true);
 
     static bool parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields);
 
@@ -201,8 +202,46 @@ public:
 
     Option<bool> update_collection_metadata(const std::string& collection, const nlohmann::json& metadata);
 
+    Option<bool> update_collection_synonym_sets(const std::string& collection, const std::vector<std::string>& synonym_sets);
+
+    Option<bool> update_collection_curation_sets(const std::string& collection, const std::vector<std::string>& curation_sets);
+
     Option<nlohmann::json> get_collection_alter_status() const;
 
     static void remove_internal_fields(std::map<std::string, std::string>& params);
 
+    static Option<bool> get_document_from_store(const std::string collection, const uint32_t& seq_id,
+                                                nlohmann::json& document, bool raw_doc = false);
+
+    static Option<uint32_t> doc_id_to_seq_id(const std::string collection, const std::string& doc_id);
+
+    static Option<bool> get_filter_ids(const std::string collection, const std::string & filter_query,
+                                       filter_result_t& filter_result,
+                                       const bool& should_timeout = true, const bool& validate_field_names = true);
+
+    Option<reference_info_t> is_referenced_in(const std::string& referenced_coll_name,
+                                              const std::string& referring_coll_name) const;
+
+    static Option<bool> populate_include_exclude_fields(const std::string& collection_name,
+                                                        const std::string& ref_include,
+                                                        const std::string& ref_exclude,
+                                                        tsl::htrie_set<char>& include_fields_full,
+                                                        tsl::htrie_set<char>& exclude_fields_full);
+
+    static Option<bool> include_related_docs(const std::string& collection_name,
+                                             nlohmann::json& doc, const uint32_t& seq_id,
+                                             const reference_info_t& ref_info,
+                                             const tsl::htrie_set<char>& ref_include_fields_full,
+                                             const tsl::htrie_set<char>& ref_exclude_fields_full,
+                                             const nlohmann::json& original_doc,
+                                             const ref_include_exclude_fields& ref_include_exclude);
+
+    static Option<bool> get_related_ids(const std::string& collection_name,
+                                        const std::string& field_name,
+                                        const std::vector<uint32_t>& seq_id_vec,
+                                        std::vector<uint32_t>& related_ids);
+
+    static Option<bool> process_ref_include_fields_sort(const std::string& collection_name,
+                                                        const std::string& sort_by_str, size_t limit,
+                                                        std::vector<uint32_t>& doc_ids);
 };

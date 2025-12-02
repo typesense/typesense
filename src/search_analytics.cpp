@@ -1,0 +1,543 @@
+#include <mutex>
+#include "search_analytics.h"
+#include "tokenizer.h"
+#include "collection_manager.h"
+
+void search_event_t::to_json(nlohmann::json& obj, const std::string& coll, const std::string& name) const {
+  obj["query"] = query;
+  obj["event_type"] = event_type;
+  obj["timestamp"] = timestamp;
+  obj["user_id"] = user_id;
+
+  if(!filter_str.empty()) {
+    obj["filter_by"] = filter_str;
+  }
+
+  if(!tag_str.empty()) {
+    obj["analytics_tag"] = tag_str;
+  }
+
+  obj["collection"] = coll;
+  obj["name"] = name;
+}
+
+void search_counter_event_t::serialize_as_docs(std::string& docs) {
+  for(const auto& kv : query_counts) {
+    nlohmann::json doc;
+    doc["id"] = std::to_string(StringUtils::hash_wy(kv.first.query.c_str(), kv.first.query.size()));
+    doc["q"] = kv.first.query;
+    if (meta_fields.find("filter_by") != meta_fields.end() && kv.first.filter_str.empty()) {
+      doc["filter_by"] = kv.first.filter_str;
+    }
+
+    if (meta_fields.find("analytics_tag") != meta_fields.end() && !kv.first.tag_str.empty()) {
+      doc["analytics_tag"] = kv.first.tag_str;
+    }
+    doc["$operations"]["increment"]["count"] = kv.second;
+    docs += doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore) + "\n";
+  }
+
+  if(!docs.empty()) {
+    docs.pop_back();
+  }
+}
+
+bool SearchAnalytics::check_rule_type(const std::string& event_type, const std::string& type) {
+  if(event_type == SEARCH_EVENT) {
+    return type == LOG_TYPE || type == NO_HIT_QUERIES_TYPE || type == POPULAR_QUERIES_TYPE;
+  }
+
+  return false;
+}
+
+bool SearchAnalytics::check_rule_type_collection(const std::string& collection, const std::string& type) {
+  auto collection_map_it = collection_rules_map.find(collection);
+  if(collection_map_it == collection_rules_map.end()) {
+    return false;
+  }
+
+  for(const auto& rule_name : collection_map_it->second) {
+    if(search_rules.find(rule_name)->second.type == type) {
+      return true;
+    }
+  }
+  return false;
+}
+
+Option<bool> SearchAnalytics::add_event(const std::string& client_ip, const nlohmann::json& event_data) {
+  std::unique_lock lock(mutex);
+  auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count();
+  const auto& event_name = event_data["name"].get<std::string>();
+  const auto& data = event_data["data"].get<nlohmann::json>();
+
+  if(!data.contains("q") || !data["q"].is_string()) {
+    return Option<bool>(400, "'q' should be a string and is required");
+  }
+
+  if(data.contains("filter_by") && !data["filter_by"].is_string()) {
+    return Option<bool>(400, "'filter_by' should be a string");
+  }
+
+  if(data.contains("analytics_tag") && !data["analytics_tag"].is_string()) {
+    return Option<bool>(400, "'analytics_tag' should be a string");
+  }
+  const auto& type = search_rules.find(event_name)->second.type;
+  const auto& event_type = search_rules.find(event_name)->second.event_type;
+
+  if(type == POPULAR_QUERIES_TYPE || type == NO_HIT_QUERIES_TYPE) {
+    const auto& counter_event_it = search_counter_events.find(event_name);
+    if(counter_event_it == search_counter_events.end()) {
+      return Option<bool>(400, "Rule does not exist");
+    }
+    search_event_t search_event{
+      data["q"].get<std::string>(),
+      event_type,
+      data.contains("timestamp") ? data["timestamp"].get<uint64_t>() : uint64_t(now_ts_useconds),
+      data["user_id"].get<std::string>(),
+      data.contains("filter_by") ? data["filter_by"].get<std::string>() : "",
+      data.contains("analytics_tag") ? data["analytics_tag"].get<std::string>() : ""
+    };
+    auto& query_counts = counter_event_it->second.query_counts;
+    auto it = query_counts.find(search_event);
+    // skip count when map has become too large (to prevent abuse)
+    if (it == query_counts.end()) {
+      if (query_counts.size() < counter_event_it->second.limit * 2) {
+        query_counts.emplace(search_event, 1);
+      }
+      // else drop the event
+    } else {
+      it->second++;
+    }
+  } else if (type == LOG_TYPE) {
+    const auto& log_event_it = search_log_events.find(event_name);
+    if(log_event_it == search_log_events.end()) {
+      return Option<bool>(400, "Rule does not exist");
+    }
+    const auto& meta_fields = search_rules.find(event_name)->second.meta_fields;
+    search_log_events[event_name].push_back(search_event_t{
+      data["q"].get<std::string>(),
+      event_type,
+      data.contains("timestamp") ? data["timestamp"].get<uint64_t>() : uint64_t(now_ts_useconds),
+      data["user_id"].get<std::string>(),
+      data.contains("filter_by") && meta_fields.find("filter_by") != meta_fields.end() ? data["filter_by"].get<std::string>() : "",
+      data.contains("analytics_tag") && meta_fields.find("analytics_tag") != meta_fields.end() ? data["analytics_tag"].get<std::string>() : ""
+    });
+  }
+  
+  return Option<bool>(true);
+}
+
+Option<bool> SearchAnalytics::add_internal_event(const search_internal_event_t& event_data) {
+  std::unique_lock lock(mutex);
+  std::unique_lock user_lock(user_compaction_mutex);
+  const uint64_t now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count();
+  
+  auto it = collection_rules_map.find(event_data.collection);
+  if(it == collection_rules_map.end()) {
+    return Option<bool>(true);
+  }
+  const auto& rule_names = it->second;
+  for(const auto& rule_name : rule_names) {
+    const auto& rule = search_rules.find(rule_name)->second;
+    if(rule.type == event_data.type && rule.capture_search_requests && event_data.q.size() <= MAX_QUERY_LENGTH) {
+      if(rule.type == POPULAR_QUERIES_TYPE && popular_user_collection_prefix_queries[event_data.user_id][event_data.collection].size() < 100) {
+        popular_user_collection_prefix_queries[event_data.user_id][event_data.collection].push_back(search_event_t{
+          rule.expand_query ? event_data.expanded_q : event_data.q,
+          "search",
+          now_ts_us,
+          event_data.user_id,
+          event_data.filter_by,
+          event_data.analytics_tag
+        });
+      } else if (rule.type == NO_HIT_QUERIES_TYPE && nohits_user_collection_prefix_queries[event_data.user_id][event_data.collection].size() < 100) {
+        nohits_user_collection_prefix_queries[event_data.user_id][event_data.collection].push_back(search_event_t{
+          rule.expand_query ? event_data.expanded_q : event_data.q,
+          "search",
+          now_ts_us,
+          event_data.user_id,
+          event_data.filter_by,
+          event_data.analytics_tag
+        });
+      } else if (rule.type == LOG_TYPE && log_user_collection_prefix_queries[event_data.user_id][event_data.collection].size() < 100) {
+        log_user_collection_prefix_queries[event_data.user_id][event_data.collection].push_back(search_event_t{
+          rule.expand_query ? event_data.expanded_q : event_data.q,
+          "search",
+          now_ts_us,
+          event_data.user_id,
+          event_data.filter_by,
+          event_data.analytics_tag
+        });
+      }
+    }
+  }
+  return Option<bool>(true);
+}
+
+Option<nlohmann::json> SearchAnalytics::create_rule(nlohmann::json& payload, bool update, bool is_live_req) {
+  std::unique_lock lock(mutex);
+  if(update) {
+    if(search_rules.find(payload["name"].get<std::string>()) == search_rules.end()) {
+      return Option<nlohmann::json>(400, "Rule does not exist");
+    }
+    nlohmann::json existing_rule;
+    search_rules.find(payload["name"].get<std::string>())->second.to_json(existing_rule);
+    if(payload.contains("rule_tag")) {
+      existing_rule["rule_tag"] = payload["rule_tag"].get<std::string>();
+    }
+
+    if(payload.contains("params")) {
+      if(payload["params"].contains("limit")) {
+        existing_rule["params"]["limit"] = payload["params"]["limit"].get<uint32_t>();
+      }
+      if(payload["params"].contains("destination_collection")) {
+        existing_rule["params"]["destination_collection"] = payload["params"]["destination_collection"].get<std::string>();
+      }
+      if(payload["params"].contains("expand_query")) {
+        existing_rule["params"]["expand_query"] = payload["params"]["expand_query"].get<bool>();
+      }
+      if(payload["params"].contains("capture_search_requests")) {
+        existing_rule["params"]["capture_search_requests"] = payload["params"]["capture_search_requests"].get<bool>();
+      }
+      if(payload["params"].contains("meta_fields")) {
+        existing_rule["params"]["meta_fields"] = payload["params"]["meta_fields"].get<std::set<std::string>>();
+      }
+    }
+    payload = existing_rule;
+  }
+  
+  if(
+      payload.contains("params") && 
+      payload["params"].contains("expand_query") && 
+      !payload["params"]["expand_query"].is_boolean()
+    ) {
+      return Option<nlohmann::json>(400, "Expand query should be a boolean");
+  }
+
+  if(
+      payload.contains("params") && 
+      payload["params"].contains("capture_search_requests") && 
+      !payload["params"]["capture_search_requests"].is_boolean()
+    ) {
+      return Option<nlohmann::json>(400, "Capture search requests should be a boolean");
+  }
+
+  if (
+    payload.contains("params") && 
+    payload["params"].contains("meta_fields") && 
+    !payload["params"]["meta_fields"].is_array()
+  ) {
+    return Option<nlohmann::json>(400, "Meta fields should be an array of strings");
+  }
+
+  if(payload.contains("params") && payload["params"].contains("meta_fields")) {
+    auto meta_fields = payload["params"]["meta_fields"];
+    for(const auto& meta_field : meta_fields) {
+      if(meta_field.is_string() && !meta_field.get<std::string>().empty()) {
+        if(meta_field.get<std::string>() != "filter_by" && meta_field.get<std::string>() != "analytics_tag") {
+          return Option<nlohmann::json>(400, "Meta field should be either filter_by or analytics_tag");
+        }
+      } else {
+        return Option<nlohmann::json>(400, "Meta field should a non-empty string");
+      }
+    }
+  }
+
+  if(payload["type"] == NO_HIT_QUERIES_TYPE || payload["type"] == POPULAR_QUERIES_TYPE) {
+    if(
+        !payload.contains("params") || 
+        !payload["params"].contains("destination_collection") || 
+        !payload["params"]["destination_collection"].is_string() || 
+        payload["params"]["destination_collection"].get<std::string>().empty()
+      ) {
+        return Option<nlohmann::json>(400, "Destination collection is required when creating a no hit queries or popular queries type rule");
+    }
+
+    if (is_live_req) {
+      auto collection_ptr = CollectionManager::get_instance().get_collection(payload["params"]["destination_collection"].get<std::string>());
+      if(collection_ptr == nullptr) {
+        return Option<nlohmann::json>(400, "Destination collection does not exist");
+      }
+    }
+
+    if (
+      !payload["params"].contains("limit") ||
+      !payload["params"]["limit"].is_number_unsigned() ||
+      payload["params"]["limit"].get<uint32_t>() == 0
+    ) {
+      return Option<nlohmann::json>(400, "Limit should be a number greater than 0");
+    }
+
+    search_counter_event_t counter_event;
+    counter_event.destination_collection = payload["params"]["destination_collection"].get<std::string>();
+    counter_event.meta_fields = payload["params"].contains("meta_fields") ? payload["params"]["meta_fields"].get<std::set<std::string>>() : std::set<std::string>();
+    counter_event.limit = payload["params"]["limit"].get<uint32_t>();
+    if(update) {
+      auto existing_search_counter_event_it = search_counter_events.find(payload["name"].get<std::string>());
+      if(existing_search_counter_event_it != search_counter_events.end()) {
+        counter_event.query_counts = existing_search_counter_event_it->second.query_counts;
+        search_counter_events.erase(existing_search_counter_event_it);
+      }
+    }
+    search_counter_events[payload["name"].get<std::string>()] = counter_event;
+    search_rules[payload["name"].get<std::string>()] = search_rule_config_t{
+      payload["name"].get<std::string>(),
+      payload["type"].get<std::string>(),
+      payload["collection"].get<std::string>(),
+      payload["event_type"].get<std::string>(),
+      payload.contains("rule_tag") ? payload["rule_tag"].get<std::string>() : "",
+      payload["params"]["limit"].get<uint32_t>(),
+      payload["params"]["destination_collection"].get<std::string>(),
+      payload["params"].contains("expand_query") ? payload["params"]["expand_query"].get<bool>() : false,
+      payload["params"].contains("capture_search_requests") ? payload["params"]["capture_search_requests"].get<bool>() : true,
+      payload["params"].contains("meta_fields") ? payload["params"]["meta_fields"].get<std::set<std::string>>() : std::set<std::string>()
+    };
+    if(!update) {
+      auto collection_rules_map_it = collection_rules_map.find(payload["collection"].get<std::string>());
+      if(collection_rules_map_it == collection_rules_map.end()) {
+        collection_rules_map[payload["collection"].get<std::string>()] = std::vector<std::string>();
+        collection_rules_map_it = collection_rules_map.find(payload["collection"].get<std::string>());
+      }
+      collection_rules_map_it->second.push_back(payload["name"].get<std::string>());
+    }
+  }
+
+  if (payload["type"] == LOG_TYPE) {
+    if(!update) {
+      search_log_events[payload["name"].get<std::string>()] = std::vector<search_event_t>();
+    }
+    if (update) {
+      search_rules.erase(payload["name"].get<std::string>());
+    }
+    search_rules[payload["name"].get<std::string>()] = search_rule_config_t{
+      payload["name"].get<std::string>(),
+      payload["type"].get<std::string>(),
+      payload["collection"].get<std::string>(),
+      payload["event_type"].get<std::string>(),
+      payload.contains("rule_tag") ? payload["rule_tag"].get<std::string>() : "",
+      0,
+      "",
+      payload["params"].contains("expand_query") ? payload["params"]["expand_query"].get<bool>() : false,
+      payload["params"].contains("capture_search_requests") ? payload["params"]["capture_search_requests"].get<bool>() : true,
+      payload["params"].contains("meta_fields") ? payload["params"]["meta_fields"].get<std::set<std::string>>() : std::set<std::string>()
+    };
+    if(!update) {
+      auto collection_rules_map_it = collection_rules_map.find(payload["collection"].get<std::string>());
+      if(collection_rules_map_it == collection_rules_map.end()) {
+        collection_rules_map[payload["collection"].get<std::string>()] = std::vector<std::string>();
+        collection_rules_map_it = collection_rules_map.find(payload["collection"].get<std::string>());
+      }
+      collection_rules_map_it->second.push_back(payload["name"].get<std::string>());
+    }
+  }
+  return Option<nlohmann::json>(payload);
+}
+  
+
+Option<bool> SearchAnalytics::remove_rule(const std::string& name) {
+  std::unique_lock lock(mutex);
+  auto it = search_rules.find(name);
+  auto search_counter_event_it = search_counter_events.find(name);
+  auto search_log_event_it = search_log_events.find(name);
+  if(it == search_rules.end()) {
+    return Option<bool>(400, "Rule does not exist");
+  }
+  auto collection_rules_map_it = collection_rules_map.find(it->second.collection);
+  if(collection_rules_map_it != collection_rules_map.end()) {
+    auto rule_name_it = std::find(collection_rules_map_it->second.begin(), collection_rules_map_it->second.end(), name);
+    if(rule_name_it != collection_rules_map_it->second.end()) {
+      collection_rules_map_it->second.erase(rule_name_it);
+    }
+  }
+  search_rules.erase(it);
+  if(search_counter_event_it != search_counter_events.end()) {
+    search_counter_events.erase(search_counter_event_it);
+  }
+  if(search_log_event_it != search_log_events.end()) {
+    search_log_events.erase(search_log_event_it);
+  }
+  return Option<bool>(true);
+}
+
+void SearchAnalytics::get_events(const std::string& userid, const std::string& event_name, uint32_t N, std::vector<std::string>& values) {
+  std::shared_lock lock(mutex);
+  auto it = search_log_events.find(event_name);
+  if(it == search_log_events.end()) {
+    return;
+  }
+  const auto& collection = search_rules.find(event_name)->second.collection;
+  for(const auto& event : it->second) {
+    if(event.user_id == userid) {
+      nlohmann::json obj;
+      event.to_json(obj, collection, event_name);
+      values.push_back(obj.dump());
+    }
+  }
+  std::reverse(values.begin(), values.end());
+  if(values.size() > N) {
+    values.resize(N);
+  }
+}
+
+Option<nlohmann::json> SearchAnalytics::list_rules(const std::string& rule_tag) {
+  std::shared_lock lock(mutex);
+  nlohmann::json rules = nlohmann::json::array();
+  for(const auto& [key, value] : search_rules) {
+    if(rule_tag.empty() || value.rule_tag == rule_tag) {
+      nlohmann::json rule;
+      value.to_json(rule);
+      rules.push_back(rule);
+    }
+  }
+  return Option<nlohmann::json>(rules);
+}
+
+Option<nlohmann::json> SearchAnalytics::get_rule(const std::string& name) {
+  std::shared_lock lock(mutex);
+  auto it = search_rules.find(name);
+  if(it == search_rules.end()) {
+    return Option<nlohmann::json>(400, "Rule does not exist");
+  }
+  nlohmann::json rule;
+  it->second.to_json(rule);
+  return Option<nlohmann::json>(rule);
+}
+
+search_rule_config_t SearchAnalytics::get_search_rule(const std::string& name) {
+  std::shared_lock lock(mutex);
+  return search_rules.find(name)->second;
+}
+
+void SearchAnalytics::compact_single_user_queries(uint64_t now_ts_us, const std::string& user_id, const std::string& type, std::unordered_map<std::string, std::vector<search_event_t>>& user_prefix_queries) {
+  std::unique_lock lock(user_compaction_mutex);
+
+  for(auto& query_events : user_prefix_queries) {
+    const auto& collection = query_events.first;
+    auto& prefix_queries = query_events.second;
+    int64_t last_consolidated_index = -1;
+    for(uint32_t i = 0; i < prefix_queries.size(); i++) {
+      uint64_t diff_micros = (i == prefix_queries.size() - 1) ? (now_ts_us - prefix_queries[i].timestamp) : 
+                              (prefix_queries[i + 1].timestamp - prefix_queries[i].timestamp);
+      if(diff_micros > QUERY_FINALIZATION_INTERVAL_MICROS || i == prefix_queries.size() - 1) {
+        auto rules_it = collection_rules_map.find(collection);
+        // if a rule was removed after prefix events were queued, 
+        // the per-user prefix maps can still contain that collection, but collection_rules_map may no longer have it. 
+        if (rules_it == collection_rules_map.end()) {
+          prefix_queries.clear();
+          break;
+        }
+        const auto& rules = rules_it->second;
+        for(const auto& rule : rules) {
+          const auto& rule_config = search_rules.find(rule)->second;
+          if(rule_config.type == type && rule_config.capture_search_requests) {
+            nlohmann::json event_data;
+            event_data["event_type"] = prefix_queries[i].event_type;
+            event_data["timestamp"] = prefix_queries[i].timestamp;
+            event_data["name"] = rule;
+            event_data["data"]["q"] = prefix_queries[i].query;
+            event_data["data"]["user_id"] = user_id;
+            event_data["data"]["filter_by"] = prefix_queries[i].filter_str;
+            event_data["data"]["analytics_tag"] = prefix_queries[i].tag_str;
+            add_event(user_id, event_data);
+            last_consolidated_index = i;
+          }
+        }
+      }
+    }
+    prefix_queries.erase(prefix_queries.begin(), prefix_queries.begin() + last_consolidated_index + 1);
+  }
+}
+
+void SearchAnalytics::compact_all_user_queries(uint64_t now_ts_us) {
+  for(auto& user_prefix_queries : popular_user_collection_prefix_queries) {
+    compact_single_user_queries(now_ts_us, user_prefix_queries.first, POPULAR_QUERIES_TYPE, user_prefix_queries.second);
+  }
+  for(auto& user_prefix_queries : nohits_user_collection_prefix_queries) {
+    compact_single_user_queries(now_ts_us, user_prefix_queries.first, NO_HIT_QUERIES_TYPE, user_prefix_queries.second);
+  }
+  for(auto& user_prefix_queries : log_user_collection_prefix_queries) {
+    compact_single_user_queries(now_ts_us, user_prefix_queries.first, LOG_TYPE, user_prefix_queries.second);
+  }
+}
+
+void SearchAnalytics::reset_local_counter(const std::string& event_name) {
+  std::unique_lock lock(mutex);
+  auto it = search_counter_events.find(event_name);
+  if(it == search_counter_events.end()) {
+    return;
+  }
+  it->second.query_counts.clear();
+}
+
+void SearchAnalytics::reset_local_log_events(const std::string& event_name) {
+  std::unique_lock lock(mutex);
+  auto it = search_log_events.find(event_name);
+  if(it == search_log_events.end()) {
+    return;
+  }
+  it->second.clear();
+}
+
+std::unordered_map<std::string, search_counter_event_t> SearchAnalytics::get_search_counter_events() {
+  std::unique_lock lock(mutex);
+  return search_counter_events;
+}
+
+std::unordered_map<std::string, std::vector<search_event_t>> SearchAnalytics::get_search_log_events() {
+  std::unique_lock lock(mutex);
+  return search_log_events;
+}
+
+size_t SearchAnalytics::get_popular_prefix_queries_size() {
+  std::shared_lock lock(mutex);
+  std::shared_lock user_lock(user_compaction_mutex);
+  size_t count = 0;
+  for (const auto& user_map : popular_user_collection_prefix_queries) {
+    for (const auto& coll_vec : user_map.second) {
+      count += coll_vec.second.size();
+    }
+  }
+  return count;
+}
+
+size_t SearchAnalytics::get_nohits_prefix_queries_size() {
+  std::shared_lock lock(mutex);
+  std::shared_lock user_lock(user_compaction_mutex);
+  size_t count = 0;
+  for (const auto& user_map : nohits_user_collection_prefix_queries) {
+    for (const auto& coll_vec : user_map.second) {
+      count += coll_vec.second.size();
+    }
+  }
+  return count;
+}
+
+size_t SearchAnalytics::get_log_prefix_queries_size() {
+  std::shared_lock lock(mutex);
+  std::shared_lock user_lock(user_compaction_mutex);
+  size_t count = 0;
+  for (const auto& user_map : log_user_collection_prefix_queries) {
+    for (const auto& coll_vec : user_map.second) {
+      count += coll_vec.second.size();
+    }
+  }
+  return count;
+}
+
+void SearchAnalytics::remove_all_rules() {
+  std::unique_lock lock(mutex);
+  search_rules.clear();
+  search_counter_events.clear();
+  search_log_events.clear();
+  collection_rules_map.clear();
+  popular_user_collection_prefix_queries.clear();
+  nohits_user_collection_prefix_queries.clear();
+  log_user_collection_prefix_queries.clear();
+}
+
+void SearchAnalytics::dispose() {
+  remove_all_rules();
+}
+
+

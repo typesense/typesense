@@ -105,6 +105,25 @@ class OpenAIEmbedder : public RemoteEmbedder {
         static std::string get_openai_create_embedding_url(const std::string& openai_url, const std::string& openai_create_embedding_suffix = "") {
             return openai_url.back() == '/' ? openai_url + OPENAI_CREATE_EMBEDDING : openai_url + "/" + openai_create_embedding_suffix;
         }
+        
+        static std::string get_embedding_url_for_config(const std::string& openai_url, const std::string& openai_path) {
+            if (openai_url != "https://api.openai.com") {
+                // For custom URLs, check if they already contain the expected path
+                if (openai_url.find("/v1/embeddings") != std::string::npos) {
+                    return openai_url;
+                } else if (openai_url.find("/v1") != std::string::npos) {
+                    return openai_url + "/embeddings";
+                } else {
+                    return openai_url + "/v1/embeddings";
+                }
+            } else {
+                return get_openai_create_embedding_url(openai_url, openai_path);
+            }
+        }
+        
+        std::string get_embedding_url() const {
+            return get_embedding_url_for_config(openai_url, openai_create_embedding_suffix);
+        }
         friend class AzureEmbedder;
         enum OpenAIEmbedderType {
             OPENAI,
@@ -164,20 +183,38 @@ class GCPEmbedder : public RemoteEmbedder {
         std::string model_name;
         std::string document_task;
         std::string query_task;
+        std::string region;
         bool has_custom_dims;
         size_t num_dims;
-        inline static const std::string GCP_EMBEDDING_BASE_URL = "https://us-central1-aiplatform.googleapis.com/v1/projects/";
-        inline static const std::string GCP_EMBEDDING_PATH = "/locations/us-central1/publishers/google/models/";
+        enum class AuthType { OAUTH_REFRESH_TOKEN, SERVICE_ACCOUNT_KEY };
+        AuthType auth_type = AuthType::OAUTH_REFRESH_TOKEN;
+        // service account state (used when SERVICE_ACCOUNT_KEY)
+        std::string sa_client_email;
+        std::string sa_private_key_pem;
+        std::string sa_token_uri;
+        long long token_expires_at_epoch = 0;
+        inline static const std::string GCP_EMBEDDING_BASE_URL = "-aiplatform.googleapis.com/v1/projects/";
+        inline static const std::string GCP_EMBEDDING_PATH_BEFORE_REGION = "/locations/";
+        inline static const std::string GCP_EMBEDDING_PATH_AFTER_REGION = "/publishers/google/models/";
         inline static const std::string GCP_EMBEDDING_PREDICT = ":predict";
         inline static const std::string GCP_AUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
+        inline static const std::string GCP_DEFAULT_REGION = "us-central1";
         static Option<std::string> generate_access_token(const std::string& refresh_token, const std::string& client_id, const std::string& client_secret);
-        static std::string get_gcp_embedding_url(const std::string& project_id, const std::string& model_name) {
-            return GCP_EMBEDDING_BASE_URL + project_id + GCP_EMBEDDING_PATH + model_name + GCP_EMBEDDING_PREDICT;
+        static std::string get_gcp_embedding_url(const std::string& project_id, const std::string& model_name, const std::string& region) {
+            return "https://" + region + GCP_EMBEDDING_BASE_URL + project_id + GCP_EMBEDDING_PATH_BEFORE_REGION + region + GCP_EMBEDDING_PATH_AFTER_REGION + model_name + GCP_EMBEDDING_PREDICT;
         }
+        // service account helpers
+        static void normalize_pem_newlines(std::string& pem);
+        static std::string base64url_encode(const std::string& input);
+        static Option<std::string> sign_jwt_rs256(const std::string& message, const std::string& private_key_pem);
+        static Option<std::pair<std::string,long long>> mint_sa_access_token_once(const std::string& client_email, const std::string& private_key_pem, const std::string& token_uri);
+        Option<std::string> ensure_access_token(bool force_refresh = false);
     public: 
         GCPEmbedder(const std::string& project_id, const std::string& model_name, const std::string& access_token, 
                     const std::string& refresh_token, const std::string& client_id, const std::string& client_secret, const bool has_custom_dims = false, const size_t num_dims = 0,
-                    const std::string& document_task = "RETRIEVAL_DOCUMENT", const std::string& query_task = "RETRIEVAL_QUERY");
+                    const std::string& document_task = "RETRIEVAL_DOCUMENT", const std::string& query_task = "RETRIEVAL_QUERY", const std::string& region = "us-central1");
+        GCPEmbedder(const std::string& project_id, const std::string& model_name, const nlohmann::json& service_account,
+                    const bool has_custom_dims, const size_t num_dims, const std::string& document_task, const std::string& query_task, const std::string& region);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims);
         embedding_res_t embed_query(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) override;
         std::vector<embedding_res_t> embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,

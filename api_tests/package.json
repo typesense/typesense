@@ -1,0 +1,19 @@
+{
+  "name": "api_tests",
+  "module": "src/cli.ts",
+  "bin": {
+    "typesense-api-tests": "./src/cli.ts"
+  },
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "api_tests": ".",
+    "zod": "^3.25.67"
+  }
+}

@@ -17,16 +17,19 @@ struct reference_filter_result_t {
     uint32_t count = 0;
     uint32_t* docs = nullptr;
     bool is_reference_array_field = true;
+    bool delete_docs = true;
 
     // In case of nested join, references can further have references.
     std::map<std::string, reference_filter_result_t>* coll_to_references = nullptr;
 
     explicit reference_filter_result_t(uint32_t count = 0, uint32_t* docs = nullptr,
-                                        bool is_reference_array_field = true) : count(count), docs(docs),
-                                        is_reference_array_field(is_reference_array_field) {}
+                                       bool is_reference_array_field = true, bool delete_docs = true) :
+                                       count(count), docs(docs),
+                                       is_reference_array_field(is_reference_array_field),
+                                       delete_docs(delete_docs) {}
 
     reference_filter_result_t(const reference_filter_result_t& obj) {
-        if (&obj == this) {
+        if (&obj == this || obj.count == 0) {
             return;
         }
 
@@ -34,12 +37,13 @@ struct reference_filter_result_t {
         docs = new uint32_t[count];
         memcpy(docs, obj.docs, count * sizeof(uint32_t));
         is_reference_array_field = obj.is_reference_array_field;
+        delete_docs = obj.delete_docs;
 
         copy_references(obj, *this);
     }
 
     reference_filter_result_t& operator=(const reference_filter_result_t& obj) noexcept {
-        if (&obj == this) {
+        if (&obj == this || obj.count == 0) {
             return *this;
         }
 
@@ -47,13 +51,14 @@ struct reference_filter_result_t {
         docs = new uint32_t[count];
         memcpy(docs, obj.docs, count * sizeof(uint32_t));
         is_reference_array_field = obj.is_reference_array_field;
+        delete_docs = obj.delete_docs;
 
         copy_references(obj, *this);
         return *this;
     }
 
     reference_filter_result_t& operator=(reference_filter_result_t&& obj) noexcept {
-        if (&obj == this) {
+        if (&obj == this || obj.count == 0) {
             return *this;
         }
 
@@ -61,6 +66,7 @@ struct reference_filter_result_t {
         docs = obj.docs;
         coll_to_references = obj.coll_to_references;
         is_reference_array_field = obj.is_reference_array_field;
+        delete_docs = obj.delete_docs;
 
         // Set default values in obj.
         obj.count = 0;
@@ -72,11 +78,22 @@ struct reference_filter_result_t {
     }
 
     ~reference_filter_result_t() {
-        delete[] docs;
+        if (delete_docs) {
+            delete[] docs;
+        }
         delete[] coll_to_references;
     }
 
     static void copy_references(const reference_filter_result_t& from, reference_filter_result_t& to);
+
+    /// Returns whether at least one common reference doc_id was found or not.
+    static bool and_references(const std::map<std::string, reference_filter_result_t>& a_references,
+                               const std::map<std::string, reference_filter_result_t>& b_references,
+                               std::map<std::string, reference_filter_result_t>& result_references);
+
+    static void or_references(const std::map<std::string, reference_filter_result_t>& a_references,
+                              const std::map<std::string, reference_filter_result_t>& b_references,
+                              std::map<std::string, reference_filter_result_t>& result_references);
 };
 
 struct single_filter_result_t {
@@ -330,10 +347,11 @@ private:
 
     /// Collects n doc ids while advancing the iterator. The iterator may become invalid during this operation.
     /// **The references are moved from filter_result_iterator_t.
-    void get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout = false);
+    void get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& curation_timeout = false,
+                   const bool& is_group_by_first_pass = false);
 
     /// Updates `validity` of the iterator to `timed_out` if condition is met. Assumes `timeout_info` is not null.
-    inline bool is_timed_out(const bool& override_function_call_counter = false);
+    inline bool is_timed_out(const bool& curation_function_call_counter = false);
 
     /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
     /// this operation.
@@ -373,6 +391,10 @@ public:
                                       uint64_t search_begin_us = 0, uint64_t search_stop_us = UINT64_MAX,
                                       const bool& validate_field_names = true);
 
+    explicit filter_result_iterator_t(FILTER_OPERATOR filter_operator, filter_result_iterator_t* filter_result_iterator,
+                                      filter_result_iterator_t* new_iterator,
+                                      std::unique_ptr<filter_node_t>& filter_root, filter_node_t* new_filter_tree_root);
+
     ~filter_result_iterator_t();
 
     filter_result_iterator_t& operator=(filter_result_iterator_t&& obj) noexcept;
@@ -389,7 +411,7 @@ public:
     /// 0 : id is not valid
     /// 1 : id is valid
     /// -1: end of iterator / timed out
-    [[nodiscard]] int is_valid(uint32_t id, const bool& override_timeout = false);
+    [[nodiscard]] int is_valid(uint32_t id, const bool& curation_timeout = false);
 
     /// Advances the iterator to get the next value of doc and reference. The iterator may become invalid during this
     /// operation.
@@ -402,13 +424,14 @@ public:
     void get_n_ids(const uint32_t& n,
                    uint32_t& excluded_result_index,
                    uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                   filter_result_t*& result, const bool& override_timeout = false);
+                   filter_result_t*& result, const bool& curation_timeout = false,
+                   const bool& is_group_by_first_pass = false);
 
     /// Returns true if at least one id from the posting list object matches the filter.
     bool contains_atleast_one(const void* obj);
 
     /// Returns to the initial state of the iterator.
-    void reset(const bool& override_timeout = false);
+    void reset(const bool& curation_timeout = false);
 
     /// Copies filter ids from `filter_result` into `filter_array`.
     ///

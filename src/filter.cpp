@@ -519,11 +519,27 @@ Option<bool> toFilter(const std::string& expression,
         raw_value = raw_value.substr(filter_value_index);
     }
     if (_field.is_integer() || _field.is_float()) {
+        bool apply_not_equals = false;
+        size_t filter_value_index = 0;
+        if (raw_value.size() >= 1 && raw_value[0] == '!' && 
+            (raw_value.size() == 1 || raw_value[1] != '=')) {
+            apply_not_equals = true;
+            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
+            raw_value = raw_value.substr(filter_value_index);
+            
+            if (raw_value.empty()) {
+                return Option<bool>(400, "Error with filter field `" + _field.name + "`: Filter value cannot be empty after '!' operator.");
+            }
+        }
+        
         // could be a single value or a list
         if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
             Option<bool> op = toMultiValueNumericFilter(raw_value, filter_exp, _field);
             if (!op.ok()) {
                 return op;
+            }
+            if (apply_not_equals) {
+                filter_exp.apply_not_equals = true;
             }
         } else {
             Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(raw_value);
@@ -555,6 +571,9 @@ Option<bool> toFilter(const std::string& expression,
                     return validate_op;
                 }
                 filter_exp = {field_name, {raw_value}, {op_comparator.get()}};
+                if (apply_not_equals) {
+                    filter_exp.apply_not_equals = true;
+                }
             }
         }
     } else if (_field.is_bool()) {
@@ -567,13 +586,18 @@ Option<bool> toFilter(const std::string& expression,
             bool_comparator = NOT_EQUALS;
             filter_value_index++;
             while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
+        } else if (raw_value.size() >= 1 && raw_value[0] == '!' && 
+                   (raw_value.size() == 1 || raw_value[1] != '=')) {
+            bool_comparator = NOT_EQUALS;
+            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
         }
         if (filter_value_index != 0) {
             raw_value = raw_value.substr(filter_value_index);
-        }
-        if (filter_value_index == raw_value.size()) {
-            return Option<bool>(400, "Error with filter field `" + _field.name +
-                                     "`: Filter value cannot be empty.");
+            
+            if (raw_value.empty()) {
+                return Option<bool>(400, "Error with filter field `" + _field.name +
+                                         "`: Filter value cannot be empty after '!' operator.");
+            }
         }
         if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
             filter_exp = {field_name, {}, {}};
@@ -594,6 +618,9 @@ Option<bool> toFilter(const std::string& expression,
                 filter_exp.comparators.push_back(bool_comparator);
             }
         } else {
+            if (raw_value.empty()) {
+                return Option<bool>(400, "Error with filter field `" + _field.name + "`: Filter value cannot be empty.");
+            }
             if (raw_value != "true" && raw_value != "false") {
                 return Option<bool>(400, "Value of filter field `" + _field.name + "` must be `true` or `false`.");
             }
@@ -650,7 +677,6 @@ Option<bool> toFilter(const std::string& expression,
         NUM_COMPARATOR str_comparator = CONTAINS;
         auto apply_not_equals = false;
         if (raw_value[0] == '=') {
-            // string filter should be evaluated in strict "equals" mode
             str_comparator = EQUALS;
             while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
         } else if (raw_value.size() >= 2 && raw_value[0] == '!') {
@@ -658,22 +684,48 @@ Option<bool> toFilter(const std::string& expression,
                 str_comparator = NOT_EQUALS;
                 filter_value_index++;
             }
-
             apply_not_equals = true;
             while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
         }
         if (filter_value_index == raw_value.size()) {
-            return Option<bool>(400, "Error with filter field `" + _field.name +
-                                     "`: Filter value cannot be empty.");
+            return Option<bool>(400, "Error with filter field `" + _field.name + "`: Filter value cannot be empty.");
         }
-        if (raw_value[filter_value_index] == '[' && raw_value[raw_value.size() - 1] == ']') {
-            std::vector<std::string> filter_values;
-            StringUtils::split_to_values(
-                    raw_value.substr(filter_value_index + 1, raw_value.size() - filter_value_index - 2), filter_values);
 
-            filter_exp = {field_name, filter_values, {str_comparator}};
+        std::string value_part = raw_value.substr(filter_value_index);
+
+       	if (value_part.length() > 1 && value_part.front() == '"' && value_part.back() == '"') {
+        	value_part = value_part.substr(1, value_part.length() - 2);
+        	filter_exp = {field_name, {value_part}, {CONTAINS_PHRASE}};
+    	} else if (value_part[0] == '[' && value_part.back() == ']') {
+            std::vector<std::string> filter_values;
+        	std::string array_content = value_part.substr(1, value_part.size() - 2);
+        	StringUtils::split_to_values(array_content, filter_values);
+
+        	filter_exp = {field_name, {}, {}};
+
+            bool has_phrase = false;
+            for(const auto& val : filter_values) {
+                if (val.length() > 1 && val.front() == '"' && val.back() == '"') {
+                    has_phrase = true;
+                    break;
+                }
+            }
+
+            NUM_COMPARATOR default_comparator = has_phrase ? EQUALS : str_comparator;
+
+            for(const auto& val : filter_values) {
+                if (val.length() > 1 && val.front() == '"' && val.back() == '"') {
+                    std::string phrase_val = val.substr(1, val.length() - 2);
+                    filter_exp.values.push_back(phrase_val);
+                    filter_exp.comparators.push_back(CONTAINS_PHRASE);
+                } else {
+                    filter_exp.values.push_back(val);
+                    filter_exp.comparators.push_back(default_comparator);
+                }
+            }
+
         } else {
-            filter_exp = {field_name, {raw_value.substr(filter_value_index)}, {str_comparator}};
+            filter_exp = {field_name, {value_part}, {str_comparator}};
         }
 
         filter_exp.apply_not_equals = apply_not_equals;
@@ -823,7 +875,7 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
 
     std::queue<std::string> tokens;
 
-    Option<bool> tokenize_op = StringUtils::tokenize_filter_query(filter_query, tokens);
+    Option<bool> tokenize_op = tokenize_filter_query(filter_query, tokens);
     if (!tokenize_op.ok()) {
         return tokenize_op;
     }
@@ -852,5 +904,171 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
     }
 
     root->filter_query = filter_query;
+    return Option<bool>(true);
+}
+
+Option<bool> filter::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
+    auto size = filter_query.size();
+
+    for (size_t i = 0; i < size;) {
+        auto c = filter_query[i];
+        if (c == ' ') {
+            i++;
+            continue;
+        }
+
+        if (c == '(') {
+            tokens.push("(");
+            i++;
+        } else if (c == ')') {
+            tokens.push(")");
+            i++;
+        } else if (c == '&') {
+            if (i + 1 >= size || filter_query[i + 1] != '&') {
+                return Option<bool>(400, "Could not parse the filter filter_query.");
+            }
+            tokens.push("&&");
+            i += 2;
+        } else if (c == '|') {
+            if (i + 1 >= size || filter_query[i + 1] != '|') {
+                return Option<bool>(400, "Could not parse the filter filter_query.");
+            }
+            tokens.push("||");
+            i += 2;
+        } else {
+            // Reference filter would start with $ symbol.
+            if (c == '$' || (c == '!' && i + 1 < size && filter_query[i + 1] == '$')) {
+                auto op = Join::parse_reference_filter(filter_query, tokens, i);
+                if (!op.ok()) {
+                    return op;
+                }
+                continue;
+            }
+
+            std::string token;
+            auto op = parse_filter_string(filter_query, token, i);
+            if (!op.ok()) {
+                return op;
+            }
+
+            StringUtils::trim(token);
+            if (!token.empty()) {
+                tokens.push(token);
+            }
+        }
+    }
+    return Option<bool>(true);
+}
+
+Option<bool> parse_multi_valued_geopoint_filter(const std::string& filter_query, size_t& index) {
+    // Multi-valued geopoint filter.
+    // field_name:[ ([points], options), ([points]) ]
+    auto error = Option<bool>(400, "Could not parse the geopoint filter.");
+    if (filter_query[index] != '[') {
+        return error;
+    }
+
+    size_t start_index = index;
+    auto size = filter_query.size();
+
+    // Individual geopoint filters have square brackets inside them.
+    int square_bracket_count = 1;
+    while (++index < size && square_bracket_count > 0) {
+        if (filter_query[index] == '[') {
+            square_bracket_count++;
+        } else if (filter_query[index] == ']') {
+            square_bracket_count--;
+        }
+    }
+
+    if (square_bracket_count != 0) {
+        return error;
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> parse_object_filter(const std::string& filter_query, size_t& index) {
+    // Format: object_name.{ <filter expression> }
+    if (index >= filter_query.size() || filter_query[index] != '{') {
+        return Option<bool>(400, "Could not parse the object filter: `" + filter_query.substr(index) + "`.");
+    }
+
+    const auto start_index = index;
+    size_t curly_braces_count = 1;
+    while (++index < filter_query.size() && curly_braces_count > 0) {
+        if (filter_query[index] == '}') {
+            curly_braces_count--;
+        } else if (filter_query[index] == '{') {
+            return Option<bool>(400, "Nested object filters are not supported.");
+        }
+    }
+
+    if (curly_braces_count != 0) {
+        return Option<bool>(400, "Could not parse the object filter: unbalanced curly braces.");
+    }
+
+    return Option<bool>(true);
+}
+
+bool is_multi_valued_geopoint_filter(const std::string& filter_query, size_t index) {
+    while(++index < filter_query.size() && filter_query[index] == ' ');
+
+    if (index >= filter_query.size()) {
+        return false;
+    }
+    // Multi-valued geopoint filter.
+    // field_name:[ ([points], options), ([points]) ]
+    return filter_query[index] == '(';
+}
+
+Option<bool> filter::parse_filter_string(const std::string& filter_query, std::string& token, size_t& index) {
+    const auto size = filter_query.size();
+    const auto token_start_index = index;
+    bool inBacktick = false;
+    bool preceding_colon = false;
+    bool is_geo_value = false;
+    auto c = filter_query[index];
+
+    do {
+        if (c == ':') {
+            preceding_colon = true;
+        }
+        if (c == ')' && is_geo_value) {
+            is_geo_value = false;
+        }
+        if (!inBacktick && !preceding_colon && c == '{' && index > 0 && filter_query[index - 1] == '.') { // Object filter
+            auto op = parse_object_filter(filter_query, index);
+            if (!op.ok()) {
+                return op;
+            }
+
+            token += OBJECT_FILTER_MARKER;
+            break;
+        }
+
+        c = filter_query[++index];
+
+        if (c == '`') {
+            inBacktick = !inBacktick;
+        }
+        if (preceding_colon && c == '(') {
+            is_geo_value = true;
+            preceding_colon = false;
+        } else if (preceding_colon && c == '[' && is_multi_valued_geopoint_filter(filter_query, index)) {
+            auto op = parse_multi_valued_geopoint_filter(filter_query, index);
+            if (!op.ok()) {
+                return op;
+            }
+
+            break;
+        } else if (preceding_colon && c != ' ') {
+            preceding_colon = false;
+        }
+    } while (index < size && (inBacktick || is_geo_value ||
+                              (c != '(' && c != ')' && !(c == '&' && filter_query[index + 1] == '&') &&
+                               !(c == '|' && filter_query[index + 1] == '|'))));
+
+    token += filter_query.substr(token_start_index, index - token_start_index);
     return Option<bool>(true);
 }

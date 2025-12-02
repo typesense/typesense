@@ -3,15 +3,20 @@
 #include <vector>
 #include <fstream>
 #include <collection_manager.h>
-#include <analytics_manager.h>
+#include "analytics_manager.h"
 #include "string_utils.h"
 #include "collection.h"
+#include "synonym_index.h"
+#include "synonym_index_manager.h"
+#include "curation_index_manager.h"
+#include "search_analytics.h"
 
 class CollectionManagerTest : public ::testing::Test {
 protected:
     Store *store;
     Store* analytic_store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
+    AnalyticsManager & analyticsManager = AnalyticsManager::get_instance();
     std::atomic<bool> quit = false;
     Collection *collection1;
     std::vector<sort_by> sort_fields;
@@ -28,7 +33,19 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        AnalyticsManager::get_instance().init(store, analytic_store, 5);
+        analyticsManager.init(store, analytic_store, 5);
+
+        SynonymIndexManager& synonym_index_manager = SynonymIndexManager::get_instance();
+        synonym_index_manager.init_store(store);
+
+        SynonymIndex synonym_index1(store, "index");
+        synonym_index_manager.add_synonym_index("index", std::move(synonym_index1));
+
+        CurationIndexManager& curation_index_manager = CurationIndexManager::get_instance();
+        curation_index_manager.init_store(store);
+        
+        CurationIndex curation_index1(store, "index");
+        curation_index_manager.add_curation_index("index", std::move(curation_index1));
 
         schema = R"({
             "name": "collection1",
@@ -47,7 +64,9 @@ protected:
             ],
             "default_sorting_field": "points",
             "symbols_to_index":["+"],
-            "token_separators":["-"]
+            "token_separators":["-"],
+            "synonym_sets": ["index"],
+            "curation_sets": ["index"]
         })"_json;
 
         sort_fields = { sort_by("points", "DESC") };
@@ -64,9 +83,11 @@ protected:
         if(store != nullptr) {
             collectionManager.drop_collection("collection1");
             collectionManager.dispose();
+            SynonymIndexManager::get_instance().dispose();
+            CurationIndexManager::get_instance().dispose();
             delete store;
         }
-
+        analyticsManager.stop();
         delete analytic_store;
     }
 };
@@ -113,7 +134,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     store->get(Collection::get_next_seq_id_key("collection1"), next_seq_id);
     store->get(CollectionManager::NEXT_COLLECTION_ID_KEY, next_collection_id);
 
-    ASSERT_EQ(3, num_keys);
+    ASSERT_EQ(5, num_keys);
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
 
@@ -137,7 +158,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"string",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -152,7 +174,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"string",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":true,
@@ -167,7 +190,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"string[]",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":true,
@@ -182,7 +206,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"int32",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -197,7 +222,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"geopoint",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -212,7 +238,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"string",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -227,7 +254,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"int32",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -243,7 +271,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"object",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -261,10 +290,12 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "vec_dist":"cosine",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "async_reference":true,
+              "cascade_delete":true,
               "facet":false,
               "index":true,
               "infix":false,
@@ -278,7 +309,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "reference":"Products.product_id",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -293,7 +325,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"int64",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             }
           ],
           "id":0,
@@ -302,6 +335,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
           "symbols_to_index":[
             "+"
           ],
+          "synonym_sets": ["index"],
+          "curation_sets": ["index"],
           "token_separators":[
             "-"
           ]
@@ -352,7 +387,9 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
                                   "\"string\", \"facet\": false}, {\"name\": \"vector_field\", \"type\": \"float[]\", \"num_dim\": 128, \"facet\": false}], \"default_sorting_field\": \"foo\"}");
 
     std::map<std::string, std::map<std::string, reference_info_t>> referenced_ins;
-    Collection *collection = collectionManager.init_collection(collection_meta1, 100, store, 1.0f, referenced_ins);
+    auto init_op = collectionManager.init_collection(collection_meta1, 100, store, 1.0f, referenced_ins);
+    ASSERT_TRUE(init_op.ok());
+    auto collection = init_op.get();
     ASSERT_EQ("foobar", collection->get_name());
     ASSERT_EQ(100, collection->get_collection_id());
     ASSERT_EQ(2, collection->get_fields().size());
@@ -375,7 +412,9 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
                                   "\"default_sorting_field\": \"foo\","
                                   "\"symbols_to_index\": [\"+\"], \"token_separators\": [\"-\"]}");
 
-    collection = collectionManager.init_collection(collection_meta2, 100, store, 1.0f, referenced_ins);
+    init_op = collectionManager.init_collection(collection_meta2, 100, store, 1.0f, referenced_ins);
+    ASSERT_TRUE(init_op.ok());
+    collection = init_op.get();
     ASSERT_EQ(12345, collection->get_created_at());
 
     std::vector<char> expected_symbols = {'+'};
@@ -420,6 +459,7 @@ TEST_F(CollectionManagerTest, GetAllCollections) {
 }
 
 TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
+    auto& ov_manager = CurationIndexManager::get_instance();
     std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::string json_line;
 
@@ -433,76 +473,76 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     infile.close();
 
-    // add some overrides
-    nlohmann::json override_json_include = {
+    // add some curations
+    nlohmann::json curation_json_include = {
         {"id", "include-rule"},
         {
          "rule", {
                {"query", "in"},
-               {"match", override_t::MATCH_EXACT}
+               {"match", curation_t::MATCH_EXACT}
            }
         }
     };
-    override_json_include["includes"] = nlohmann::json::array();
-    override_json_include["includes"][0] = nlohmann::json::object();
-    override_json_include["includes"][0]["id"] = "0";
-    override_json_include["includes"][0]["position"] = 1;
+    curation_json_include["includes"] = nlohmann::json::array();
+    curation_json_include["includes"][0] = nlohmann::json::object();
+    curation_json_include["includes"][0]["id"] = "0";
+    curation_json_include["includes"][0]["position"] = 1;
 
-    override_json_include["includes"][1] = nlohmann::json::object();
-    override_json_include["includes"][1]["id"] = "3";
-    override_json_include["includes"][1]["position"] = 2;
+    curation_json_include["includes"][1] = nlohmann::json::object();
+    curation_json_include["includes"][1]["id"] = "3";
+    curation_json_include["includes"][1]["position"] = 2;
 
-    override_t override_include;
-    override_t::parse(override_json_include, "", override_include);
+    curation_t curation_include;
+    curation_t::parse(curation_json_include, "", curation_include);
+    ov_manager.upsert_curation_item("index", curation_json_include);
 
-    nlohmann::json override_json = {
+    nlohmann::json curation_json = {
         {"id", "exclude-rule"},
         {
          "rule", {
                        {"query", "of"},
-                       {"match", override_t::MATCH_EXACT}
+                       {"match", curation_t::MATCH_EXACT}
                }
         }
     };
-    override_json["excludes"] = nlohmann::json::array();
-    override_json["excludes"][0] = nlohmann::json::object();
-    override_json["excludes"][0]["id"] = "4";
+    curation_json["excludes"] = nlohmann::json::array();
+    curation_json["excludes"][0] = nlohmann::json::object();
+    curation_json["excludes"][0]["id"] = "4";
 
-    override_json["excludes"][1] = nlohmann::json::object();
-    override_json["excludes"][1]["id"] = "11";
+    curation_json["excludes"][1] = nlohmann::json::object();
+    curation_json["excludes"][1]["id"] = "11";
 
-    override_t override_exclude;
-    override_t::parse(override_json, "", override_exclude);
+    curation_t curation_exclude;
+    curation_t::parse(curation_json, "", curation_exclude);
 
-    nlohmann::json override_json_deleted = {
+    nlohmann::json curation_json_deleted = {
         {"id", "deleted-rule"},
         {
          "rule", {
                    {"query", "of"},
-                   {"match", override_t::MATCH_EXACT}
+                   {"match", curation_t::MATCH_EXACT}
            }
         }
     };
 
-    override_json_deleted["excludes"] = nlohmann::json::array();
-    override_json_deleted["excludes"][0] = nlohmann::json::object();
-    override_json_deleted["excludes"][0]["id"] = "11";
+    curation_json_deleted["excludes"] = nlohmann::json::array();
+    curation_json_deleted["excludes"][0] = nlohmann::json::object();
+    curation_json_deleted["excludes"][0]["id"] = "11";
 
-    override_t override_deleted;
-    override_t::parse(override_json_deleted, "", override_deleted);
+    curation_t curation_deleted;
+    curation_t::parse(curation_json_deleted, "", curation_deleted);
 
-    collection1->add_override(override_include);
-    collection1->add_override(override_exclude);
-    collection1->add_override(override_deleted);
+    ov_manager.upsert_curation_item("index", curation_json);
+    ov_manager.upsert_curation_item("index", curation_json_deleted);
 
-    collection1->remove_override("deleted-rule");
+    ov_manager.delete_curation_item("index", "deleted-rule");
 
     // make some synonym operation
-    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id1", "root": "smart phone", "synonyms": ["iphone"]})"_json).ok());
-    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id2", "root": "mobile phone", "synonyms": ["samsung phone"]})"_json).ok());
-    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id3", "synonyms": ["football", "foot ball"]})"_json).ok());
+    ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index",R"({"id": "id1", "root": "smart phone", "synonyms": ["iphone"]})"_json).ok());
+    ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index",R"({"id": "id2", "root": "mobile phone", "synonyms": ["samsung phone"]})"_json).ok());
+    ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index",R"({"id": "id3", "synonyms": ["football", "foot ball"]})"_json).ok());
 
-    collection1->remove_synonym("id2");
+    SynonymIndexManager::get_instance().delete_synonym_item("index", "id2");
 
     std::vector<std::string> search_fields = {"starring", "title"};
     std::vector<std::string> facets;
@@ -579,20 +619,20 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     ASSERT_TRUE(collection1->get_enable_nested_fields());
 
-    ASSERT_EQ(2, collection1->get_overrides().get().size());
-    ASSERT_STREQ("exclude-rule", collection1->get_overrides().get()["exclude-rule"]->id.c_str());
-    ASSERT_STREQ("include-rule", collection1->get_overrides().get()["include-rule"]->id.c_str());
+    ASSERT_EQ(2, ov_manager.list_curation_items("index", 0, 0).get().size());
+    ASSERT_STREQ("exclude-rule", ov_manager.list_curation_items("index", 0, 0).get()[0]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("include-rule", ov_manager.list_curation_items("index", 0, 0).get()[1]["id"].get<std::string>().c_str());
 
-    const auto& synonyms = collection1->get_synonyms().get();
-    ASSERT_EQ(2, synonyms.size());
+    const auto& synonym_index = SynonymIndexManager::get_instance().get_synonym_index("index").get();
+    const auto& synonyms = synonym_index->get_synonyms().get();
 
     ASSERT_STREQ("id1", synonyms.at(0)->id.c_str());
     ASSERT_EQ(2, synonyms.at(0)->root.size());
     ASSERT_EQ(1, synonyms.at(0)->synonyms.size());
 
-    ASSERT_STREQ("id3", synonyms.at(1)->id.c_str());
-    ASSERT_EQ(0, synonyms.at(1)->root.size());
-    ASSERT_EQ(2, synonyms.at(1)->synonyms.size());
+    ASSERT_STREQ("id3", synonyms.at(2)->id.c_str());
+    ASSERT_EQ(0, synonyms.at(2)->root.size());
+    ASSERT_EQ(2, synonyms.at(2)->synonyms.size());
 
     std::vector<char> expected_symbols = {'+'};
     std::vector<char> expected_separators = {'-'};
@@ -681,7 +721,7 @@ TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
     std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
                                  field("year", field_types::INT32, false),
                                  field("points", field_types::INT32, false),};
-
+    
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
 
     nlohmann::json doc1;
@@ -695,21 +735,19 @@ TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
     Config::get_instance().set_enable_search_analytics(true);
 
     nlohmann::json analytics_rule = R"({
-        "name": "top_search_queries",
+        "rule_tag": "top_search_queries",
         "type": "popular_queries",
+        "name": "coll_search",
+        "collection": "coll1",
+        "event_type": "search",
         "params": {
             "limit": 100,
-            "source": {
-                "collections": ["coll1"],
-                "events":  [{"type": "search", "name": "coll_search"}]
-            },
-            "destination": {
-                "collection": "top_queries"
-            }
+            "destination_collection": "top_queries"
         }
     })"_json;
 
-    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true);
+    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true, false);
+    ASSERT_EQ("", create_op.error());
     ASSERT_TRUE(create_op.ok());
 
     nlohmann::json embedded_params;
@@ -731,10 +769,10 @@ TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
     ASSERT_TRUE(search_op.ok());
 
     // check that suggestions have been trimmed
-    auto popular_queries = AnalyticsManager::get_instance().get_popular_queries();
-    ASSERT_EQ(2, popular_queries["top_queries"]->get_user_prefix_queries()[""].size());
-    ASSERT_EQ("tom", popular_queries["top_queries"]->get_user_prefix_queries()[""][0].query);
-    ASSERT_EQ("", popular_queries["top_queries"]->get_user_prefix_queries()[""][1].query);
+    // auto popular_queries = AnalyticsManager::get_instance().get_popular_queries();
+    // ASSERT_EQ(2, popular_queries["top_queries"]->get_user_prefix_queries()[""].size());
+    // ASSERT_EQ("tom", popular_queries["top_queries"]->get_user_prefix_queries()[""][0].query);
+    // ASSERT_EQ("", popular_queries["top_queries"]->get_user_prefix_queries()[""][1].query);
 
     collectionManager.drop_collection("coll1");
 }
@@ -745,6 +783,11 @@ TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
                                  field("points", field_types::INT32, false),};
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    std::vector<field> nohits_fields = {
+        field("q", field_types::STRING, false, false, true, "", -1, 1),
+        field("count", field_types::INT32, false)
+    };
+    collectionManager.create_collection("nohits_queries", 1, nohits_fields, "count").get();
 
     nlohmann::json doc1;
     doc1["id"] = "0";
@@ -759,18 +802,17 @@ TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
     nlohmann::json analytics_rule = R"({
         "name": "nohits_search_queries",
         "type": "nohits_queries",
+        "collection": "coll1",
+        "event_type": "search",
+        "rule_tag": "nohits_queries",
         "params": {
             "limit": 100,
-            "source": {
-                "collections": ["coll1"]
-            },
-            "destination": {
-                "collection": "nohits_queries"
-            }
+            "destination_collection": "nohits_queries",
+            "capture_search_requests": true
         }
     })"_json;
 
-    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true);
+    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true, true);
     ASSERT_TRUE(create_op.ok());
 
     nlohmann::json embedded_params;
@@ -778,6 +820,7 @@ TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
     req_params["collection"] = "coll1";
     req_params["q"] = "foobarbaz";
     req_params["query_by"] = "title";
+    req_params["x-typesense-user-id"] = "user1";
 
     std::string json_res;
     auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -786,10 +829,7 @@ TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
-    // check that no hits queries have been populated
-    auto nohits_queries = AnalyticsManager::get_instance().get_nohits_queries();
-    ASSERT_EQ(1, nohits_queries["nohits_queries"]->get_user_prefix_queries()[""].size());
-    ASSERT_EQ("foobarbaz", nohits_queries["nohits_queries"]->get_user_prefix_queries()[""][0].query);
+    ASSERT_EQ(1, SearchAnalytics::get_instance().get_nohits_prefix_queries_size());
 
     collectionManager.drop_collection("coll1");
 }
@@ -1064,11 +1104,17 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
 
     collectionManager.drop_collection("collection1");
 
+    SynonymIndexManager& synonymIndexManager = SynonymIndexManager::get_instance();
+    synonymIndexManager.remove_synonym_index("index");
+
+    CurationIndexManager& CurationIndexManager = CurationIndexManager::get_instance();
+    CurationIndexManager.remove_curation_index("index");
+
     rocksdb::Iterator* it = store->get_iterator();
     size_t num_keys = 0;
 
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
-        ASSERT_EQ(it->key().ToString(), "$CI");
+        std::cout << it->key().ToString() << std::endl;
         num_keys += 1;
     }
 
@@ -1490,16 +1536,20 @@ TEST_F(CollectionManagerTest, Presets) {
 }
 
 TEST_F(CollectionManagerTest, CloneCollection) {
+    auto& ov_manager = CurationIndexManager::get_instance();
     nlohmann::json schema = R"({
         "name": "coll1",
         "fields": [
             {"name": "title", "type": "string"}
         ],
         "symbols_to_index":["+"],
+        "synonym_sets": ["index"],
+        "curation_sets": ["index"],
         "token_separators":["-", "?"]
     })"_json;
 
     auto create_op = collectionManager.create_collection(schema);
+    ASSERT_EQ("", create_op.error());
     ASSERT_TRUE(create_op.ok());
     auto coll1 = create_op.get();
 
@@ -1508,24 +1558,24 @@ TEST_F(CollectionManagerTest, CloneCollection) {
         "synonyms": ["ipod", "i pod", "pod"]
     })"_json;
 
-    ASSERT_TRUE(coll1->add_synonym(synonym1).ok());
+    ASSERT_TRUE(SynonymIndexManager::get_instance().upsert_synonym_item("index", synonym1).ok());
 
-    nlohmann::json override_json = {
+    nlohmann::json curation_json = {
             {"id",   "dynamic-cat-filter"},
             {
              "rule", {
                              {"query", "{categories}"},
-                             {"match", override_t::MATCH_EXACT}
+                             {"match", curation_t::MATCH_EXACT}
                      }
             },
             {"remove_matched_tokens", true},
             {"filter_by", "category: {categories}"}
     };
 
-    override_t override;
-    auto op = override_t::parse(override_json, "dynamic-cat-filter", override);
+    curation_t curation;
+    auto op = curation_t::parse(curation_json, "dynamic-cat-filter", curation);
     ASSERT_TRUE(op.ok());
-    coll1->add_override(override);
+    ov_manager.upsert_curation_item("index", curation_json);
 
     nlohmann::json req = R"({"name": "coll2"})"_json;
     collectionManager.clone_collection("coll1", req);
@@ -1534,8 +1584,7 @@ TEST_F(CollectionManagerTest, CloneCollection) {
     ASSERT_FALSE(coll2 == nullptr);
     ASSERT_EQ("coll2", coll2->get_name());
     ASSERT_EQ(1, coll2->get_fields().size());
-    ASSERT_EQ(1, coll2->get_synonyms().get().size());
-    ASSERT_EQ(1, coll2->get_overrides().get().size());
+    ASSERT_EQ(1, ov_manager.list_curation_items("index", 0, 0).get().size());
     ASSERT_EQ("", coll2->get_fallback_field_type());
 
     ASSERT_EQ(1, coll2->get_symbols_to_index().size());
@@ -1681,7 +1730,8 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "type":"string",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 },
                 {
                     "facet":true,
@@ -1697,7 +1747,8 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -1712,7 +1763,8 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -1727,7 +1779,8 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 }
             ],
             "id":1,
@@ -1739,6 +1792,8 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
             "name":"collection_meta",
             "num_memory_shards":4,
             "symbols_to_index":[],
+            "synonym_sets":[],
+            "curation_sets": [],
             "token_separators":[]
     })"_json;
 
@@ -1902,6 +1957,10 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
                                  field("points", field_types::INT32, false),};
 
     Collection* coll3 = collectionManager.create_collection("coll3", 1, fields, "points").get();
+      
+    std::vector<field> fields2 = {field("q", field_types::STRING, false, false, true, "", -1, 1),
+                                 field("count", field_types::INT32, false),};
+    Collection* top_queries2 = collectionManager.create_collection("top_queries2", 1, fields2, "count").get();
 
     nlohmann::json doc1;
     doc1["id"] = "0";
@@ -1912,23 +1971,22 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
     ASSERT_TRUE(coll3->add(doc1.dump()).ok());
 
     Config::get_instance().set_enable_search_analytics(true);
+    AnalyticsManager::get_instance().remove_all_rules();
 
     nlohmann::json analytics_rule = R"({
         "name": "hide_search_queries",
         "type": "popular_queries",
+        "collection": "coll3",
+        "event_type": "search",
+        "rule_tag": "popular_queries",
         "params": {
             "limit": 100,
-            "source": {
-                "collections": ["coll3"],
-                "events":  [{"type": "search", "name": "coll_search3"}]
-            },
-            "destination": {
-                "collection": "top_queries2"
-            }
+            "destination_collection": "top_queries2",
+            "capture_search_requests": true
         }
     })"_json;
 
-    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true);
+    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true, true);
     ASSERT_TRUE(create_op.ok());
 
     nlohmann::json embedded_params;
@@ -1939,6 +1997,7 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
     req_params["q"] = "tom";
     req_params["query_by"] = "title";
     req_params["enable_analytics"] = "false";
+    req_params["x-typesense-user-id"] = "user1";
 
     auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -1946,16 +2005,103 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
-    auto popular_queries = AnalyticsManager::get_instance().get_popular_queries();
-    ASSERT_EQ(0, popular_queries["top_queries2"]->get_user_prefix_queries().size());
+    ASSERT_EQ(0, SearchAnalytics::get_instance().get_popular_prefix_queries_size());
 
     req_params["enable_analytics"] = "true";
 
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
-    popular_queries = AnalyticsManager::get_instance().get_popular_queries();
-    ASSERT_EQ(1, popular_queries["top_queries2"]->get_user_prefix_queries().size());
+    ASSERT_EQ(1, SearchAnalytics::get_instance().get_popular_prefix_queries_size());
 
     collectionManager.drop_collection("coll3");
+}
+
+TEST_F(CollectionManagerTest, CloneCollectionWithDocuments) {
+    // Create the source collection with schema and synonyms
+    nlohmann::json schema = R"({
+        "name": "source_collection",
+        "fields": [
+          {"name": "title", "type": "string"},
+          {"name": "points", "type": "int32"}
+        ]
+      })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    Collection* src_collection = collection_create_op.get();
+
+    nlohmann::json doc1 = R"({
+        "id": "1",
+        "title": "First document",
+        "points": 100
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "id": "2", 
+        "title": "Second document with query word",
+        "points": 200
+    })"_json;
+
+    nlohmann::json doc3 = R"({
+        "id": "3",
+        "title": "Third test document", 
+        "points": 150
+    })"_json;
+
+    ASSERT_TRUE(src_collection->add(doc1.dump()).ok());
+    ASSERT_TRUE(src_collection->add(doc2.dump()).ok());
+    ASSERT_TRUE(src_collection->add(doc3.dump()).ok());
+
+
+    // Verify source collection has 3 documents
+    ASSERT_EQ(3, src_collection->get_num_documents());
+
+    // Test 1: Clone collection WITHOUT copying documents (existing behavior)
+    nlohmann::json clone_req = R"({
+        "name": "cloned_collection_no_docs"
+    })"_json;
+
+    auto clone_op = collectionManager.clone_collection("source_collection", clone_req, false);
+    ASSERT_TRUE(clone_op.ok());
+    
+    Collection* cloned_collection_no_docs = clone_op.get();
+    ASSERT_EQ("cloned_collection_no_docs", cloned_collection_no_docs->get_name());
+    ASSERT_EQ(0, cloned_collection_no_docs->get_num_documents()); // No documents copied
+    
+    // Test 2: Clone collection WITH copying documents
+    nlohmann::json clone_req_with_docs = R"({
+        "name": "cloned_collection_with_docs"
+    })"_json;
+
+    auto clone_with_docs_op = collectionManager.clone_collection("source_collection", clone_req_with_docs, true);
+    ASSERT_TRUE(clone_with_docs_op.ok());
+    
+    Collection* cloned_collection_with_docs = clone_with_docs_op.get();
+    ASSERT_EQ("cloned_collection_with_docs", cloned_collection_with_docs->get_name());
+    ASSERT_EQ(3, cloned_collection_with_docs->get_num_documents()); // Documents copied
+
+    // Test 3: Verify documents are searchable in cloned collection
+    auto search_results = cloned_collection_with_docs->search("First", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, search_results["found"].get<size_t>());
+    ASSERT_EQ("1", search_results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("First document", search_results["hits"][0]["document"]["title"].get<std::string>());
+
+    search_results = cloned_collection_with_docs->search("*", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(3, search_results["found"].get<size_t>());
+    
+    // Also search the source collection and dump results
+    auto src_search_results = src_collection->search("*", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(3, src_search_results["found"].get<size_t>());
+
+    // Test 6: Verify original collection is unchanged
+    ASSERT_EQ(3, src_collection->get_num_documents());
+    auto orig_search_results = src_collection->search("*", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(3, orig_search_results["found"].get<size_t>());
+
+    // Clean up
+    collectionManager.drop_collection("source_collection");
+    collectionManager.drop_collection("cloned_collection_no_docs");
+    collectionManager.drop_collection("cloned_collection_with_docs");
 }

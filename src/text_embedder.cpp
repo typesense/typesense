@@ -79,11 +79,8 @@ TextEmbedder::TextEmbedder(const nlohmann::json& model_config, size_t num_dims, 
     } else if(model_namespace == "gcp") {
         auto project_id = model_config["project_id"].get<std::string>();
         auto model_name = model_config["model_name"].get<std::string>();
-        auto access_token = model_config["access_token"].get<std::string>();
-        auto refresh_token = model_config["refresh_token"].get<std::string>();
-        auto client_id = model_config["client_id"].get<std::string>();
-        auto client_secret = model_config["client_secret"].get<std::string>();
         std::string document_task = "RETRIEVAL_DOCUMENT";
+        std::string region = "us-central1";
         if(model_config.count("document_task") > 0) {
             document_task = model_config["document_task"].get<std::string>();
         }
@@ -91,8 +88,23 @@ TextEmbedder::TextEmbedder(const nlohmann::json& model_config, size_t num_dims, 
         if(model_config.count("query_task") > 0) {
             query_task = model_config["query_task"].get<std::string>();
         }
+        if(model_config.count("region") > 0) {
+            region = model_config["region"].get<std::string>();
+        }
 
-        remote_embedder_ = std::make_unique<GCPEmbedder>(project_id, model_name, access_token, refresh_token, client_id, client_secret, has_custom_dims, num_dims, document_task, query_task);
+        if(model_config.count("service_account") > 0 && model_config["service_account"].is_object()) {
+            remote_embedder_ = std::make_unique<GCPEmbedder>(project_id, model_name, model_config["service_account"],
+                                                             has_custom_dims, num_dims, document_task, query_task, region);
+        } else {
+            auto access_token = model_config["access_token"].get<std::string>();
+            auto refresh_token = model_config["refresh_token"].get<std::string>();
+            auto client_id = model_config["client_id"].get<std::string>();
+            auto client_secret = model_config["client_secret"].get<std::string>();
+
+            remote_embedder_ = std::make_unique<GCPEmbedder>(project_id, model_name, access_token, refresh_token, 
+                                                             client_id, client_secret, has_custom_dims, num_dims, 
+                                                             document_task, query_task, region);
+        }
     } else if(model_namespace == "azure") {
         auto azure_url = model_config["url"].get<std::string>();
         auto api_key = model_config["api_key"].get<std::string>();

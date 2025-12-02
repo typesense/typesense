@@ -275,7 +275,7 @@ TEST_F(AuthManagerTest, GenerationOfAPIAction) {
     route_path rpath_coll_export = route_path("GET", {"collections", ":collection", "documents", "export"}, nullptr, false, false);
     route_path rpath_keys_post = route_path("POST", {"keys"}, nullptr, false, false);
     route_path rpath_doc_delete = route_path("DELETE", {"collections", ":collection", "documents", ":id"}, nullptr, false, false);
-    route_path rpath_override_upsert = route_path("PUT", {"collections", ":collection", "overrides", ":id"}, nullptr, false, false);
+    route_path rpath_curation_upsert = route_path("PUT", {"collections", ":collection", "curations", ":id"}, nullptr, false, false);
     route_path rpath_doc_patch = route_path("PATCH", {"collections", ":collection", "documents", ":id"}, nullptr, false, false);
     route_path rpath_analytics_rules_list = route_path("GET", {"analytics", "rules"}, nullptr, false, false);
     route_path rpath_analytics_rules_get = route_path("GET", {"analytics", "rules", ":id"}, nullptr, false, false);
@@ -292,7 +292,7 @@ TEST_F(AuthManagerTest, GenerationOfAPIAction) {
     ASSERT_STREQ("collections:list", rpath_coll_list._get_action().c_str());
     ASSERT_STREQ("keys:create", rpath_keys_post._get_action().c_str());
     ASSERT_STREQ("documents:delete", rpath_doc_delete._get_action().c_str());
-    ASSERT_STREQ("overrides:upsert", rpath_override_upsert._get_action().c_str());
+    ASSERT_STREQ("curations:upsert", rpath_curation_upsert._get_action().c_str());
     ASSERT_STREQ("documents:update", rpath_doc_patch._get_action().c_str());
     ASSERT_STREQ("analytics/rules:list", rpath_analytics_rules_list._get_action().c_str());
     ASSERT_STREQ("analytics/rules:get", rpath_analytics_rules_get._get_action().c_str());

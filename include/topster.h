@@ -35,9 +35,9 @@ struct KV {
     std::map<std::string, reference_filter_result_t> reference_filter_results;
 
     KV(uint16_t queryIndex, uint64_t key, uint64_t distinct_key, int8_t match_score_index, const int64_t *scores,
-       std::map<std::string, reference_filter_result_t>  reference_filter_results = {}):
+       std::map<std::string, reference_filter_result_t>  reference_filter_results = {}, float vector_distance = -1.0f):
             match_score_index(match_score_index), query_index(queryIndex), array_index(0), key(key),
-            distinct_key(distinct_key), reference_filter_results(std::move(reference_filter_results)) {
+            distinct_key(distinct_key), vector_distance(vector_distance), reference_filter_results(std::move(reference_filter_results)) {
         this->scores[0] = scores[0];
         this->scores[1] = scores[1];
         this->scores[2] = scores[2];
@@ -169,9 +169,11 @@ struct KV {
 
 struct Union_KV : public KV {
     uint32_t search_index{};
+    uint32_t collection_id;
+    bool remove_duplicates = false;
 
-    Union_KV(KV& kv, uint32_t search_index) : KV(kv.query_index, kv.key, kv.distinct_key, kv.match_score_index, kv.scores),
-                                               search_index(search_index) {
+    Union_KV(KV& kv, uint32_t search_index, uint32_t collection_id, bool remove_duplicates = false) : KV(kv.query_index, kv.key, kv.distinct_key, kv.match_score_index, kv.scores, {}, kv.vector_distance),
+                                               search_index(search_index), collection_id(collection_id), remove_duplicates(remove_duplicates) {
         reference_filter_results = std::move(kv.reference_filter_results);
     }
 
@@ -180,6 +182,8 @@ struct Union_KV : public KV {
     Union_KV& operator=(Union_KV&& kv) noexcept  {
         if (this != &kv) {
             search_index = kv.search_index;
+            collection_id = kv.collection_id;
+            remove_duplicates = kv.remove_duplicates;
             KV::operator=(std::move(kv));
         }
 
@@ -189,6 +193,8 @@ struct Union_KV : public KV {
     Union_KV& operator=(Union_KV& kv) noexcept {
         if (this != &kv) {
             search_index = kv.search_index;
+            collection_id = kv.collection_id;
+            remove_duplicates = kv.remove_duplicates;
             KV::operator=(kv);
         }
 
@@ -210,10 +216,18 @@ struct Union_KV : public KV {
     }
 
     static constexpr uint64_t get_key(const Union_KV* union_kv) {
+        if(union_kv->remove_duplicates) {
+            return StringUtils::hash_combine(union_kv->collection_id, union_kv->distinct_key);
+        }
+
         return StringUtils::hash_combine(union_kv->search_index, union_kv->key);
     }
 
     static constexpr uint64_t get_distinct_key(const Union_KV* union_kv) {
+        if(union_kv->remove_duplicates) {
+            return StringUtils::hash_combine(union_kv->collection_id, union_kv->distinct_key);
+        }
+
         return StringUtils::hash_combine(union_kv->search_index, union_kv->distinct_key);
     }
 };
@@ -239,9 +253,8 @@ struct Topster {
     spp::sparse_hash_map<uint64_t, Topster<T, get_key, get_distinct_key, is_greater, is_smaller>*> group_kv_map;
 
     // For estimating the count of groups identified by `distinct_key`.
-    bool is_group_by_first_pass;
+    const bool is_group_by_first_pass;
     std::unique_ptr<LogLogBeta> loglog_counter;
-    size_t aggregate_counter = 0;
 
     // For estimating the size of each group in the first pass of group_by. We'll have the exact size of each group in
     // the second pass. Only required when `sort_by: _group_found` is mentioned.
@@ -253,7 +266,8 @@ struct Topster {
     }
 
     explicit Topster(size_t capacity, size_t distinct, bool is_group_by_first_pass,
-                     const group_found_params_t& group_found_params = {}) :
+                     const group_found_params_t& group_found_params = {},
+                     const bool& initialize_loglog_counter = true) :
                         MAX_SIZE(capacity), size(0), distinct(distinct),
                         is_group_by_first_pass(is_group_by_first_pass),
                         group_found_params(group_found_params) {
@@ -271,7 +285,7 @@ struct Topster {
             kvs[i] = &data[i];
         }
 
-        if (is_group_by_first_pass) {
+        if (is_group_by_first_pass && initialize_loglog_counter) {
             loglog_counter = std::make_unique<LogLogBeta>();
         }
 
@@ -331,7 +345,7 @@ struct Topster {
         const bool& is_group_by_second_pass = distinct && !is_group_by_first_pass;
 
         if(!is_group_by_second_pass && less_than_min_heap) {
-            if (is_group_by_first_pass) {
+            if (is_group_by_first_pass && loglog_counter != nullptr) {
                 loglog_counter->add(std::to_string(get_distinct_key(kv)));
             }
             // for non-distinct or first group_by pass, if incoming value is smaller than min-heap ignore
@@ -391,7 +405,7 @@ struct Topster {
                 heap_op_index = existing_kv->array_index;
                 map.erase(is_group_by_first_pass ? get_distinct_key(kvs[heap_op_index]) : get_key(kvs[heap_op_index]));
             } else {  // not duplicate
-                if (is_group_by_first_pass) {
+                if (is_group_by_first_pass && loglog_counter != nullptr) {
                     loglog_counter->add(std::to_string(key));
                 }
 
@@ -475,7 +489,7 @@ struct Topster {
     }
 
     size_t getGroupsCount() {
-        return std::max(aggregate_counter, loglog_counter != nullptr ? loglog_counter->cardinality() : 0);
+        return loglog_counter != nullptr ? loglog_counter->cardinality() : 0;
     }
 
     void mergeGroupsCount(Topster& topster) {

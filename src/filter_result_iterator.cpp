@@ -17,7 +17,7 @@
 
 void copy_references_helper(const std::map<std::string, reference_filter_result_t>* from,
                             std::map<std::string, reference_filter_result_t>*& to, const uint32_t& count) {
-    if (from == nullptr) {
+    if (from == nullptr || count == 0) {
         return;
     }
 
@@ -38,6 +38,59 @@ void reference_filter_result_t::copy_references(const reference_filter_result_t&
 
 void filter_result_t::copy_references(const filter_result_t& from, filter_result_t& to) {
     return copy_references_helper(from.coll_to_references, to.coll_to_references, from.count);
+}
+
+bool reference_filter_result_t::and_references(const std::map<std::string, reference_filter_result_t>& a_references,
+                                               const std::map<std::string, reference_filter_result_t>& b_references,
+                                               std::map<std::string, reference_filter_result_t>& result_references) {
+    // Copy the references of the document from every collection into result.
+    result_references.insert(a_references.begin(), a_references.end());
+
+    for (auto& it : b_references) {
+        auto ref_it = result_references.find(it.first);
+        if (ref_it == result_references.end()) {
+            result_references[it.first] = it.second;
+            continue;
+        }
+
+        // Both the docs of A and B have references to the same collection.
+        uint32_t* and_result = nullptr;
+        auto& ref_result = ref_it->second;
+        ref_result.count = ArrayUtils::and_scalar(ref_result.docs, ref_result.count,
+                                                  it.second.docs, it.second.count, &and_result);
+        delete [] ref_result.docs;
+        ref_result.docs = and_result;
+
+        // No common references found, this doc doesn't pass AND.
+        if (ref_result.count == 0) {
+            result_references.clear();
+            return false;
+        }
+    }
+    return true;
+}
+
+void reference_filter_result_t::or_references(const std::map<std::string, reference_filter_result_t>& a_references,
+                                              const std::map<std::string, reference_filter_result_t>& b_references,
+                                              std::map<std::string, reference_filter_result_t>& result_references) {
+    // Copy the references of the document from every collection into result.
+    result_references.insert(a_references.begin(), a_references.end());
+
+    for (auto& it : b_references) {
+        auto ref_it = result_references.find(it.first);
+        if (ref_it == result_references.end()) {
+            result_references[it.first] = it.second;
+            continue;
+        }
+
+        // Both the docs of A and B have references to the same collection.
+        uint32_t* or_result = nullptr;
+        auto& ref_result = ref_it->second;
+        ref_result.count = ArrayUtils::or_scalar(ref_result.docs, ref_result.count,
+                                                 it.second.docs, it.second.count, &or_result);
+        delete [] ref_result.docs;
+        ref_result.docs = or_result;
+    }
 }
 
 void filter_result_t::and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
@@ -73,18 +126,18 @@ void filter_result_t::and_filter_results(const filter_result_t& a, const filter_
         if (*A == *B) {
             *out = *A;
 
+            bool references_found = true;
             if (result.coll_to_references != nullptr) {
-                // Copy the references of the document from every collection into result.
-                auto& ref = result.coll_to_references[out - result.docs];
-                if (a.coll_to_references != nullptr) {
-                    ref.insert(a.coll_to_references[A - a.docs].begin(), a.coll_to_references[A - a.docs].end());
-                }
-                if (b.coll_to_references != nullptr) {
-                    ref.insert(b.coll_to_references[B - b.docs].begin(), b.coll_to_references[B - b.docs].end());
-                }
+                std::map<std::string, reference_filter_result_t> dummy{};
+                references_found = reference_filter_result_t::and_references(
+                                            a.coll_to_references != nullptr ? a.coll_to_references[A - a.docs] : dummy,
+                                            b.coll_to_references != nullptr ? b.coll_to_references[B - b.docs] : dummy,
+                                            result.coll_to_references[out - result.docs]);
             }
 
-            out++;
+            if (references_found) {
+                out++;
+            }
 
             if (++A == endA || ++B == endB) {
                 result.count = out - result.docs;
@@ -139,9 +192,15 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
                 res_index++;
             }
 
-            if (b.coll_to_references != nullptr) {
+            if (b.docs[indexB] < a.docs[indexA] && b.coll_to_references != nullptr) {
                 auto &ref = result.coll_to_references[res_index - 1];
                 ref.insert(b.coll_to_references[indexB].begin(), b.coll_to_references[indexB].end());
+            } else if (a.docs[indexA] == b.docs[indexB]) {
+                std::map<std::string, reference_filter_result_t> dummy{};
+                reference_filter_result_t::or_references(
+                                                a.coll_to_references != nullptr ? a.coll_to_references[indexA] : dummy,
+                                                b.coll_to_references != nullptr ? b.coll_to_references[indexB] : dummy,
+                                                result.coll_to_references[res_index - 1]);
             }
 
             indexB++;
@@ -264,11 +323,12 @@ void filter_result_iterator_t::and_filter_iterators() {
             }
 
             reference.clear();
-            for (const auto& item: left_it->reference) {
-                reference[item.first] = item.second;
-            }
-            for (const auto& item: right_it->reference) {
-                reference[item.first] = item.second;
+            if (!reference_filter_result_t::and_references(left_it->reference, right_it->reference, reference)) {
+                // No common references found. Move both the sub-nodes to the next seq_id.
+                left_it->next();
+                right_it->next();
+
+                continue;
             }
 
             return;
@@ -329,12 +389,7 @@ void filter_result_iterator_t::or_filter_iterators() {
                 }
 
                 reference.clear();
-                for (const auto& item: left_it->reference) {
-                    reference[item.first] = item.second;
-                }
-                for (const auto& item: right_it->reference) {
-                    reference[item.first] = item.second;
-                }
+                reference_filter_result_t::or_references(left_it->reference, right_it->reference, reference);
 
                 return;
             }
@@ -410,7 +465,19 @@ void filter_result_iterator_t::or_filter_iterators() {
             reference[item.first] = item.second;
         }
         for (const auto& item: right_it->reference) {
-            reference[item.first] = item.second;
+            auto ref_it = reference.find(item.first);
+            if (ref_it == reference.end()) {
+                reference[item.first] = item.second;
+                continue;
+            }
+
+            // Both the docs of A and B have references to a particular collection.
+            uint32_t* or_result = nullptr;
+            auto& ref_result = ref_it->second;
+            ref_result.count = ArrayUtils::or_scalar(ref_result.docs, ref_result.count,
+                                                     item.second.docs, item.second.count, &or_result);
+            delete [] ref_result.docs;
+            ref_result.docs = or_result;
         }
 
         return;
@@ -464,7 +531,7 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
     // Since we do OR between filter values, the lowest seq_id id from all is selected.
     uint32_t lowest_id = UINT32_MAX;
 
-    if (filter_node->filter_exp.comparators[0] == EQUALS || filter_node->filter_exp.comparators[0] == NOT_EQUALS) {
+    if (filter_node && !filter_node->filter_exp.comparators.empty() && (filter_node->filter_exp.comparators[0] == EQUALS || filter_node->filter_exp.comparators[0] == NOT_EQUALS || filter_node->filter_exp.comparators[0] == CONTAINS_PHRASE)) {
         bool match_found = false;
         switch (posting_list_iterators.size()) {
             case 1:
@@ -476,9 +543,13 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
                         break;
                     }
 
-                    match_found = string_prefix_filter_index.count(0) == 0 ?
+                    if(filter_node->filter_exp.comparators[0] == CONTAINS_PHRASE) {
+                        match_found = posting_list_t::has_phrase_match(posting_list_iterators[0], field_is_array);
+                    } else {
+                        match_found = string_prefix_filter_index.count(0) == 0 ?
                                     posting_list_t::has_exact_match(posting_list_iterators[0], field_is_array) :
                                     posting_list_t::has_prefix_match(posting_list_iterators[0], field_is_array);
+                    }
 
                     if (match_found) {
                         break;
@@ -511,9 +582,13 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
                             break;
                         }
 
-                        match_found = string_prefix_filter_index.count(i) == 0 ?
+                        if(filter_node->filter_exp.comparators[0] == CONTAINS_PHRASE) {
+                             match_found = posting_list_t::has_phrase_match(filter_value_tokens, field_is_array);
+                        } else {
+                             match_found = string_prefix_filter_index.count(i) == 0 ?
                                       posting_list_t::has_exact_match(filter_value_tokens, field_is_array) :
                                       posting_list_t::has_prefix_match(filter_value_tokens, field_is_array);
+                        }
 
                         if (match_found) {
                             break;
@@ -935,7 +1010,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         }
 
         bool is_referenced = coll->referenced_in.count(ref_collection_name) > 0,
-                has_reference = ref_collection->is_referenced_in(collection_name);
+                has_reference = coll->references(ref_collection_name);
         if (!is_referenced && !has_reference) {
             status = Option<bool>(400, "Failed to join on `" + ref_collection_name + "`: No reference field found.");
             validity = invalid;
@@ -1615,13 +1690,13 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             filter_result.docs = out;
         }
 
+        is_filter_result_initialized = true;
 
         if (filter_result.count == 0) {
             validity = invalid;
             return;
         }
 
-        is_filter_result_initialized = true;
         seq_id = filter_result.docs[result_index];
         approx_filter_ids_length = filter_result.count;
         return;
@@ -1686,8 +1761,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             auto approx_filter_value_match = UINT32_MAX;
 
             while (tokenizer.next(str_token, token_index)) {
-                if (str_token.size() > 100) {
-                    str_token.erase(100);
+                if (str_token.size() > f.truncate_len && f.truncate_len > 0) {
+                    str_token.erase(f.truncate_len);
                 }
                 str_tokens.push_back(str_token);
 
@@ -1749,7 +1824,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                                                          0, group_by_fields, false, false, false, false,
                                                                          query_hashes, MAX_SCORE, {true}, typo_tokens_threshold,
                                                                          false, max_filter_by_candidates, min_len_1typo, min_len_2typo,
-                                                                         0, nullptr, field_values, geopoint_indices,
+                                                                         0, value_tokens.size(), false, false, nullptr, field_values, geopoint_indices,
                                                                          is_group_by_first_pass,
                                                                          group_by_missing_value_ids,
                                                                          enable_typos_for_numerical_tokens,
@@ -2053,8 +2128,8 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
     }
 }
 
-int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout) {
-    if (validity == invalid || (!override_timeout && timeout_info != nullptr && is_timed_out())) {
+int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout) {
+    if (validity == invalid || (!curation_timeout && timeout_info != nullptr && is_timed_out())) {
         return -1;
     }
 
@@ -2092,11 +2167,13 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout
             }
 
             reference.clear();
-            for (const auto& item: left_it->reference) {
-                reference[item.first] = item.second;
-            }
-            for (const auto& item: right_it->reference) {
-                reference[item.first] = item.second;
+            if (!reference_filter_result_t::and_references(left_it->reference, right_it->reference, reference)) {
+                // No common references found. Move both the sub-nodes to the next seq_id.
+                left_it->next();
+                right_it->next();
+                and_filter_iterators();
+
+                return validity == invalid ? -1 : 0;
             }
             return 1;
         } else {
@@ -2135,12 +2212,13 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout
             }
 
             reference.clear();
-            if (left_validity == 1) {
+            if (left_validity == 1 && right_validity == 1) {
+                reference_filter_result_t::or_references(left_it->reference, right_it->reference, reference);
+            } else if (left_validity == 1) {
                 for (const auto& item: left_it->reference) {
                     reference[item.first] = item.second;
                 }
-            }
-            if (right_validity == 1) {
+            } else if (right_validity == 1) {
                 for (const auto& item: right_it->reference) {
                     reference[item.first] = item.second;
                 }
@@ -2260,12 +2338,12 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
     return false;
 }
 
-void filter_result_iterator_t::reset(const bool& override_timeout) {
+void filter_result_iterator_t::reset(const bool& curation_timeout) {
     if (filter_node == nullptr) {
         return;
     }
 
-    if (!override_timeout && timeout_info != nullptr && is_timed_out()) {
+    if (!curation_timeout && timeout_info != nullptr && is_timed_out()) {
         return;
     }
 
@@ -2574,12 +2652,13 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
     return *this;
 }
 
-void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout) {
+void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& curation_timeout,
+                                         const bool& is_group_by_first_pass) {
     if (!is_filter_result_initialized) {
         return;
     }
 
-    if (!override_timeout && timeout_info != nullptr) {
+    if (!curation_timeout && timeout_info != nullptr) {
         // In Index::search_wildcard number of calls to get_n_ids will be min(number of threads, filter match ids).
         // Therefore, `timeout_info->function_call_counter` won't reach `function_call_modulo` if only incremented on
         // function call.
@@ -2601,10 +2680,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
             continue;
         }
 
-        auto& result_reference = result->coll_to_references[i];
-        // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
-        // not used afterwards.
-        result_reference = std::move(filter_result.coll_to_references[result_index]);
+        result->coll_to_references[i] = filter_result.coll_to_references[result_index];
     }
 
     validity = result_index < filter_result.count ? valid : invalid;
@@ -2613,10 +2689,11 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
 void filter_result_iterator_t::get_n_ids(const uint32_t& n,
                                          uint32_t& excluded_result_index,
                                          uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                                         filter_result_t*& result, const bool& override_timeout) {
+                                         filter_result_t*& result, const bool& curation_timeout,
+                                         const bool& is_group_by_first_pass) {
     if (excluded_result_ids == nullptr || excluded_result_ids_size == 0 ||
         excluded_result_index >= excluded_result_ids_size) {
-        return get_n_ids(n, result, override_timeout);
+        return get_n_ids(n, result, curation_timeout, is_group_by_first_pass);
     }
 
     // This method is only called in Index::search_wildcard after filter_result_iterator_t::compute_iterators.
@@ -2624,7 +2701,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
         return;
     }
 
-    if (!override_timeout && timeout_info != nullptr) {
+    if (!curation_timeout && timeout_info != nullptr) {
         // In Index::search_wildcard number of calls to get_n_ids will be min(number of threads, filter match ids).
         // Therefore, `timeout_info->function_call_counter` won't reach `function_call_modulo` if only incremented on
         // function call.
@@ -2657,10 +2734,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
             continue;
         }
 
-        auto& result_reference = result->coll_to_references[i];
-        // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
-        // not used afterwards.
-        result_reference = std::move(filter_result.coll_to_references[match_index]);
+        result->coll_to_references[i] = filter_result.coll_to_references[match_index];
     }
 
     validity = result_index < filter_result.count ? valid : invalid;
@@ -2712,9 +2786,7 @@ void filter_result_iterator_t::compute_iterators() {
         validity = invalid;
         is_filter_result_initialized = false;
         return;
-    }
-
-    if (timeout_info != nullptr && is_timed_out()) {
+    } else if (is_filter_result_initialized || (timeout_info != nullptr && is_timed_out())) {
         return;
     }
 
@@ -2787,6 +2859,8 @@ void filter_result_iterator_t::compute_iterators() {
             is_timed_out(true);
         }
 
+        is_filter_result_initialized = true;
+
         if (validity != timed_out && filter_result.count == 0) {
             validity = invalid;
             return;
@@ -2794,9 +2868,7 @@ void filter_result_iterator_t::compute_iterators() {
 
         result_index = 0;
         seq_id = filter_result.docs[result_index];
-        is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
-
         return;
     }
 
@@ -2890,6 +2962,10 @@ void filter_result_iterator_t::compute_iterators() {
             is_timed_out(true);
         }
     } else if (f.is_string()) {
+        if (index->search_schema.count(filter_node->filter_exp.field_name) == 0) {
+            return;
+        }
+
         // Resetting posting_list_iterators.
         for (uint32_t i = 0; i < posting_lists.size(); i++) {
             auto const& plists = posting_lists[i];
@@ -2933,6 +3009,29 @@ void filter_result_iterator_t::compute_iterators() {
 
                 for (size_t pi = 0; pi < prefix_str_ids_size; pi++) {
                     f_id_buff.push_back(prefix_str_ids[pi]);
+                }
+            } else if (a_filter.comparators[0] == CONTAINS_PHRASE) {
+                std::vector<uint32_t> result_id_vec;
+                posting_list_t::intersect(p_list, result_id_vec);
+
+                if (result_id_vec.empty()) {
+                    continue;
+                }
+
+                uint32_t* phrase_str_ids = new uint32_t[result_id_vec.size()];
+                size_t phrase_str_ids_size = 0;
+                std::unique_ptr<uint32_t[]> phrase_str_ids_guard(phrase_str_ids);
+
+                posting_list_t::get_phrase_matches(posting_list_iterators[i], f.is_array(),
+                                                  result_id_vec.data(), result_id_vec.size(),
+                                                  phrase_str_ids, phrase_str_ids_size);
+
+                if (phrase_str_ids_size == 0) {
+                    continue;
+                }
+
+                for (size_t pi = 0; pi < phrase_str_ids_size; pi++) {
+                    f_id_buff.push_back(phrase_str_ids[pi]);
                 }
             } else if (a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) {
                 // needs intersection + exact matching (unlike CONTAINS)
@@ -3003,6 +3102,8 @@ void filter_result_iterator_t::compute_iterators() {
         }
     }
 
+    is_filter_result_initialized = true;
+
     if (validity != timed_out && filter_result.count == 0) {
         validity = invalid;
         return;
@@ -3010,16 +3111,15 @@ void filter_result_iterator_t::compute_iterators() {
 
     result_index = 0;
     seq_id = filter_result.docs[result_index];
-    is_filter_result_initialized = true;
     approx_filter_ids_length = filter_result.count;
 }
 
-bool filter_result_iterator_t::is_timed_out(const bool& override_function_call_counter) {
+bool filter_result_iterator_t::is_timed_out(const bool& curation_function_call_counter) {
     if (validity == timed_out) {
         return true;
     }
 
-    if (override_function_call_counter || ++(timeout_info->function_call_counter) % function_call_modulo == 0) {
+    if (curation_function_call_counter || ++(timeout_info->function_call_counter) % function_call_modulo == 0) {
         if ((std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count() - timeout_info->search_begin_us) > timeout_info->search_stop_us) {
             validity = timed_out;
@@ -3072,9 +3172,20 @@ bool filter_result_iterator_t::validate_object_filter_helper(Index const* const 
                     val.pop_back();
                 }
 
-                filter_val = val;
-                doc_val = doc[nested_field].get<std::string>();
-
+                const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
+                const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
+                Tokenizer tokenizer(val, true, false, f.locale, symbols, separators, f.get_stemmer());
+                
+                std::string tokenized_filter_val;
+                size_t token_index = 0;
+                filter_val = tokenizer.next(tokenized_filter_val, token_index) ? tokenized_filter_val : val;
+                
+                std::string doc_str = doc[nested_field].get<std::string>();
+                Tokenizer doc_tokenizer(doc_str, true, false, f.locale, symbols, separators, f.get_stemmer());
+                
+                std::string tokenized_doc_val;
+                size_t doc_token_index = 0;
+                doc_val = doc_tokenizer.next(tokenized_doc_val, doc_token_index) ? tokenized_doc_val : doc_str;
             } else if (f.is_float()) {
                 filter_val = std::stof(val);
                 doc_val = doc[nested_field].get<float>();
@@ -3196,4 +3307,32 @@ bool filter_result_iterator_t::validate_object_filter() {
         }
     }
     return false;
+}
+
+filter_result_iterator_t::filter_result_iterator_t(FILTER_OPERATOR filter_operator,
+                                                   filter_result_iterator_t* filter_result_iterator,
+                                                   filter_result_iterator_t* new_iterator,
+                                                   std::unique_ptr<filter_node_t>& filter_root,
+                                                   filter_node_t* new_filter_tree_root) {
+    filter_result_iterator->reset();
+
+    timeout_info = std::move(filter_result_iterator->timeout_info);
+    new_iterator->timeout_info.reset(nullptr);
+
+    if (filter_result_iterator->approx_filter_ids_length < new_iterator->approx_filter_ids_length) {
+        left_it = filter_result_iterator;
+        right_it = new_iterator;
+
+        auto root = new filter_node_t(filter_operator, filter_root.release(), new_filter_tree_root);
+        filter_root.reset(root);
+    } else {
+        left_it = new_iterator;
+        right_it = filter_result_iterator;
+
+        auto root = new filter_node_t(filter_operator, new_filter_tree_root, filter_root.release());
+        filter_root.reset(root);
+    }
+    filter_node = filter_root.get();
+
+    init(false, false);
 }

@@ -1622,6 +1622,29 @@ TEST_F(CollectionNestedFieldsTest, OptionalNestedNonOptionalOjectArrStringField)
     ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionNestedFieldsTest, RequiredNonIndexNestedField) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "enable_nested_fields": true,
+            "fields": [
+              {"name":"pricing", "type":"object"},
+              {"name":"pricing.maxPrice", "type":"int32", "index": false, "optional": false}
+            ]
+        })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+          "pricing": {
+            "maxPrice": 16500
+          }
+        })"_json;
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+}
+
 
 TEST_F(CollectionNestedFieldsTest, UnindexedNestedFieldShouldNotClutterSchema) {
     nlohmann::json schema = R"({

@@ -63,11 +63,17 @@ void field::add_default_json_values(nlohmann::json& json) {
     if (json.count(fields::embed) == 0) {
         json[fields::embed] = nlohmann::json();
     }
+    if (json.count(fields::model_config) == 0) {
+        json[fields::model_config] = nlohmann::json::object();
+    }
     if (json.count(fields::range_index) == 0) {
         json[fields::range_index] = false;
     }
     if (json.count(fields::store) == 0) {
         json[fields::store] = true;
+    }
+    if (json.count(fields::truncate_len) == 0) {
+        json[fields::truncate_len] = (uint32_t) 100;
     }
     if (json.count(fields::stem) == 0) {
         json[fields::stem] = false;
@@ -84,6 +90,9 @@ void field::add_default_json_values(nlohmann::json& json) {
     if (json.count(fields::async_reference) == 0) {
         json[fields::async_reference] = false;
     }
+    if (json.count(fields::cascade_delete) == 0) {
+        json[fields::cascade_delete] = true;
+    }
     if (json.count(fields::token_separators) == 0) {
         json[fields::token_separators] = nlohmann::json::array();
     }
@@ -94,7 +103,8 @@ void field::add_default_json_values(nlohmann::json& json) {
 
 Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
                                         std::vector<field>& the_fields,
-                                        string& fallback_field_type, size_t& num_auto_detect_fields) {
+                                        string& fallback_field_type, size_t& num_auto_detect_fields,
+                                        const std::string& collection_name) {
     add_default_json_values(field_json);
 
     if(!field_json.is_object() ||
@@ -103,6 +113,10 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
         return Option<bool>(400, "Wrong format for `fields`. It should be an array of objects containing "
                                  "`name`, `type`, `optional` and `facet` properties.");
+    }
+
+    if(field_json.at(fields::name).get<std::string>().empty()) {
+        return Option<bool>(400, "Field name cannot be empty.");
     }
 
     if(!field_json.at("store").is_boolean()) {
@@ -141,11 +155,18 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
     }
 
+    if(!field_json.at(fields::truncate_len).is_number_unsigned()) {
+        return Option<bool>(400, std::string("The `truncate_len` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a non-negative integer."));
+    }
+
+
     if(!field_json.at(fields::locale).is_string()) {
         return Option<bool>(400, std::string("The `locale` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a string."));
     } else if(!field_json[fields::locale].get<std::string>().empty() &&
-                    field_json[fields::locale].get<std::string>().size() != 2) {
+                    field_json[fields::locale].get<std::string>().size() != 2 &&
+                    field_json[fields::locale].get<std::string>() != "de_en") {
         return Option<bool>(400, std::string("The `locale` value of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` is not valid."));
     }
@@ -162,6 +183,21 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         return Option<bool>(400, std::string("The `async_reference` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` is only applicable if "
                                                                                            "`reference` is specified."));
+    }
+
+    if (!field_json.at(fields::cascade_delete).is_boolean()) {
+        return Option<bool>(400, std::string("The `cascade_delete` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+    } else if (!field_json[fields::cascade_delete].get<bool>()) {
+        if (field_json[fields::reference].get<std::string>().empty()) {
+            return Option<bool>(400, std::string("The `cascade_delete` property of the field `") +
+                                     field_json[fields::name].get<std::string>() + std::string("` is only applicable if "
+                                                                                               "`reference` is specified."));
+        } else if (!field_json[fields::async_reference].get<bool>()) {
+            return Option<bool>(400, std::string("The `cascade_delete: false` option of the field `") +
+                                     field_json[fields::name].get<std::string>() + std::string("` is only applicable if "
+                                                                                               "`async_reference` is true."));
+        }
     }
 
     if(!field_json.at(fields::stem).is_boolean()) {
@@ -242,6 +278,10 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             return Option<bool>(400, "Type `object` or `object[]` can be used only when nested fields are enabled by "
                                      "setting` enable_nested_fields` to true.");
         }
+    }
+    // Auto fields are not sortable
+    if(field_json[fields::sort].get<bool>() && field_json[fields::type] == field_types::AUTO) {
+        return Option<bool>(400, std::string("The type `auto` is not sortable."));
     }
 
     if(!field_json[fields::embed].empty()) {
@@ -402,6 +442,12 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             return Option<bool>(400, "Invalid reference `" + field_json[fields::reference].get<std::string>()  + "`.");
         }
 
+        if (tokens[0] == collection_name) {
+            return Option<bool>(400, "Referencing a field of the same collection is not allowed: `" +
+                                     field_json[fields::name].get<std::string>() + "` field references `" +
+                                     collection_name + "` collection.");
+        }
+
         tokens.clear();
         StringUtils::split(field_json[fields::name].get<std::string>(), tokens, ".");
 
@@ -431,7 +477,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], 
                   field_json[fields::store], field_json[fields::stem], field_json[fields::stem_dictionary],
                   field_json[fields::hnsw_params], field_json[fields::async_reference], field_json[fields::token_separators],
-                  field_json[fields::symbols_to_index])
+                  field_json[fields::symbols_to_index], field_json[fields::cascade_delete], field_json[fields::truncate_len])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
@@ -450,6 +496,10 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
                         bool is_update, const field& the_field, const std::string& flat_name,
                         const std::unordered_map<std::string, field>& dyn_fields,
                         std::unordered_map<std::string, field>& flattened_fields) {
+    if (!the_field.index) {
+        return true;
+    }
+
     if(value.is_object()) {
         has_obj_array = has_array;
         auto it = value.begin();
@@ -691,7 +741,7 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
     std::unordered_map<std::string, field> flattened_fields_map;
 
     for(auto& nested_field: nested_fields) {
-        if(!nested_field.index) {
+        if(!nested_field.index && nested_field.optional) {
             continue;
         }
 
@@ -740,7 +790,7 @@ void field::compact_nested_fields(tsl::htrie_map<char, field>& nested_fields) {
 }
 
 Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::json &fields_json, string &fallback_field_type,
-                                          std::vector<field>& the_fields) {
+                                          std::vector<field>& the_fields, const std::string& collection_name) {
     size_t num_auto_detect_fields = 0;
     const tsl::htrie_map<char, field> dummy_search_schema;
 
@@ -753,7 +803,8 @@ Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::j
             continue;
         }
         auto op = json_field_to_field(enable_nested_fields,
-                                      field_json, the_fields, fallback_field_type, num_auto_detect_fields);
+                                      field_json, the_fields, fallback_field_type, num_auto_detect_fields,
+                                      collection_name);
         if(!op.ok()) {
             return op;
         }
@@ -855,6 +906,7 @@ nlohmann::json field::field_to_json_field(const struct field& field) {
     field_val[fields::locale] = field.locale;
 
     field_val[fields::store] = field.store;
+    field_val[fields::truncate_len] = field.truncate_len;
     field_val[fields::stem] = field.stem;
     field_val[fields::range_index] = field.range_index;
     field_val[fields::stem_dictionary] = field.stem_dictionary;
@@ -876,6 +928,7 @@ nlohmann::json field::field_to_json_field(const struct field& field) {
     if (!field.reference.empty()) {
         field_val[fields::reference] = field.reference;
         field_val[fields::async_reference] = field.is_async_reference;
+        field_val[fields::cascade_delete] = field.cascade_delete;
     }
 
     if(!field.token_separators.empty()) {

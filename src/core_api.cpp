@@ -4,6 +4,7 @@
 #include <regex>
 #include <analytics_manager.h>
 #include <housekeeper.h>
+#include <arpa/inet.h>
 #include "typesense_server_utils.h"
 #include "core_api.h"
 #include "string_utils.h"
@@ -14,7 +15,6 @@
 #include "core_api_utils.h"
 #include "lru/lru.hpp"
 #include "ratelimit_manager.h"
-#include "event_manager.h"
 #include "http_proxy.h"
 #include "include/stopwords_manager.h"
 #include "conversation_manager.h"
@@ -24,6 +24,8 @@
 #include "sole.hpp"
 #include "natural_language_search_model_manager.h"
 #include "natural_language_search_model.h"
+#include "synonym_index_manager.h"
+#include "curation_index_manager.h"
 #include "async_write_handler.h"
 
 using namespace std::chrono_literals;
@@ -261,6 +263,7 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
     }
 
     const std::string SRC_COLL_NAME = "src_name";
+    const std::string COPY_DOCUMENTS = "copy_documents";
 
     /*if(res->is_alive && req_json.is_object() && req_json.count("enable_nested_fields") == 0) {
         // This patch ensures that nested fields are only enabled for collections created on Typesense versions
@@ -272,7 +275,7 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
 
     CollectionManager& collectionManager = CollectionManager::get_instance();
     const Option<Collection*> &collection_op = req->params.count(SRC_COLL_NAME) != 0 ?
-               collectionManager.clone_collection(req->params[SRC_COLL_NAME], req_json) :
+               collectionManager.clone_collection(req->params[SRC_COLL_NAME], req_json, req->params.count(COPY_DOCUMENTS) != 0) :
                CollectionManager::create_collection(req_json);
 
     if(collection_op.ok()) {
@@ -287,7 +290,7 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
 
 bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
-    std::set<std::string> allowed_keys = {"metadata", "fields"};
+    std::set<std::string> allowed_keys = {"metadata", "fields", "synonym_sets", "curation_sets"};
 
     // Ensures that only one alter can run per collection.
     // The actual check for this, happens in `ReplicationState::write` which is called only during live writes.
@@ -308,7 +311,7 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
 
     for(auto it : req_json.items()) {
         if(allowed_keys.count(it.key()) == 0) {
-            res->set_400("Only `fields` and `metadata` can be updated at the moment.");
+            res->set_400("Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.");
             return false;
         }
     }
@@ -329,6 +332,34 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
 
         //update in collection metadata and store in db
         auto op = collectionManager.update_collection_metadata(req->params["collection"], req_json["metadata"]);
+        if(!op.ok()) {
+            res->set(op.code(), op.error());
+            return false;
+        }
+    }
+
+    if(req_json.contains("synonym_sets")) {
+        if(!req_json["synonym_sets"].is_array()) {
+            res->set_400("The `synonym_sets` value should be an array.");
+            return false;
+        }
+
+        auto synonym_sets = req_json["synonym_sets"].get<std::vector<std::string>>();
+        auto op = CollectionManager::get_instance().update_collection_synonym_sets(req->params["collection"], synonym_sets);
+        if(!op.ok()) {
+            res->set(op.code(), op.error());
+            return false;
+        }
+    }
+
+    if(req_json.contains("curation_sets")) {
+        if(!req_json["curation_sets"].is_array()) {
+            res->set_400("The `curation_sets` value should be an array.");
+            return false;
+        }
+
+        auto curation_sets = req_json["curation_sets"].get<std::vector<std::string>>();
+        auto op = CollectionManager::get_instance().update_collection_curation_sets(req->params["collection"], curation_sets);
         if(!op.ok()) {
             res->set(op.code(), op.error());
             return false;
@@ -538,7 +569,6 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
             const auto& cached_value = hit_it.value();
 
             // we still need to check that TTL has not expired
-            uint32_t ttl = cached_value.ttl;
             uint64_t seconds_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::high_resolution_clock::now() - cached_value.created_at).count();
 
@@ -828,7 +858,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             const auto& cached_value = hit_it.value();
 
             // we still need to check that TTL has not expired
-            uint32_t ttl = cached_value.ttl;
             uint64_t seconds_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::high_resolution_clock::now() - cached_value.created_at).count();
 
@@ -929,7 +958,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             return false;
         }
         const auto& api_key_ip = api_key_ip_op.get();
-        auto rate_limit_manager = RateLimitManager::getInstance();
 
         // Check rate limiting first before doing any search, don't want to waste time if we're rate limited
         for(size_t i = 0; i < searches.size(); i++) {
@@ -943,10 +971,17 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     const char* UNION_RESULT = "union";
+    const char* UNION_REMOVE_DUPLICATES = "remove_duplicates";
     auto is_union = false;
+    auto union_remove_duplicates = true;
     auto it = req_json.find(UNION_RESULT);
     if (it != req_json.end() && it.value().is_boolean()) {
         is_union = it.value();
+    }
+
+    it = req_json.find(UNION_REMOVE_DUPLICATES);
+    if(it != req_json.end() && it.value().is_boolean()) {
+        union_remove_duplicates = it.value();
     }
 
     bool conversation = orig_req_params["conversation"] == "true" && !is_union;
@@ -1002,7 +1037,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         common_query = orig_req_params["q"];
 
         if(conversation_history) {
-            const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
             auto conversation_id = orig_req_params["conversation_id"];
             auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id, conversation_model).get();
             auto generate_standalone_q = ConversationModel::get_standalone_question(conversation_history, common_query, conversation_model);
@@ -1020,7 +1054,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
     if (is_union) {
         Option<bool> union_op = CollectionManager::do_union(req->params, req->embedded_params_vec, searches,
-                                                            response, req->conn_ts);
+                                                            response, req->conn_ts, union_remove_duplicates);
         if(!union_op.ok() && union_op.code() == 408) {
             res->set(union_op.code(), union_op.error());
             req->overloaded = true;
@@ -1420,17 +1454,17 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 auto const& coll = export_state->collection;
                 auto const seq_id_op = coll->doc_id_to_seq_id(doc.at("id"));
                 if (!seq_id_op.ok()) {
-                    res->set(seq_id_op.code(), seq_id_op.error());
-                    req->last_chunk_aggregate = true;
-                    res->final = true;
-                    stream_response(req, res);
-                    return false;
-                }
+                    std::string message = "Error while getting seq_id of `" + doc.at("id").get<std::string>() + "`: " +
+                                            seq_id_op.error();
+                    LOG(ERROR) << message;
+                    res->body += message;
+                } else {
+                    std::map<std::string, reference_filter_result_t> references = {};
+                    Collection::prune_doc(doc, export_state->include_fields, export_state->exclude_fields, "", 0, references,
+                                          coll->get_name(), seq_id_op.get(), export_state->ref_include_exclude_fields_vec);
 
-                std::map<std::string, reference_filter_result_t> references = {};
-                coll->prune_doc_with_lock(doc, export_state->include_fields, export_state->exclude_fields,
-                                          references, seq_id_op.get(), export_state->ref_include_exclude_fields_vec);
-                res->body += doc.dump();
+                    res->body += doc.dump();
+                }
             }
 
             it->Next();
@@ -1861,8 +1895,8 @@ bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_
     auto const seq_id_op = collection->doc_id_to_seq_id(doc.at("id"));
 
     std::map<std::string, reference_filter_result_t> references = {};
-    const auto prune_op = collection->prune_doc_with_lock(doc, include_fields, exclude_fields, references, seq_id_op.get(),
-                                                          ref_include_exclude_fields_vec);
+    const auto prune_op = Collection::prune_doc(doc, include_fields, exclude_fields, "", 0, references,
+                                                collection->get_name(), seq_id_op.get(), ref_include_exclude_fields_vec);
     if (!prune_op.ok()) {
         res->set(prune_op.code(), prune_op.error());
         return false;
@@ -2201,140 +2235,6 @@ bool del_alias(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
     return true;
 }
 
-bool get_overrides(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req->params["collection"]);
-
-    if(collection == nullptr) {
-        res->set_404("Collection not found");
-        return false;
-    }
-
-    uint32_t offset = 0, limit = 0;
-    if(req->params.count("offset") != 0) {
-        const auto &offset_str = req->params["offset"];
-        if(!StringUtils::is_uint32_t(offset_str)) {
-            res->set(400, "Offset param should be unsigned integer.");
-            return false;
-        }
-        offset = std::stoi(offset_str);
-    }
-
-    if(req->params.count("limit") != 0) {
-        const auto &limit_str = req->params["limit"];
-        if(!StringUtils::is_uint32_t(limit_str)) {
-            res->set(400, "Limit param should be unsigned integer.");
-            return false;
-        }
-        limit = std::stoi(limit_str);
-    }
-
-    nlohmann::json res_json;
-    res_json["overrides"] = nlohmann::json::array();
-
-    auto overrides_op = collection->get_overrides(limit, offset);
-    if(!overrides_op.ok()) {
-        res->set(overrides_op.code(), overrides_op.error());
-        return false;
-    }
-
-    const auto overrides = overrides_op.get();
-
-    for(const auto &kv: overrides) {
-        res_json["overrides"].push_back(kv.second->to_json());
-    }
-
-    res->set_200(res_json.dump());
-    return true;
-}
-
-bool get_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req->params["collection"]);
-
-    if(collection == nullptr) {
-        res->set_404("Collection not found");
-        return false;
-    }
-
-    std::string override_id = req->params["id"];
-
-    auto overrides_op = collection->get_override(override_id);
-
-    if(!overrides_op.ok()) {
-        res->set(overrides_op.code(), overrides_op.error());
-        return false;
-    }
-
-    res->set_200(overrides_op.get().to_json().dump());
-    return true;
-}
-
-bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req->params["collection"]);
-
-    std::string override_id = req->params["id"];
-
-    if(collection == nullptr) {
-        res->set_404("Collection not found");
-        return false;
-    }
-
-    nlohmann::json req_json;
-
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-    
-    override_t override;
-    Option<bool> parse_op = override_t::parse(req_json, override_id, override, "",
-                                              collection->get_symbols_to_index(),
-                                              collection->get_token_separators());
-    if(!parse_op.ok()) {
-        res->set(parse_op.code(), parse_op.error());
-        return false;
-    }
-    
-    Option<uint32_t> add_op = collection->add_override(override);
-
-    if(!add_op.ok()) {
-        res->set(add_op.code(), add_op.error());
-        return false;
-    }
-
-    req_json["id"] = override.id;
-
-    res->set_200(req_json.dump());
-    return true;
-}
-
-bool del_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req->params["collection"]);
-
-    if(collection == nullptr) {
-        res->set_404("Collection not found");
-        return false;
-    }
-
-    Option<uint32_t> rem_op = collection->remove_override(req->params["id"]);
-    if(!rem_op.ok()) {
-        res->set(rem_op.code(), rem_op.error());
-        return false;
-    }
-
-    nlohmann::json res_json;
-    res_json["id"] = req->params["id"];
-
-    res->set_200(res_json.dump());
-    return true;
-}
-
 bool get_keys(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     AuthManager &auth_manager = collectionManager.getAuthManager();
@@ -2562,157 +2462,6 @@ bool get_schema_changes(const std::shared_ptr<http_req>& req, const std::shared_
 
     res->set_200(op.get().dump());
 
-    return true;
-}
-
-bool get_synonyms(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req->params["collection"]);
-
-    if(collection == nullptr) {
-        res->set_404("Collection not found");
-        return false;
-    }
-
-    uint32_t offset = 0, limit = 0;
-    if(req->params.count("offset") != 0) {
-        const auto &offset_str = req->params["offset"];
-        if(!StringUtils::is_uint32_t(offset_str)) {
-            res->set(400, "Offset param should be unsigned integer.");
-            return false;
-        }
-        offset = std::stoi(offset_str);
-    }
-
-    if(req->params.count("limit") != 0) {
-        const auto &limit_str = req->params["limit"];
-        if(!StringUtils::is_uint32_t(limit_str)) {
-            res->set(400, "Limit param should be unsigned integer.");
-            return false;
-        }
-        limit = std::stoi(limit_str);
-    }
-
-    nlohmann::json res_json;
-    res_json["synonyms"] = nlohmann::json::array();
-
-    auto synonyms_op = collection->get_synonyms(limit, offset);
-    if(!synonyms_op.ok()) {
-        res->set(synonyms_op.code(), synonyms_op.error());
-        return false;
-    }
-
-    const auto synonyms = synonyms_op.get();
-    for(const auto & kv: synonyms) {
-        res_json["synonyms"].push_back(kv.second->to_view_json());
-    }
-
-    res->set_200(res_json.dump());
-    return true;
-}
-
-bool get_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req->params["collection"]);
-
-    if(collection == nullptr) {
-        res->set_404("Collection not found");
-        return false;
-    }
-
-    std::string synonym_id = req->params["id"];
-
-    synonym_t synonym;
-    bool found = collection->get_synonym(synonym_id, synonym);
-
-    if(found) {
-        nlohmann::json synonym_json = synonym.to_view_json();
-        res->set_200(synonym_json.dump());
-        return true;
-    }
-
-    res->set_404();
-    return false;
-}
-
-bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req->params["collection"]);
-
-    std::string synonym_id = req->params["id"];
-
-    if(collection == nullptr) {
-        res->set_404("Collection not found");
-        return false;
-    }
-
-    nlohmann::json syn_json;
-
-    try {
-        syn_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-
-    if(!syn_json.is_object()) {
-        res->set_400("Bad JSON.");
-        return false;
-    }
-
-    // These checks should be inside `add_synonym` but older versions of Typesense wrongly persisted
-    // `root` as an array, so we have to do it here so that on-disk synonyms are loaded properly
-    if(syn_json.count("root") != 0 && !syn_json["root"].is_string()) {
-        res->set_400("Key `root` should be a string.");
-        return false;
-    }
-
-    if(syn_json.count("synonyms") && syn_json["synonyms"].is_array()) {
-        if(syn_json["synonyms"].empty()) {
-            res->set_400("Could not find a valid string array of `synonyms`");
-            return false;
-        }
-
-        for(const auto& synonym: syn_json["synonyms"]) {
-            if (!synonym.is_string() || synonym.empty()) {
-                res->set_400("Could not find a valid string array of `synonyms`");
-                return false;
-            }
-        }
-    }
-
-    syn_json["id"] = synonym_id;
-    Option<bool> upsert_op = collection->add_synonym(syn_json);
-
-    if(!upsert_op.ok()) {
-        res->set(upsert_op.code(), upsert_op.error());
-        return false;
-    }
-
-    res->set_200(syn_json.dump());
-    return true;
-}
-
-bool del_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req->params["collection"]);
-
-    if(collection == nullptr) {
-        res->set_404("Collection not found");
-        return false;
-    }
-
-    Option<bool> rem_op = collection->remove_synonym(req->params["id"]);
-    if(!rem_op.ok()) {
-        res->set(rem_op.code(), rem_op.error());
-        return false;
-    }
-
-    nlohmann::json res_json;
-    res_json["id"] = req->params["id"];
-
-    res->set_200(res_json.dump());
     return true;
 }
 
@@ -3067,167 +2816,51 @@ bool get_limit_exceed_counts(const std::shared_ptr<http_req>& req, const std::sh
 
 Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string& metadata) {
     // format <length of api_key>:<api_key><ip>
-    // length of api_key is a uint32_t
-    if(metadata.size() < 10) {
-        if(metadata.size() >= 2 && metadata[0] == '0' && metadata[1] == ':') {
-            // e.g. "0:0.0.0.0" (when api key is not provided at all)
-            std::string ip = metadata.substr(metadata.find(":") + 1);
+
+    const size_t colon_pos = metadata.find(":");
+    if (colon_pos == std::string::npos) {
+        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
+    }
+
+    // Handle empty API key case: "0:1.2.3.4" or "0:2001:db8::1"
+    if (metadata.size() >= 2 && metadata[0] == '0' && colon_pos == 1) {
+        const std::string ip = metadata.substr(colon_pos + 1);
+
+        // Validate the IP
+        struct sockaddr_in sa4;
+        struct sockaddr_in6 sa6;
+        if (inet_pton(AF_INET, ip.c_str(), &(sa4.sin_addr)) == 1 ||
+            inet_pton(AF_INET6, ip.c_str(), &(sa6.sin6_addr)) == 1) {
             return Option<std::pair<std::string,std::string>>(std::make_pair("", ip));
         }
-
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
-    if(metadata.find(":") == std::string::npos) {
+    // For normal API key case
+    const std::string key_len_str = metadata.substr(0, colon_pos);
+    if (!StringUtils::is_uint32_t(key_len_str)) {
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
-    std::string key_len_str = metadata.substr(0, metadata.find(":"));
+    const uint32_t api_key_length = static_cast<uint32_t>(std::stoul(key_len_str));
 
-    if(!StringUtils::is_uint32_t(key_len_str)) {
+    // Check if there's enough data after the colon
+    if (metadata.size() < api_key_length + colon_pos + 1) {
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
-    uint32_t api_key_length = static_cast<uint32_t>(std::stoul(key_len_str));
+    const std::string api_key = metadata.substr(colon_pos + 1, api_key_length);
+    const std::string ip = metadata.substr(colon_pos + 1 + api_key_length);
 
-    if(metadata.size() < api_key_length + metadata.find(":") + 7) {
-        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
-    }
-
-    std::string api_key = metadata.substr(metadata.find(":") + 1, api_key_length);
-    std::string ip = metadata.substr(metadata.find(":") + 1 + api_key_length);
-
-    // validate IP address
-    std::regex ip_pattern("\\b(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\b");
-    if(!std::regex_match(ip, ip_pattern)) {
+    // Validate the IP using inet_pton
+    struct sockaddr_in sa4;
+    struct sockaddr_in6 sa6;
+    if (inet_pton(AF_INET, ip.c_str(), &(sa4.sin_addr)) != 1 &&
+        inet_pton(AF_INET6, ip.c_str(), &(sa6.sin6_addr)) != 1) {
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
     return Option<std::pair<std::string,std::string>>(std::make_pair(api_key, ip));
-}
-
-bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    nlohmann::json req_json;
-
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-
-    auto add_event_op = EventManager::get_instance().add_event(req_json, req->client_ip);
-    if(add_event_op.ok()) {
-        res->set_201(R"({"ok": true})");
-        return true;
-    }
-
-    res->set_400(add_event_op.error());
-    return false;
-}
-
-bool get_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto rules_op = AnalyticsManager::get_instance().list_rules();
-
-    if(!rules_op.ok()) {
-        res->set(rules_op.code(), rules_op.error());
-        return false;
-    }
-
-    res->set_200(rules_op.get().dump());
-    return true;
-}
-
-bool get_analytics_rule(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto rules_op = AnalyticsManager::get_instance().get_rule(req->params["name"]);
-
-    if(!rules_op.ok()) {
-        res->set(rules_op.code(), rules_op.error());
-        return false;
-    }
-
-    res->set_200(rules_op.get().dump());
-    return true;
-}
-
-bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    nlohmann::json req_json;
-
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-
-    auto op = AnalyticsManager::get_instance().create_rule(req_json, false, true);
-
-    if(!op.ok()) {
-        res->set(op.code(), op.error());
-        return false;
-    }
-
-    res->set_201(req_json.dump());
-    return true;
-}
-
-bool put_upsert_analytics_rules(const std::shared_ptr<http_req> &req, const std::shared_ptr<http_res> &res) {
-    nlohmann::json req_json;
-
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-
-    req_json["name"] = req->params["name"];
-    auto op = AnalyticsManager::get_instance().create_rule(req_json, true, true);
-
-    if(!op.ok()) {
-        res->set(op.code(), op.error());
-        return false;
-    }
-
-    res->set_200(req_json.dump());
-    return true;
-}
-
-bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto op = AnalyticsManager::get_instance().remove_rule(req->params["name"]);
-    if(!op.ok()) {
-        res->set(op.code(), op.error());
-        return false;
-    }
-
-    nlohmann::json res_json;
-    res_json["name"] = req->params["name"];
-
-    res->set_200(res_json.dump());
-    return true;
-}
-
-bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    nlohmann::json req_json;
-
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-
-    if(!AnalyticsManager::get_instance().write_to_db(req_json)) {
-        res->set_500(R"({"ok": false})");
-        return false;
-    }
-
-    res->set_200(R"({"ok": true})");
-    return true;
 }
 
 bool post_import_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -3353,30 +2986,6 @@ bool del_stemming_dictionary(const std::shared_ptr<http_req>& req, const std::sh
     return true;
 }
 
-bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const char* N = "n";
-
-    uint32_t n = 10;
-    if(req->params.count(N) != 0 && !StringUtils::is_uint32_t(req->params[N])) {
-        res->set_400("Parameter `n` must be a positive integer.");
-        return false;
-    }
-
-    if (req->params.count(N)) {
-        n = std::stoi(req->params[N]);
-    }
-
-    auto get_events_op = AnalyticsManager::get_instance().get_events(n);
-
-    if(!get_events_op.ok()) {
-        res->set(get_events_op.code(), get_events_op.error());
-        return false;
-    }
-    nlohmann::json response = get_events_op.get();
-    res->set_200(response.dump());
-    return true;
-}
-
 bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     HttpProxy& proxy = HttpProxy::get_instance();
 
@@ -3466,7 +3075,7 @@ bool post_conversation_model(const std::shared_ptr<http_req>& req, const std::sh
 
     Collection::hide_credential(model_json, "api_key");
 
-    res->set_200(model_json.dump());
+    res->set_201(model_json.dump());
     return true;
 }
 
@@ -3583,7 +3192,10 @@ bool post_personalization_model(const std::shared_ptr<http_req>& req, const std:
     }
     
     auto model = create_op.get();
-    res->set_200(nlohmann::json{{"ok", true}, {"model_id", model}}.dump());
+    if (model.contains("model_path")) {
+      model.erase("model_path");
+    }
+    res->set_201(model.dump());
     
     return true;
 }
@@ -3750,6 +3362,16 @@ bool get_nl_search_models(const std::shared_ptr<http_req>& req, const std::share
 
      for(auto& model: models) {
          Collection::hide_credential(model, "api_key");
+         Collection::hide_credential(model, "access_token");
+         Collection::hide_credential(model, "refresh_token");
+         Collection::hide_credential(model, "client_id");
+         Collection::hide_credential(model, "client_secret");
+         Collection::hide_credential(model, "project_id");
+         if(model.contains("service_account") && model["service_account"].is_object()) {
+             nlohmann::json& sa = model["service_account"];
+             Collection::hide_credential(sa, "private_key");
+             Collection::hide_credential(sa, "client_email");
+         }
      }
 
     res->set_200(models.dump());
@@ -3768,6 +3390,16 @@ bool get_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared
 
     auto model = model_op.get();
     Collection::hide_credential(model, "api_key");
+    Collection::hide_credential(model, "access_token");
+    Collection::hide_credential(model, "refresh_token");
+    Collection::hide_credential(model, "client_id");
+    Collection::hide_credential(model, "client_secret");
+    Collection::hide_credential(model, "project_id");
+    if(model.contains("service_account") && model["service_account"].is_object()) {
+        nlohmann::json& sa = model["service_account"];
+        Collection::hide_credential(sa, "private_key");
+        Collection::hide_credential(sa, "client_email");
+    }
 
     res->set_200(model.dump());
     return true;
@@ -3799,8 +3431,18 @@ bool post_nl_search_model(const std::shared_ptr<http_req>& req, const std::share
     }
 
     Collection::hide_credential(model_json, "api_key");
+    Collection::hide_credential(model_json, "access_token");
+    Collection::hide_credential(model_json, "refresh_token");
+    Collection::hide_credential(model_json, "client_id");
+    Collection::hide_credential(model_json, "client_secret");
+    Collection::hide_credential(model_json, "project_id");
+    if(model_json.contains("service_account") && model_json["service_account"].is_object()) {
+        nlohmann::json& sa = model_json["service_account"];
+        Collection::hide_credential(sa, "private_key");
+        Collection::hide_credential(sa, "client_email");
+    }
 
-    res->set_200(model_json.dump());
+    res->set_201(model_json.dump());
     return true;
 }
 
@@ -3832,6 +3474,16 @@ bool put_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared
     auto model = model_op.get();
 
     Collection::hide_credential(model, "api_key");
+    Collection::hide_credential(model, "access_token");
+    Collection::hide_credential(model, "refresh_token");
+    Collection::hide_credential(model, "client_id");
+    Collection::hide_credential(model, "client_secret");
+    Collection::hide_credential(model, "project_id");
+    if(model.contains("service_account") && model["service_account"].is_object()) {
+        nlohmann::json& sa = model["service_account"];
+        Collection::hide_credential(sa, "private_key");
+        Collection::hide_credential(sa, "client_email");
+    }
 
     res->set_200(model.dump());
     return true;
@@ -3850,10 +3502,548 @@ bool delete_nl_search_model(const std::shared_ptr<http_req>& req, const std::sha
     auto model = model_op.get();
 
     Collection::hide_credential(model, "api_key");
+    Collection::hide_credential(model, "access_token");
+    Collection::hide_credential(model, "refresh_token");
+    Collection::hide_credential(model, "client_id");
+    Collection::hide_credential(model, "client_secret");
+    Collection::hide_credential(model, "project_id");
+    if(model.contains("service_account") && model["service_account"].is_object()) {
+        nlohmann::json& sa = model["service_account"];
+        Collection::hide_credential(sa, "private_key");
+        Collection::hide_credential(sa, "client_email");
+    }
 
     res->set_200(model.dump());
     return true;
 }
+
+bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto add_event_op = AnalyticsManager::get_instance().add_external_event(req->client_ip, req_json);
+    if (!add_event_op.ok()) {
+        res->set(add_event_op.code(), add_event_op.error());
+        return false;
+    }
+    res->set_200(nlohmann::json{
+        {"ok", true}
+    }.dump());
+    return true;
+}
+
+bool get_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+
+    if (req->params.count("rule_tag") == 1 && !req->params["rule_tag"].empty()) {
+      const std::string& rule_tag = req->params["rule_tag"];
+      auto list_rules_op = AnalyticsManager::get_instance().list_rules(rule_tag);
+      if (!list_rules_op.ok()) {
+        res->set(list_rules_op.code(), list_rules_op.error());
+        return false;
+      }
+      res->set_200(list_rules_op.get().dump());
+      return true;
+    }
+
+    auto list_rules_op = AnalyticsManager::get_instance().list_rules();
+    if (!list_rules_op.ok()) {
+        res->set(list_rules_op.code(), list_rules_op.error());
+        return false;
+    }
+
+    res->set_200(list_rules_op.get().dump());
+    return true;
+}
+
+bool get_analytics_rule(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if (req->params.count("name") != 1 || req->params["name"].empty()) {
+        res->set_400("Missing required parameter 'name'.");
+        return false;
+    }
+    const std::string& name = req->params["name"];
+
+    auto get_rule_op = AnalyticsManager::get_instance().get_rule(name);
+    if (!get_rule_op.ok()) {
+        res->set(get_rule_op.code(), get_rule_op.error());
+        return false;
+    }
+
+    res->set_200(get_rule_op.get().dump());
+    return true;
+}
+
+bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto create_op = AnalyticsManager::get_instance().process_create_rule_request(req_json, res->is_alive);
+    if (!create_op.ok()) {
+        res->set(create_op.code(), create_op.error());
+        return false;
+    }
+    res->set_200(create_op.get().dump());
+    return true;
+}
+
+bool put_upsert_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if (req->params.count("name") != 1 || req->params["name"].empty()) {
+        res->set_400("Missing required parameter 'name'.");
+        return false;
+    }
+    const std::string& name = req->params["name"];
+    nlohmann::json req_json;
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+    req_json["name"] = name;
+    auto update_op = AnalyticsManager::get_instance().create_rule(req_json, true, true, res->is_alive);
+    if (!update_op.ok()) {
+        res->set_400(update_op.error());
+        return false;
+    }
+    res->set_200(update_op.get().dump());
+    return true;
+}
+
+bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if (req->params.count("name") != 1 || req->params["name"].empty()) {
+        res->set_400("Missing required parameter 'name'.");
+        return false;
+    }
+    const std::string& name = req->params["name"];
+    auto remove_op = AnalyticsManager::get_instance().remove_rule(name);
+    if (!remove_op.ok()) {
+        res->set(remove_op.code(), remove_op.error());
+        return false;
+    }
+    res->set_200(remove_op.get().dump());
+    return true;
+}
+
+bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    if(!AnalyticsManager::get_instance().write_to_db(req_json)) {
+        res->set_500(R"({"ok": false})");
+        return false;
+    }
+
+    res->set_200(R"({"ok": true})");
+    return true;
+}
+
+bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if(req->params.count("user_id") != 1 || req->params["user_id"].empty()) {
+        res->set_400("Missing required parameter 'user_id'.");
+        return false;
+    }
+    const std::string& user_id = req->params["user_id"];
+
+    if(req->params.count("name") != 1 || req->params["name"].empty()) {
+        res->set_400("Missing required parameter 'name'.");
+        return false;
+    }
+    const std::string& name = req->params["name"];
+
+    if(req->params.count("n") != 1 || req->params["n"].empty()) {
+        res->set_400("Missing required parameter 'n'.");
+        return false;
+    }
+    const uint32_t n = std::stoi(req->params["n"]);
+
+    auto get_events_op = AnalyticsManager::get_instance().get_events(user_id, name, n);
+    if(!get_events_op.ok()) {
+        res->set(get_events_op.code(), get_events_op.error());
+        return false;
+    }
+    res->set_200(get_events_op.get().dump());
+    return true;
+}
+
+bool post_analytics_flush(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    AnalyticsManager::get_instance().trigger_flush();
+    res->set_200(R"({"ok": true})");
+    return true;
+}
+
+bool get_analytics_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto status_op = AnalyticsManager::get_instance().get_status();
+    if(!status_op.ok()) {
+        res->set(status_op.code(), status_op.error());
+        return false;
+    }
+    res->set_200(status_op.get().dump());
+    return true;
+}
+
+bool get_synonym_sets(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    SynonymIndexManager& manager = SynonymIndexManager::get_instance();
+    nlohmann::json res_json = manager.get_all_synonym_indices_json();
+
+    res->set_200(res_json.dump());
+
+    return true;
+}
+
+bool get_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    SynonymIndexManager& manager = SynonymIndexManager::get_instance();
+    const std::string & set_name = req->params["name"];
+    nlohmann::json res_json;
+
+    Option<SynonymIndex*> get_index_op = manager.get_synonym_index(set_name);
+
+    if(!get_index_op.ok()) {
+        res->set(get_index_op.code(), get_index_op.error());
+        return false;
+    }
+
+    res->set_200(get_index_op.get()->to_view_json().dump());
+    return true;
+}
+
+bool del_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    SynonymIndexManager& manager = SynonymIndexManager::get_instance();
+    const std::string & set_name = req->params["name"];
+
+    Option<SynonymIndex*> get_index_op = manager.get_synonym_index(set_name);
+
+    if(!get_index_op.ok()) {
+        res->set(get_index_op.code(), get_index_op.error());
+        return false;
+    }
+
+    auto delete_op = manager.remove_synonym_index(set_name);
+
+    if(!delete_op.ok()) {
+        res->set(delete_op.code(), delete_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["name"] = set_name;
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool put_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    SynonymIndexManager& manager = SynonymIndexManager::get_instance();
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    if(!req_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    std::string name = req->params["name"];
+    if(name.empty()) {
+        res->set_400("Name parameter is required.");
+        return false;
+    }
+    req_json["name"] = name;
+
+    auto validate_op = manager.validate_synonym_index(req_json);
+    if(!validate_op.ok()) {
+        res->set(validate_op.code(), validate_op.error());
+        return false;
+    }
+
+    auto upsert_op = manager.upsert_synonym_set(name, req_json["items"]);
+    if(!upsert_op.ok()) {
+        res->set(upsert_op.code(), upsert_op.error());
+        return false;
+    }
+
+    res->set_200(upsert_op.get().dump());
+
+    return true;
+}
+
+bool get_synonym_set_items(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+  uint32_t offset = 0, limit = 0;
+  if(req->params.count("offset") != 0) {
+      const auto &offset_str = req->params["offset"];
+      if(!StringUtils::is_uint32_t(offset_str)) {
+          res->set(400, "Offset param should be unsigned integer.");
+          return false;
+      }
+      offset = std::stoi(offset_str);
+  }
+
+  if(req->params.count("limit") != 0) {
+      const auto &limit_str = req->params["limit"];
+      if(!StringUtils::is_uint32_t(limit_str)) {
+          res->set(400, "Limit param should be unsigned integer.");
+          return false;
+      }
+      limit = std::stoi(limit_str);
+  }
+
+  const std::string& set_name = req->params["name"];
+  auto& manager = SynonymIndexManager::get_instance();
+  auto list_op = manager.list_synonym_items(set_name, limit, offset);
+  if(!list_op.ok()) {
+      res->set(list_op.code(), list_op.error());
+      return false;
+  }
+
+  res->set_200(list_op.get().dump());
+  return true;
+}
+
+bool get_synonym_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& set_name = req->params["name"];
+    const std::string synonym_id = req->params["id"];
+
+    auto& manager = SynonymIndexManager::get_instance();
+    auto item_op = manager.get_synonym_item(set_name, synonym_id);
+    if(!item_op.ok()) {
+        res->set(item_op.code(), item_op.error());
+        return false;
+    }
+
+    res->set_200(item_op.get().dump());
+    return true;
+}
+
+bool put_synonym_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& set_name = req->params["name"];
+    const std::string synonym_id = req->params["id"];
+
+    nlohmann::json syn_json;
+
+    try {
+        syn_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    if(!syn_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    syn_json["id"] = synonym_id;
+
+    auto& manager = SynonymIndexManager::get_instance();
+    auto add_op = manager.upsert_synonym_item(set_name, syn_json);
+    if(!add_op.ok()) {
+        res->set(add_op.code(), add_op.error());
+        return false;
+    }
+
+    res->set_200(syn_json.dump());
+    return true;
+}
+
+bool del_synonym_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& set_name = req->params["name"];
+    const std::string& id = req->params["id"];
+
+    auto& manager = SynonymIndexManager::get_instance();
+    auto rem_op = manager.delete_synonym_item(set_name, id);
+    if(!rem_op.ok()) {
+        res->set(rem_op.code(), rem_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["id"] = id;
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
+// curation sets
+bool get_curation_sets(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CurationIndexManager& manager = CurationIndexManager::get_instance();
+    nlohmann::json res_json = manager.get_all_curation_indices_json();
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool get_curation_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CurationIndexManager& manager = CurationIndexManager::get_instance();
+    const std::string & set_name = req->params["name"];
+    auto get_index_op = manager.get_curation_index(set_name);
+    if(!get_index_op.ok()) {
+        res->set(get_index_op.code(), get_index_op.error());
+        return false;
+    }
+    res->set_200(get_index_op.get()->to_view_json().dump());
+    return true;
+}
+
+bool del_curation_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CurationIndexManager& manager = CurationIndexManager::get_instance();
+    const std::string & set_name = req->params["name"];
+    auto get_index_op = manager.get_curation_index(set_name);
+    if(!get_index_op.ok()) {
+        res->set(get_index_op.code(), get_index_op.error());
+        return false;
+    }
+    auto delete_op = manager.remove_curation_index(set_name);
+    if(!delete_op.ok()) {
+        res->set(delete_op.code(), delete_op.error());
+        return false;
+    }
+    nlohmann::json res_json;
+    res_json["name"] = set_name;
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool put_curation_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CurationIndexManager& manager = CurationIndexManager::get_instance();
+    nlohmann::json req_json;
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+    if(!req_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+    std::string name = req->params["name"];
+    if(name.empty()) {
+        res->set_400("Name parameter is required.");
+        return false;
+    }
+    req_json["name"] = name;
+    auto validate_op = manager.validate_curation_index(req_json);
+    if(!validate_op.ok()) {
+        res->set(validate_op.code(), validate_op.error());
+        return false;
+    }
+    auto upsert_op = manager.upsert_curation_set(name, req_json["items"]);
+    if(!upsert_op.ok()) {
+        res->set(upsert_op.code(), upsert_op.error());
+        return false;
+    }
+    res->set_200(upsert_op.get().dump());
+    return true;
+}
+
+bool get_curation_set_items(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+  uint32_t offset = 0, limit = 0;
+  if(req->params.count("offset") != 0) {
+      const auto &offset_str = req->params["offset"];
+      if(!StringUtils::is_uint32_t(offset_str)) {
+          res->set(400, "Offset param should be unsigned integer.");
+          return false;
+      }
+      offset = std::stoi(offset_str);
+  }
+  if(req->params.count("limit") != 0) {
+      const auto &limit_str = req->params["limit"];
+      if(!StringUtils::is_uint32_t(limit_str)) {
+          res->set(400, "Limit param should be unsigned integer.");
+          return false;
+      }
+      limit = std::stoi(limit_str);
+  }
+  const std::string& set_name = req->params["name"];
+  auto& manager = CurationIndexManager::get_instance();
+  auto list_op = manager.list_curation_items(set_name, limit, offset);
+  if(!list_op.ok()) {
+      res->set(list_op.code(), list_op.error());
+      return false;
+  }
+  res->set_200(list_op.get().dump());
+  return true;
+}
+
+bool get_curation_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& set_name = req->params["name"];
+    const std::string id = req->params["id"];
+    auto& manager = CurationIndexManager::get_instance();
+    auto item_op = manager.get_curation_item(set_name, id);
+    if(!item_op.ok()) {
+        res->set(item_op.code(), item_op.error());
+        return false;
+    }
+    res->set_200(item_op.get().dump());
+    return true;
+}
+
+bool put_curation_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& set_name = req->params["name"];
+    const std::string id = req->params["id"];
+    nlohmann::json ov_json;
+    try {
+        ov_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+    if(!ov_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+    ov_json["id"] = id;
+    auto& manager = CurationIndexManager::get_instance();
+    auto add_op = manager.upsert_curation_item(set_name, ov_json);
+    if(!add_op.ok()) {
+        res->set(add_op.code(), add_op.error());
+        return false;
+    }
+    res->set_200(ov_json.dump());
+    return true;
+}
+
+bool del_curation_set_item(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string& set_name = req->params["name"];
+    const std::string id = req->params["id"];
+    auto& manager = CurationIndexManager::get_instance();
+    auto del_op = manager.delete_curation_item(set_name, id);
+    if(!del_op.ok()) {
+        res->set(del_op.code(), del_op.error());
+        return false;
+    }
+    nlohmann::json res_json;
+    res_json["id"] = id;
+    res->set_200(res_json.dump());
+    return true;
+}
+
 
 bool get_async_req_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     if(req->params.count("req_id") == 0) {

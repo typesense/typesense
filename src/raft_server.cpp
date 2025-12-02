@@ -70,7 +70,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
             }
 
             continue;
-       }
+        }
 
         LOG(INFO) << "Nodes configuration: " << actual_nodes_config;
         break;
@@ -149,19 +149,72 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_endpoint, const int api_port,
                                               const std::string& nodes_config) {
     if(nodes_config.empty()) {
-        std::string ip_str = butil::ip2str(peering_endpoint.ip).c_str();
-        return ip_str + ":" + std::to_string(peering_endpoint.port) + ":" + std::to_string(api_port);
+        // endpoint2str gives us "<ip>:<peering_port>", we just need to add ":<api_port>"
+        return std::string(butil::endpoint2str(peering_endpoint).c_str()) + ":" + std::to_string(api_port);
     } else {
         return resolve_node_hosts(nodes_config);
     }
 }
 
-string ReplicationState::resolve_node_hosts(const string& nodes_config) {
+std::string ReplicationState::hostname2ipstr(const std::string& hostname) {
+    if(hostname.size() > 64) {
+        LOG(ERROR) << "Host name is too long (must be < 64 characters): " << hostname;
+        return "";
+    }
+
+    // Check if this is already an IPv6 address by looking for []
+    if(hostname.find('[') == 0) {
+        return hostname;
+    }
+
+    struct addrinfo hints, *result;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;     // Allow both IPv4 and IPv6
+    hints.ai_socktype = SOCK_STREAM; // TCP
+
+    int status = getaddrinfo(hostname.c_str(), nullptr, &hints, &result);
+    if (status != 0) {
+        LOG(ERROR) << "Unable to resolve host: " << hostname << ", error: " << gai_strerror(status);
+        return hostname; // Return original hostname on error
+    }
+
+    char ip_str[INET6_ADDRSTRLEN];
+    std::string resolved_ip;
+
+    // Get the first resolved address
+    if (result->ai_family == AF_INET) {
+        // IPv4
+        struct sockaddr_in *addr = (struct sockaddr_in *)result->ai_addr;
+        inet_ntop(AF_INET, &(addr->sin_addr), ip_str, INET_ADDRSTRLEN);
+        resolved_ip = ip_str;
+    } else if (result->ai_family == AF_INET6) {
+        // IPv6
+        struct sockaddr_in6 *addr = (struct sockaddr_in6 *)result->ai_addr;
+        inet_ntop(AF_INET6, &(addr->sin6_addr), ip_str, INET6_ADDRSTRLEN);
+        resolved_ip = std::string("[") + ip_str + "]";
+    }
+
+    freeaddrinfo(result);
+
+    if(resolved_ip.empty()) {
+        return hostname; // Return original hostname if resolution didn't produce a valid IP
+    }
+
+    return resolved_ip;
+}
+
+std::string ReplicationState::resolve_node_hosts(const string& nodes_config) {
     std::vector<std::string> final_nodes_vec;
     std::vector<std::string> node_strings;
     StringUtils::split(nodes_config, node_strings, ",");
 
     for(const auto& node_str: node_strings) {
+        // Check if this is already an IPv6 address node by looking for []
+        if(node_str.find('[') == 0) {
+            final_nodes_vec.push_back(node_str);
+            continue;
+        }
+
         // could be an IP or a hostname that must be resolved
         std::vector<std::string> node_parts;
         StringUtils::split(node_str, node_parts, ":");
@@ -171,22 +224,13 @@ string ReplicationState::resolve_node_hosts(const string& nodes_config) {
             continue;
         }
 
-        if(node_parts[0].size() > 64) {
-            LOG(ERROR) << "Host name is too long (must be < 64 characters): " << node_parts[0];
-            final_nodes_vec.emplace_back("");
+        std::string resolved_ip = hostname2ipstr(node_parts[0]);
+        if(resolved_ip.empty()) {
+            LOG(ERROR) << "Unable to resolve host: " << node_parts[0];
             continue;
         }
 
-        butil::ip_t ip;
-        int status = butil::hostname2ip(node_parts[0].c_str(), &ip);
-
-        if(status == 0) {
-            final_nodes_vec.push_back(
-                std::string(butil::ip2str(ip).c_str()) + ":" + node_parts[1] + ":" + node_parts[2]
-            );
-        } else {
-            LOG(ERROR) << "Unable to resolve host: " << node_parts[0];
-        }
+        final_nodes_vec.push_back(resolved_ip + ":" + node_parts[1] + ":" + node_parts[2]);
     }
 
     if(final_nodes_vec.empty()) {
@@ -366,7 +410,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
         return ;
     }
 
-    const std::string & leader_addr = node->leader_id().to_string();
+    const braft::PeerId& leader_addr = node->leader_id();
     //LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
 
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response->generator.load());
@@ -416,8 +460,6 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
             response->set_body(status, api_res);
         } else if(request->http_method == "PATCH") {
             std::string api_res;
-            route_path* rpath = nullptr;
-            bool route_found = server->get_route(request->route_hash, &rpath);
             long status = HttpClient::patch_response(url, request->body, api_res, res_headers, 0, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
@@ -433,12 +475,32 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
     });
 }
 
-std::string ReplicationState::get_node_url_path(const std::string& node_addr, const std::string& path,
+std::string ReplicationState::get_node_url_path(const braft::PeerId& peer_id, const std::string& path,
                                                 const std::string& protocol) const {
-    std::vector<std::string> addr_parts;
-    StringUtils::split(node_addr, addr_parts, ":");
-    std::string leader_host_port = addr_parts[0] + ":" + addr_parts[2];
-    std::string url = protocol + "://" + leader_host_port + path;
+    const std::string endpoint_str = butil::endpoint2str(peer_id.addr).c_str();
+    const size_t last_colon = endpoint_str.rfind(':');
+    if (last_colon == std::string::npos) {
+        LOG(ERROR) << "Invalid endpoint format: " << endpoint_str;
+        return "";
+    }
+
+    // For IPv6, the IP part may contain colons and be wrapped in []
+    const std::string ip_part = endpoint_str.substr(0, last_colon);
+
+    std::string url = protocol + "://";
+    url += ip_part;  // IP part (possibly with [] for IPv6)
+    url += ":";
+    url += std::to_string(peer_id.idx);
+
+    // Add path ensuring there's exactly one / between URL parts
+    if(!path.empty()) {
+        if(path[0] == '/') {
+            url += path;
+        } else {
+            url += "/" + path;
+        }
+    }
+
     return url;
 }
 
@@ -613,7 +675,7 @@ int ReplicationState::init_db() {
     if(!conversation_models_init.ok()) {
         LOG(INFO) << "Failed to initialize conversation model manager: " << conversation_models_init.error();
     } else {
-        LOG(INFO) << "Loaded " << conversation_models_init.get() << "conversation model(s).";
+        LOG(INFO) << "Loaded " << conversation_models_init.get() << " conversation model(s).";
     }
 
     if(batched_indexer != nullptr) {
@@ -799,7 +861,7 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
         return ;
     }
 
-    const std::string & leader_addr = node->leader_id().to_string();
+    const braft::PeerId& leader_addr = node->leader_id();
     lock.unlock();
 
     const std::string protocol = api_uses_ssl ? "https" : "http";
@@ -1085,7 +1147,7 @@ void ReplicationState::do_snapshot(const std::string& nodes) {
             }
 
             const std::string protocol = api_uses_ssl ? "https" : "http";
-            std::string url = get_node_url_path(peer_addr, "/health", protocol);
+            std::string url = get_node_url_path(peer, "/health", protocol);
             std::string api_res;
             std::map<std::string, std::string> res_headers;
             long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 5*1000, true);
@@ -1125,7 +1187,7 @@ std::string ReplicationState::get_leader_url() const {
         return "";
     }
 
-    const std::string & leader_addr = node->leader_id().to_string();
+    const braft::PeerId& leader_addr = node->leader_id();
     lock.unlock();
 
     const std::string protocol = api_uses_ssl ? "https" : "http";

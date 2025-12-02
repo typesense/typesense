@@ -14,6 +14,7 @@
 #include "vector_query_ops.h"
 #include <mutex>
 #include "stemmer_manager.h"
+#include "filter_result_iterator.h"
 
 namespace field_types {
     // first field value indexed will determine the type
@@ -62,6 +63,7 @@ namespace fields {
     static const std::string vec_dist = "vec_dist";
     static const std::string reference = "reference";
     static const std::string async_reference = "async_reference";
+    static const std::string cascade_delete = "cascade_delete";
     static const std::string embed = "embed";
     static const std::string from = "from";
     static const std::string mapping = "mapping";
@@ -84,6 +86,7 @@ namespace fields {
     static const std::string REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
 
     static const std::string store = "store";
+    static const std::string truncate_len = "truncate_len";
     
     static const std::string hnsw_params = "hnsw_params";
 }
@@ -122,6 +125,7 @@ struct field {
     bool nested;        // field inside an object
 
     bool store = true;        // store the field in disk
+    uint32_t truncate_len = 100;       // truncate string tokens at this many chars (0 = no truncation)
 
     // field inside an array of objects that is forced to be an array
     // integer to handle tri-state: true (1), false (0), not known yet (2)
@@ -140,6 +144,7 @@ struct field {
     bool range_index;
 
     bool is_reference_helper = false;
+    bool cascade_delete = true;
 
     bool stem = false;
     std::string stem_dictionary = "";
@@ -157,11 +162,12 @@ struct field {
           int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine,
           std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false,
           const bool store = true, const bool stem = false, const std::string& stem_dictionary = "", const nlohmann::json hnsw_params = nlohmann::json(),
-          const bool async_reference = false, const nlohmann::json& token_separators = {}, const nlohmann::json& symbols_to_index = {}) :
+          const bool async_reference = false, const nlohmann::json& token_separators = {}, const nlohmann::json& symbols_to_index = {},
+          const bool cascade_delete = true, const uint32_t truncate_len = 100) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
-            embed(embed), range_index(range_index), store(store), stem(stem), stem_dictionary(stem_dictionary),
-            hnsw_params(hnsw_params), is_async_reference(async_reference) {
+            embed(embed), range_index(range_index), store(store), truncate_len(truncate_len), stem(stem), stem_dictionary(stem_dictionary),
+            hnsw_params(hnsw_params), is_async_reference(async_reference), cascade_delete(cascade_delete) {
 
         set_computed_defaults(sort, infix);
 
@@ -407,7 +413,9 @@ struct field {
                      json[fields::hnsw_params].get<nlohmann::json>(),
                      json[fields::async_reference].get<bool>(),
                      json[fields::token_separators].get<nlohmann::json>(),
-                     json[fields::symbols_to_index].get<nlohmann::json>());
+                     json[fields::symbols_to_index].get<nlohmann::json>(),
+                     json[fields::cascade_delete].get<bool>(),
+                     json[fields::truncate_len].get<uint32_t>());
     }
 
     static Option<bool> fields_to_json_fields(const std::vector<field> & fields,
@@ -416,12 +424,14 @@ struct field {
 
     static Option<bool> json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
                                             std::vector<field>& the_fields,
-                                            string& fallback_field_type, size_t& num_auto_detect_fields);
+                                            string& fallback_field_type, size_t& num_auto_detect_fields,
+                                            const std::string& collection_name = "");
 
     static Option<bool> json_fields_to_fields(bool enable_nested_fields,
                                               nlohmann::json& fields_json,
                                               std::string& fallback_field_type,
-                                              std::vector<field>& the_fields);
+                                              std::vector<field>& the_fields,
+                                              const std::string& collection_name = "");
 
     static Option<bool> validate_and_init_embed_field(const tsl::htrie_map<char, field>& search_schema,
                                                        nlohmann::json& field_json,
@@ -517,6 +527,9 @@ namespace ref_include {
     static const std::string merge_string = "merge";
     static const std::string nest_string = "nest";
     static const std::string nest_array_string = "nest_array";
+    static const std::string related_docs_count = "related_docs_count";
+    static const std::string sort_by = "sort_by";
+    static const std::string limit = "limit";
 
     enum strategy_enum {merge = 0, nest, nest_array};
 
@@ -540,7 +553,9 @@ struct ref_include_exclude_fields {
     std::string exclude_fields;
     std::string alias;
     ref_include::strategy_enum strategy = ref_include::nest;
-
+    std::string related_docs_field = "";
+    std::string sort_by_str = "";
+    size_t limit = 0;
     // In case we have nested join.
     std::vector<ref_include_exclude_fields> nested_join_includes = {};
 };
@@ -785,7 +800,7 @@ struct range_specs_t {
 };
 
 struct facet {
-    const std::string field_name;
+    std::string field_name;
     spp::sparse_hash_map<uint64_t, facet_count_t> result_map;
     spp::sparse_hash_map<std::string, facet_count_t> value_result_map;
 
@@ -817,6 +832,10 @@ struct facet {
 
     uint32_t orig_index;
 
+    std::string reference_collection_name;
+
+    reference_filter_result_t references{};
+
     bool is_top_k = false;
 
     bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair) {
@@ -841,10 +860,10 @@ struct facet {
 
     explicit facet(const std::string& field_name, uint32_t orig_index, bool is_top_k = false, std::map<int64_t, range_specs_t> facet_range = {},
                    bool is_range_q = false, bool sort_by_alpha=false, const std::string& order="",
-                   const std::string& sort_by_field="")
+                   const std::string& sort_by_field="", const std::string& reference_collection_name = "")
                    : field_name(field_name), facet_range_map(facet_range),
                    is_range_query(is_range_q), is_sort_by_alpha(sort_by_alpha), sort_order(order),
-                   sort_field(sort_by_field), orig_index(orig_index), is_top_k(is_top_k) {
+                   sort_field(sort_by_field), orig_index(orig_index), is_top_k(is_top_k), reference_collection_name(reference_collection_name) {
     }
 };
 
@@ -856,6 +875,7 @@ struct facet_info_t {
     bool should_compute_stats = false;
     bool use_value_index = false;
     field facet_field{"", "", false};
+    std::string reference_collection_name;
 };
 
 struct facet_query_t {
@@ -869,6 +889,7 @@ struct facet_value_t {
     uint32_t count;
     int64_t sort_field_val;
     nlohmann::json parent;
+    std::string facet_filter;
 };
 
 struct facet_hash_values_t {

@@ -2002,58 +2002,63 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterUpdateOldDocs) {
     ASSERT_EQ(0, search_res.get()["hits"][0]["document"].count("nested.hello"));
 }
 
-TEST_F(CollectionSchemaChangeTest, AlterReferenceField) {
-    nlohmann::json req_json = R"({
-        "name": "coll",
-        "fields": [
-            {"name": ".*", "type": "auto"}
-        ]
-    })"_json;
+TEST_F(CollectionSchemaChangeTest, AlterAddSameFieldTwice) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
 
-    auto coll_op = collectionManager.create_collection(req_json);
-    ASSERT_TRUE(coll_op.ok());
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
 
-    auto coll = coll_op.get();
     nlohmann::json schema_change = R"({
             "fields": [
-                {"name": "ref_field", "type": "string", "reference": "Ref_Coll.ref_field"}
+                {"name": "title", "drop": true},
+                {"name": "title", "type": "string", "facet": true},
+                {"name": "title", "type": "string", "index": true}
             ]
         })"_json;
-
     auto schema_change_op = coll->alter(schema_change);
     ASSERT_FALSE(schema_change_op.ok());
-    ASSERT_EQ("Adding/Modifying reference field `ref_field` using alter operation is not yet supported. "
-              "Workaround is to drop the whole collection and re-index it.", schema_change_op.error());
-
-    req_json = R"({
-        "name": "coll_1",
-        "fields": [
-            {"name": "reference_field", "type": "string", "reference": "Ref_coll.foo"}
-        ]
-    })"_json;
-
-    coll_op = collectionManager.create_collection(req_json);
-    ASSERT_TRUE(coll_op.ok());
-
-    auto coll_1 = coll_op.get();
-    schema_change = R"({
-            "fields": [
-                {"name": "reference_field", "drop": true},
-                {"name": "reference_field", "type": "string", "reference": "Ref_Coll.foo"}
-            ]
-        })"_json;
-
-    schema_change_op = coll_1->alter(schema_change);
-    ASSERT_FALSE(schema_change_op.ok());
-    ASSERT_EQ("Adding/Modifying reference field `reference_field` using alter operation is not yet supported. "
-              "Workaround is to drop the whole collection and re-index it.", schema_change_op.error());
+    ASSERT_EQ("There can be only one field named `title`.", schema_change_op.error());
 
     schema_change = R"({
             "fields": [
-                {"name": "reference_field", "drop": true}
+                {"name": "title", "drop": true},
+                {"name": "title", "type": "string", "facet": true}
             ]
         })"_json;
-
-    schema_change_op = coll_1->alter(schema_change);
+    schema_change_op = coll->alter(schema_change);
     ASSERT_TRUE(schema_change_op.ok());
+}
+
+TEST_F(CollectionSchemaChangeTest, AlterUnsortableFieldWithSortEnabled) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json schema_change = R"({
+            "fields": [
+                {"name": "test", "type": "auto", "sort": true}
+            ]
+        })"_json;
+    auto schema_change_op = coll->alter(schema_change);
+    ASSERT_FALSE(schema_change_op.ok());
+    ASSERT_EQ("The type `auto` is not sortable.", schema_change_op.error());
+
+    // Get fields to verify no update happened
+    auto fields =  coll->get_fields();
+    ASSERT_EQ(1, fields.size());
+    ASSERT_EQ("title", fields[0].name);
+    ASSERT_EQ("string", fields[0].type);
 }

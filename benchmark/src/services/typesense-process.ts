@@ -19,8 +19,6 @@ import { exists, safeEmptyDir, safeMakeOrEmptyDir } from "@/utils/fs";
 import { logger } from "@/utils/logger";
 import { isStringifiable } from "@/utils/stringifiable";
 
-export const DEFAULT_IP_ADDRESS = "192.168.2.25";
-
 interface AddressError {
   message: string;
   type: "address";
@@ -71,8 +69,8 @@ export class TypesenseProcessController extends EventEmitter {
       logLevel: "DEBUG",
       apiKey: this.apiKey,
       connectionTimeoutSeconds: 100,
-      retryIntervalSeconds: 3,
-      numRetries: 20,
+      retryIntervalSeconds: 0.2,
+      numRetries: 20 * 30,
     });
 
     this.process.on("close", (code, signal) => {
@@ -432,7 +430,19 @@ export class TypesenseProcessManager {
     const interfaces = networkInterfaces();
 
     if (!this.isInCi) {
-      return DEFAULT_IP_ADDRESS;
+      if (process.env.IP_ADDRESS) {
+        return process.env.IP_ADDRESS;
+      }
+
+      const networkAddress = Object.values(interfaces)
+        .flatMap((interfaceInfo) => interfaceInfo ?? [])
+        .find((info) => info.family === "IPv4" && !info.internal && !info.address.startsWith("127."))?.address;
+
+      if (networkAddress) {
+        return networkAddress;
+      }
+
+      return "127.0.0.1";
     }
 
     // First try to find a 10.1.0.* address

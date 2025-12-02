@@ -1,9 +1,10 @@
 #pragma once
 #include <string>
 #include <json.hpp>
+#include <diversity.h>
 #include "option.h"
 
-struct override_t {
+struct curation_t {
     static const std::string MATCH_EXACT;
     static const std::string MATCH_CONTAINS;
 
@@ -47,14 +48,15 @@ struct override_t {
     int64_t effective_from_ts = -1;
     int64_t effective_to_ts = -1;
 
-    override_t() = default;
+    diversity_t diversity{};
 
-    static Option<bool> parse(const nlohmann::json& override_json, const std::string& id,
-                              override_t& override,
+    curation_t() = default;
+
+    static Option<bool> parse(const nlohmann::json& curation_json, const std::string& id,
+                              curation_t& curation,
                               const std::string& locale = "",
                               const std::vector<char>& symbols_to_index = {},
-                              const std::vector<char>& token_separators = {}
-                              );
+                              const std::vector<char>& token_separators = {});
 
     nlohmann::json to_json() const;
 };

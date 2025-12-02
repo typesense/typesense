@@ -3,12 +3,11 @@
 #include <string>
 #include <vector>
 #include <iconv.h>
-#include <unicode/brkiter.h>
-#include <unicode/normalizer2.h>
-#include <unicode/translit.h>
 #include "japanese_localizer.h"
 #include "logger.h"
 #include "stemmer_manager.h"
+#include "mutex"
+#include "transliterator_pool.h"
 
 class Tokenizer {
 private:
@@ -41,14 +40,14 @@ private:
     int32_t end_pos = 0;
 
     bool phrase_search_op_prior = false;
+    bool is_placeholder = false;
+    bool placeholder_op_prior = false;
 
     char* normalized_text = nullptr;
 
     // non-deletable singletons
     const icu::Normalizer2* nfkd = nullptr;
     const icu::Normalizer2* nfkc = nullptr;
-
-    icu::Transliterator* transliterator = nullptr;
 
     std::shared_ptr<Stemmer> stemmer = nullptr;
 
@@ -65,13 +64,13 @@ public:
                        const std::string& locale = "",
                        const std::vector<char>& symbols_to_index = {},
                        const std::vector<char>& separators = {},
-                       std::shared_ptr<Stemmer> stemmer = nullptr);
+                       std::shared_ptr<Stemmer> stemmer = nullptr,
+                       bool is_placeholder = false);
 
     ~Tokenizer() {
         iconv_close(cd);
         free(normalized_text);
         delete bi;
-        delete transliterator;
     }
 
     void init(const std::string& input);

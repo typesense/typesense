@@ -169,11 +169,11 @@ public:
 
     void check_for_high_cardinality(const std::string& field_name, size_t total_num_docs);
 
-    bool has_hash_index(const std::string& field_name);
+    bool has_hash_index(const std::string& field_name) const;
 
     bool has_value_index(const std::string& field_name);
 
-    posting_list_t* get_facet_hash_index(const std::string& field_name);
+    posting_list_t* get_facet_hash_index(const std::string& field_name) const;
 
     //get fhash=>int64 map for stats
     const spp::sparse_hash_map<uint32_t, int64_t>& get_fhash_int64_map(const std::string& field_name);

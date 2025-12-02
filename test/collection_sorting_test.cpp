@@ -3,6 +3,8 @@
 #include <vector>
 #include <fstream>
 #include <algorithm>
+#include <set>
+#include <map>
 #include <collection_manager.h>
 #include "collection.h"
 
@@ -1797,6 +1799,111 @@ TEST_F(CollectionSortingTest, TextMatchMoreDocsThanBuckets) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSortingTest, BucketingWithGroupByNoDuplicates) {
+    // non-deterministic sorting after bucketing causes the same group to appear on different pages across different requests
+    
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("group_key", field_types::STRING, true),  // facet field for group_by
+        field("points", field_types::INT32, false)
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    // We need more than 250 unique groups to ensure bucketing affects multiple pages
+    // (bucketing only applies to first DEFAULT_TOPSTER_SIZE = 250 results)
+    const size_t num_groups = 500;
+    const size_t docs_per_group = 2;
+    
+    for(size_t group_idx = 0; group_idx < num_groups; group_idx++) {
+        std::string group_key = "GROUP_" + std::to_string(group_idx);
+        for(size_t doc_idx = 0; doc_idx < docs_per_group; doc_idx++) {
+            nlohmann::json doc;
+            size_t doc_id = group_idx * docs_per_group + doc_idx;
+            doc["id"] = std::to_string(doc_id);
+            doc["title"] = "Test Document " + std::to_string(group_idx) + " Item " + std::to_string(doc_idx);
+            doc["group_key"] = group_key;
+            doc["points"] = 100;
+            ASSERT_TRUE(coll1->add(doc.dump()).ok());
+        }
+    }
+
+    sort_fields = {
+        sort_by("_text_match(buckets: 20)", "DESC"),
+        sort_by("points", "DESC"),
+    };
+
+    const size_t per_page = 30;
+    const size_t group_limit = 10;
+    const size_t num_test_iterations = 10;
+    
+    for(size_t iteration = 0; iteration < num_test_iterations; iteration++) {
+        std::map<std::string, std::vector<size_t>> group_to_pages;
+        
+        for(size_t page = 1; page <= 20; page++) {
+            auto results = coll1->search("test", {"title"},
+                                         "", {}, sort_fields, {0}, per_page,
+                                         page, FREQUENCY, {true},
+                                         10, spp::sparse_hash_set<std::string>(),
+                                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {"group_key"}, group_limit,
+                                         "<mark>", "</mark>", {}, 1000, true).get();
+
+            if(!results.contains("grouped_hits") || results["grouped_hits"].size() == 0) {
+                break;
+            }
+
+            for(const auto& group_hit : results["grouped_hits"]) {
+                if(!group_hit.contains("group_key") || group_hit["group_key"].size() == 0) {
+                    continue;
+                }
+                std::string current_group_key = group_hit["group_key"][0].get<std::string>();
+                group_to_pages[current_group_key].push_back(page);
+            }
+        }
+        
+        for(const auto& [group_key, pages] : group_to_pages) {
+            if(pages.size() > 1) {
+                std::cout << "ERROR: Group key '" << group_key 
+                          << "' appeared on multiple pages [" << pages[0];
+                for(size_t i = 1; i < pages.size(); i++) {
+                    std::cout << ", " << pages[i];
+                }
+                std::cout << "] in iteration " << iteration << std::endl;
+                ASSERT_EQ(1, pages.size()) 
+                    << "Group key '" << group_key << "' appears on multiple pages in the same request";
+            }
+        }
+        
+        static std::map<std::string, size_t> expected_group_to_page;
+        
+        if(iteration == 0) {
+            for(const auto& [group_key, pages] : group_to_pages) {
+                ASSERT_EQ(1, pages.size()) << "Group should appear on exactly one page";
+                expected_group_to_page[group_key] = pages[0];
+            }
+        } else {
+            // same groups should appear on same pages across requests
+            for(const auto& [group_key, pages] : group_to_pages) {
+                ASSERT_EQ(1, pages.size()) << "Group should appear on exactly one page";
+                if(expected_group_to_page.find(group_key) != expected_group_to_page.end()) {
+                    size_t expected_page = expected_group_to_page[group_key];
+                    if(pages[0] != expected_page) {
+                        std::cout << "ERROR: Group key '" << group_key 
+                                  << "' appeared on page " << pages[0] 
+                                  << " in iteration " << iteration 
+                                  << " but was on page " << expected_page 
+                                  << " in first iteration" << std::endl;
+                        ASSERT_EQ(expected_page, pages[0]) 
+                            << "Group key '" << group_key << "' appears on different pages across requests";
+                    }
+                }
+            }
+        }
+    }
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSortingTest, RepeatingTokenRanking) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
@@ -1846,10 +1953,10 @@ TEST_F(CollectionSortingTest, RepeatingTokenRanking) {
     ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
 
-    ASSERT_EQ(1157451471575842841, results["hits"][0]["text_match"].get<size_t>());
-    ASSERT_EQ(1157451471575318553, results["hits"][1]["text_match"].get<size_t>());
-    ASSERT_EQ(1157451471575318553, results["hits"][2]["text_match"].get<size_t>());
-    ASSERT_EQ(1157451471575318553, results["hits"][3]["text_match"].get<size_t>());
+    ASSERT_EQ(1157451471583709209, results["hits"][0]["text_match"].get<size_t>());
+    ASSERT_EQ(1157451471575320601, results["hits"][1]["text_match"].get<size_t>());
+    ASSERT_EQ(1157451471575320601, results["hits"][2]["text_match"].get<size_t>());
+    ASSERT_EQ(1157451471575320601, results["hits"][3]["text_match"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -3642,4 +3749,210 @@ TEST_F(CollectionSortingTest, VectorSearchBucketRankingTwoBuckets) {
     ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSortingTest, EvalExpressionWithBackticks) {
+    nlohmann::json schema = nlohmann::json::parse(R"({
+        "name": "test",
+        "fields": [
+            {"name": "text", "type": "string", "sort": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })");
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // Add documents with special characters in text field
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["text"] = "some (annoying) value";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "2";
+    doc2["text"] = "another text";
+    doc2["points"] = 200;
+
+    nlohmann::json doc3;
+    doc3["id"] = "3";
+    doc3["text"] = "some other text";
+    doc3["points"] = 150;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {
+        sort_by({"text:`some (anno`*"}, {1}, "DESC"),
+        sort_by("points", "DESC")
+    };
+
+    auto results = coll1->search("*", {"text"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "").get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    sort_fields = {
+        sort_by({"text:`some (anno`*", "text:another*"}, {2, 1}, "DESC"),
+        sort_by("points", "DESC")
+    };
+
+    results = coll1->search("*", {"text"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 32767, 32767, 2,
+                           false, true, "").get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {"text"}, "text:`some (anno`*", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 32767, 32767, 2,
+                           false, true, "").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", "test"},
+        {"q", "*"},
+        {"query_by", "text"},
+        {"filter_by", "text:`some (anno`*"},
+        {"sort_by", "_eval(text:`some (anno`*):desc"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("test");
+}
+
+TEST_F(CollectionSortingTest, EvalExpressionWithIdField) {
+    nlohmann::json schema = nlohmann::json::parse(R"({
+        "name": "eval_ids",
+        "fields": [
+            {"name": "id", "type": "string"},
+            {"name": "text", "type": "string"}
+        ]
+    })");
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // Add documents with special characters in text field
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["text"] = "some (annoying) value";
+
+    nlohmann::json doc2;
+    doc2["id"] = "2";
+    doc2["text"] = "another text";
+
+    nlohmann::json doc3;
+    doc3["id"] = "3";
+    doc3["text"] = "some other text";
+
+    nlohmann::json doc4;
+    doc4["id"] = "4";
+    doc4["text"] = "different other text";
+
+    nlohmann::json doc5;
+    doc5["id"] = "5";
+    doc5["text"] = "important other text";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "eval_ids"},
+            {"q", "*"},
+            {"filter_by", "id:=[1,2,3,4,5]"},
+            {"sort_by", "_eval([(id:1):10000,(id:2):9999,(id:3):9998]):desc"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", res_obj["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", res_obj["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", res_obj["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", res_obj["hits"][4]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSortingTest, IgnoreInvalidFieldsIfNotValidateFieldNames) {
+    auto schema_json = R"({
+            "name": "products_ignore_invalid",
+            "fields":[
+                {"name": "title","type": "string"},
+                {"name": "points","type": "int32"}
+            ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+    nlohmann::json doc;
+    doc["title"] = "test1";
+    doc["points"] = 100;
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+    doc["title"] = "test2";
+    doc["points"] = 200;
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    sort_fields = {
+            sort_by("non_existing_field", "DESC"),
+            sort_by("points", "ASC"),
+    };
+
+    auto results = coll->search("test", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "", true, 0UL, max_score, 100UL, 0UL, 0UL, 0UL, "exhaustive", 3000UL, 2UL, "", {},
+                                {}, "right_to_left", true, true, false, "", "", "", "", true, true, false, false, 0U, false, true, DEFAULT_FILTER_BY_CANDIDATES, false, true);
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("Could not find a field named `non_existing_field` in the schema for sorting.", results.error());
+
+    results = coll->search("test", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "", true, 0UL, max_score, 100UL, 0UL, 0UL, 0UL, "exhaustive", 3000UL, 2UL, "", {},
+                                {}, "right_to_left", true, true, false, "", "", "", "", true, true, false, false, 0U, false, true, DEFAULT_FILTER_BY_CANDIDATES, false, false);
+    ASSERT_TRUE(results.ok());
+    ASSERT_EQ(2, results.get()["hits"].size());
 }

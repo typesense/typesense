@@ -6,8 +6,9 @@
 
 Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const std::string& locale,
                      const std::vector<char>& symbols_to_index,
-                     const std::vector<char>& separators, std::shared_ptr<Stemmer> stemmer) :
-                     i(0), normalize(normalize), no_op(no_op), locale(locale), stemmer(stemmer) {
+                     const std::vector<char>& separators, std::shared_ptr<Stemmer> stemmer, bool is_placeholder) :
+        i(0), normalize(normalize), no_op(no_op), locale(locale), stemmer(stemmer),
+        is_placeholder(is_placeholder) {
 
     for(char c: symbols_to_index) {
         index_symbols[uint8_t(c)] = 1;
@@ -41,14 +42,10 @@ void Tokenizer::init(const std::string& input) {
     }
 
     if(locale == "zh") {
-        UErrorCode translit_status = U_ZERO_ERROR;
-        if(!transliterator) {
-            transliterator = icu::Transliterator::createInstance("Traditional-Simplified",
-                                                                 UTRANS_FORWARD, translit_status);
-        }
-        if(U_FAILURE(translit_status)) {
+        auto transliterator = TransliteratorPool::get_instance().acquire("Traditional-Simplified");
+
+        if(transliterator == nullptr) {
             //LOG(ERROR) << "Unable to create transliteration instance for `zh` locale.";
-            transliterator = nullptr;
             text = input;
         } else {
             icu::UnicodeString unicode_input = icu::UnicodeString::fromUTF8(input);
@@ -61,26 +58,14 @@ void Tokenizer::init(const std::string& input) {
         }
     }
 
-    else if(locale == "ja") {
-        if(normalize) {
+    else if(locale == "ja" && normalize) {
             normalized_text = JapaneseLocalizer::get_instance().normalize(input);
             text = normalized_text;
-        } else {
-            text = input;
-        }
-    } else if(is_cyrillic(locale)) {
-        // init transliterator but will only transliterate during tokenization
-        UErrorCode translit_status = U_ZERO_ERROR;
-        if(!transliterator) {
-            transliterator = icu::Transliterator::createInstance("Any-Latin; Latin-ASCII",
-                                                                 UTRANS_FORWARD, translit_status);
-        }
-        text = input;
     } else {
         text = input;
     }
 
-    if(!locale.empty() && locale != "en") {
+    if(!locale.empty() && locale != "en" && locale != "de_en") {
         UErrorCode status = U_ZERO_ERROR;
         const icu::Locale& icu_locale = icu::Locale(locale.c_str());
         if(!bi) {
@@ -121,7 +106,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
         return true;
     }
 
-    if(!locale.empty() && locale != "en") {
+    if(!locale.empty() && locale != "en" && locale != "de_en") {
         while (end_pos != icu::BreakIterator::DONE) {
             //LOG(INFO) << "Position: " << start_pos;
             std::string word;
@@ -146,6 +131,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                     raw_text = icu::UnicodeString::fromUTF8(stemmed_word);
                 }
 
+                auto transliterator = TransliteratorPool::get_instance().acquire("Any-Latin;Latin-ASCII");
                 transliterator->transliterate(raw_text);
                 raw_text.toUTF8String(word);
                 StringUtils::replace_all(word, "\"", "");
@@ -271,17 +257,30 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 i++;
                 return true;
             } else {
-                if(out.empty()) {
+                if (out.empty()) {
                     start_index = i;
                 }
 
-                if(text[i] == '"') {
-                    if(!phrase_search_op_prior) {
+                if (text[i] == '"') {
+                    if (!phrase_search_op_prior) {
                         phrase_search_op_prior = true;
-                    } else if(phrase_search_op_prior) {
+                    } else if (phrase_search_op_prior) {
                         //end of phrase
                         phrase_search_op_prior = false;
                     }
+                } else if (is_placeholder && !placeholder_op_prior && text[i] == '{') {
+                    placeholder_op_prior = true;
+                    out += text[i];
+                    i++;
+                    continue;
+                } else if (is_placeholder && placeholder_op_prior) {
+                    out += text[i];
+                    if (text[i] == '}') {
+                        //end of placeholder
+                        placeholder_op_prior = false;
+                    }
+                    i++;
+                    continue;
                 }
 
                 out += normalize ? char(std::tolower(text[i])) : text[i];

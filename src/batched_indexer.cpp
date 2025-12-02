@@ -117,11 +117,8 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
                         refq_wait.cv.notify_one();
                         queue_write = false;
                     }
-
                 }
             }
-
-            req->body = "";
 
             if(queue_write) {
                 std::unique_lock qlk(qmutuxes[queue_id].mcv);

@@ -57,7 +57,13 @@ void StemmerManager::dispose() {
 std::shared_ptr<Stemmer> StemmerManager::get_stemmer(const std::string& language, const std::string& dictionary_name) {
     std::unique_lock<std::mutex> lock(mutex);
     // use english as default language
-    const std::string language_ = language.empty() ? "english" : language;
+    std::string language_ = language.empty() ? "english" : language;
+    
+    // Treat de_en the same as en
+    if (language_ == "de_en") {
+        language_ = "english";
+    }
+    
     if (stemmers.find(language_) == stemmers.end()) {
         stemmers[language] = std::make_shared<Stemmer>(language_.c_str(), dictionary_name);
     }
@@ -77,7 +83,13 @@ void StemmerManager::delete_all_stemmers() {
 }
 
 const bool StemmerManager::validate_language(const std::string& language) {
-    const std::string language_ = language.empty() ? "english" : language;
+    std::string language_ = language.empty() ? "english" : language;
+
+    // Treat de_en the same as en
+    if (language_ == "de_en") {
+        language_ = "english";
+    }
+
     auto stemmer = sb_stemmer_new(language_.c_str(), nullptr);
     if (stemmer == nullptr) {
         return false;

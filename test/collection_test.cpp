@@ -1484,7 +1484,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(1000, import_response["num_imported"].get<int>());
 
-    // run upsert again with title override
+    // run upsert again with title curation
 
     records.clear();
 
@@ -4409,6 +4409,94 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionTest, QueryParsingWithFieldLevelSymbolsToIndex) {
+    nlohmann::json schema = R"({
+        "name": "coll_symbols",
+        "fields": [
+            {"name": "title", "type": "string", "symbols_to_index": ["-"]},
+            {"name": "points", "type": "int32"}
+        ],
+        "default_sorting_field": "points"
+    })"_json;
+    
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll1 = coll_op.get();
+    
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "test-driven development";
+    doc1["points"] = 100;
+    
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "test driven development";
+    doc2["points"] = 90;
+    
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    
+    std::vector<std::string> q_include_tokens, q_unstemmed_tokens;
+    std::vector<std::vector<std::string>> q_exclude_tokens;
+    std::vector<std::vector<std::string>> q_phrases;
+    
+    const auto& search_schema = coll1->get_schema();
+    std::vector<char> field_symbols_to_index;
+    std::vector<char> field_token_separators;
+    
+    for (const auto& field : search_schema) {
+        if (field.name == "title") {
+            field_symbols_to_index = field.symbols_to_index;
+            field_token_separators = field.token_separators;
+            break;
+        }
+    }
+    
+    // query with hyphenated term
+    std::string q = "test-driven";
+    coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, 
+                              "en", false, "", nullptr, field_symbols_to_index, field_token_separators);
+    
+    // field-level symbols_to_index including "-", "test-driven" should be kept as one token
+    ASSERT_EQ(1, q_include_tokens.size());
+    ASSERT_EQ("test-driven", q_include_tokens[0]);
+    ASSERT_EQ(0, q_exclude_tokens.size());
+    ASSERT_EQ(0, q_phrases.size());
+    
+    // multiple hyphenated terms
+    q = "test-driven code-review";
+    q_include_tokens.clear();
+    q_unstemmed_tokens.clear();
+    q_exclude_tokens.clear();
+    q_phrases.clear();
+    
+    coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, 
+                              "en", false, "", nullptr, field_symbols_to_index, field_token_separators);
+    
+    ASSERT_EQ(2, q_include_tokens.size());
+    ASSERT_EQ("test-driven", q_include_tokens[0]);
+    ASSERT_EQ("code-review", q_include_tokens[1]);
+    
+    // phrase search (should still respect field-level symbols in sub-tokenization)
+    q = "\"test-driven development\"";
+    q_include_tokens.clear();
+    q_unstemmed_tokens.clear();
+    q_exclude_tokens.clear();
+    q_phrases.clear();
+    
+    coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, 
+                              "en", false, "", nullptr, field_symbols_to_index, field_token_separators);
+    
+    ASSERT_EQ(1, q_include_tokens.size());
+    ASSERT_EQ("*", q_include_tokens[0]);
+    ASSERT_EQ(1, q_phrases.size());
+    ASSERT_EQ(2, q_phrases[0].size());
+    ASSERT_EQ("test-driven", q_phrases[0][0]);
+    ASSERT_EQ("development", q_phrases[0][1]);
+    
+    collectionManager.drop_collection("coll_symbols");
+}
+
 TEST_F(CollectionTest, WildcardQueryBy) {
     nlohmann::json schema = R"({
          "name": "posts",
@@ -5302,4 +5390,224 @@ TEST_F(CollectionTest, TruncateAllDocuments) {
     op = collection->remove_all_docs();
     ASSERT_TRUE(op.ok());
     ASSERT_EQ(0, op.get());
+}
+
+TEST_F(CollectionTest, PinnedHitsFoundCount) {
+    // Create a collection with 300 documents
+    std::vector<field> fields = {
+        field("company_name", field_types::STRING, false),
+        field("num_employees", field_types::INT32, false),
+        field("country", field_types::STRING, true)
+    };
+
+    Collection* coll = collectionManager.create_collection("companies", 1, fields, "num_employees").get();
+
+    // Add 300 documents
+    for(int i = 1; i <= 300; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["company_name"] = "Company " + std::to_string(i);
+        doc["num_employees"] = 1000 + i;
+        doc["country"] = "Country " + std::to_string(i);
+        coll->add(doc.dump());
+    }
+
+    // First verify regular search returns all documents
+    auto results = coll->search("*", {"company_name"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                              {false}, Index::DROP_TOKENS_THRESHOLD,
+                              spp::sparse_hash_set<std::string>(),
+                              spp::sparse_hash_set<std::string>(), 10).get();
+
+    ASSERT_EQ(300, results["found"].get<size_t>());
+
+    // Now test with pinned hits
+    std::string pinned_hits;
+    for(int i = 1; i <= 270; i++) {
+        if(i > 1) pinned_hits += ",";
+        pinned_hits += std::to_string(i) + ":" + std::to_string(i);
+    }
+
+    results = coll->search("*", {"company_name"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                          {false}, Index::DROP_TOKENS_THRESHOLD,
+                          spp::sparse_hash_set<std::string>(),
+                          spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                          "", 10, pinned_hits, {}).get();
+
+    // Verify that the found count matches the total number of documents
+    ASSERT_EQ(300, results["found"].get<size_t>()) << "Found count should be 300 (total documents) but is " << results["found"].get<size_t>();
+
+    // Verify that the first 10 hits are pinned and in order
+    for(int i = 0; i < 10; i++) {
+        ASSERT_EQ(std::to_string(i + 1), results["hits"][i]["document"]["id"].get<std::string>());
+        ASSERT_TRUE(results["hits"][i]["curated"].get<bool>());
+    }
+
+    // Verify that all pinned documents appear in the results
+    std::set<std::string> pinned_ids;
+    for(int i = 1; i <= 270; i++) {
+        pinned_ids.insert(std::to_string(i));
+    }
+
+    for(const auto& hit : results["hits"]) {
+        std::string id = hit["document"]["id"].get<std::string>();
+        if(pinned_ids.count(id) > 0) {
+            ASSERT_TRUE(hit["curated"].get<bool>()) << "Document " << id << " should be curated but isn't";
+        }
+    }
+}
+
+TEST_F(CollectionTest, TokenSeparatorHighlightingIssue) {
+    nlohmann::json token_separators_json = nlohmann::json::array();
+    token_separators_json.push_back(".");
+    token_separators_json.push_back("-");
+    token_separators_json.push_back("_");
+    token_separators_json.push_back("@");
+    
+    nlohmann::json symbols_to_index_json = nlohmann::json::array();
+    
+    std::vector<field> fields = {
+        field("email", field_types::STRING, true, true, true, "", -1, -1, false, 
+              0, 0, cosine, "", nlohmann::json(), false, true, false, "", 
+              nlohmann::json(), false, token_separators_json, symbols_to_index_json)
+    };
+
+    std::vector<std::string> symbols_to_index_vec = {};
+    std::vector<std::string> token_separators_vec = {".", "-", "_"};
+
+    Collection* coll = collectionManager.create_collection("users", 1, fields, "", 0, "", 
+                                                           symbols_to_index_vec, token_separators_vec).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "124";
+    doc1["email"] = "bob.saget@example.org";
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+
+    nlohmann::json doc2;
+    doc2["id"] = "125";
+    doc2["email"] = "zack.morris@example.com";
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    nlohmann::json doc3;
+    doc3["id"] = "126";
+    doc3["email"] = "tony.danza@example.net";
+    ASSERT_TRUE(coll->add(doc3.dump()).ok());
+
+    auto results = coll->search("example", {"email"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(3, results["found"].get<int>());
+
+    for(auto& hit : results["hits"]) {
+        auto highlights = hit["highlights"];
+        ASSERT_GT(highlights.size(), 0);
+        
+        auto email_highlight = highlights[0];
+        ASSERT_EQ("email", email_highlight["field"].get<std::string>());
+        
+        auto matched_tokens = email_highlight["matched_tokens"];
+        bool found_example = false;
+        for(auto& token : matched_tokens) {
+            std::string token_str = token.get<std::string>();
+            if(token_str == "example") {
+                found_example = true;
+                break;
+            }
+        }
+        
+        EXPECT_TRUE(found_example) << "Expected 'example' to be in matched tokens, but got: " << matched_tokens.dump();
+        
+        std::string snippet = email_highlight["snippet"].get<std::string>();
+        EXPECT_TRUE(snippet.find("<mark>example</mark>") != std::string::npos) 
+            << "Expected snippet to highlight 'example', but got: " << snippet;
+    }
+
+    collectionManager.drop_collection("users");
+}
+
+TEST_F(CollectionTest, PerFieldTokenSeparatorsAndSymbolsToIndex) {
+    // collection-level token_separators
+    nlohmann::json coll1_fields_json = nlohmann::json::array();
+    coll1_fields_json.push_back(nlohmann::json::object({
+        {"name", "first_name"},
+        {"type", "string"}
+    }));
+    coll1_fields_json.push_back(nlohmann::json::object({
+        {"name", "email"},
+        {"type", "string"}
+    }));
+    
+    nlohmann::json coll1_schema = nlohmann::json::object({
+        {"name", "users_1"},
+        {"fields", coll1_fields_json},
+        {"token_separators", nlohmann::json::array({"+", "-", "@", "."})}
+    });
+    
+    auto coll1_op = collectionManager.create_collection(coll1_schema);
+    ASSERT_TRUE(coll1_op.ok());
+    Collection* coll1 = coll1_op.get();
+    
+    // per-field token_separators on email field
+    nlohmann::json coll2_fields_json = nlohmann::json::array();
+    coll2_fields_json.push_back(nlohmann::json::object({
+        {"name", "first_name"},
+        {"type", "string"}
+    }));
+    coll2_fields_json.push_back(nlohmann::json::object({
+        {"name", "email"},
+        {"type", "string"},
+        {"token_separators", nlohmann::json::array({"+", "-", "@", "."})}
+    }));
+    
+    nlohmann::json coll2_schema = nlohmann::json::object({
+        {"name", "users_2"},
+        {"fields", coll2_fields_json}
+    });
+    
+    auto coll2_op = collectionManager.create_collection(coll2_schema);
+    ASSERT_TRUE(coll2_op.ok());
+    Collection* coll2 = coll2_op.get();
+    
+    nlohmann::json doc;
+    doc["id"] = "124";
+    doc["first_name"] = "";
+    doc["email"] = "contact+docs-example@typesense.org";
+    
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+    
+    std::string query = "contact+docs-example@typesense";
+    
+    auto results1 = coll1->search(query, {"email"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results1["hits"].size());
+    ASSERT_EQ(1, results1["found"].get<int>());
+    
+    auto results2 = coll2->search(query, {"email"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results2["hits"].size());
+    ASSERT_EQ(1, results2["found"].get<int>());
+    
+    auto hit1 = results1["hits"][0];
+    auto highlights1 = hit1["highlights"];
+    ASSERT_GT(highlights1.size(), 0);
+    auto email_highlight1 = highlights1[0];
+    auto matched_tokens1 = email_highlight1["matched_tokens"];
+    
+    std::vector<std::string> expected_tokens = {"contact", "docs", "example", "typesense"};
+    ASSERT_EQ(expected_tokens.size(), matched_tokens1.size());
+    for(size_t i = 0; i < expected_tokens.size(); i++) {
+        ASSERT_EQ(expected_tokens[i], matched_tokens1[i].get<std::string>());
+    }
+    
+    auto hit2 = results2["hits"][0];
+    auto highlights2 = hit2["highlights"];
+    ASSERT_GT(highlights2.size(), 0);
+    auto email_highlight2 = highlights2[0];
+    auto matched_tokens2 = email_highlight2["matched_tokens"];
+    
+    ASSERT_EQ(expected_tokens.size(), matched_tokens2.size());
+    for(size_t i = 0; i < expected_tokens.size(); i++) {
+        ASSERT_EQ(expected_tokens[i], matched_tokens2[i].get<std::string>());
+    }
+    
+    collectionManager.drop_collection("users_1");
+    collectionManager.drop_collection("users_2");
 }

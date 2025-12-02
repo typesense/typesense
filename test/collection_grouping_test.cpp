@@ -6,6 +6,7 @@
 #include <collection_manager.h>
 #include "collection.h"
 #include "tsconfig.h"
+#include "curation_index_manager.h"
 
 class CollectionGroupingTest : public ::testing::Test {
 protected:
@@ -369,6 +370,7 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
 }
 
 TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {
+    auto& ov_manager = CurationIndexManager::get_instance();
     auto res = coll_group->search("*", {}, "", {"brand"}, {}, {0}, 50, 1, FREQUENCY,
                                   {false}, Index::DROP_TOKENS_THRESHOLD,
                                   spp::sparse_hash_set<std::string>(),
@@ -409,49 +411,57 @@ TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {
 }
 
 TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
-    nlohmann::json override_json_include = {
+    auto& ov_manager = CurationIndexManager::get_instance();
+    ov_manager.init_store(store);
+
+    CurationIndex curation_index1(store, "index");
+    ov_manager.add_curation_index("index", std::move(curation_index1));
+    coll_group->set_curation_sets({"index"});
+
+    nlohmann::json curation_json_include = {
         {"id", "include-rule"},
         {
             "rule", {
                {"query", "shirt"},
-               {"match", override_t::MATCH_EXACT}
+               {"match", curation_t::MATCH_EXACT}
             }
         },
         {"stop_processing", false}
     };
 
-    override_json_include["includes"] = nlohmann::json::array();
-    override_json_include["includes"][0] = nlohmann::json::object();
-    override_json_include["includes"][0]["id"] = "11";
-    override_json_include["includes"][0]["position"] = 1;
+    curation_json_include["includes"] = nlohmann::json::array();
+    curation_json_include["includes"][0] = nlohmann::json::object();
+    curation_json_include["includes"][0]["id"] = "11";
+    curation_json_include["includes"][0]["position"] = 1;
 
-    override_json_include["includes"][1] = nlohmann::json::object();
-    override_json_include["includes"][1]["id"] = "10";
-    override_json_include["includes"][1]["position"] = 1;
+    curation_json_include["includes"][1] = nlohmann::json::object();
+    curation_json_include["includes"][1]["id"] = "10";
+    curation_json_include["includes"][1]["position"] = 1;
 
-    nlohmann::json override_json_exclude = {
+    nlohmann::json curation_json_exclude = {
         {"id",   "exclude-rule"},
         {
             "rule", {
                  {"query", "shirt"},
-                 {"match", override_t::MATCH_EXACT}
+                 {"match", curation_t::MATCH_EXACT}
             }
         },
         {"stop_processing", false}
     };
-    override_json_exclude["excludes"] = nlohmann::json::array();
-    override_json_exclude["excludes"][0] = nlohmann::json::object();
-    override_json_exclude["excludes"][0]["id"] = "2";
+    curation_json_exclude["excludes"] = nlohmann::json::array();
+    curation_json_exclude["excludes"][0] = nlohmann::json::object();
+    curation_json_exclude["excludes"][0]["id"] = "2";
 
-    override_t override1;
-    override_t override2;
+    curation_t curation1;
+    curation_t curation2;
 
-    override_t::parse(override_json_include, "", override1);
-    override_t::parse(override_json_exclude, "", override2);
+    curation_t::parse(curation_json_include, "", curation1);
+    curation_t::parse(curation_json_exclude, "", curation2);
 
-    Option<uint32_t> ov1_op = coll_group->add_override(override1);
-    Option<uint32_t> ov2_op = coll_group->add_override(override2);
+    auto ov1_op = ov_manager.upsert_curation_item("index", curation_json_include);
+    auto ov2_op = ov_manager.upsert_curation_item("index", curation_json_exclude);
 
+    std::cout << ov1_op.error() << std::endl;
     ASSERT_TRUE(ov1_op.ok());
     ASSERT_TRUE(ov2_op.ok());
 
@@ -669,8 +679,8 @@ TEST_F(CollectionGroupingTest, ControlMissingValues) {
                              "", 10,
                              {}, {}, {"brand"}, 2,
                              "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                             100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, false).get();
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "",
+                             {}, {}, "right_to_left", true, false).get();
 
     ASSERT_EQ(3, res["grouped_hits"].size());
     ASSERT_EQ("Omega", res["grouped_hits"][0]["group_key"][0].get<std::string>());
@@ -692,8 +702,8 @@ TEST_F(CollectionGroupingTest, ControlMissingValues) {
                         "", 10,
                         {}, {}, {"brand"}, 2,
                         "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                        4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                        100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true).get();
+                        4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "", {},
+                        {}, "right_to_left", true, true).get();
 
     ASSERT_EQ(2, res["grouped_hits"].size());
 
@@ -745,11 +755,11 @@ TEST_F(CollectionGroupingTest, SkipFieldValidation) {
                              6000*1000, 4, 7, fallback, 4,
                              {off}, INT16_MAX, INT16_MAX,2,
                              2, false, "", true,
-                             0, max_score, 100, 0, 0,
+                             0, max_score, 100, 0, 0, 0,
                              "exhaustive", 30000, 2, "",
                              {},{}, "right_to_left", true,
                              true, false, "", "", "",
-                             "", true, true, false, 0, true,
+                             "", true, true, false, false, 0, true,
                              true, 10, false, validate_field_names
                              );
 
@@ -772,11 +782,11 @@ TEST_F(CollectionGroupingTest, SkipFieldValidation) {
                            6000*1000, 4, 7, fallback, 4,
                            {off}, INT16_MAX, INT16_MAX,2,
                            2, false, "", true,
-                           0, max_score, 100, 0, 0,
+                           0, max_score, 100, 0, 0, 0,
                            "exhaustive", 30000, 2, "",
                            {},{}, "right_to_left", true,
                            true, false, "", "", "",
-                           "", true, true, false, 0, true,
+                           "", true, true, false, false, 0, true,
                            true, 10, false, validate_field_names
     );
 
@@ -802,11 +812,11 @@ TEST_F(CollectionGroupingTest, SkipFieldValidation) {
                            6000*1000, 4, 7, fallback, 4,
                            {off}, INT16_MAX, INT16_MAX,2,
                            2, false, "", true,
-                           0, max_score, 100, 0, 0,
+                           0, max_score, 100, 0, 0, 0,
                            "exhaustive", 30000, 2, "",
                            {},{}, "right_to_left", true,
                            true, false, "", "", "",
-                           "", true, true, false, 0, true,
+                           "", true, true, false, false, 0, true,
                            true, 10, false, validate_field_names);
 
     ASSERT_FALSE(res_op.ok());
@@ -1042,8 +1052,8 @@ TEST_F(CollectionGroupingTest, SkipToReverseGroupBy) {
                              "", 10,
                              {}, {}, {"brand"}, 2,
                              "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                             100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, false).get();
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2,
+                             "", {}, {}, "right_to_left", true, false).get();
 
     ASSERT_EQ(1, res["grouped_hits"].size());
 
@@ -1075,8 +1085,8 @@ TEST_F(CollectionGroupingTest, SkipToReverseGroupBy) {
                              "", 10,
                              {}, {}, {"brand"}, 2,
                              "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                             100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, false).get();
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "",
+                             {}, {}, "right_to_left", true, false).get();
 
     ASSERT_EQ(5, res["grouped_hits"].size());
 
@@ -1104,8 +1114,8 @@ TEST_F(CollectionGroupingTest, SkipToReverseGroupBy) {
                              "", 10,
                              {}, {}, {"brand"}, 2,
                              "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                             100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true, true).get();
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "",
+                             {}, {}, "right_to_left", true, true).get();
 
     ASSERT_EQ(4, res["grouped_hits"].size());
 
@@ -1847,4 +1857,226 @@ TEST_F(CollectionGroupingTest, SortByEval) {
         ASSERT_EQ(100, offer["price"].get<int>());
         ASSERT_EQ(document["deduplicator"].get<std::string>(), offer["seller"]["_id"].get<std::string>());
     }
+}
+
+TEST_F(CollectionGroupingTest, HighCardinalityField) {
+    auto schema_json =
+            R"({
+                "name": "coll",
+                "fields": [
+                    {"name": "facet_field", "type": "string", "facet": true}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (size_t i = 0; i < 400; i++) {
+        nlohmann::json doc;
+        if (i % 100 == 0) {
+            doc["facet_field"] = "repeated_value";
+        } else {
+            doc["facet_field"] = std::to_string(i);
+        }
+        auto add_op = collection_create_op.get()->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll"},
+            {"q", "*"},
+            {"group_by", "facet_field"},
+            {"group_limit", "1"},
+            {"page", "7"},
+            {"per_page", "50"},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(397, res_obj["found"]);
+    ASSERT_EQ(50, res_obj["grouped_hits"].size());
+
+    req_params["page"] = "8";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(397, res_obj["found"]);
+    ASSERT_EQ(47, res_obj["grouped_hits"].size());
+
+    req_params["page"] = "9";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(397, res_obj["found"]);
+    ASSERT_EQ(0, res_obj["grouped_hits"].size());
+}
+
+TEST_F(CollectionGroupingTest, InfixSearch) {
+    auto schema_json =
+            R"({
+                "name": "coll",
+                "fields": [
+                    {"name":"event_ticker","facet":true,"type":"string","infix":true},
+                    {"name":"series_ticker","facet":true,"type":"string","infix":true},
+                    {"name":"market_tickers","facet":false,"type":"string[]"}]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "event_ticker": "KXSECPRESSMENTION-25DEC13",
+                "series_ticker": "KXSECPRESSMENTION",
+                "market_tickers": ["KXSECPRESSMENTION-25DEC13-TX","KXSECPRESSMENTION-25DEC13-TA","KXSECPRESSMENTION-25DEC13-ENRG","KXSECPRESSMENTION-25DEC13-PUT","KXSECPRESSMENTION-25DEC13-GAZA","KXSECPRESSMENTION-25DEC13-CEN","KXSECPRESSMENTION-25DEC13-GA","KXSECPRESSMENTION-25DEC13-BR","KXSECPRESSMENTION-25DEC13-POW","KXSECPRESSMENTION-25DEC13-DEM","KXSECPRESSMENTION-25DEC13-JOB","KXSECPRESSMENTION-25DEC13-BID","KXSECPRESSMENTION-25DEC13-TAR","KXSECPRESSMENTION-25DEC13-AK","KXSECPRESSMENTION-25DEC13-DC","KXSECPRESSMENTION-25DEC13-AUT","KXSECPRESSMENTION-25DEC13-GET","KXSECPRESSMENTION-25DEC13-FED","KXSECPRESSMENTION-25DEC13-LABOR","KXSECPRESSMENTION-25DEC13-EP"]
+            })"_json,
+            R"({
+                "event_ticker": "KXSECPRESSMENTION-25OCT24",
+                "series_ticker": "KXSECPRESSMENTION",
+                "market_tickers": ["KXSECPRESSMENTION-25OCT24-GAZA","KXSECPRESSMENTION-25OCT24-TAR","KXSECPRESSMENTION-25OCT24-UKR","KXSECPRESSMENTION-25OCT24-CHINA","KXSECPRESSMENTION-25OCT24-ISRA","KXSECPRESSMENTION-25OCT24-IRAN","KXSECPRESSMENTION-25OCT24-FUNE","KXSECPRESSMENTION-25OCT24-DRUG","KXSECPRESSMENTION-25OCT24-STU","KXSECPRESSMENTION-25OCT24-FD"]
+            })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll"},
+            {"q", "kxsecpress"},
+            {"query_by", "event_ticker,series_ticker,market_tickers"},
+            {"infix", "always,always,off"},
+            {"group_by", "series_ticker"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["found_docs"]);
+
+    ASSERT_EQ(1, res_obj["grouped_hits"].size());
+    ASSERT_EQ(2, res_obj["grouped_hits"][0]["found"]);
+    ASSERT_EQ(1, res_obj["grouped_hits"][0]["group_key"].size());
+    ASSERT_EQ("KXSECPRESSMENTION", res_obj["grouped_hits"][0]["group_key"][0]);
+    ASSERT_EQ(2, res_obj["grouped_hits"][0]["hits"].size());
+
+    ASSERT_EQ("1", res_obj["grouped_hits"][0]["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["grouped_hits"][0]["hits"][1]["document"]["id"]);
+}
+
+TEST_F(CollectionGroupingTest, GroupMaxCandidates) {
+    auto schema_json =
+            R"({
+                "name": "coll",
+                "fields": [
+                    {"name": "facet_field", "type": "string", "facet": true}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (size_t i = 0; i < 1000; i++) {
+        nlohmann::json doc;
+        if (i % 100 == 0) {
+            doc["facet_field"] = "repeated_value";
+        } else {
+            doc["facet_field"] = std::to_string(i);
+        }
+        auto add_op = collection_create_op.get()->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll"},
+            {"q", "*"},
+            {"group_by", "facet_field"},
+            {"group_limit", "1"},
+            {"per_page", "50"},
+            {"page", "1"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(986, res_obj["found"]);
+
+    req_params["page"] = "19";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(986, res_obj["found"]);
+    ASSERT_EQ(50, res_obj["grouped_hits"].size());
+
+    req_params["page"] = "20";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    // Actual `found` count is returned when we get to the last page.
+    ASSERT_EQ(991, res_obj["found"]);
+    ASSERT_EQ(41, res_obj["grouped_hits"].size());
+
+    req_params = {
+            {"collection", "coll"},
+            {"q", "*"},
+            {"group_by", "facet_field"},
+            {"group_limit", "1"},
+            {"group_max_candidates", "1000"}, // Upper limit of the group count.
+            {"per_page", "50"},
+            {"page", "1"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(991, res_obj["found"]);
+}
+
+TEST_F(CollectionGroupingTest, GroupByWithFilterBy) {
+    auto schema_json =
+            R"({
+                "name": "coll",
+                "fields": [
+                    {"name":"field1","facet":true,"type":"string"},
+                    {"name":"field2","facet":true,"type":"string", "optional": true}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({"field1": "A"})"_json,
+            R"({"field1": "B"})"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll"},
+            {"q", "*"},
+            {"group_by", "field1,field2"},
+            {"group_limit", "1"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
 }

@@ -22,7 +22,8 @@ enum NUM_COMPARATOR {
     CONTAINS,
     GREATER_THAN,
     GREATER_THAN_EQUALS,
-    RANGE_INCLUSIVE
+    RANGE_INCLUSIVE,
+    CONTAINS_PHRASE
 };
 
 enum FILTER_OPERATOR {
@@ -81,6 +82,10 @@ struct filter {
                                            filter_node_t*& root,
                                            const bool& validate_field_names = true,
                                            const std::string& object_field_prefix = "");
+
+    static Option<bool> tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens);
+
+    static Option<bool> parse_filter_string(const std::string& filter_query, std::string& token, size_t& index);
 };
 
 struct filter_node_t {

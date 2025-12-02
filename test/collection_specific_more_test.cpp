@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "synonym_index.h"
+#include "synonym_index_manager.h"
 
 class CollectionSpecificMoreTest : public ::testing::Test {
 protected:
@@ -929,7 +931,7 @@ TEST_F(CollectionSpecificMoreTest, RelevanceConsiderAllFields) {
     ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
 
     // verify match score component values
-    ASSERT_EQ("578730123365711899", results["hits"][0]["text_match_info"]["score"].get<std::string>());
+    ASSERT_EQ("578730123373578267", results["hits"][0]["text_match_info"]["score"].get<std::string>());
     ASSERT_EQ(3, results["hits"][0]["text_match_info"]["fields_matched"].get<size_t>());
     ASSERT_EQ(2, results["hits"][1]["text_match_info"]["fields_matched"].get<size_t>());
     ASSERT_EQ(1, results["hits"][2]["text_match_info"]["fields_matched"].get<size_t>());
@@ -938,9 +940,9 @@ TEST_F(CollectionSpecificMoreTest, RelevanceConsiderAllFields) {
     ASSERT_EQ(1, results["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
     ASSERT_EQ(1, results["hits"][2]["text_match_info"]["tokens_matched"].get<size_t>());
 
-    ASSERT_EQ("1108091339008", results["hits"][0]["text_match_info"]["best_field_score"].get<std::string>());
-    ASSERT_EQ("1108091339008", results["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
-    ASSERT_EQ("1108091339008", results["hits"][2]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1108091342849", results["hits"][0]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1108091342849", results["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1108091342849", results["hits"][2]["text_match_info"]["best_field_score"].get<std::string>());
 
     ASSERT_EQ(3, results["hits"][0]["text_match_info"]["best_field_weight"].get<size_t>());
     ASSERT_EQ(3, results["hits"][1]["text_match_info"]["best_field_weight"].get<size_t>());
@@ -1893,16 +1895,16 @@ TEST_F(CollectionSpecificMoreTest, DisableFieldCountForScoring) {
                                 spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                                 "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                                4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                                100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true);
+                                4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "",
+                                {}, {}, "right_to_left", true);
 
 
     auto res = coll1->search("beta", {"name", "brand"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
                              spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                              "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                             100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", false).get();
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "",
+                             {}, {}, "right_to_left", false).get();
 
     size_t score1 = std::stoul(res["hits"][0]["text_match_info"]["score"].get<std::string>());
     size_t score2 = std::stoul(res["hits"][1]["text_match_info"]["score"].get<std::string>());
@@ -1912,8 +1914,8 @@ TEST_F(CollectionSpecificMoreTest, DisableFieldCountForScoring) {
                         spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                        4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                        100, 0, 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left", true).get();
+                        4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "",
+                        {}, {}, "right_to_left", true).get();
 
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
@@ -2223,12 +2225,12 @@ TEST_F(CollectionSpecificMoreTest, WeightTakingPrecendeceOverMatch) {
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
 
-    ASSERT_EQ("1108091338752", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1108091338753", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string>());
     ASSERT_EQ(15, res["hits"][0]["text_match_info"]["best_field_weight"].get<size_t>());
     ASSERT_EQ(2, res["hits"][0]["text_match_info"]["fields_matched"].get<size_t>());
     ASSERT_EQ(2, res["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
 
-    ASSERT_EQ("2211897868288", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("2211897868289", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
     ASSERT_EQ(14, res["hits"][1]["text_match_info"]["best_field_weight"].get<size_t>());
     ASSERT_EQ(1, res["hits"][1]["text_match_info"]["fields_matched"].get<size_t>());
     ASSERT_EQ(2, res["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
@@ -2428,7 +2430,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                              spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                              "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                              0, "exhaustive", 30000, 2, "", {}, {}, "left_to_right").get();
 
     ASSERT_EQ(1, res["hits"].size());
@@ -2438,7 +2440,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                         spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                         0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left").get();
 
     ASSERT_EQ(1, res["hits"].size());
@@ -2449,7 +2451,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                         spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                         0, "exhaustive", 30000, 2, "", {}, {}, "both_sides:3").get();
     ASSERT_EQ(2, res["hits"].size());
 
@@ -2458,7 +2460,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                         spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                         0, "exhaustive", 30000, 2, "", {}, {}, "both_sides:1").get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
@@ -2468,7 +2470,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                                 spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                                4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                                4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                                 0, "exhaustive", 30000, 2, "", {}, {}, "all_sides");
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Invalid format for drop tokens mode.", res_op.error());
@@ -2477,7 +2479,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                            spp::sparse_hash_set<std::string>(),
                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
-                           4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                           4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
                            0, "exhaustive", 30000, 2, "", {}, {}, "both_sides:x");
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Invalid format for drop tokens mode.", res_op.error());
@@ -2756,7 +2758,7 @@ TEST_F(CollectionSpecificMoreTest, DisableTyposForNumericalTokens) {
                                 6000*1000, 4, 7, fallback, 4,
                                 {off}, INT16_MAX, INT16_MAX,2,
                                 2, false, "", true,
-                                0, max_score, 100, 0, 0,
+                                0, max_score, 100, 0, 0, 0,
                                 "exhaustive", 30000, 2, "",
                                 {},{}, "right_to_left", true,
                                 true, false, "", "", "",
@@ -3113,11 +3115,16 @@ TEST_F(CollectionSpecificMoreTest, TestStemming2) {
 }
 
 TEST_F(CollectionSpecificMoreTest, TestStemmingWithSynonym) {
+    SynonymIndexManager& manager = SynonymIndexManager::get_instance();
+    manager.init_store(store);
+    manager.add_synonym_index("index");
+
     nlohmann::json schema = R"({
          "name": "words",
          "fields": [
            {"name": "word", "type": "string", "stem": true }
-         ]
+         ],
+         "synonym_sets": ["index"]
        })"_json;
     
     auto coll_stem_res = collectionManager.create_collection(schema);
@@ -3127,14 +3134,13 @@ TEST_F(CollectionSpecificMoreTest, TestStemmingWithSynonym) {
     
     nlohmann::json synonym_json = R"(
         {
-            "id": "",
+            "id": "id-1",
             "synonyms": ["making", "foobar"]
         }
     )"_json;
     LOG(INFO) << "Adding synonym...";
-    auto synonym_op = coll_stem->add_synonym(synonym_json);
+    auto synonym_op = manager.upsert_synonym_item("index", synonym_json);
     LOG(INFO) << "Synonym added...";
-
     ASSERT_TRUE(synonym_op.ok());
 
     ASSERT_TRUE(coll_stem->add(R"({"word": "foobar"})"_json.dump()).ok());
@@ -3231,11 +3237,11 @@ TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
                            6000*1000, 4, 7, fallback, 4,
                            {off}, INT16_MAX, INT16_MAX,2,
                            2, false, "", true,
-                           0, max_score, 100, 0, 0,
+                           0, max_score, 100, 0, 0, 0,
                            "exhaustive", 30000, 2, "",
                            {},{}, "right_to_left", true,
                            true, false, "", "", "",
-                           "", true, true, false, 0, true,
+                           "", true, true, false, false, 0, true,
                            enable_typos_for_alpha_numerical_tokens).get();
 
     ASSERT_EQ(2, res["hits"].size());
@@ -3256,7 +3262,7 @@ TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
                         6000*1000, 4, 7, fallback, 4,
                         {off}, INT16_MAX, INT16_MAX,2,
                         2, false, "", true,
-                        0, max_score, 100, 0, 0,
+                        0, max_score, 100, 0, 0, 0,
                         "exhaustive", 30000, 2, "",
                         {},{}, "right_to_left", true,
                         true, false, "", "", "",
@@ -3376,7 +3382,7 @@ TEST_F(CollectionSpecificMoreTest, IgnoreMissingQueryByFields) {
                             6000*1000, 4, 7, fallback, 4,
                             {off}, INT16_MAX, INT16_MAX,2,
                             2, false, "", true,
-                            0, max_score, 100, 0, 0,
+                            0, max_score, 100, 0, 0, 0,
                             "exhaustive", 30000, 2, "",
                             {},{}, "right_to_left", true,
                             true, false, "", "", "",
@@ -3399,11 +3405,11 @@ TEST_F(CollectionSpecificMoreTest, IgnoreMissingQueryByFields) {
                                6000*1000, 4, 7, fallback, 4,
                                {off}, INT16_MAX, INT16_MAX,2,
                                2, false, "", true,
-                               0, max_score, 100, 0, 0,
+                               0, max_score, 100, 0, 0, 0,
                                "exhaustive", 30000, 2, "",
                                {},{}, "right_to_left", true,
                                true, false, "", "", "",
-                               "", true, true, false, 0, true,
+                               "", true, true, false, false, 0, true,
                                true, DEFAULT_FILTER_BY_CANDIDATES, false, validate_field_names);
 
     ASSERT_TRUE(res_op.ok());
@@ -3413,6 +3419,26 @@ TEST_F(CollectionSpecificMoreTest, IgnoreMissingQueryByFields) {
     ASSERT_EQ(0, res["found"].get<size_t>());
 }
 
+TEST_F(CollectionSpecificMoreTest, CheckForSchemaAlterStatus) {
+    nlohmann::json schema = R"({
+                "name": "test",
+                "enable_nested_fields": true,
+                "fields": [
+                    {
+                        "name": "parts",
+                        "type": "object"
+                    }
+                ]
+                })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+    auto sop = coll->get_alter_schema_status();
+    ASSERT_FALSE(sop.ok());  // no alter in progress
+    ASSERT_EQ("No active alter operation running.", sop.error());  // no alter in progress
+}
 
 TEST_F(CollectionSpecificMoreTest, StemmingDictionary) {
     nlohmann::json schema = R"({
@@ -3641,4 +3667,143 @@ TEST_F(CollectionSpecificMoreTest, StemmingPhraseSearch) {
     // with phrase search
     results = coll1->search(R"(" achievements of ")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
     ASSERT_EQ(0, results["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingWithDroppingTokens) {
+    nlohmann::json schema = R"({
+             "name": "test",
+             "fields": [ {"name": "content", "type": "string", "stem": true } ]
+          })"_json;
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+
+    auto coll_stem = coll_stem_res.get();
+
+    ASSERT_TRUE(coll_stem->add(R"({"content": "gardening tools"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"content": "gardening supply"})"_json.dump()).ok());
+
+    auto search_res = coll_stem->search("garden tools", {"content"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, search_res["hits"].size());
+    ASSERT_EQ("gardening tools", search_res["hits"][0]["document"]["content"].get<std::string>());
+
+    search_res = coll_stem->search("garden tools", {"content"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(2, search_res["hits"].size());
+    ASSERT_EQ("gardening tools", search_res["hits"][0]["document"]["content"].get<std::string>());
+    ASSERT_EQ("gardening supply", search_res["hits"][1]["document"]["content"].get<std::string>());
+}
+
+
+TEST_F(CollectionSpecificMoreTest, CustomStemmingDictionaryOverridesDeEnLocale) {
+    nlohmann::json schema = R"({
+        "name": "custom_stemming_test",
+        "fields": [
+          {"name": "title_de_en", "type": "string", "locale": "de_en", "stem_dictionary": "absurd_stems"},
+          {"name": "title_en", "type": "string", "locale": "en", "stem": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    std::vector<std::string> json_lines;
+    json_lines.push_back("{\"word\": \"running\", \"root\": \"foo\"}");
+    json_lines.push_back("{\"word\": \"walking\", \"root\": \"bar\"}");
+    json_lines.push_back("{\"word\": \"playing\", \"root\": \"baz\"}");
+    json_lines.push_back("{\"word\": \"swimming\", \"root\": \"qux\"}");
+    json_lines.push_back("{\"word\": \"dancing\", \"root\": \"xyz\"}");
+
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("absurd_stems", json_lines).ok());
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["title_de_en"] = "running";
+    doc1["title_en"] = "running";
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+
+    nlohmann::json doc2;
+    doc2["id"] = "2";
+    doc2["title_de_en"] = "walking";
+    doc2["title_en"] = "walking";
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    nlohmann::json doc3;
+    doc3["id"] = "3";
+    doc3["title_de_en"] = "playing";
+    doc3["title_en"] = "playing";
+    ASSERT_TRUE(coll->add(doc3.dump()).ok());
+
+    nlohmann::json doc4;
+    doc4["id"] = "4";
+    doc4["title_de_en"] = "swimming";
+    doc4["title_en"] = "swimming";
+    ASSERT_TRUE(coll->add(doc4.dump()).ok());
+
+    nlohmann::json doc5;
+    doc5["id"] = "5";
+    doc5["title_de_en"] = "dancing";
+    doc5["title_en"] = "dancing";
+    ASSERT_TRUE(coll->add(doc5.dump()).ok());
+
+    auto res = coll->search("foo", {"title_de_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size()) << "Custom stem 'foo' should find 'running' in de_en field";
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+
+    res = coll->search("bar", {"title_de_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size()) << "Custom stem 'bar' should find 'walking' in de_en field";
+    ASSERT_EQ("2", res["hits"][0]["document"]["id"].get<std::string>());
+
+    res = coll->search("baz", {"title_de_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size()) << "Custom stem 'baz' should find 'playing' in de_en field";
+    ASSERT_EQ("3", res["hits"][0]["document"]["id"].get<std::string>());
+
+    res = coll->search("qux", {"title_de_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size()) << "Custom stem 'qux' should find 'swimming' in de_en field";
+    ASSERT_EQ("4", res["hits"][0]["document"]["id"].get<std::string>());
+
+    res = coll->search("xyz", {"title_de_en"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size()) << "Custom stem 'xyz' should find 'dancing' in de_en field";
+    ASSERT_EQ("5", res["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("custom_stemming_test");
+}
+
+TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightingShouldNotHighlightPartialMatches) {
+    std::vector<field> fields = {field("text", field_types::STRING, false)};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["text"] = "Thank you for being here. You are good";
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    nlohmann::json doc2;
+    doc2["id"] = "2";
+    doc2["text"] = "Thank him first. Thank you later";
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    nlohmann::json doc3;
+    doc3["id"] = "3";
+    doc3["text"] = "Thank him first";
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    auto results = coll1->search("\"Thank you\"", {"text"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "text", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback, 1000).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    std::string snippet1 = results["hits"][1]["highlights"][0]["snippet"].get<std::string>();
+    
+    ASSERT_TRUE(snippet1.find("<mark>Thank</mark> <mark>you</mark> for being here. You are good") != std::string::npos);
+    
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    std::string snippet2 = results["hits"][0]["highlights"][0]["snippet"].get<std::string>();
+    
+    ASSERT_TRUE(snippet2.find("Thank him first. <mark>Thank</mark> <mark>you</mark> later") != std::string::npos);
+    
+    collectionManager.drop_collection("coll1");
 }

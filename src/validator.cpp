@@ -656,7 +656,7 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
             continue;
         }
 
-        if((a_field.optional || op == UPDATE || (op == EMPLACE && is_update)) && document.count(field_name) == 0) {
+        if((a_field.optional || op == UPDATE || (op == EMPLACE && is_update) || a_field.is_reference_helper) && document.count(field_name) == 0) {
             continue;
         }
 
@@ -705,6 +705,10 @@ Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document,
             const auto& field_vec = document[field.name];
             if(!field_vec.is_array() || field_vec.empty() || !field_vec[0].is_number() ||
                 field_vec.size() != field.num_dim) {
+                if(field.optional && field_vec.empty()) {
+                    // if the field is optional, we can ignore it
+                    continue;
+                }
                 return Option<bool>(400, "Field `" + field.name + "` contains an invalid embedding.");
             }
 

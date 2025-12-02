@@ -131,28 +131,19 @@ Option<nlohmann::json> PersonalizationModel::create_model(const std::string& mod
         return Option<nlohmann::json>(400, "Missing the required prompts.json file in archive");
     }
 
-    // Load model temporarily to get dimensions and check if the model is loadable
-    PersonalizationModel temp_model(model_id);
-    auto validate_op = temp_model.validate_model_io();
-    if(!validate_op.ok()) {
-        return Option<nlohmann::json>(400, "Model validation failed. There is a problem with ONNX model");
-    }
-    auto model_json_with_dims = model_json;
-    model_json_with_dims["num_dims"] = temp_model.get_num_dims();
-
     std::ofstream metadata_file(metadata_path);
     if (!metadata_file) {
         return Option<nlohmann::json>(500, "Failed to create metadata file");
     }
 
-    metadata_file << model_json_with_dims.dump(4);
+    metadata_file << model_json.dump(4);
     metadata_file.close();
 
     if (!metadata_file) {
         return Option<nlohmann::json>(500, "Failed to write metadata file");
     }
 
-    return Option<nlohmann::json>(model_json_with_dims);
+    return Option<nlohmann::json>(model_json);
 }
 
 Option<nlohmann::json> PersonalizationModel::update_model(const std::string& model_id, const nlohmann::json& model_json, const std::string model_data) {
@@ -181,7 +172,7 @@ Option<nlohmann::json> PersonalizationModel::update_model(const std::string& mod
         if(!validate_op.ok()) {
             return Option<nlohmann::json>(400, "Model validation failed. There is a problem with ONNX model");
         }
-        model_json_with_dims["num_dims"] = temp_model.get_num_dims();
+        model_json_with_dims["num_dim"] = temp_model.get_num_dim();
 
         std::string metadata_path = model_path + "/metadata.json";
         std::ofstream metadata_file(metadata_path);
@@ -201,8 +192,6 @@ Option<nlohmann::json> PersonalizationModel::update_model(const std::string& mod
         std::ifstream existing_metadata(metadata_path);
         nlohmann::json existing_json;
         existing_metadata >> existing_json;
-
-        model_json_with_dims["num_dims"] = existing_json["num_dims"];
 
         std::ofstream metadata_file(metadata_path);
         if (!metadata_file) {
@@ -262,7 +251,7 @@ void PersonalizationModel::initialize_session() {
     // Initialize input and output dimensions
     Ort::AllocatorWithDefaultOptions allocator;
     auto output_shape = recommendation_session_->GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
-    num_dims_ = output_shape[output_shape.size() - 1];
+    num_dim_ = output_shape[output_shape.size() - 1];
 }
 
 embedding_res_t PersonalizationModel::embed_recommendations(const std::vector<std::vector<float>>& input_vector, const std::vector<int64_t>& user_mask) {
@@ -294,7 +283,7 @@ embedding_res_t PersonalizationModel::embed_recommendations(const std::vector<st
         float* output_data = output_tensors[0].GetTensorMutableData<float>();
         auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
         std::vector<float> embedding;
-        embedding.assign(output_data, output_data + num_dims_);
+        embedding.assign(output_data, output_data + num_dim_);
         return embedding_res_t(embedding);
 
     } catch (const Ort::Exception& e) {
@@ -343,7 +332,7 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_recommendations(c
         std::vector<embedding_res_t> embeddings;
         for (size_t i = 0; i < shape[0]; i++) {
             std::vector<float> embedding;
-            embedding.assign(output_data + (i * num_dims_), output_data + ((i + 1) * num_dims_));
+            embedding.assign(output_data + (i * num_dim_), output_data + ((i + 1) * num_dim_));
             embeddings.push_back(embedding_res_t(embedding));
         }
         return embeddings;
@@ -397,7 +386,7 @@ embedding_res_t PersonalizationModel::embed_user(const std::vector<std::string>&
         float* output_data = output_tensors[0].GetTensorMutableData<float>();
         auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
         std::vector<float> embedding;
-        embedding.assign(output_data, output_data + num_dims_);
+        embedding.assign(output_data, output_data + num_dim_);
         return embedding_res_t(embedding);
         
     } catch (const Ort::Exception& e) {
@@ -431,23 +420,11 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_users(const std::
             std::vector<int64_t> input_ids_flatten;
             std::vector<int64_t> attention_mask_flatten;
 
-            std::cout << "User shapes: " << std::endl;
             for (auto& i: input_shapes) {
-                std::cout << "Shape: ";
                 int64_t total_size = 1;
                 for (auto& j: i) {
-                    std::cout << j << " ";
                     total_size *= j;
                 }
-                std::cout << ", Total size: " << total_size << std::endl;
-            }
-            std::cout << "Encoded inputs Size: " << std::endl;
-            for(auto& i: encoded_inputs) {
-                std::cout << "Input IDs: ";
-                for(auto& ids : i.input_ids) {
-                    std::cout << ids.size() << " ";
-                }
-                std::cout << std::endl;
             }
             for(auto& batch : encoded_inputs) {
                 for(auto& input_ids : batch.input_ids) {
@@ -462,9 +439,6 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_users(const std::
                 }
             }
 
-            std::cout << "Input IDs flatten size: " << input_ids_flatten.size() << std::endl;
-            std::cout << "Attention mask flatten size: " << attention_mask_flatten.size() << std::endl;
-
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, input_ids_flatten.data(), input_ids_flatten.size(), input_shapes[0].data(), input_shapes[0].size()));
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask_flatten.data(), attention_mask_flatten.size(), input_shapes[1].data(), input_shapes[1].size()));
 
@@ -477,7 +451,7 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_users(const std::
             auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
             for (size_t i = 0; i < shape[0]; i++) {
                 std::vector<float> embedding;
-                embedding.assign(output_data + (i * num_dims_), output_data + ((i + 1) * num_dims_));
+                embedding.assign(output_data + (i * num_dim_), output_data + ((i + 1) * num_dim_));
                 embeddings.push_back(embedding_res_t(embedding));
             }
         } catch (const Ort::Exception& e) {
@@ -532,7 +506,7 @@ embedding_res_t PersonalizationModel::embed_item(const std::vector<std::string>&
         float* output_data = output_tensors[0].GetTensorMutableData<float>();
         auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
         std::vector<float> embedding;
-        embedding.assign(output_data, output_data + num_dims_);
+        embedding.assign(output_data, output_data + num_dim_);
         return embedding_res_t(embedding);
 
     } catch (const Ort::Exception& e) {
@@ -563,24 +537,6 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_items(const std::
             input_shapes.push_back({static_cast<int64_t>(encoded_inputs.size()), static_cast<int64_t>(encoded_inputs[0].input_ids.size()), static_cast<int64_t>(encoded_inputs[0].input_ids[0].size())});
             input_shapes.push_back({static_cast<int64_t>(encoded_inputs.size()), static_cast<int64_t>(encoded_inputs[0].attention_mask.size()), static_cast<int64_t>(encoded_inputs[0].attention_mask[0].size())});
             
-            std::cout << "Item shapes: " << std::endl;
-            for (auto& i: input_shapes) {
-                std::cout << "Shape: ";
-                int64_t total_size = 1;
-                for (auto& j: i) {
-                    std::cout << j << " ";
-                    total_size *= j;
-                }
-                std::cout << ", Total size: " << total_size << std::endl;
-            }
-            std::cout << "Encoded inputs Size: " << std::endl;
-            for(auto& i: encoded_inputs) {
-                std::cout << "Input IDs: ";
-                for(auto& ids : i.input_ids) {
-                    std::cout << ids.size() << " ";
-                }
-                std::cout << std::endl;
-            }
             std::vector<int64_t> input_ids_flatten;
             std::vector<int64_t> attention_mask_flatten;
 
@@ -598,9 +554,6 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_items(const std::
                 }
             }
             
-            std::cout << "Input IDs flatten size: " << input_ids_flatten.size() << std::endl;
-            std::cout << "Attention mask flatten size: " << attention_mask_flatten.size() << std::endl;
-            
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, input_ids_flatten.data(), input_ids_flatten.size(), input_shapes[0].data(), input_shapes[0].size()));
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask_flatten.data(), attention_mask_flatten.size(), input_shapes[1].data(), input_shapes[1].size()));
 
@@ -613,7 +566,7 @@ std::vector<embedding_res_t> PersonalizationModel::batch_embed_items(const std::
             auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
             for (size_t i = 0; i < shape[0]; i++) {
                 std::vector<float> embedding;
-                embedding.assign(output_data + (i * num_dims_), output_data + ((i + 1) * num_dims_));
+                embedding.assign(output_data + (i * num_dim_), output_data + ((i + 1) * num_dim_));
                 embeddings.push_back(embedding_res_t(embedding));
             }
         } catch (const Ort::Exception& e) {
