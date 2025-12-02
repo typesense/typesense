@@ -15,7 +15,6 @@
 #include <ifaddrs.h>
 #include <butil/files/file_enumerator.h>
 #include "analytics_manager.h"
-#include "analytics_manager.h"
 #include "housekeeper.h"
 
 #include "core_api.h"
@@ -31,6 +30,7 @@
 #include "conversation_model.h"
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
+#include "async_write_handler.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -127,6 +127,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<int>("max-per-page", '\0', "Max number of hits per page", false, 250);
     options.add<uint32_t>("max-group-limit", '\0', "Max number of results to be returned per group", false, 99);
+    options.add<int>("async-batch-interval", '\0', "batch interval at which batched post_add_document request will be flushed", false);
 
     //rocksdb options
     options.add<uint32_t>("db-write-buffer-size", '\0', "rocksdb write buffer size.", false);
@@ -215,13 +216,13 @@ bool is_private_ipv6(const struct in6_addr* addr) {
 bool ipv6_prefix_match(const struct in6_addr* addr1, const struct in6_addr* addr2, uint32_t prefix_len) {
     const uint8_t* a1 = addr1->s6_addr;
     const uint8_t* a2 = addr2->s6_addr;
-    
+
     // Compare whole bytes first
     const size_t whole_bytes = prefix_len / 8;
     for(size_t i = 0; i < whole_bytes && i < 16; i++) {
         if(a1[i] != a2[i]) return false;
     }
-    
+
     // Then compare remaining bits if any
     if(prefix_len % 8) {
         const uint8_t mask = 0xff << (8 - (prefix_len % 8));
@@ -229,7 +230,7 @@ bool ipv6_prefix_match(const struct in6_addr* addr1, const struct in6_addr* addr
             return false;
         }
     }
-    
+
     return true;
 }
 
@@ -297,7 +298,7 @@ butil::EndPoint get_internal_endpoint(const std::string& subnet_cidr, uint32_t p
                         continue;
                     }
                 }
-                
+
                 // Create endpoint directly from sockaddr
                 sa->sin_port = htons(peering_port);
                 struct sockaddr_storage ss;
@@ -311,7 +312,7 @@ butil::EndPoint get_internal_endpoint(const std::string& subnet_cidr, uint32_t p
             }
         } else if(ifa->ifa_addr->sa_family == AF_INET6) {
             auto sa6 = (struct sockaddr_in6*) ifa->ifa_addr;
-            
+
             if(is_private_ipv6(&sa6->sin6_addr)) {
                 if(target_family == AF_INET6) {
                     // Check if matches subnet
@@ -530,6 +531,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     size_t db_max_log_file_size = config.get_db_max_log_file_size();
     size_t db_keep_log_file_num = config.get_db_keep_log_file_num();
 
+    int async_batch_interval = config.get_async_batch_interval();
+
     size_t thread_pool_size = config.get_thread_pool_size();
 
     const size_t proc_count = std::max<size_t>(1, std::thread::hardware_concurrency());
@@ -572,6 +575,9 @@ int run_server(const Config & config, const std::string & version, void (*master
     }
 
     AnalyticsManager::get_instance().init(&store, analytics_store, analytics_minute_rate_limit);
+
+    AsyncWriteHandler::get_instance().init(&store, async_batch_interval);
+
     RemoteEmbedder::cache.capacity(config.get_embedding_cache_num_entries());
 
     curl_global_init(CURL_GLOBAL_SSL);

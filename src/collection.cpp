@@ -90,7 +90,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
 Collection::~Collection() {
     std::unique_lock lock(mutex);
     delete index;
-    
+
     if (vq_model) {
         vq_model->dec_collection_ref_count();
         if (vq_model->get_collection_ref_count() == 0) {
@@ -520,7 +520,8 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                                     const DIRTY_VALUES& dirty_values, const bool& return_doc, const bool& return_id,
                                     const size_t remote_embedding_batch_size,
                                     const size_t remote_embedding_timeout_ms,
-                                    const size_t remote_embedding_num_tries) {
+                                    const size_t remote_embedding_num_tries,
+                                    bool is_async_docs) {
     std::vector<index_record> index_records;
 
     const size_t index_batch_size = 1000;
@@ -530,6 +531,10 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
     // ensures that document IDs are not repeated within the same batch
     std::set<std::string> batch_doc_ids;
     bool found_batch_new_field = false;
+    nlohmann::json resp_summary;
+    if(is_async_docs) {
+        resp_summary["async_docs_status"] = nlohmann::json::array();
+    }
 
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
@@ -640,12 +645,23 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 remove_reference_helper_fields(document);
             }
 
+            if(is_async_docs) {
+                //check docs which failed to index
+                for(const auto& record : index_records) {
+                    if(!record.indexed.ok()) {
+                        nlohmann::json doc;
+                        doc["id"] = record.position;
+                        doc["error"] = record.indexed.error();
+                        resp_summary["async_docs_status"].push_back(doc);
+                    }
+                }
+            }
+
             index_records.clear();
             batch_doc_ids.clear();
         }
     }
 
-    nlohmann::json resp_summary;
     resp_summary["num_imported"] = num_indexed;
     resp_summary["success"] = (num_indexed == json_lines.size());
 
@@ -744,6 +760,7 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
     resp_summary["num_updated"] = docs_updated_count;
     return Option(resp_summary);
 }
+
 void Collection::batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out,
                              size_t &num_indexed, const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size,
                              const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
@@ -1045,17 +1062,17 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
         const auto local_curation_sets = curation_sets;
         for(const auto& set_name : local_curation_sets) {
             auto get_index_op = CurationIndexManager::get_instance().get_curation_index(set_name);
-            if(!get_index_op.ok()) { 
-              continue; 
+            if(!get_index_op.ok()) {
+              continue;
             }
             auto list_op = get_index_op.get()->get_curations(0, 0);
-            if(!list_op.ok()) { 
-              continue; 
+            if(!list_op.ok()) {
+              continue;
             }
-            for(const auto& kv : list_op.get()) { 
+            for(const auto& kv : list_op.get()) {
               // compute normalize query
               auto& curation = kv.second;
-              curation_set_curations.push_back(kv.second); 
+              curation_set_curations.push_back(kv.second);
             }
         }
         s_lock.unlock();
@@ -1207,6 +1224,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields_with_lock(const st
                                                 query, is_group_by_query, remote_embedding_timeout_ms, remote_embedding_num_tries,
                                                 validate_field_names, is_reference_sort, is_union_search, union_search_index);
 }
+
 Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                               std::vector<sort_by>& sort_fields_std,
                                                               bool is_wildcard_query,const bool is_vector_query,
@@ -1993,6 +2011,7 @@ Option<bool> Collection::init_index_search_args_with_lock(collection_search_args
                                   conversation_standalone_query, vector_query, facets, per_page, transcribed_query,
                                   curation_metadata, is_union_search, union_search_index);
 }
+
 Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_args,
                                                 std::unique_ptr<search_args>& index_args,
                                                 std::string& query,
@@ -2743,6 +2762,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     return Option<bool>(true);
 }
+
 Option<nlohmann::json> Collection::search(std::string query, const std::vector<std::string> & search_fields,
                                           const std::string & filter_query, const std::vector<std::string> & facet_fields,
                                           const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
@@ -2926,7 +2946,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
     const auto& personalization_user_field = coll_args.personalization_user_field;
     const auto& personalization_item_field = coll_args.personalization_item_field;
     const auto& personalization_n_events = coll_args.personalization_n_events;
-    
+
 
     auto& conversation_id = coll_args.conversation_id;
 
@@ -3263,7 +3283,9 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             result["grouped_hits"].push_back(group_hits);
         }
     }
+
     result["facet_counts"] = nlohmann::json::array();
+    
     // populate facets
     for(facet& a_facet: facets) {
         // Don't return zero counts for a wildcard facet.
@@ -3717,6 +3739,7 @@ Option<bool> Collection::run_search_with_lock(search_args* search_params) const 
     std::shared_lock lock(mutex);
     return index->run_search(search_params);
 }
+
 Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                   std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,
                                   const union_global_params_t& union_params, nlohmann::json& result, bool remove_duplicates) {
@@ -4731,7 +4754,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             const auto& separators = most_weighted_field_token_separators.empty() ? token_separators : most_weighted_field_token_separators;
 
             bool has_hyphen_prefix = false;
-            
+
             std::istringstream iss(query);
             std::string word;
             while(iss >> word) {
@@ -4740,11 +4763,11 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                     break;
                 }
             }
-            
+
             if(has_hyphen_prefix) {
                 custom_symbols.push_back('-');
             }
-            
+
             Tokenizer(query, true, false, locale, custom_symbols, separators, stemmer).tokenize(tokens);
             if(stemmer) {
                 Tokenizer(query, true, false, locale, custom_symbols, separators, nullptr).tokenize(tokens_non_stemmed);
@@ -5295,6 +5318,7 @@ void Collection::highlight_result(const bool& enable_nested_fields, const std::v
         highlight.match_score = match_indices[0].match_score;
     }
 }
+
 bool Collection::handle_highlight_text(std::string& text, const bool& normalise, const field& search_field,
                                        const bool& is_arr_obj_ele,
                                        const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
@@ -5378,16 +5402,16 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
         bool raw_token_found = !match_offset_found &&
                                 (highlight_fully || is_arr_obj_ele || text_len < snippet_threshold * 6) &&
                                 qtoken_leaves.find(raw_token) != qtoken_leaves.end();
-        
+
         bool is_phrase_query = !q_phrases.empty();
-        
-        
-        
+
+
+
         // phrase query, only highlight tokens that are part of consecutive phrase matches
         if (is_phrase_query) {
             if (match_offset_found) {
                 bool is_consecutive_phrase_match = false;
-                
+
                 std::unordered_set<size_t> offset_indices;
                 for (const auto& offset : match.offsets) {
                     offset_indices.insert(offset.offset);
@@ -5398,7 +5422,7 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                     if (offset_indices.count(next_token_index) > 0) {
                         is_consecutive_phrase_match = true;
                     }
-                    
+
                     if (!is_consecutive_phrase_match && raw_token_index > 0) {
                         // the next token is not in the match offsets, check if the previous token is in the phrase
                         size_t prev_token_index = raw_token_index - 1;
@@ -5407,13 +5431,13 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                         }
                     }
                 }
-                
+
                 // this is not part of a consecutive phrase match, don't highlight it
                 if (!is_consecutive_phrase_match) {
                     match_offset_found = false;
                 }
             }
-            
+
             // phrase query, also disable raw_token_found to prevent highlighting individual tokens
             if (raw_token_found && !match_offset_found) {
                 raw_token_found = false;
@@ -6496,7 +6520,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     auto persist_op = persist_collection_meta();
     if(!persist_op.ok()) {
         return persist_op;
-    } 
+    }
 
     return Option<bool>(true);
 }
@@ -6712,6 +6736,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
     return Join::include_references(doc, seq_id, collection_name, reference_filter_results,
                                     ref_include_exclude_fields_vec, original_doc);
 }
+
 Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                 std::vector<field>& addition_fields,
                                                 std::vector<field>& reindex_fields,
@@ -6997,18 +7022,18 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 //embedded field, only api key updation is supported
                 const auto& existing_embed = field_it->embed;
                 const auto& new_embed = kv.value()[fields::embed];
-                
+
                 const auto& existing_model_config = existing_embed[fields::model_config];
                 const auto& new_model_config = new_embed[fields::model_config];
-                
+
                 bool has_invalid_changes = false;
                 bool has_changes = false;
-                
+
                 if (existing_embed[fields::from] != new_embed[fields::from]) {
                     has_invalid_changes = true;
                     has_changes = true;
                 }
-                
+
                 for (const auto& [key, value] : new_model_config.items()) {
                     if (existing_model_config.count(key) == 0 || existing_model_config[key] != value) {
                         has_changes = true;
@@ -7018,7 +7043,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                         break;
                     }
                 }
-                
+
                 if (has_invalid_changes || !has_changes) {
                     return Option<bool>(400, "Field `" + field_name + "` is already part of the schema: To "
                                          "change this field, drop it first before adding it back to the schema.");
@@ -7385,6 +7410,7 @@ Index* Collection::init_index() {
                 update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
                                                                ref_field_name, ref_field);
             }
+
             if (!update_ref_infos.empty() && update_ref_infos.begin()->is_mutual_reference) {
                 auto info = collectionManager.is_referenced_in(name, ref_coll_name);
                 LOG(ERROR) << "Collections having reference to each other are not allowed. `" +
@@ -8270,6 +8296,7 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
 
     return Option<bool>(true);
 }
+
 Option<bool> Collection::parse_and_validate_personalization_query(const std::string& personalization_user_id,
                                                                   const std::string& personalization_model_id,
                                                                   const std::string& personalization_type,
@@ -8322,6 +8349,7 @@ Option<bool> Collection::parse_and_validate_personalization_query(const std::str
     if(!user_events_op.ok()) {
         return Option<bool>(400, user_events_op.error());
     }
+
     auto user_events = user_events_op.get()["events"];
     if(user_events.empty()) {
         return Option<bool>(400, "No events found for the user.");
@@ -8332,6 +8360,7 @@ Option<bool> Collection::parse_and_validate_personalization_query(const std::str
         if (event_json.count("doc_ids") > 0) {
             return Option<bool>(400, "Try using an event only with doc_id instead of doc_ids");
         }
+
         doc_ids.push_back(event_json["doc_id"]);
     }
 

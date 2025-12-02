@@ -556,6 +556,10 @@ void Config::load_config_file(cmdline::parser& options) {
     if(reader.Exists("server", "max-indexing-concurrency")) {
         this->max_indexing_concurrency = reader.GetInteger("server", "max-indexing-concurrency", 4);
     }
+
+    if(reader.Exists("server", "async-batch-interval")) {
+        this->async_batch_interval = reader.GetInteger("server", "async-batch-interval", -1);
+    }
 }
 
 void Config::load_config_cmd_args(cmdline::parser& options)  {
@@ -771,6 +775,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("max-indexing-concurrency")) {
         this->max_indexing_concurrency = options.get<uint32_t>("max-indexing-concurrency");
+    }
+
+    if(options.exist("async-batch-interval")) {
+        this->async_batch_interval = options.get<int>("async-batch-interval");
     }
 }
 
