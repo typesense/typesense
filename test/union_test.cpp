@@ -2080,4 +2080,25 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(1, json_res.count("code"));
     ASSERT_EQ(1, json_res.count("error"));
+
+    //fields different sort params
+    req_params.clear();
+    json_res.clear();
+    searches = R"OVR([
+                    {
+                        "collection": "Cars",
+                        "q": "*",
+                        "facet_by": "country(sort_by:_alpha:desc)"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "*",
+                        "facet_by": "country(sort_by:_alpha:asc)"
+                    }
+                ])OVR"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res.count("code"));
+    ASSERT_EQ(1, json_res.count("error"));
 }
