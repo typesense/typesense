@@ -3,6 +3,7 @@
 #include <numeric>
 #include <chrono>
 #include <unordered_set>
+#include <unordered_map>
 #include <sstream>
 #include <match_score.h>
 #include <string_utils.h>
@@ -5339,6 +5340,89 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
 
     size_t text_len = Tokenizer::is_ascii_char(text[0]) ? text.size() : StringUtils::get_num_chars(text);
 
+    bool is_phrase_query = !q_phrases.empty();
+    std::unordered_set<size_t> phrase_matched_token_indices;
+    
+    if (is_phrase_query) {
+        std::unordered_map<std::string, std::vector<std::vector<std::string>>> phrases_by_first_token;
+        
+        for(const auto& phrase : q_phrases) {
+            if(!phrase.empty()) {
+                std::vector<std::string> phrase_lower;
+                phrase_lower.reserve(phrase.size());
+                for(const auto& token : phrase) {
+                    std::string token_lower = token;
+                    StringUtils::tolowercase(token_lower);
+                    phrase_lower.push_back(token_lower);
+                }
+                
+                std::string first_lower = phrase_lower[0];
+                phrases_by_first_token[first_lower].push_back(phrase_lower);
+            }
+        }
+        
+        struct TextToken {
+            std::string token;
+            size_t token_index;
+            size_t tok_start;
+            size_t tok_end;
+        };
+        std::vector<TextToken> text_tokens;
+        
+        Tokenizer phrase_tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
+        std::string phrase_token;
+        size_t phrase_token_index = 0, phrase_tok_start = 0, phrase_tok_end = 0;
+        
+        while(phrase_tokenizer.next(phrase_token, phrase_token_index, phrase_tok_start, phrase_tok_end)) {
+            if(use_word_tokenizer) {
+                bool found_token = word_tokenizer.tokenize(phrase_token);
+                if(!found_token) {
+                    phrase_tokenizer.decr_token_counter();
+                    continue;
+                }
+            }
+            text_tokens.push_back({phrase_token, phrase_token_index, phrase_tok_start, phrase_tok_end});
+        }
+        
+        // Single pass through text tokens to find phrase matches
+        for(size_t i = 0; i < text_tokens.size(); i++) {
+            std::string first_token_lower = text_tokens[i].token;
+            StringUtils::tolowercase(first_token_lower);
+            
+            // Quick check: does any phrase start with this token?
+            auto phrases_it = phrases_by_first_token.find(first_token_lower);
+            if(phrases_it == phrases_by_first_token.end()) {
+                continue;
+            }
+            
+            // Check only phrases that start with this token
+            for(const auto& phrase : phrases_it->second) {
+                if(i + phrase.size() > text_tokens.size()) {
+                    continue;
+                }
+                
+                bool phrase_matches = true;
+                for(size_t j = 0; j < phrase.size(); j++) {
+                    std::string text_token_lower = text_tokens[i + j].token;
+                    StringUtils::tolowercase(text_token_lower);
+                    
+                    // phrase tokens are already normalized to lowercase in the map
+                    if(text_token_lower != phrase[j]) {
+                        phrase_matches = false;
+                        break;
+                    }
+                }
+                
+                if(phrase_matches) {
+                    // Record ALL matches, not just first
+                    for(size_t j = 0; j < phrase.size(); j++) {
+                        phrase_matched_token_indices.insert(text_tokens[i + j].token_index);
+                    }
+                }
+            }
+        }
+    }
+
     while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
         if(use_word_tokenizer) {
             bool found_token = word_tokenizer.tokenize(raw_token);
@@ -5379,37 +5463,13 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                                 (highlight_fully || is_arr_obj_ele || text_len < snippet_threshold * 6) &&
                                 qtoken_leaves.find(raw_token) != qtoken_leaves.end();
         
-        bool is_phrase_query = !q_phrases.empty();
-        
-        
-        
         // phrase query, only highlight tokens that are part of consecutive phrase matches
         if (is_phrase_query) {
+            bool is_phrase_token = phrase_matched_token_indices.count(raw_token_index) > 0;
+            
             if (match_offset_found) {
-                bool is_consecutive_phrase_match = false;
-                
-                std::unordered_set<size_t> offset_indices;
-                for (const auto& offset : match.offsets) {
-                    offset_indices.insert(offset.offset);
-                }
-                if (offset_indices.count(raw_token_index) > 0) {
-                    // check if the next token in the phrase is also in the match offsets
-                    size_t next_token_index = raw_token_index + 1;
-                    if (offset_indices.count(next_token_index) > 0) {
-                        is_consecutive_phrase_match = true;
-                    }
-                    
-                    if (!is_consecutive_phrase_match && raw_token_index > 0) {
-                        // the next token is not in the match offsets, check if the previous token is in the phrase
-                        size_t prev_token_index = raw_token_index - 1;
-                        if (offset_indices.count(prev_token_index) > 0) {
-                            is_consecutive_phrase_match = true;
-                        }
-                    }
-                }
-                
-                // this is not part of a consecutive phrase match, don't highlight it
-                if (!is_consecutive_phrase_match) {
+                // Only highlight if it's part of a matched phrase
+                if (!is_phrase_token) {
                     match_offset_found = false;
                 }
             }
@@ -5518,10 +5578,10 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
         return false;
     }
 
-    if(raw_token_index <= snippet_threshold-1) {
+    if(snippet_threshold > 0 && raw_token_index < snippet_threshold) {
         // fully highlight field whose token size is less than given snippet threshold
         snippet_start_offset = 0;
-        snippet_end_offset = text.size() - 1;
+        snippet_end_offset = (text.empty() ? 0 : text.size() - 1);
     }
 
     // `token_offsets` has a list of ranges to target for highlighting
