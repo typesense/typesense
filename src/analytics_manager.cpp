@@ -268,12 +268,15 @@ Option<nlohmann::json> AnalyticsManager::get_events(const std::string& userid, c
         return Option<nlohmann::json>(response);
     }
 
-    // Get remaining events from database
-    std::string user_id = userid;
-    user_id.erase(std::remove(user_id.begin(), user_id.end(), '%'), user_id.end());
-    auto userid_prefix = user_id + "%" + event_name;
-    uint32_t remaining_needed = N - in_memory_values.size();
-    analytics_store->get_last_N_values(userid_prefix, remaining_needed, db_values);
+
+    if(analytics_store) {
+        // Get remaining events from database
+        std::string user_id = userid;
+        user_id.erase(std::remove(user_id.begin(), user_id.end(), '%'), user_id.end());
+        auto userid_prefix = user_id + "%" + event_name;
+        uint32_t remaining_needed = N - in_memory_values.size();
+        analytics_store->get_last_N_values(userid_prefix, remaining_needed, db_values);
+    }
 
     if (!db_values.empty()) {
         std::vector<std::pair<uint64_t, std::string>> all_events;

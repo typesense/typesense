@@ -2795,7 +2795,8 @@ void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
                                  const bool group_missing_values,
                                  std::vector<std::vector<art_leaf*>> & searched_queries,
                                  bool is_group_by_first_pass,
-                                 std::set<uint32_t>& group_by_missing_value_ids) const {
+                                 std::set<uint32_t>& group_by_missing_value_ids,
+                                 const  std::map<std::string, reference_filter_result_t>& references) const {
 
     if(included_ids_map.empty()) {
         return;
@@ -2824,7 +2825,8 @@ void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
             scores[1] = -(inner_pos + 1);
             scores[2] = int64_t(1);
 
-            KV kv(0, seq_id, distinct_id, 0, scores);
+            //included ids are upstream validated, so can directly add references
+            KV kv(0, seq_id, distinct_id, 0, scores, references);
             curated_topster->add(&kv);
         }
     }
@@ -3537,7 +3539,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         included_ids_vec, is_group_by_first_pass, group_by_missing_value_ids);
     collate_included_ids({}, included_ids_map, curated_topster, group_limit,
                          group_by_fields, group_missing_values, searched_queries, is_group_by_first_pass,
-                         group_by_missing_value_ids);
+                         group_by_missing_value_ids, filter_result_iterator->reference);
     filter_result_iterator->reset();
     search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 

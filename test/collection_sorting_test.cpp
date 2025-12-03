@@ -3,6 +3,8 @@
 #include <vector>
 #include <fstream>
 #include <algorithm>
+#include <set>
+#include <map>
 #include <collection_manager.h>
 #include "collection.h"
 
@@ -1793,6 +1795,111 @@ TEST_F(CollectionSortingTest, TextMatchMoreDocsThanBuckets) {
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSortingTest, BucketingWithGroupByNoDuplicates) {
+    // non-deterministic sorting after bucketing causes the same group to appear on different pages across different requests
+    
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("group_key", field_types::STRING, true),  // facet field for group_by
+        field("points", field_types::INT32, false)
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    // We need more than 250 unique groups to ensure bucketing affects multiple pages
+    // (bucketing only applies to first DEFAULT_TOPSTER_SIZE = 250 results)
+    const size_t num_groups = 500;
+    const size_t docs_per_group = 2;
+    
+    for(size_t group_idx = 0; group_idx < num_groups; group_idx++) {
+        std::string group_key = "GROUP_" + std::to_string(group_idx);
+        for(size_t doc_idx = 0; doc_idx < docs_per_group; doc_idx++) {
+            nlohmann::json doc;
+            size_t doc_id = group_idx * docs_per_group + doc_idx;
+            doc["id"] = std::to_string(doc_id);
+            doc["title"] = "Test Document " + std::to_string(group_idx) + " Item " + std::to_string(doc_idx);
+            doc["group_key"] = group_key;
+            doc["points"] = 100;
+            ASSERT_TRUE(coll1->add(doc.dump()).ok());
+        }
+    }
+
+    sort_fields = {
+        sort_by("_text_match(buckets: 20)", "DESC"),
+        sort_by("points", "DESC"),
+    };
+
+    const size_t per_page = 30;
+    const size_t group_limit = 10;
+    const size_t num_test_iterations = 10;
+    
+    for(size_t iteration = 0; iteration < num_test_iterations; iteration++) {
+        std::map<std::string, std::vector<size_t>> group_to_pages;
+        
+        for(size_t page = 1; page <= 20; page++) {
+            auto results = coll1->search("test", {"title"},
+                                         "", {}, sort_fields, {0}, per_page,
+                                         page, FREQUENCY, {true},
+                                         10, spp::sparse_hash_set<std::string>(),
+                                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {"group_key"}, group_limit,
+                                         "<mark>", "</mark>", {}, 1000, true).get();
+
+            if(!results.contains("grouped_hits") || results["grouped_hits"].size() == 0) {
+                break;
+            }
+
+            for(const auto& group_hit : results["grouped_hits"]) {
+                if(!group_hit.contains("group_key") || group_hit["group_key"].size() == 0) {
+                    continue;
+                }
+                std::string current_group_key = group_hit["group_key"][0].get<std::string>();
+                group_to_pages[current_group_key].push_back(page);
+            }
+        }
+        
+        for(const auto& [group_key, pages] : group_to_pages) {
+            if(pages.size() > 1) {
+                std::cout << "ERROR: Group key '" << group_key 
+                          << "' appeared on multiple pages [" << pages[0];
+                for(size_t i = 1; i < pages.size(); i++) {
+                    std::cout << ", " << pages[i];
+                }
+                std::cout << "] in iteration " << iteration << std::endl;
+                ASSERT_EQ(1, pages.size()) 
+                    << "Group key '" << group_key << "' appears on multiple pages in the same request";
+            }
+        }
+        
+        static std::map<std::string, size_t> expected_group_to_page;
+        
+        if(iteration == 0) {
+            for(const auto& [group_key, pages] : group_to_pages) {
+                ASSERT_EQ(1, pages.size()) << "Group should appear on exactly one page";
+                expected_group_to_page[group_key] = pages[0];
+            }
+        } else {
+            // same groups should appear on same pages across requests
+            for(const auto& [group_key, pages] : group_to_pages) {
+                ASSERT_EQ(1, pages.size()) << "Group should appear on exactly one page";
+                if(expected_group_to_page.find(group_key) != expected_group_to_page.end()) {
+                    size_t expected_page = expected_group_to_page[group_key];
+                    if(pages[0] != expected_page) {
+                        std::cout << "ERROR: Group key '" << group_key 
+                                  << "' appeared on page " << pages[0] 
+                                  << " in iteration " << iteration 
+                                  << " but was on page " << expected_page 
+                                  << " in first iteration" << std::endl;
+                        ASSERT_EQ(expected_page, pages[0]) 
+                            << "Group key '" << group_key << "' appears on different pages across requests";
+                    }
+                }
+            }
+        }
+    }
 
     collectionManager.drop_collection("coll1");
 }
