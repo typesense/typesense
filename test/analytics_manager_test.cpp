@@ -1425,3 +1425,68 @@ TEST_F(AnalyticsManagerTest, QueryLogEventsWithCaptureGetInMemory) {
   ASSERT_EQ(events[0]["filter_by"], "country:US");
   ASSERT_EQ(events[0]["analytics_tag"], "tag1");
 }
+
+TEST_F(AnalyticsManagerTest, UninitializedAnalyticsStore) {
+    //when analytics store is not uninitialized, it should return empty events
+
+    system(("rm -rf " + analytics_dir_path + " && mkdir -p " + analytics_dir_path).c_str());
+
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    analyticsManager.init(store, nullptr, analytics_minute_rate_limit);  //initialize with null anlaytics store
+    analyticsManager.resetToggleRateLimit(false);
+
+    nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "name", "type": "string" }
+      ]
+    })"_json;
+
+    auto coll_create_op = collectionManager.create_collection(products_schema);
+    ASSERT_TRUE(coll_create_op.ok());
+    auto coll1 = coll_create_op.get();
+
+    nlohmann::json products_queries_schema = R"({
+      "name": "products_queries",
+       "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+    })"_json;
+
+    coll_create_op = collectionManager.create_collection(products_queries_schema);
+    ASSERT_TRUE(coll_create_op.ok());
+    auto coll2 = coll_create_op.get();
+
+    nlohmann::json popular_queries_analytics_rule = R"({
+        "name": "product_queries_aggregation",
+        "type": "popular_queries",
+        "collection": "products",
+        "event_type": "search",
+        "rule_tag": "popular_queries",
+        "params": {
+          "destination_collection": "products_queries",
+          "capture_search_requests": false,
+          "limit": 1000
+        }
+      })"_json;
+
+    auto create_op = analyticsManager.create_rule(popular_queries_analytics_rule, false, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "product_queries_aggregation",
+    "event_type": "search",
+    "data": {
+            "q": "running shoes",
+            "user_id": "1234"
+    }})"_json);
+    ASSERT_TRUE(add_event_op.ok());
+
+    auto get_events_op = analyticsManager.get_events("1234", "product_queries_aggregation", 10);
+    ASSERT_TRUE(get_events_op.ok());
+    const auto& events = get_events_op.get()["events"].get<std::vector<nlohmann::json>>();
+    ASSERT_TRUE(events.empty());
+}
