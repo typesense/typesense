@@ -3359,6 +3359,10 @@ Option<bool> Index::search_infix(const std::string& query, const std::string& fi
 void process_results_bruteforce(filter_result_iterator_t* filter_result_iterator, const vector_query_t& vector_query,
                                     hnsw_index_t* field_vector_index, std::vector<std::pair<float, single_filter_result_t>>& dist_results) {
 
+    std::vector<float> normalized_q(vector_query.values.size());
+    if (field_vector_index->distance_type == cosine) {
+        hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
+    }
     while (filter_result_iterator->validity == filter_result_iterator_t::valid) {
         auto seq_id = filter_result_iterator->seq_id;
         auto filter_result = single_filter_result_t(seq_id, std::move(filter_result_iterator->reference));
@@ -3374,8 +3378,6 @@ void process_results_bruteforce(filter_result_iterator_t* filter_result_iterator
 
         float dist;
         if (field_vector_index->distance_type == cosine) {
-            std::vector<float> normalized_q(vector_query.values.size());
-            hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
             dist = field_vector_index->space->get_dist_func()(normalized_q.data(), values.data(),
                                                               &field_vector_index->num_dim);
         } else {
