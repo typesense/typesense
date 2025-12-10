@@ -16,6 +16,9 @@ struct curation_t {
         bool dynamic_filter = false;
         std::string filter_by;
         std::set<std::string> tags;
+        std::string locale="";
+        std::string stemming_dictionary="";
+        bool stem = false;
     };
 
     struct add_hit_t {

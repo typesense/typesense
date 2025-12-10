@@ -1061,33 +1061,16 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
         }
         s_lock.unlock();
 
-        auto compute_normalized_query = [this](const std::string& query) {
-          auto symbols = symbols_to_index;
-          symbols.push_back('{');
-          symbols.push_back('}');
-          symbols.push_back('*');
-          symbols.push_back('.');
+        auto tokenize_query = [&] (bool stem = false, const std::string& locale = "",
+                const std::string& dictionary = "") -> std::string {
 
-          std::vector<std::string> tokens;
-          Tokenizer tokenizer(query, true, false, "", symbols, token_separators, nullptr, true);
-          tokenizer.tokenize(tokens);
-          auto query_normalized = StringUtils::join(tokens, " ");
-          size_t i = 0;
-          while(i < query_normalized.size()) {
-              if(query_normalized[i] == '{') {
-                  // look for closing curly
-                  i++;
-                  while(i < query_normalized.size()) {
-                      if(query_normalized[i] == '}') {
-                          query_normalized = StringUtils::trim_curly_spaces(query_normalized);
-                          break;
-                      }
-                      i++;
-                  }
-              }
-              i++;
-          }
-          return query_normalized;
+            std::vector<std::string> tokens;
+
+            auto stemmer = stem ? StemmerManager::get_instance().get_stemmer(locale, dictionary) : nullptr;
+
+            Tokenizer tokenizer(actual_query, true, false, "", symbols_to_index, token_separators, stemmer);
+            tokenizer.tokenize(tokens);
+            return StringUtils::join(tokens, " ");
         };
 
         if(!curation_set_curations.empty()) {
@@ -1096,10 +1079,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
           if(actual_query == "*") {
               query = "*";
           } else {
-              std::vector<std::string> tokens;
-              Tokenizer tokenizer(actual_query, true, false, "", symbols_to_index, token_separators);
-              tokenizer.tokenize(tokens);
-              query = StringUtils::join(tokens, " ");
+              query = tokenize_query();
           }
 
           if(!tags.empty()) {
@@ -1108,9 +1088,12 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                   // exact AND match only when multiple tags are sent
                   for(const auto* ov : curation_set_curations) {
                       if(ov->rule.tags == tags) {
-                          auto normalized_curation_query = compute_normalized_query(ov->rule.query);
+                          if(ov->rule.stem) {
+                            query = tokenize_query(true, ov->rule.locale, ov->rule.stemming_dictionary);
+                          }
+
                           bool match_found = does_curation_match(*ov, query, excluded_set, actual_query,
-                                                                normalized_curation_query,
+                                                                ov->rule.normalized_query,
                                                                 filter_query, already_segmented, true, false,
                                                                 pinned_hits, hidden_hits, included_ids,
                                                                 excluded_ids, filter_sort_curations, filter_curated_hits,
@@ -1131,9 +1114,13 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                             tags.begin(), tags.end(),
                                             std::inserter(matching_tags, matching_tags.begin()));
                       if(matching_tags.empty()) { continue; }
-                      auto normalized_curation_query = compute_normalized_query(ov->rule.query);
+
+                      if(ov->rule.stem) {
+                          query = tokenize_query(true, ov->rule.locale, ov->rule.stemming_dictionary);
+                      }
+
                       bool match_found = does_curation_match(*ov, query, excluded_set, actual_query,
-                                                            normalized_curation_query,
+                                                             ov->rule.normalized_query,
                                                             filter_query, already_segmented, true, false,
                                                             pinned_hits, hidden_hits, included_ids,
                                                             excluded_ids, filter_sort_curations, filter_curated_hits,
@@ -1162,8 +1149,11 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
               // no curation tags given
               for(const auto* ov : curation_set_curations) {
                   bool wildcard_tag = ov->rule.tags.size() == 1 && *ov->rule.tags.begin() == "*";
-                  auto normalized_curation_query = compute_normalized_query(ov->rule.query);
-                  bool match_found = does_curation_match(*ov, query, excluded_set, actual_query, normalized_curation_query, filter_query,
+                  if(ov->rule.stem) {
+                      query = tokenize_query(true, ov->rule.locale, ov->rule.stemming_dictionary);
+                  }
+
+                  bool match_found = does_curation_match(*ov, query, excluded_set, actual_query, ov->rule.normalized_query, filter_query,
                                                         already_segmented, false, wildcard_tag,
                                                         pinned_hits, hidden_hits, included_ids,
                                                         excluded_ids, filter_sort_curations, filter_curated_hits,
@@ -2710,6 +2700,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             return Option<bool>(get_synonym_index_op.code(), get_synonym_index_op.error());
         }
     }
+
     size_t facet_sample_percent_computed = facet_sample_percent;
 
     if(facet_sample_slope > 0 && facet_sample_threshold > 0) {
