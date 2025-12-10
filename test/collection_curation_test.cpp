@@ -5476,7 +5476,8 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
                 "name": "tags",
                 "fields": [
                     {"name": "app_id", "type": "string"},
-                    {"name": "ui_elements.group_id", "type": "string[]"}
+                    {"name": "ui_elements.group_id", "type": "string[]"},
+                    {"name": "embedding", "type": "float[]", "num_dim": 768}
                 ]
             })"_json;
     auto collection_create_op = collectionManager.create_collection(schema_json);
@@ -5503,6 +5504,10 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
                         "field": "ui_elements.group_id",
                         "method": "jaccard",
                         "weight": 0.1
+                      },
+                      {
+                        "field": "embedding",
+                        "method": "vector_distance"
                       }
                     ]
                   }
@@ -5512,7 +5517,7 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
     auto op = diversity_t::parse(json, diversity);
     ASSERT_TRUE(op.ok());
 
-    ASSERT_EQ(3, diversity.similarity_equation.size());
+    ASSERT_EQ(4, diversity.similarity_equation.size());
     ASSERT_EQ("flow_id", diversity.similarity_equation[0].field);
     ASSERT_EQ(diversity_t::similarity_methods::equality, diversity.similarity_equation[0].method);
     ASSERT_FLOAT_EQ(0.6, diversity.similarity_equation[0].weight);
@@ -5524,6 +5529,10 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
     ASSERT_EQ("ui_elements.group_id", diversity.similarity_equation[2].field);
     ASSERT_EQ(diversity_t::similarity_methods::jaccard, diversity.similarity_equation[2].method);
     ASSERT_FLOAT_EQ(0.1, diversity.similarity_equation[2].weight);
+
+    ASSERT_EQ("embedding", diversity.similarity_equation[3].field);
+    ASSERT_EQ(diversity_t::similarity_methods::vector_distance, diversity.similarity_equation[3].method);
+    ASSERT_FLOAT_EQ(1, diversity.similarity_equation[3].weight);
 
     json["id"] = "foo";
     json["rule"]["tags"] += "screen_pattern_rule";
@@ -5591,7 +5600,7 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
     ASSERT_EQ("foo", curation.id);
     ASSERT_EQ(1, curation.rule.tags.size());
     ASSERT_EQ("screen_pattern_rule", *curation.rule.tags.begin());
-    ASSERT_EQ(3, curation.diversity.similarity_equation.size());
+    ASSERT_EQ(4, curation.diversity.similarity_equation.size());
 
     create_op = ov_manager.upsert_curation_item("index", json);
     ASSERT_TRUE(create_op.ok());
@@ -5615,7 +5624,7 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
     ASSERT_EQ("foo", curation.id);
     ASSERT_EQ(1, curation.rule.tags.size());
     ASSERT_EQ("screen_pattern_rule", *curation.rule.tags.begin());
-    ASSERT_EQ(3, curation.diversity.similarity_equation.size());
+    ASSERT_EQ(4, curation.diversity.similarity_equation.size());
 }
 
 TEST_F(CollectionCurationTest, DiversityOverride) {
@@ -5624,16 +5633,17 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
             R"({
                 "name": "tags",
                 "fields": [
-                    {"name": "tags", "type": "string[]", "facet": true}
+                    {"name": "tags", "type": "string[]", "facet": true},
+                    {"name": "embedding", "type": "float[]", "num_dim": 4, "optional": true}
                 ]
             })"_json;
     std::vector<nlohmann::json> documents = {
-            R"({"tags": ["gold", "silver"]})"_json,
+            R"({"tags": ["gold", "silver"], "embedding": [0.851758, 0.909671, 0.823431, 0.372063]})"_json,
             R"({"tags": ["FINE PLATINUM"]})"_json,
-            R"({"tags": ["bronze", "gold"]})"_json,
-            R"({"tags": ["silver"]})"_json,
+            R"({"tags": ["bronze", "gold"], "embedding": [0.97826, 0.933157, 0.39557, 0.306488]})"_json,
+            R"({"tags": ["silver"], "embedding": [0.97826, 0.933157, 0.39557, 0.306488]})"_json,
             R"({"tags": ["silver", "gold", "bronze"]})"_json,
-            R"({"tags": ["silver", "FINE PLATINUM"]})"_json
+            R"({"tags": ["silver", "FINE PLATINUM"], "embedding": [0.230606, 0.634397, 0.514009, 0.399594]})"_json
     };
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -5807,6 +5817,64 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
     ASSERT_EQ("3", res_obj["hits"][3]["document"]["id"]);
     ASSERT_EQ("1", res_obj["hits"][4]["document"]["id"]);
     ASSERT_EQ("0", res_obj["hits"][5]["document"]["id"]);
+
+    json =
+        R"({
+              "id": "bar",
+              "rule": {
+                "tags": [
+                  "vector_rule"
+                ]
+              },
+              "diversity": {
+                "similarity_metric": [
+                  {
+                    "field": "embedding",
+                    "method": "vector_distance"
+                  }
+                ]
+              }
+            })"_json;
+    op = curation_t::parse(json, "", curation, "", {}, {});
+    ASSERT_TRUE(op.ok());
+    ov_manager.upsert_curation_item("index", json);
+
+    req_params = {
+            {"collection", "tags"},
+            {"q", "gold"},
+            {"query_by", "tags"},
+            {"vector_query", "embedding:([0.96826, 0.94, 0.39557, 0.306488])"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, res_obj["found"].get<size_t>());
+    ASSERT_EQ(5, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][2]["document"]["id"]);
+    ASSERT_EQ("3", res_obj["hits"][3]["document"]["id"]);
+    ASSERT_EQ("5", res_obj["hits"][4]["document"]["id"]);
+
+    req_params = {
+            {"collection", "tags"},
+            {"q", "gold"},
+            {"query_by", "tags"},
+            {"vector_query", "embedding:([0.96826, 0.94, 0.39557, 0.306488])"},
+            {"curation_tags", "vector_rule"} // Diversity re-ranking using MMR algorithm.
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, res_obj["found"].get<size_t>());
+    ASSERT_EQ(5, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("5", res_obj["hits"][2]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][3]["document"]["id"]);
+    ASSERT_EQ("3", res_obj["hits"][4]["document"]["id"]);
 }
 
 TEST_F(CollectionCurationTest, StemmingWithCuration) {

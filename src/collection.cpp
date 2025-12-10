@@ -1132,6 +1132,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                 auto it = search_schema.find(item.field);
                                 if (it == search_schema.end()) {
                                     return Option<bool>(400, "`" + item.field + "` field not found in the schema.");
+                                } else if (it->num_dim > 0 && item.method == diversity_t::similarity_methods::vector_distance) {
+                                    continue;
                                 }
                                 if (it->is_array() && !it->facet) {
                                     return Option<bool>(400, "Enable faceting on `" + item.field + "` array field to use in diversity.");

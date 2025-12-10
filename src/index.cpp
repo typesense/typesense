@@ -4269,9 +4269,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     curated_topster->sort();
 
     populate_result_kvs(topster, raw_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass, diversity,
-                        sort_index, facet_index_v4);
+                        sort_index, facet_index_v4, vector_index);
     populate_result_kvs(curated_topster, curation_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass,
-                        diversity, sort_index, facet_index_v4);
+                        diversity, sort_index, facet_index_v4, vector_index);
 
     std::vector<uint32_t> top_k_result_ids, top_k_curated_result_ids;
     std::vector<facet> top_k_facets;
@@ -8988,7 +8988,8 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
                                         const bool& is_group_by_first_pass,
                                         const diversity_t& diversity,
                                         const spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*>& sort_index,
-                                        const facet_index_t* facet_index_v4) {
+                                        const facet_index_t* facet_index_v4,
+                                        const spp::sparse_hash_map<std::string, hnsw_index_t*>& vector_index) {
     if(topster->distinct && !is_group_by_first_pass) {
         // we have to pick top-K groups
         Topster<KV> gtopster(topster->MAX_SIZE);
@@ -9078,7 +9079,7 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
             auto& max_similarity = max_similarities[i];
             const auto& kv_j = result_kvs.back();
             const auto& seq_id_j = (uint32_t) kv_j[0]->key;
-            auto sim_op = similarity_t::calculate(seq_id_i, seq_id_j, diversity, sort_index, facet_index_v4);
+            auto sim_op = similarity_t::calculate(seq_id_i, seq_id_j, diversity, sort_index, facet_index_v4, vector_index);
             if (!sim_op.ok()) {
                 return Option<bool>(sim_op.code(), sim_op.error());
             }
