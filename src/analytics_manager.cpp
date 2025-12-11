@@ -29,7 +29,7 @@ void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t
                                                          res, res_headers, {}, 10 * 1000, true);
 
             if (status_code != 200) {
-                LOG(ERROR) << "Error while sending update_counter_events to leader. " 
+                LOG(ERROR) << "Error while sending update_counter_events to leader. "
                            << "Collection: " << collection << ", operation: " << operation
                            << "Status code: " << status_code << ", response: " << res;
             }
@@ -62,16 +62,22 @@ void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t
       const auto& collection = counter_event_it.second.destination_collection;
       std::string docs;
       counter_event_it.second.serialize_as_docs(docs);
+      if (docs.empty()) {
+        continue;
+      }
       doc_analytics_queue.push_back({docs, collection});
       doc_analytics.reset_local_counter(counter_event_it.first);
     }
-    
+
     std::vector<std::vector<std::string>> search_analytics_queue;
     search_analytics.compact_all_user_queries(now_ts_us);
     for(auto& counter_event_it : search_analytics.get_search_counter_events()) {
       const auto& collection = counter_event_it.second.destination_collection;
       std::string docs;
       counter_event_it.second.serialize_as_docs(docs);
+      if (docs.empty()) {
+        continue;
+      }
       search_analytics_queue.push_back({docs, collection, std::to_string(counter_event_it.second.limit)});
       search_analytics.reset_local_counter(counter_event_it.first);
     }
@@ -96,7 +102,7 @@ void AnalyticsManager::persist_db_events(ReplicationState *raft_server, uint64_t
         std::this_thread::sleep_for(std::chrono::seconds(delay_interval));
       }
     }
-    
+
     if (rules_size <= DELAY_WRITE_RULE_SIZE || triggered) {
       lk.unlock();
     }
@@ -143,7 +149,7 @@ void AnalyticsManager::persist_analytics_db_events(ReplicationState *raft_server
         if(raft_server == nullptr) {
             return;
         }
-        
+
 
         std::string leader_url = raft_server->get_leader_url();
         if(!leader_url.empty()) {
@@ -177,7 +183,7 @@ Option<bool> AnalyticsManager::add_external_event(const std::string& client_ip, 
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
     auto events_cache_it = external_events_cache.find(client_ip);
-    
+
     if (events_cache_it != external_events_cache.end()) {
           // event found in events cache
           if ((now_ts_seconds - events_cache_it->second.last_update_time) < EVENTS_RATE_LIMIT_SEC) {
@@ -280,14 +286,14 @@ Option<nlohmann::json> AnalyticsManager::get_events(const std::string& userid, c
 
     if (!db_values.empty()) {
         std::vector<std::pair<uint64_t, std::string>> all_events;
-        
+
         // Add in-memory events with timestamps
         for (const auto& event_str : in_memory_values) {
             auto event_json = nlohmann::json::parse(event_str);
             uint64_t timestamp = event_json["timestamp"];
             all_events.emplace_back(timestamp, event_str);
         }
-        
+
         // Add database events with timestamps
         for (const auto& event_str : db_values) {
             try {
@@ -299,15 +305,15 @@ Option<nlohmann::json> AnalyticsManager::get_events(const std::string& userid, c
                 // Skip invalid events
             }
         }
-        
+
         // Sort all events by timestamp in descending order
-        std::sort(all_events.begin(), all_events.end(), 
+        std::sort(all_events.begin(), all_events.end(),
                   [](const auto& a, const auto& b) { return a.first > b.first; });
-        
+
         // Take top N events
         std::vector<std::string> values;
         values.reserve(std::min(all_events.size(), static_cast<size_t>(N)));
-        
+
         for (size_t i = 0; i < all_events.size() && i < N; i++) {
             values.push_back(all_events[i].second);
         }
@@ -319,9 +325,9 @@ Option<nlohmann::json> AnalyticsManager::get_events(const std::string& userid, c
 
         for (const auto& event_str : values) {
             auto event_json = nlohmann::json::parse(event_str);
-            std::string dedup_key = std::to_string(event_json["timestamp"].get<uint64_t>()) + 
+            std::string dedup_key = std::to_string(event_json["timestamp"].get<uint64_t>()) +
                                     event_json["user_id"].get<std::string>();
-            
+
             if (seen_events.insert(dedup_key).second) {
                 deduped_values.push_back(event_str);
             }
@@ -564,7 +570,7 @@ Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
       if(params.contains("limit") && params["limit"].is_number_integer()) {
         limit = params["limit"].get<size_t>();
       }
-      
+
       bool enable_auto_aggregation = true;
       if(source.contains("enable_auto_aggregation") && source["enable_auto_aggregation"].is_boolean()) {
         enable_auto_aggregation = source["enable_auto_aggregation"].get<bool>();
@@ -576,7 +582,7 @@ Option<bool> AnalyticsManager::create_old_rule(nlohmann::json& payload) {
           meta_fields.push_back(meta_field.get<std::string>());
         }
       }
-      
+
       std::string event_name = name;
       std::vector<nlohmann::json> events;
       if(source.contains("events") && source["events"].is_array()) {
@@ -806,7 +812,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
             flush_requested = false;
             trigered_flush = true;
         };
-        
+
         if(quit) {
             lk.unlock();
             break;
@@ -824,7 +830,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
 
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
-        
+
         persist_analytics_db_events(raft_server, prev_persistence_s, trigered_flush);
         persist_db_events(raft_server, prev_persistence_s, trigered_flush);
     }
