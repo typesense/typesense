@@ -5827,24 +5827,32 @@ TEST_F(CollectionCurationTest, StemmingWithCuration) {
     coll1->set_curation_sets({"index"});
 
     // Add test documents
-    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Office Chargers","categoryType":"Electronics","region":"act","popularity":50})").ok());
-    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Office Staplers","categoryType":"Office","region":"act","popularity":30})").ok());
-    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Notebook","categoryType":"Office","region":"nsw","popularity":70})").ok());
-    ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Bluetooth Speakers","categoryType":"Electronics","region":"act","popularity":90})").ok());
-    ASSERT_TRUE(coll1->add(R"({"id":"5","title":"Office Notebooks","categoryType":"Electronics","region":"act","popularity":90})").ok());
-    ASSERT_TRUE(coll1->add(R"({"id":"6","title":"Person Info","categoryType":"Office","region":"nsw","popularity":60})").ok());
-    ASSERT_TRUE(coll1->add(R"({"id":"7","title":"People Info","categoryType":"Office","region":"nsw","popularity":60})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Bluetooth Speakers","categoryType":"Electronics","region":"act","popularity":90})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Child Play","categoryType":"Electronics","region":"act","popularity":90})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Children Notebooks","categoryType":"Electronics","region":"act","popularity":90})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Person Info","categoryType":"Office","region":"nsw","popularity":60})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"5","title":"People Info","categoryType":"Office","region":"nsw","popularity":60})").ok());
+
+    //check with stemming dictionary for irregular plurals
+    std::vector<std::string> json_lines;
+    std::string json_line = "{\"word\": \"people\", \"root\":\"person\"}";
+    json_lines.push_back(json_line);
+    json_line = "{\"word\": \"children\", \"root\":\"child\"}";
+    json_lines.push_back(json_line);
+
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set1", json_lines).ok());
 
     nlohmann::json curation_json = R"OVR(
         {
         "id": "stemmer",
         "rule": {
-            "query": "Notebooks",
+            "query": "Children",
             "match": "exact",
-            "stem" : true
+            "stem" : true,
+            "stemming_dictionary": "set1"
           },
           "includes": [
-                {"id": "4", "position": 1}
+                {"id": "1", "position": 1}
          ]
         }
     )OVR"_json;
@@ -5854,30 +5862,21 @@ TEST_F(CollectionCurationTest, StemmingWithCuration) {
     ASSERT_TRUE(parse_op.ok());
     ov_manager.upsert_curation_item("index", curation_json);
 
-    auto res_op = coll1->search("Notebook", {"title"}, "", {}, {}, {0});
+    auto res_op = coll1->search("Children", {"title"}, "", {}, {}, {0});
     ASSERT_TRUE(res_op.ok());
     auto results = res_op.get();
-    ASSERT_EQ(3, results["found"].get<size_t>());
-    ASSERT_EQ("4", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
     ASSERT_EQ("3", results["hits"][1]["document"]["id"].get<std::string>());
-    ASSERT_EQ("5", results["hits"][2]["document"]["id"].get<std::string>());
 
     results.clear();
-    res_op = coll1->search("Notebooks", {"title"}, "", {}, {}, {0});
+    res_op = coll1->search("Child", {"title"}, "", {}, {}, {0});
     ASSERT_TRUE(res_op.ok());
     results = res_op.get();
     ASSERT_EQ(3, results["found"].get<size_t>());
-    ASSERT_EQ("4", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
-    ASSERT_EQ("3", results["hits"][1]["document"]["id"].get<std::string>());
-    ASSERT_EQ("5", results["hits"][2]["document"]["id"].get<std::string>());
-
-
-    //check with stemming dictionary for irregular plurals
-    std::string json_line = "{\"word\": \"people\", \"root\":\"person\"}";
-    std::vector<std::string> json_lines;
-    json_lines.push_back(json_line);
-
-    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set1", json_lines).ok());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", results["hits"][2]["document"]["id"].get<std::string>());
 
     curation_json = R"OVR(
         {
@@ -5889,7 +5888,7 @@ TEST_F(CollectionCurationTest, StemmingWithCuration) {
             "stemming_dictionary": "set1"
           },
           "includes": [
-                {"id": "4", "position": 1}
+                {"id": "1", "position": 1}
          ]
         }
     )OVR"_json;
@@ -5902,14 +5901,14 @@ TEST_F(CollectionCurationTest, StemmingWithCuration) {
     ASSERT_TRUE(res_op.ok());
     results = res_op.get();
     ASSERT_EQ(2, results["found"].get<size_t>());
-    ASSERT_EQ("4", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
-    ASSERT_EQ("6", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
 
     results.clear();
     res_op = coll1->search("People", {"title"}, "", {}, {}, {0});
     ASSERT_TRUE(res_op.ok());
     results = res_op.get();
     ASSERT_EQ(2, results["found"].get<size_t>());
-    ASSERT_EQ("4", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
-    ASSERT_EQ("7", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
 }
