@@ -27,6 +27,7 @@ protected:
         stemmerManager.init(store);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
+
         SynonymIndex synonym_index(store, "index");
         manager.init_store(store);
         manager.add_synonym_index("index", std::move(synonym_index));

@@ -1746,6 +1746,14 @@ TEST_F(CollectionFilteringTest, FilteringViaDocumentIds) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_STREQ("127", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
+    results = coll1->search("*",
+                           {}, "id:![123,125] && num_employees: <300",
+                           {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("127", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
     // empty id list not allowed
     auto res_op = coll1->search("*", {}, "id:=", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true});
     ASSERT_FALSE(res_op.ok());
