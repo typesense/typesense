@@ -928,7 +928,9 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
                                      std::vector<const curation_t*>& filter_sort_curations,
                                      bool& filter_curated_hits,
                                      std::string& curated_sort_by,
-                                     nlohmann::json& curation_metadata) const {
+                                     nlohmann::json& curation_metadata,
+                                     bool enable_synonyms, bool synonym_prefix,
+                                     uint32_t synonym_num_typos) const {
 
     if(!wildcard_tag_matched && !tags_matched && !curation.rule.tags.empty()) {
         // only untagged curations must be considered when no tags are given in the query
@@ -958,6 +960,26 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
         bool query_match = (curation.rule.match == curation_t::MATCH_EXACT && curation_normalized_query == query) ||
                            (curation.rule.match == curation_t::MATCH_CONTAINS &&
                             StringUtils::contains_word(query, curation_normalized_query));
+
+        if(!query_match && enable_synonyms) { //try matching synonym with query
+            std::vector<std::vector<std::string>> results;
+            std::vector<std::string> tokens;
+            StringUtils::split(query, tokens, " ");
+            synonym_reduction(tokens, curation.rule.locale, results, synonym_prefix, synonym_num_typos);
+
+            if(!results.empty()) {
+                int i = 0;
+                while(!query_match && i < results.size()) {
+                    auto vec = results[i];
+                    auto token = StringUtils::join(vec, " ");
+                    query_match =
+                            (curation.rule.match == curation_t::MATCH_EXACT && curation_normalized_query == token) ||
+                            (curation.rule.match == curation_t::MATCH_CONTAINS &&
+                             StringUtils::contains_word(token, curation_normalized_query));
+                    ++i;
+                }
+            }
+        }
 
         if(!filter_by_match && !query_match) {
             return false;
@@ -1022,7 +1044,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                 bool& filter_curated_hits,
                                 std::string& curated_sort_by,
                                 nlohmann::json& curation_metadata,
-                                diversity_t& diversity) const {
+                                diversity_t& diversity, bool synonym_prefix,
+                                uint32_t synonym_num_typos) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -1097,7 +1120,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                                 filter_query, already_segmented, true, false,
                                                                 pinned_hits, hidden_hits, included_ids,
                                                                 excluded_ids, filter_sort_curations, filter_curated_hits,
-                                                                curated_sort_by, curation_metadata);
+                                                                curated_sort_by, curation_metadata, ov->rule.synonyms,
+                                                                synonym_prefix, synonym_num_typos);
                           if(match_found) {
                               all_tags_found = true;
                               if(ov->stop_processing) { break; }
@@ -1124,7 +1148,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                             filter_query, already_segmented, true, false,
                                                             pinned_hits, hidden_hits, included_ids,
                                                             excluded_ids, filter_sort_curations, filter_curated_hits,
-                                                            curated_sort_by, curation_metadata);
+                                                            curated_sort_by, curation_metadata, ov->rule.synonyms,
+                                                            synonym_prefix, synonym_num_typos);
                       if(match_found) {
                         if (!ov->diversity.similarity_equation.empty()) {
                             diversity = std::move(ov->diversity);
@@ -1157,7 +1182,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                         already_segmented, false, wildcard_tag,
                                                         pinned_hits, hidden_hits, included_ids,
                                                         excluded_ids, filter_sort_curations, filter_curated_hits,
-                                                        curated_sort_by, curation_metadata);
+                                                        curated_sort_by, curation_metadata, ov->rule.synonyms, synonym_prefix,
+                                                        synonym_num_typos);
                   if(match_found && ov->stop_processing) { break; }
               }
           }
@@ -2547,7 +2573,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     diversity_t diversity{};
     auto curate_results_op = curate_results(query, filter_query, enable_curations, pre_segmented_query, curation_tag_set,
                    pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_curations, filter_curated_hits_curations,
-                   curated_sort_by, curation_metadata, diversity);
+                   curated_sort_by, curation_metadata, diversity, synonym_prefix, synonyms_num_typos);
     if(!curate_results_op.ok()) {
         return curate_results_op;
     }

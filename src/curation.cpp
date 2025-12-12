@@ -141,6 +141,10 @@ Option<bool> curation_t::parse(const nlohmann::json& curation_json, const std::s
         }
     }
 
+    if(json_rule.count("synonyms") != 0 && json_rule["synonyms"].is_boolean()) {
+        curation.rule.synonyms = json_rule["synonyms"].get<bool>();
+    }
+
     if(!curation.rule.query.empty()) {
         auto symbols = symbols_to_index;
         symbols.push_back('{');
