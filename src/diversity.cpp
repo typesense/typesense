@@ -203,11 +203,12 @@ Option<double> similarity_t::calculate(uint32_t seq_id_i, uint32_t seq_id_j, con
                 continue;
             }
 
-            // Distance can be [0, 1]. 0 represents that embeddings are identical.
+            // Distance can be [0, 2]. 0 represents that embeddings are identical.
             const auto dist = field_vector_index->space->get_dist_func()(values_i.data(), values_j.data(),
                                                                             &field_vector_index->num_dim);
-            // Doing 1-dist since 0 means least similar and 1 means most similar.
-            similarity += metric.weight * (1 - dist);
+            // Doing 2-dist since dist 0 means the documents are most similar. We need to return the maximum value for
+            // most similar documents from this function.
+            similarity += metric.weight * (2 - dist);
         }
 
         else {
