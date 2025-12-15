@@ -205,6 +205,7 @@ struct search_args {
     Collection const *const collection;
 
     diversity_t diversity{};
+    size_t group_max_candidates;
 
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
                 const text_match_type_t match_type, std::vector<facet>& facets,
@@ -225,7 +226,8 @@ struct search_args {
                 std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                 bool enable_synonyms, bool demote_synonym_match, bool synonym_prefix, uint32_t synonym_num_typos,
                 bool enable_typos_for_alpha_numerical_tokens, bool rerank_hybrid_matches, const bool& validate_field_names,
-                Collection const *const collection, const std::vector<std::string>& synonym_sets, diversity_t&& diversity) :
+                Collection const *const collection, const std::vector<std::string>& synonym_sets, diversity_t&& diversity,
+                size_t group_max_candidates) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), match_type(match_type), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(std::move(sort_fields_std)),
@@ -252,7 +254,7 @@ struct search_args {
             demote_synonym_match(demote_synonym_match), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens),
             rerank_hybrid_matches(rerank_hybrid_matches), validate_field_names(validate_field_names),
-            collection(collection), synonym_sets(synonym_sets), diversity(diversity) {
+            collection(collection), synonym_sets(synonym_sets), diversity(diversity), group_max_candidates(group_max_candidates) {
 
     }
 
@@ -590,7 +592,8 @@ private:
                               const bool group_missing_values,
                               std::vector<std::vector<art_leaf*>> & searched_queries,
                               bool is_group_by_first_pass,
-                              std::set<uint32_t>& group_by_missing_value_ids) const;
+                              std::set<uint32_t>& group_by_missing_value_ids,
+                              const std::map<std::string, reference_filter_result_t>& references) const;
 
     static void compute_facet_stats(facet &a_facet, const std::string& raw_value,
                                     const std::string & field_type, const size_t count);
@@ -621,6 +624,9 @@ private:
                                    const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);
 
     Option<bool> get_related_ids(const std::string& reference_helper_field_name,
+                                 const std::vector<uint32_t>& seq_id_vec, std::vector<uint32_t>& related_ids) const;
+
+    Option<bool> get_related_ids(const std::string& reference_helper_field_name,
                                  const uint32_t& seq_id, std::vector<uint32_t>& result) const;
 
     static void process_embed_results(const std::vector<std::pair<index_record*, std::string>>& values_to_embed_text,
@@ -630,10 +636,6 @@ private:
                                       const std::vector<std::pair<index_record*, std::vector<std::string>>>& values_to_embed_personalization,
                                       const std::vector<embedding_res_t>& embeddings_personalization,
                                       const field& the_field);
-
-    void update_async_references(const std::string& collection_name, const field& afield,
-                                 std::vector<index_record>& iter_batch,
-                                 const std::set<reference_pair_t>& async_referenced_ins = {});
 
     std::string get_collection_name_with_lock() const {
         std::shared_lock lock(mutex);
@@ -757,7 +759,9 @@ public:
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
-                filter_result_iterator_t*& filter_result_iterator, std::vector<facet>& facets, facet_query_t facet_query,
+                filter_result_iterator_t*& filter_result_iterator,
+                filter_result_iterator_t*& filter_result_iterator_no_groups,
+                std::vector<facet>& facets, facet_query_t facet_query,
                 const int max_facet_values,
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
@@ -796,7 +800,7 @@ public:
                 std::set<uint32_t>& group_by_missing_value_ids,
                 Collection const *const collection,
                const std::vector<std::string>& synonym_sets,
-               const diversity_t& diversity) const;
+               const diversity_t& diversity, const size_t group_max_candidates) const;
 
     void remove_field(uint32_t seq_id, nlohmann::json& document, const std::string& field_name,
                       const bool is_update);
@@ -814,7 +818,19 @@ public:
                                           const std::vector<char>& symbols_to_index,
                                           const bool do_validation, const size_t remote_embedding_batch_size = 200,
                                           const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true);
-
+    
+    static void batch_validate_and_preprocess(Index* index, std::vector<index_record>&  iter_batch,
+                                        const std::string& default_sorting_field,
+                                        const tsl::htrie_map<char, field> & actual_search_schema,
+                                        const tsl::htrie_map<char, field> & embedding_fields,
+                                        const std::string& fallback_field_type,
+                                        const std::vector<char>& token_separators,
+                                        const std::vector<char>& symbols_to_index,
+                                        const bool do_validation,
+                                        const size_t remote_embedding_batch_size = 200,
+                                        const size_t remote_embedding_timeout_ms = 60000,
+                                        const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true);
+                
     static size_t batch_memory_index(Index *index,
                                      std::vector<index_record>& iter_batch,
                                      const std::string& default_sorting_field,
@@ -823,18 +839,13 @@ public:
                                      const std::string& fallback_field_type,
                                      const std::vector<char>& token_separators,
                                      const std::vector<char>& symbols_to_index,
-                                     const bool do_validation, const size_t remote_embedding_batch_size = 200,
-                                     const size_t remote_embedding_timeout_ms = 60000,
-                                     const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true,
+                                     std::unordered_set<std::string>& found_fields,
                                      const bool use_addition_fields = false,
                                      const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>(),
-                                     const std::string& collection_name = "",
-                                     const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins =
-                                            spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+                                     const std::string& collection_name = "");
 
     void index_field_in_memory(const std::string& collection_name, const field& afield,
-                               std::vector<index_record>& iter_batch,
-                               const std::set<reference_pair_t>& async_referenced_ins = {});
+                               std::vector<index_record>& iter_batch);
 
     template<class T>
     void iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func);
@@ -1203,8 +1214,8 @@ public:
 
     GeoPolygonIndex* get_geopolygon_index(const std::string& field_name) const;
 
-    Option<bool> get_related_ids_with_lock(const std::string& reference_helper_field_name,
-                                           const uint32_t& seq_id, std::vector<uint32_t>& result) const;
+    Option<bool> get_related_ids_with_lock(const std::string& field_name,
+                                           const std::vector<uint32_t>& seq_id_vec, std::vector<uint32_t>& related_ids) const;
 
     Option<bool> do_facets_with_lock(std::vector<facet> & facets, facet_query_t & facet_query,
                                      bool estimate_facets, size_t facet_sample_percent,
@@ -1219,6 +1230,10 @@ public:
                                      Collection const *const collection) const;
 
     Option<bool> process_ref_include_fields_sort(std::vector<sort_by>& sort_fields_std, size_t limit, std::vector<uint32_t>& doc_ids);
+
+    static void update_async_references(const std::string& collection_name, std::vector<index_record>& iter_batch,
+                                        const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins =
+                                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
 };
 
 template<class T>

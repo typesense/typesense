@@ -12,7 +12,10 @@ struct Hasher32 {
 };
 
 struct diversity_t {
+    static constexpr float DEFAULT_LAMDA_VALUE = 0.5;
+
     float lambda{};
+    size_t limit{};
 
 // ": int" fixes "In template: no matching function for call to 'is_valid'" for magic_enum::enum_cast
 // https://github.com/Neargye/magic_enum/issues/204#issuecomment-1238393619
@@ -45,10 +48,7 @@ struct pair_hash {
 };
 
 struct similarity_t {
-    Option<double> calculate(uint32_t seq_id_i, uint32_t seq_id_j, const diversity_t& diversity,
-                             const spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*>& sort_index,
-                             const facet_index_t* facet_index_v4);
-
-private:
-    spp::sparse_hash_map<std::pair<uint32_t, uint32_t>, double, pair_hash> similarity_map{};
+    static Option<double> calculate(uint32_t seq_id_i, uint32_t seq_id_j, const diversity_t& diversity,
+                                    const spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*>& sort_index,
+                                    const facet_index_t* facet_index_v4);
 };

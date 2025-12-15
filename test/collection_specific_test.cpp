@@ -2898,6 +2898,76 @@ TEST_F(CollectionSpecificTest, NegationOfTokens) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, HyphenDetectionInQueryTokens) {
+    std::vector<field> fields = {field("url", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "points", 0, "", {}, {"-", "_", "."}
+    ).get();
+
+    std::vector<std::vector<std::string>> records = {
+            {"https://example-site.com/page_name"},
+    };
+
+    nlohmann::json doc;
+
+    doc["url"] = records[0][0];
+    doc["points"] = 0;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("https://example-site.com/page_name", {"url"},
+                                 "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("example-site.com/page_name", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("example-site.com/page", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("example-site.com", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("example-site", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("site.com/page", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("site", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("com/page_name", {"url"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSpecificTest, PhraseSearchOnLongText) {
     std::vector<field> fields = {field("title", field_types::STRING, false),};
 
@@ -3151,4 +3221,203 @@ TEST_F(CollectionSpecificTest, ExactMatchWithoutClosingSymbol) {
     ASSERT_EQ("Taj Mahal", result["hits"][0]["document"]["title"]);
     ASSERT_EQ("1", result["hits"][1]["document"]["id"]);
     ASSERT_EQ("Mahabalipuram", result["hits"][1]["document"]["title"]);
+}
+
+TEST_F(CollectionSpecificTest, TruncationFilteringTest) {
+    std::vector<field> fields = {
+        field("url", field_types::STRING, false, false, true, "", -1, -1, false, 0, 0, cosine, "", nlohmann::json(), false, true, false, "", nlohmann::json(), false, nlohmann::json(), nlohmann::json(), 100), // truncate at 100 (default)
+        field("long_url", field_types::STRING, false, false, true, "", -1, -1, false, 0, 0, cosine, "", nlohmann::json(), false, true, false, "", nlohmann::json(), false, nlohmann::json(), nlohmann::json(), 0), // no truncation
+        field("short_url", field_types::STRING, false, false, true, "", -1, -1, false, 0, 0, cosine, "", nlohmann::json(), false, true, false, "", nlohmann::json(), false, nlohmann::json(), nlohmann::json(), 50) // truncate at 50
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+
+    std::vector<nlohmann::json> docs = {
+        {
+            {"id", "1"},
+            {"url", "https://www.nothing.com/en/products/transducers/force/c10"},
+            {"long_url", "https://www.nothing.com/en/products/transducers/force/c10"},
+            {"short_url", "https://www.nothing.com/en/products/transducers/force/c10"}
+        },
+        {
+            {"id", "2"},
+            {"url", "https://www.nothing.com/en/products/transducers/inertial-sensors/inertial-measurement-units--imu-/3dm-cv5-imu/p-34523-23423"},
+            {"long_url", "https://www.nothing.com/en/products/transducers/inertial-sensors/inertial-measurement-units--imu-/3dm-cv5-imu/p-34523-23423"},
+            {"short_url", "https://www.nothing.com/en/products/transducers/inertial-sensors/inertial-measurement-units--imu-/3dm-cv5-imu/p-34523-23423"}
+        },
+        {
+            {"id", "3"},
+            {"url", "https://www.example.com/very/long/url/path/that/goes/on/and/on/and/should/be/truncated/at/100/characters"},
+            {"long_url", "https://www.example.com/very/long/url/path/that/goes/on/and/on/and/should/be/truncated/at/100/characters"},
+            {"short_url", "https://www.example.com/very/long/url/path/that/goes/on/and/on/and/should/be/truncated/at/100/characters"}
+        }
+    };
+
+    for(const auto& doc : docs) {
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // filter by exact URL match with truncation (should find only exact match)
+    std::map<std::string, std::string> req_params = {
+        {"collection", "coll1"},
+        {"q", "*"},
+        {"filter_by", "url:=`https://www.nothing.com/en/products/transducers/force/c10`"},
+    };
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    nlohmann::json result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("1", result["hits"][0]["document"]["id"]);
+
+    // filter by exact URL match with longer URL (should find only exact match)
+    req_params = {
+        {"collection", "coll1"},
+        {"q", "*"},
+        {"filter_by", "url:=`https://www.nothing.com/en/products/transducers/inertial-sensors/inertial-measurement-units--imu-/3dm-cv5-imu/p-34523-23423`"},
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("2", result["hits"][0]["document"]["id"]);
+
+    // filter by exact URL match with no truncation (should find exact match)
+    req_params = {
+        {"collection", "coll1"},
+        {"q", "*"},
+        {"filter_by", "long_url:=`https://www.nothing.com/en/products/transducers/force/c10`"},
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("1", result["hits"][0]["document"]["id"]);
+
+    // filter by exact URL match with aggressive truncation (should find exact match)
+    req_params = {
+        {"collection", "coll1"},
+        {"q", "*"},
+        {"filter_by", "short_url:=`https://www.nothing.com/en/products/transducers/force/c10`"},
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("1", result["hits"][0]["document"]["id"]);
+
+    // filter by very long URL that gets truncated (should find exact match)
+    req_params = {
+        {"collection", "coll1"},
+        {"q", "*"},
+        {"filter_by", "url:=`https://www.example.com/very/long/url/path/that/goes/on/and/on/and/should/be/truncated/at/100/characters`"},
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("3", result["hits"][0]["document"]["id"]);
+}
+
+TEST_F(CollectionSpecificTest, TruncationEdgeCasesTest) {
+    std::vector<field> fields = {
+        field("text", field_types::STRING, false, false, true, "", -1, -1, false, 0, 0, cosine, "", nlohmann::json(), false, true, false, "", nlohmann::json(), false, nlohmann::json(), nlohmann::json(), 5) // truncate at 5
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+
+    // exactly 5 characters (should not be truncated)
+    nlohmann::json doc1 = {
+        {"id", "1"},
+        {"text", "Hello"}
+    };
+
+    // 6 characters (should be truncated to 5)
+    nlohmann::json doc2 = {
+        {"id", "2"},
+        {"text", "Hello World"}
+    };
+
+    // very long text
+    nlohmann::json doc3 = {
+        {"id", "3"},
+        {"text", "This is a very long text that should definitely be truncated at 5 characters"}
+    };
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // exact match for 5-character text (should find only doc1)
+    std::map<std::string, std::string> req_params = {
+        {"collection", "coll1"},
+        {"q", "*"},
+        {"filter_by", "text:=`Hello`"},
+    };
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    nlohmann::json result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("1", result["hits"][0]["document"]["id"]);
+
+    // exact match for 6-character text (should find only doc2, even though it gets truncated)
+    req_params = {
+        {"collection", "coll1"},
+        {"q", "*"},
+        {"filter_by", "text:=`Hello World`"},
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("2", result["hits"][0]["document"]["id"]);
+
+    // exact match for very long text (should find only doc3, even though it gets truncated)
+    req_params = {
+        {"collection", "coll1"},
+        {"q", "*"},
+        {"filter_by", "text:=`This is a very long text that should definitely be truncated at 5 characters`"},
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("3", result["hits"][0]["document"]["id"]);
 }

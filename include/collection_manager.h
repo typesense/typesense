@@ -210,4 +210,38 @@ public:
 
     static void remove_internal_fields(std::map<std::string, std::string>& params);
 
+    static Option<bool> get_document_from_store(const std::string collection, const uint32_t& seq_id,
+                                                nlohmann::json& document, bool raw_doc = false);
+
+    static Option<uint32_t> doc_id_to_seq_id(const std::string collection, const std::string& doc_id);
+
+    static Option<bool> get_filter_ids(const std::string collection, const std::string & filter_query,
+                                       filter_result_t& filter_result,
+                                       const bool& should_timeout = true, const bool& validate_field_names = true);
+
+    Option<reference_info_t> is_referenced_in(const std::string& referenced_coll_name,
+                                              const std::string& referring_coll_name) const;
+
+    static Option<bool> populate_include_exclude_fields(const std::string& collection_name,
+                                                        const std::string& ref_include,
+                                                        const std::string& ref_exclude,
+                                                        tsl::htrie_set<char>& include_fields_full,
+                                                        tsl::htrie_set<char>& exclude_fields_full);
+
+    static Option<bool> include_related_docs(const std::string& collection_name,
+                                             nlohmann::json& doc, const uint32_t& seq_id,
+                                             const reference_info_t& ref_info,
+                                             const tsl::htrie_set<char>& ref_include_fields_full,
+                                             const tsl::htrie_set<char>& ref_exclude_fields_full,
+                                             const nlohmann::json& original_doc,
+                                             const ref_include_exclude_fields& ref_include_exclude);
+
+    static Option<bool> get_related_ids(const std::string& collection_name,
+                                        const std::string& field_name,
+                                        const std::vector<uint32_t>& seq_id_vec,
+                                        std::vector<uint32_t>& related_ids);
+
+    static Option<bool> process_ref_include_fields_sort(const std::string& collection_name,
+                                                        const std::string& sort_by_str, size_t limit,
+                                                        std::vector<uint32_t>& doc_ids);
 };

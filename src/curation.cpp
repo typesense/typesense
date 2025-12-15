@@ -20,6 +20,10 @@ Option<bool> curation_t::parse(const nlohmann::json& curation_json, const std::s
         return Option<bool>(400, "The `rule` definition must contain either a `tags` or a `query` and `match`.");
     }
 
+    if (curation_json["rule"].count("match") != 0 && curation_json["rule"].count("query") == 0) {
+        return Option<bool>(400, "The `match` field requires a `query` field to be present.");
+    }
+
     if(curation_json.count("includes") == 0 && curation_json.count("excludes") == 0 &&
        curation_json.count("filter_by") == 0 && curation_json.count("sort_by") == 0 &&
        curation_json.count("remove_matched_tokens") == 0 && curation_json.count("metadata") == 0 &&
@@ -127,6 +131,20 @@ Option<bool> curation_t::parse(const nlohmann::json& curation_json, const std::s
     curation.rule.query = json_rule.count("query") == 0 ? "" : json_rule["query"].get<std::string>();
     curation.rule.match = json_rule.count("match") == 0 ? "" : json_rule["match"].get<std::string>();
 
+
+    if(json_rule.count("stem") != 0 && json_rule["stem"].is_boolean()) {
+        curation.rule.stem = json_rule["stem"].get<bool>();
+        curation.rule.locale = locale;
+
+        if(json_rule.count("stemming_dictionary") != 0) {
+            curation.rule.stemming_dictionary = json_rule["stemming_dictionary"];
+        }
+    }
+
+    if(json_rule.count("synonyms") != 0 && json_rule["synonyms"].is_boolean()) {
+        curation.rule.synonyms = json_rule["synonyms"].get<bool>();
+    }
+
     if(!curation.rule.query.empty()) {
         auto symbols = symbols_to_index;
         symbols.push_back('{');
@@ -134,8 +152,9 @@ Option<bool> curation_t::parse(const nlohmann::json& curation_json, const std::s
         symbols.push_back('*');
         symbols.push_back('.');
 
+        auto stemmer = curation.rule.stem ? StemmerManager::get_instance().get_stemmer(locale, curation.rule.stemming_dictionary) : nullptr;
 
-        Tokenizer tokenizer(curation.rule.query, true, false, locale, symbols, token_separators, nullptr, true);
+        Tokenizer tokenizer(curation.rule.query, true, false, locale, symbols, token_separators, stemmer, true);
         std::vector<std::string> tokens;
         tokenizer.tokenize(tokens);
         curation.rule.normalized_query = StringUtils::join(tokens, " ");

@@ -452,6 +452,61 @@ bool validate_object_field(nlohmann::json& doc, const field& a_field) {
     return false;
 }
 
+void Index::batch_validate_and_preprocess(Index* index, std::vector<index_record>&  iter_batch,
+                                        const std::string& default_sorting_field,
+                                        const tsl::htrie_map<char, field> & actual_search_schema,
+                                        const tsl::htrie_map<char, field> & embedding_fields,
+                                        const std::string& fallback_field_type,
+                                        const std::vector<char>& token_separators,
+                                        const std::vector<char>& symbols_to_index,
+                                        const bool do_validation,
+                                        const size_t remote_embedding_batch_size,
+                                        const size_t remote_embedding_timeout_ms,
+                                        const size_t remote_embedding_num_tries, const bool generate_embeddings) {
+    const size_t concurrency = Config::get_instance().get_max_indexing_concurrency();
+    const size_t num_threads = std::min(concurrency, iter_batch.size());
+    const size_t window_size = (num_threads == 0) ? 0 :
+                               (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
+
+    size_t num_indexed = 0;
+    size_t num_processed = 0;
+    std::mutex m_process;
+    std::condition_variable cv_process;
+
+    size_t num_queued = 0;
+    size_t batch_index = 0;
+
+    // local is need to propogate the thread local inside threads launched below
+    auto local_write_log_index = write_log_index;
+    for(size_t thread_id = 0; thread_id < num_threads && batch_index < iter_batch.size(); thread_id++) {
+        size_t batch_len = window_size;
+
+        if(batch_index + window_size > iter_batch.size()) {
+            batch_len = iter_batch.size() - batch_index;
+        }
+
+        num_queued++;
+
+        index->thread_pool->enqueue([&, batch_index, batch_len]() {
+            write_log_index = local_write_log_index;
+            Index::validate_and_preprocess(index, iter_batch, batch_index, batch_len, default_sorting_field, actual_search_schema,
+                                    embedding_fields, fallback_field_type, token_separators, symbols_to_index, do_validation, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries, generate_embeddings);
+
+            std::unique_lock<std::mutex> lock(m_process);
+            num_processed++;
+
+            cv_process.notify_one();
+        });
+
+        batch_index += batch_len;
+    }
+
+    {
+        std::unique_lock<std::mutex> lock_process(m_process);
+        cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
+    }
+}
+
 void Index::validate_and_preprocess(Index *index,
                                     std::vector<index_record>& iter_batch,
                                     const size_t batch_start_index, const size_t batch_size,
@@ -580,59 +635,25 @@ size_t Index::batch_memory_index(Index *index,
                                  const std::string& fallback_field_type,
                                  const std::vector<char>& token_separators,
                                  const std::vector<char>& symbols_to_index,
-                                 const bool do_validation, const size_t remote_embedding_batch_size,
-                                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
-                                 const bool generate_embeddings,
+                                 std::unordered_set<std::string>& found_fields,
                                  const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
-                                 const std::string& collection_name,
-                                 const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
+                                 const std::string& collection_name) {
     const size_t concurrency = Config::get_instance().get_max_indexing_concurrency();
     const size_t num_threads = std::min(concurrency, iter_batch.size());
     const size_t window_size = (num_threads == 0) ? 0 :
                                (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
     const auto& indexable_schema = use_addition_fields ? addition_fields : actual_search_schema;
-    
+
     size_t num_indexed = 0;
     size_t num_processed = 0;
     std::mutex m_process;
     std::condition_variable cv_process;
 
     size_t num_queued = 0;
-    size_t batch_index = 0;
 
     // local is need to propogate the thread local inside threads launched below
     auto local_write_log_index = write_log_index;
-
-    for(size_t thread_id = 0; thread_id < num_threads && batch_index < iter_batch.size(); thread_id++) {
-        size_t batch_len = window_size;
-
-        if(batch_index + window_size > iter_batch.size()) {
-            batch_len = iter_batch.size() - batch_index;
-        }
-
-        num_queued++;
-
-        index->thread_pool->enqueue([&, batch_index, batch_len]() {
-            write_log_index = local_write_log_index;
-            validate_and_preprocess(index, iter_batch, batch_index, batch_len, default_sorting_field, actual_search_schema,
-                                    embedding_fields, fallback_field_type, token_separators, symbols_to_index, do_validation, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries, generate_embeddings);
-
-            std::unique_lock<std::mutex> lock(m_process);
-            num_processed++;
-
-            cv_process.notify_one();
-        });
-
-        batch_index += batch_len;
-    }
-
-    {
-        std::unique_lock<std::mutex> lock_process(m_process);
-        cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
-    }
-
-    std::unordered_set<std::string> found_fields;
-
+    
     for(size_t i = 0; i < iter_batch.size(); i++) {
         auto& index_rec = iter_batch[i];
 
@@ -650,7 +671,6 @@ size_t Index::batch_memory_index(Index *index,
         }
     }
 
-    num_queued = num_processed = 0;
     std::unique_lock ulock(index->mutex);
 
     for(const auto& field_name: found_fields) {
@@ -666,14 +686,8 @@ size_t Index::batch_memory_index(Index *index,
 
             const field& f = (field_name == "id") ?
                              field("id", field_types::STRING, false) : indexable_schema.at(field_name);
-            std::set<reference_pair_t> async_references;
-            auto it = async_referenced_ins.find(field_name);
-            if (it != async_referenced_ins.end()) {
-                async_references = it->second;
-            }
-
             try {
-                index->index_field_in_memory(collection_name, f, iter_batch, async_references);
+                index->index_field_in_memory(collection_name, f, iter_batch);
             } catch(std::exception& e) {
                 LOG(ERROR) << "Unhandled Typesense error: " << e.what();
                 for(auto& record: iter_batch) {
@@ -712,8 +726,7 @@ size_t Index::batch_memory_index(Index *index,
 }
 
 void Index::index_field_in_memory(const std::string& collection_name, const field& afield,
-                                  std::vector<index_record>& iter_batch,
-                                  const std::set<reference_pair_t>& async_referenced_ins) {
+                                  std::vector<index_record>& iter_batch) {
     // indexes a given field of all documents in the batch
 
     if(afield.name == "id") {
@@ -727,10 +740,6 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
                 std::unique_lock lock(seq_ids_mutex);
                 seq_ids->upsert(record.seq_id);
             }
-        }
-
-        if (!async_referenced_ins.empty()) {
-            update_async_references(collection_name, afield, iter_batch, async_referenced_ins);
         }
         return;
     }
@@ -1210,15 +1219,10 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
             }
         }
     }
-
-    if (!async_referenced_ins.empty()) {
-        update_async_references(collection_name, afield, iter_batch, async_referenced_ins);
-    }
 }
 
-void Index::update_async_references(const std::string& collection_name, const field& afield,
-                                    std::vector<index_record>& iter_batch,
-                                    const std::set<reference_pair_t>& async_referenced_ins) {
+void Index::update_async_references(const std::string& collection_name, std::vector<index_record>& iter_batch,
+                                    const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
     for (auto& record: iter_batch) {
         if (!record.indexed.ok() || record.is_update) {
             continue;
@@ -1228,65 +1232,48 @@ void Index::update_async_references(const std::string& collection_name, const fi
         auto const& seq_id = record.seq_id;
 
         for (const auto& pair: async_referenced_ins) {
-            auto const& reference_collection_name = pair.collection;
-            auto const& reference_field_name = pair.field;
-
-            auto& cm = CollectionManager::get_instance();
-            auto ref_coll = cm.get_collection(reference_collection_name);
-            if (ref_coll == nullptr) {
-                record.index_failure(400, "Collection `" + reference_collection_name + "` with async_reference to the"
-                                           " collection `" += collection_name + "` not found.");
+            const auto& referenced_field = pair.first;
+            if (document.count(referenced_field) != 1) {
                 continue;
             }
+            for (const auto& ref_info: pair.second) {
+                auto const& referencing_collection_name = ref_info.collection;
+                auto const& referencing_field_name = ref_info.field;
 
-            auto const& ref_fields = ref_coll->get_reference_fields();
-            auto const ref_field_it = ref_fields.find(reference_field_name);
-            if (ref_field_it == ref_fields.end()) {
-                record.index_failure(400, "Field `" + reference_field_name + "` not found in the ref schema of `" +=
-                                            reference_collection_name + "` having async_reference to `" += collection_name +
-                                            "` collection.");
-                continue;
-            }
+                auto& cm = CollectionManager::get_instance();
+                auto referencing_coll = cm.get_collection(referencing_collection_name);
+                if (referencing_coll == nullptr) {
+                    // Since the collections get created and indexed in parallel on server restart, we might run into a
+                    // scenario where the referencing collection hasn't yet been created. We can safely skip update of
+                    // referencing collection as the references will be created normally.
+                    continue;
+                }
 
-            if (ref_field_it->second.collection != collection_name) {
-                record.index_failure(400, "`" + reference_collection_name + "." += reference_field_name +
-                                              "` does not have a reference to `" += collection_name + "` collection.");
-                continue;
-            }
+                // After collecting the value(s) present in the field referenced by the other collection(ref_coll), we will add
+                // this document's seq_id as a reference where the value(s) match.
+                std::string ref_filter_value;
+                std::set<std::string> values;
+                if (document.at(referenced_field).is_array()) {
+                    ref_filter_value = "[";
 
-            auto const& ref_schema = ref_coll->get_schema();
-            if (ref_schema.count(reference_field_name) == 0) {
-                record.index_failure(400, "Field `" + reference_field_name + "` not found in the schema of `" +=
-                                            reference_collection_name + "` having async_reference to `" +=
-                                            collection_name + "` collection.");
-                continue;
-            }
-
-            auto const& field_name = ref_field_it->second.field;
-            if (field_name != "id" && search_schema.count(field_name) == 0) {
-                record.index_failure(400, "Field `" + field_name + "`, referenced by `" += reference_collection_name +
-                                            "." += reference_field_name + "`, not found in `" += collection_name +
-                                            "` collection.");
-                continue;
-            }
-
-            auto const& optional = field_name != "id" && search_schema.at(field_name).optional;
-            auto is_required = !is_update && !optional;
-            if (is_required && document.count(field_name) != 1) {
-                record.index_failure(400, "Missing the required field `" + field_name + "` in the document.");
-                continue;
-            } else if (document.count(field_name) != 1) {
-                continue;
-            }
-
-            // After collecting the value(s) present in the field referenced by the other collection(ref_coll), we will add
-            // this document's seq_id as a reference where the value(s) match.
-            std::string ref_filter_value;
-            std::set<std::string> values;
-            if (document.at(field_name).is_array()) {
-                ref_filter_value = "[";
-
-                for (auto const& value: document[field_name]) {
+                    for (auto const& value: document[referenced_field]) {
+                        if (value.is_number_integer()) {
+                            auto const& v = std::to_string(value.get<int64_t>());
+                            ref_filter_value += v;
+                            values.insert(v);
+                        } else if (value.is_string()) {
+                            auto const& v = value.get<std::string>();
+                            ref_filter_value += v;
+                            values.insert(v);
+                        } else {
+                            record.index_failure(400, "Field `" + referenced_field + "` must only have string/int32/int64 values.");
+                            continue;
+                        }
+                        ref_filter_value += ",";
+                    }
+                    ref_filter_value[ref_filter_value.size() - 1] = ']';
+                } else {
+                    auto const& value = document[referenced_field];
                     if (value.is_number_integer()) {
                         auto const& v = std::to_string(value.get<int64_t>());
                         ref_filter_value += v;
@@ -1296,39 +1283,23 @@ void Index::update_async_references(const std::string& collection_name, const fi
                         ref_filter_value += v;
                         values.insert(v);
                     } else {
-                        record.index_failure(400, "Field `" + field_name + "` must only have string/int32/int64 values.");
+                        record.index_failure(400, "Field `" + referenced_field + "` must only have string/int32/int64 values.");
                         continue;
                     }
-                    ref_filter_value += ",";
                 }
-                ref_filter_value[ref_filter_value.size() - 1] = ']';
-            } else {
-                auto const& value = document[field_name];
-                if (value.is_number_integer()) {
-                    auto const& v = std::to_string(value.get<int64_t>());
-                    ref_filter_value += v;
-                    values.insert(v);
-                } else if (value.is_string()) {
-                    auto const& v = value.get<std::string>();
-                    ref_filter_value += v;
-                    values.insert(v);
-                } else {
-                    record.index_failure(400, "Field `" + field_name + "` must only have string/int32/int64 values.");
+
+                if (values.empty()) {
                     continue;
                 }
-            }
 
-            if (values.empty()) {
-                continue;
-            }
-
-            auto const ref_filter = reference_field_name + ":= " += ref_filter_value;
-            auto update_op = ref_coll->update_async_references_with_lock(collection_name, ref_filter, values, seq_id,
-                                                                         reference_field_name);
-            if (!update_op.ok()) {
-                record.index_failure(400, "Error while updating async reference field `" + reference_field_name +
-                                         "` of collection `" += reference_collection_name + "`: " += update_op.error());
-                break;
+                auto const ref_filter = referencing_field_name + ":= " += ref_filter_value;
+                auto update_op = referencing_coll->update_async_references_with_lock(collection_name, ref_filter, values, seq_id,
+                                                                                     referencing_field_name);
+                if (!update_op.ok()) {
+                    record.index_failure(400, "Error while updating async reference field `" + referencing_field_name +
+                                              "` of collection `" += referencing_collection_name + "`: " += update_op.error());
+                    break;
+                }
             }
         }
     }
@@ -1348,8 +1319,8 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
             continue;
         }
 
-        if(token.size() > 100) {
-            token.erase(100);
+        if(token.size() > a_field.truncate_len && a_field.truncate_len > 0) {
+            token.erase(a_field.truncate_len);
         }
         
         token_to_offsets[token].push_back(token_index + 1);
@@ -2526,6 +2497,20 @@ Option<bool> Index::run_search(search_args* search_params) {
         return filter_init_op;
     }
 
+    auto filter_result_iterator_no_groups = new filter_result_iterator_t(get_collection_name(),
+                                                                          this, filter_root.get(),
+                                                                          search_params->enable_lazy_filter,
+                                                                          search_params->max_filter_by_candidates,
+                                                                          search_begin_us,
+                                                                          search_stop_us,
+                                                                          search_params->validate_field_names);
+    std::unique_ptr<filter_result_iterator_t> filter_iterator_no_groups_guard(filter_result_iterator_no_groups);
+
+    filter_init_op = filter_result_iterator->init_status();
+    if (!filter_init_op.ok()) {
+        return filter_init_op;
+    }
+
 #ifdef TEST_BUILD
 
     if (testing_not_equals_bug || filter_result_iterator->approx_filter_ids_length > 20) {
@@ -2546,7 +2531,8 @@ Option<bool> Index::run_search(search_args* search_params) {
         auto res = search(search_params->field_query_tokens,
                           search_params->search_fields,
                           search_params->match_type,
-                          filter_result_iterator, search_params->facets, search_params->facet_query,
+                          filter_result_iterator, filter_result_iterator_no_groups,
+                          search_params->facets, search_params->facet_query,
                           search_params->max_facet_values,
                           search_params->included_ids, search_params->excluded_ids,
                           search_params->sort_fields_std, search_params->num_typos,
@@ -2597,7 +2583,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                           group_by_missing_value_ids,
                           search_params->collection,
                           search_params->synonym_sets,
-                          search_params->diversity);
+                          search_params->diversity, search_params->group_max_candidates);
 
         // The filter iterator can be updated in places like `Index::do_phrase_search`.
         filter_iterator_guard.release();
@@ -2631,32 +2617,47 @@ Option<bool> Index::run_search(search_args* search_params) {
                             group_by_values_list);
 
         std::string filter_by;
+        std::vector<std::string> clauses;
+
         for (size_t i = 0; i < group_by_fields.size(); i++) {
             const auto& field_name = group_by_fields[i].field_name;
-            auto& values = group_by_values_list[i];
-            if (values.empty()) {
+            const auto& values = group_by_values_list[i];
+
+            std::vector<std::string> valid_values;
+            valid_values.reserve(values.size());
+            for (const auto& value : values) {
+                if (!value.empty()) {
+                    if (group_by_fields[i].is_string) {
+                        valid_values.push_back("`" + value + "`");
+                    } else {
+                        valid_values.push_back(value);
+                    }
+                }
+            }
+            if (valid_values.empty()) {
                 continue;
             }
 
-            filter_by += (field_name + ": [");
-            for (const auto& value: values) {
-                if(value.empty()) {
-                    continue;
-                }
-
-                if(group_by_fields[i].is_string) {
-                    filter_by += ("`" + value + "`,");
-                } else {
-                    filter_by += (value + ",");
+            std::string clause = field_name + ": [";
+            for (size_t j = 0; j < valid_values.size(); j++) {
+                clause += valid_values[j];
+                if (j + 1 < valid_values.size()) {
+                    clause += ",";
                 }
             }
-            filter_by[filter_by.size() - 1] = ']';
+            clause += "]";
 
-            if (i + 1 < group_by_fields.size()) {
+            clauses.push_back(std::move(clause));
+        }
+
+        for (size_t i = 0; i < clauses.size(); i++) {
+            filter_by += clauses[i];
+            if (i + 1 < clauses.size()) {
                 filter_by += " && ";
             }
         }
 
+        
         filter_node_t* new_filter_tree_root = nullptr;
         Option<bool> filter_op = filter::parse_filter_query(filter_by, search_schema, store, "", new_filter_tree_root,
                                                             search_params->validate_field_names);
@@ -2705,6 +2706,8 @@ Option<bool> Index::run_search(search_args* search_params) {
         search_params->found_count = search_params->topster->getGroupsCount() + search_params->curated_topster->getGroupsCount();
         search_params->found_docs = search_params->all_result_ids_len;
 
+        filter_result_iterator_no_groups->reset();
+
         delete search_params->topster;
         delete search_params->curated_topster;
 
@@ -2719,7 +2722,9 @@ Option<bool> Index::run_search(search_args* search_params) {
     auto res = search(search_params->field_query_tokens,
                   search_params->search_fields,
                   search_params->match_type,
-                  filter_result_iterator, search_params->facets, search_params->facet_query,
+                  filter_result_iterator,
+                  filter_result_iterator_no_groups,
+                  search_params->facets, search_params->facet_query,
                   search_params->max_facet_values,
                   search_params->included_ids, search_params->excluded_ids,
                   search_params->sort_fields_std, search_params->num_typos,
@@ -2770,7 +2775,8 @@ Option<bool> Index::run_search(search_args* search_params) {
                   group_by_missing_value_ids,
                   search_params->collection,
                   search_params->synonym_sets,
-                  search_params->diversity
+                  search_params->diversity,
+                  search_params->group_max_candidates
     );
 
     // The filter iterator can be updated in places like `Index::do_phrase_search`.
@@ -2778,10 +2784,16 @@ Option<bool> Index::run_search(search_args* search_params) {
     filter_iterator_guard.reset(filter_result_iterator);
 
     if (search_params->group_limit) {
-        // Doing std::max since in case of group_by, loglog_counter returns an approximate count of the number of distinct
-        // group_by values in the first pass and sometimes the count can be less than the size of returned result.
-        search_params->found_count = std::max(search_params->found_count,
-                                              search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size());
+        if (search_params->group_max_candidates != DEFAULT_TOPSTER_SIZE) {
+            // User has set an appropriate upper limit of the expected group count. Assuming all the groups have been
+            // processed, no need to rely on approximate count.
+            search_params->found_count = search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size();
+        } else {
+            // Doing std::max since in case of group_by, loglog_counter returns an approximate count of the number of distinct
+            // group_by values in the first pass and sometimes the count can be less than the size of returned result.
+            search_params->found_count = std::max(search_params->found_count,
+                                                  search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size());
+        }
     } else {
         search_params->found_count = search_params->all_result_ids_len;
     }
@@ -2797,7 +2809,8 @@ void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
                                  const bool group_missing_values,
                                  std::vector<std::vector<art_leaf*>> & searched_queries,
                                  bool is_group_by_first_pass,
-                                 std::set<uint32_t>& group_by_missing_value_ids) const {
+                                 std::set<uint32_t>& group_by_missing_value_ids,
+                                 const  std::map<std::string, reference_filter_result_t>& references) const {
 
     if(included_ids_map.empty()) {
         return;
@@ -2826,7 +2839,8 @@ void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
             scores[1] = -(inner_pos + 1);
             scores[2] = int64_t(1);
 
-            KV kv(0, seq_id, distinct_id, 0, scores);
+            //included ids are upstream validated, so can directly add references
+            KV kv(0, seq_id, distinct_id, 0, scores, references);
             curated_topster->add(&kv);
         }
     }
@@ -3464,7 +3478,9 @@ void process_results_hnsw_index(filter_result_iterator_t* filter_result_iterator
 
 Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                    const text_match_type_t match_type,
-                   filter_result_iterator_t*& filter_result_iterator, std::vector<facet>& facets, facet_query_t facet_query,
+                   filter_result_iterator_t*& filter_result_iterator,
+                   filter_result_iterator_t*& filter_result_iterator_no_groups,
+                   std::vector<facet>& facets, facet_query_t facet_query,
                    const int max_facet_values,
                    const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                    const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
@@ -3498,7 +3514,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool rerank_hybrid_matches, const bool& validate_field_names, bool is_group_by_first_pass,
                    std::set<uint32_t>& group_by_missing_value_ids, Collection const *const collection,
                    const std::vector<std::string>& synonym_sets,
-                   const diversity_t& diversity) const {
+                   const diversity_t& diversity, const size_t group_max_candidates) const {
     std::shared_lock lock(mutex);
 
     group_found_params_t group_found_params{};
@@ -3517,7 +3533,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
     }
 
-    size_t topster_size = std::max<size_t>(fetch_size, std::max<size_t>(DEFAULT_TOPSTER_SIZE, included_ids.size()));
+    size_t topster_size = std::max<size_t>(group_max_candidates, std::max<size_t>(fetch_size, std::max<size_t>(DEFAULT_TOPSTER_SIZE, included_ids.size())));
     if(filter_result_iterator->approx_filter_ids_length != 0 && filter_result_iterator->reference.empty()) {
         topster_size = std::min<size_t>(topster_size, filter_result_iterator->approx_filter_ids_length);
     } else {
@@ -3537,7 +3553,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         included_ids_vec, is_group_by_first_pass, group_by_missing_value_ids);
     collate_included_ids({}, included_ids_map, curated_topster, group_limit,
                          group_by_fields, group_missing_values, searched_queries, is_group_by_first_pass,
-                         group_by_missing_value_ids);
+                         group_by_missing_value_ids, filter_result_iterator->reference);
     filter_result_iterator->reset();
     search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
@@ -3645,7 +3661,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     groups_processed[distinct_id]++;
                 }
 
-                if (result_ids.size() == fetch_size && group_limit == 0) {
+                const auto comp_size = diversity.similarity_equation.empty() ? fetch_size : topster->MAX_SIZE;
+                if (result_ids.size() == comp_size && group_limit == 0) {
                     break;
                 }
 
@@ -3656,10 +3673,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             goto process_search_results;
         }
 
-        if (!vector_query.field_name.empty()) {
+        if (!vector_query.field_name.empty() && !is_group_by_first_pass) {
             auto k = vector_query.k == 0 ? std::max<size_t>(vector_query.k, fetch_size) : vector_query.k;
 
-            VectorFilterFunctor filterFunctor(filter_result_iterator, excluded_result_ids, excluded_result_ids_size);
+            VectorFilterFunctor filterFunctor(filter_result_iterator_no_groups, excluded_result_ids, excluded_result_ids_size);
             auto& field_vector_index = vector_index.at(vector_query.field_name);
 
             if(vector_query.query_doc_given && filterFunctor(vector_query.seq_id)) {
@@ -3667,23 +3684,24 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 k++;
             }
 
-            filter_result_iterator->reset();
+            filter_result_iterator_no_groups->reset();
 
             std::vector<std::pair<float, single_filter_result_t>> dist_results;
 
-            filter_result_iterator->compute_iterators();
+            filter_result_iterator_no_groups->compute_iterators();
 
-            uint32_t filter_id_count = filter_result_iterator->approx_filter_ids_length;
+            uint32_t filter_id_count = filter_result_iterator_no_groups->approx_filter_ids_length;
+            auto no_group_filter_provided = filter_result_iterator_no_groups->is_filter_provided();
 
-            if (filter_by_provided && filter_id_count < vector_query.flat_search_cutoff) {
-                process_results_bruteforce(filter_result_iterator, vector_query, field_vector_index, dist_results);
-            } else if(!filter_by_provided ||
-                (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid)) {
+            if (no_group_filter_provided && filter_id_count < vector_query.flat_search_cutoff) {
+                process_results_bruteforce(filter_result_iterator_no_groups, vector_query, field_vector_index, dist_results);
+            } else if(!no_group_filter_provided ||
+                (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator_no_groups->validity == filter_result_iterator_t::valid)) {
                 dist_results.clear();
-                process_results_hnsw_index(filter_result_iterator, vector_query, field_vector_index, filterFunctor, k, dist_results, true);
+                process_results_hnsw_index(filter_result_iterator_no_groups, vector_query, field_vector_index, filterFunctor, k, dist_results, true);
             }
 
-            search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
+            search_cutoff = search_cutoff || filter_result_iterator_no_groups->validity == filter_result_iterator_t::timed_out;
 
             std::vector<uint32_t> nearest_ids;
             std::vector<uint32_t> eval_filter_indexes;
@@ -3825,7 +3843,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         for(const auto& q_syn_vec: field_query_tokens[0].q_synonyms) {
             std::vector<token_t> q_pos_syn;
             for(size_t j=0; j < q_syn_vec.size(); j++) {
-                bool is_prefix = (j == q_syn_vec.size()-1);
+                // Enable prefix matching only if it is the last token and the last token is an original query token
+                bool is_prefix = (j == q_syn_vec.size()-1) && 
+                                 (q_syn_vec.back() == field_query_tokens[0].q_include_tokens.back().value);
                 std::string token_val = q_syn_vec[j];
                 if (do_stemming) {
                     auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
@@ -4047,7 +4067,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         filter_result_iterator->reset();
         search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
-        if(!vector_query.field_name.empty()) {
+        if(!vector_query.field_name.empty() && !is_group_by_first_pass) {
             // check at least one of sort fields is text match
             bool has_text_match = false;
             for(auto& sort_field : sort_fields_std) {
@@ -4061,25 +4081,28 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             const float VECTOR_SEARCH_WEIGHT = vector_query.alpha;
             const float TEXT_MATCH_WEIGHT = 1.0 - VECTOR_SEARCH_WEIGHT;
 
-            VectorFilterFunctor filterFunctor(filter_result_iterator, excluded_result_ids, excluded_result_ids_size);
+            VectorFilterFunctor filterFunctor(filter_result_iterator_no_groups, excluded_result_ids, excluded_result_ids_size);
             auto& field_vector_index = vector_index.at(vector_query.field_name);
 
-            uint32_t filter_id_count = filter_result_iterator->approx_filter_ids_length;
+            uint32_t filter_id_count = filter_result_iterator_no_groups->approx_filter_ids_length;
             std::vector<std::pair<float, single_filter_result_t>> dist_results;
 
-            if (filter_by_provided && filter_id_count < vector_query.flat_search_cutoff) {
-                process_results_bruteforce(filter_result_iterator, vector_query, field_vector_index, dist_results);
-            } else if (!filter_by_provided || (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid)) {
+            auto no_group_filter_provided = filter_result_iterator_no_groups->is_filter_provided();
+
+            if (no_group_filter_provided && filter_id_count < vector_query.flat_search_cutoff) {
+                process_results_bruteforce(filter_result_iterator_no_groups, vector_query, field_vector_index, dist_results);
+            } else if (!no_group_filter_provided || (filter_id_count >= vector_query.flat_search_cutoff &&
+                        filter_result_iterator_no_groups->validity == filter_result_iterator_t::valid)) {
                 dist_results.clear();
                 // use k as 100 by default for ensuring results stability in pagination
                 size_t default_k = 100;
                 auto k = vector_query.k == 0 ? std::max<size_t>(fetch_size, default_k)
                                              : vector_query.k;
 
-                process_results_hnsw_index(filter_result_iterator, vector_query, field_vector_index, filterFunctor, k, dist_results);
+                process_results_hnsw_index(filter_result_iterator_no_groups, vector_query, field_vector_index, filterFunctor, k, dist_results);
             }
 
-            filter_result_iterator->reset();
+            filter_result_iterator_no_groups->reset();
             std::unordered_map<uint32_t, uint32_t> seq_id_to_rank;
 
             for (size_t vec_index = 0; vec_index < dist_results.size(); vec_index++) {
@@ -4134,15 +4157,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
 
             for(size_t res_index = 0; res_index < dist_results.size() &&
-                            filter_result_iterator->validity != filter_result_iterator_t::timed_out; res_index++) {
+                    filter_result_iterator_no_groups->validity != filter_result_iterator_t::timed_out; res_index++) {
                 auto& dist_result = dist_results[res_index];
                 auto seq_id = dist_result.second.seq_id;
 
-                if (filter_by_provided && filter_result_iterator->is_valid(seq_id) != 1) {
+                if (no_group_filter_provided && filter_result_iterator_no_groups->is_valid(seq_id) != 1) {
                     continue;
                 }
-                auto references = std::move(filter_result_iterator->reference);
-                filter_result_iterator->reset();
+                auto references = std::move(filter_result_iterator_no_groups->reference);
+                filter_result_iterator_no_groups->reset();
 
                 KV* found_kv = nullptr;
                 if(group_limit != 0) {
@@ -4223,7 +4246,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     }
                 }
             }
-            search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
+            search_cutoff = search_cutoff || filter_result_iterator_no_groups->validity == filter_result_iterator_t::timed_out;
 
             if(!vec_search_ids.empty()) {
                 uint32_t* new_all_result_ids = nullptr;
@@ -4555,7 +4578,7 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
     std::vector<uint32_t> ref_doc_ids;
     ref_doc_ids.reserve(all_result_ids_len);
 
-    for(auto i = 0; i < all_result_ids_len; ++i) {
+    for(uint32_t i = 0; i < all_result_ids_len; ++i) {
         // Only collecting the references of docs in the final result.
         const auto& is_valid = fit.is_valid(all_result_ids[i]);
         if (is_valid == 0) {
@@ -4621,10 +4644,10 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
 
             auto const& reference_field_name = reference_field_name_op.get();
             auto const& ref_result = fit.reference[joined_coll_having_reference];
-            for (uint32_t j = 0; j < ref_result.count; j++) {
-                joined_collection->get_related_ids_with_lock(reference_field_name, ref_result.docs[j],
-                                                             ref_doc_ids);
-            }
+
+            joined_collection->get_related_ids_with_lock(reference_field_name,
+                                                         std::vector<uint32_t>(ref_result.docs, ref_result.docs + ref_result.count),
+                                                         ref_doc_ids);
         }
     }
 
@@ -8399,75 +8422,87 @@ int64_t Index::reference_string_sort_score(const string &field_name,  const std:
     return score;
 }
 
-Option<bool> Index::get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
-                                    std::vector<uint32_t>& result) const {
+Option<bool> Index::get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
+                                              std::vector<uint32_t>& related_ids) const {
     std::shared_lock lock(mutex);
-    return get_related_ids(field_name, seq_id, result);
+    return get_related_ids(field_name, seq_id_vec, related_ids);
+}
+
+Option<bool> Index::get_related_ids(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
+                                    std::vector<uint32_t>& related_ids) const {
+    auto const& collection_name = get_collection_name();
+    auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+    auto search_schema_it = search_schema.find(reference_helper_field_name);
+    if (search_schema_it == search_schema.end()) {
+        return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" +
+                                 collection_name + "`.");
+    }
+
+    auto sort_index_it = sort_index.find(reference_helper_field_name);
+    auto reference_index_it = reference_index.find(reference_helper_field_name);
+    if (search_schema_it->is_singular()) {
+        if (sort_index_it == sort_index.end()) {
+            return Option<bool>(400, "Could not find `" + reference_helper_field_name +
+                                     "` in the collection `" + collection_name + "`.");
+        }
+    } else if (reference_index_it == reference_index.end()) {
+        return Option<bool>(400, "Could not find `" + reference_helper_field_name +
+                                 "` in the collection `" + collection_name + "`.");
+    }
+
+    related_ids.reserve(seq_id_vec.size());
+    for (size_t i = 0; i < seq_id_vec.size(); i++) {
+        auto const& seq_id = seq_id_vec[i];
+
+        if (search_schema_it->is_singular()) {
+            auto const& ref_index = sort_index_it->second;
+            auto const it = ref_index->find(seq_id);
+
+            if (it == ref_index->end()) {
+                auto coll = CollectionManager::get_instance().get_collection(get_collection_name());
+                nlohmann::json doc;
+                if (coll != nullptr) {
+                    coll->get_document_from_store(seq_id, doc);
+                }
+                const auto id = doc.contains("id") ? doc["id"].get<std::string>() : std::to_string(seq_id);
+                return Option<bool>(404, "Could not find `" + reference_helper_field_name +=
+                                            "` value for doc `" + id += "`.");
+            } else if (it->second != Join::reference_helper_sentinel_value) {
+                related_ids.push_back(it->second);
+            }
+        } else {
+            auto const& ref_index = reference_index_it->second;
+            size_t count = 0;
+            uint32_t* ref_ids = nullptr;
+            ref_index->search(EQUALS, seq_id, &ref_ids, count);
+
+            if (count == 0) {
+                auto coll = CollectionManager::get_instance().get_collection(get_collection_name());
+                nlohmann::json doc;
+                if (coll != nullptr) {
+                    coll->get_document_from_store(seq_id, doc);
+                }
+                const auto id = doc.contains("id") ? doc["id"].get<std::string>() : std::to_string(seq_id);
+                return Option<bool>(404, "Could not find `" + reference_helper_field_name +=
+                        "` value for doc `" + id += "`.");
+            }
+
+            for (size_t j = 0; j < count; j++) {
+                related_ids.push_back(ref_ids[j]);
+            }
+            delete [] ref_ids;
+        }
+    }
+
+    gfx::timsort(related_ids.begin(), related_ids.end());
+    related_ids.erase(unique(related_ids.begin(), related_ids.end()), related_ids.end());
+
+    return Option<bool>(true);
 }
 
 Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_t& seq_id,
                                     std::vector<uint32_t>& result) const {
-
-    auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
-    if (search_schema.count(reference_helper_field_name) == 0) {
-        return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" +
-                                    get_collection_name() + "`.");
-    }
-
-    nlohmann::json doc;
-    auto coll = CollectionManager::get_instance().get_collection(get_collection_name());
-
-    auto const field_not_found_op = Option<bool>(400, "Could not find `" + reference_helper_field_name +
-                                                      "` in the collection `" + get_collection_name() + "`.");
-
-    if (search_schema.at(reference_helper_field_name).is_singular()) {
-        if (sort_index.count(reference_helper_field_name) == 0) {
-            return field_not_found_op;
-        }
-
-        auto const& ref_index = sort_index.at(reference_helper_field_name);
-        auto const it = ref_index->find(seq_id);
-        if (it == ref_index->end()) {
-            if(coll != nullptr) {
-                auto op = coll->get_document_from_store(seq_id, doc);
-                if (!op.ok()) {
-                    return op;
-                }
-            }
-            return Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
-                                     doc["id"].get<std::string>() + "`.");
-        }
-
-        const uint32_t id = it->second;
-        if (id != Join::reference_helper_sentinel_value) {
-            result.emplace_back(id);
-        }
-        return Option<bool>(true);
-    }
-
-    if (reference_index.count(reference_helper_field_name) == 0) {
-        return field_not_found_op;
-    }
-
-    size_t ids_len = 0;
-    uint32_t* ids = nullptr;
-    reference_index.at(reference_helper_field_name)->search(EQUALS, seq_id, &ids, ids_len);
-    if (ids_len == 0) {
-        if(coll != nullptr) {
-            auto op = coll->get_document_from_store(seq_id, doc);
-            if (!op.ok()) {
-                return op;
-            }
-        }
-        return Option<bool>(404, "Could not find `" + reference_helper_field_name + "` value for doc `" +
-                                 doc["id"].get<std::string>() + "`.");
-    }
-
-    for (uint32_t i = 0; i < ids_len; i++) {
-        result.emplace_back(ids[i]);
-    }
-    delete [] ids;
-    return Option<bool>(true);
+    return get_related_ids(field_name, {seq_id}, result);
 }
 
 Option<bool> Index::get_object_array_related_id(const std::string& collection_name,
@@ -8475,15 +8510,20 @@ Option<bool> Index::get_object_array_related_id(const std::string& collection_na
                                                 const uint32_t& seq_id, const uint32_t& object_index,
                                                 uint32_t& result) const {
     std::shared_lock lock(mutex);
-    if (object_array_reference_index.count(field_name) == 0 || object_array_reference_index.at(field_name) == nullptr) {
+
+    auto object_ref_index = object_array_reference_index.find(field_name);
+    if (object_ref_index == object_array_reference_index.end() || object_ref_index->second == nullptr) {
         return Option<bool>(404, "`" + field_name + "` not found in `" + collection_name +
                                     ".object_array_reference_index`");
-    } else if (object_array_reference_index.at(field_name)->count({seq_id, object_index}) == 0) {
+    }
+
+    auto it = object_ref_index->second->find({seq_id, object_index});
+    if (it == object_ref_index->second->end()) {
         return Option<bool>(400, "Key `{" + std::to_string(seq_id) + ", " + std::to_string(object_index) + "}`"
                                     " not found in `" + collection_name + ".object_array_reference_index`");
     }
 
-    result = object_array_reference_index.at(field_name)->at({seq_id, object_index});
+    result = it->second;
     return Option<bool>(true);
 }
 
@@ -8702,23 +8742,12 @@ Option<std::vector<uint32_t>> Index::get_ref_seq_ids_helper(const std::vector<ui
         }
         auto const& field_name = get_reference_field_op.get();
 
-        for (const auto& seq_id: seq_ids_vec) {
-            auto related_ids_op = Option<bool>(true);
-            if (coll_name == get_collection_name_with_lock()) {
-                related_ids_op = get_related_ids(field_name, seq_id, ref_seq_ids);
-            } else {
-                auto prev_coll = cm.get_collection(coll_name);
-                if (prev_coll == nullptr) {
-                    return Option<std::vector<uint32_t>>(400, "Referenced collection `" + coll_name +
-                                                                "` in `sort_by` not found.");
-                }
-                related_ids_op = prev_coll->get_related_ids(field_name, seq_id, ref_seq_ids);
-            }
-            if (!related_ids_op.ok()) {
-                if (related_ids_op.code() == 400) {
-                    return Option<std::vector<uint32_t>>(400, related_ids_op.error());
-                }
-            }
+        auto related_ids_op = (coll_name == get_collection_name_with_lock()) ?
+                                    get_related_ids(field_name, seq_ids_vec, ref_seq_ids) :
+                                    CollectionManager::get_related_ids(coll_name, field_name, seq_ids_vec, ref_seq_ids);
+
+        if (!related_ids_op.ok() && related_ids_op.code() == 400) {
+            return Option<std::vector<uint32_t>>(400, related_ids_op.error());
         }
     }
         // Joined collection has a reference
@@ -8748,26 +8777,19 @@ Option<std::vector<uint32_t>> Index::get_ref_seq_ids_helper(const std::vector<ui
         const auto& reference_field_name = reference_field_name_op.get();
         auto& ref_result = references->at(joined_coll_having_reference);
         const auto& count = ref_result.count;
+        const auto& docs = ref_result.docs;
 
-        for (size_t i = 0; i < count; i++) {
-            const auto& seq_id = ref_result.docs[i];
-
-            auto related_ids_op = joined_collection->get_related_ids(reference_field_name, seq_id, ref_seq_ids);
-            if (!related_ids_op.ok()) {
-                if (related_ids_op.code() == 400) {
-                    return Option<std::vector<uint32_t>>(400, related_ids_op.error());
-                }
+        auto related_ids_op = joined_collection->get_related_ids(reference_field_name,
+                                                                 std::vector<uint32_t>(docs, docs + count),
+                                                                 ref_seq_ids);
+        if (!related_ids_op.ok()) {
+            if (related_ids_op.code() == 400) {
+                return Option<std::vector<uint32_t>>(400, related_ids_op.error());
             }
         }
-    }
+   }
 
     coll_name = ref_coll_name;
-
-    if (ref_seq_ids.size() > 1) {
-        gfx::timsort(ref_seq_ids.begin(), ref_seq_ids.end());
-        ref_seq_ids.erase(std::unique( ref_seq_ids.begin(), ref_seq_ids.end() ), ref_seq_ids.end());
-    }
-
     return Option<std::vector<uint32_t>>(ref_seq_ids);
 }
 
@@ -9037,33 +9059,45 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
     }
 
     // Diversify the response.
-    similarity_t similarity;
-    result_kvs.push_back({topster->getKV(0)});
+    const auto diversity_limit = std::min<size_t>(topster->size, diversity.limit);
+    auto max_similarities = std::vector<double>(diversity_limit, std::numeric_limits<double>::lowest());
+    auto max_q_similarity_kv = topster->getKV(0);
+
+    // Using decimal scaling to normalize the match score of the document so it can be effectively used in the MMR
+    // algorithm otherwise the `left` side is usually too large for `right` side to make any difference to the response.
+    auto max_score = max_q_similarity_kv->match_score_index == -1 ? 0 :
+                                max_q_similarity_kv->scores[max_q_similarity_kv->match_score_index];
+    size_t decimal_scaling_j = 0;
+    while ((max_score /= 10) != 0) {
+        decimal_scaling_j++;
+    }
+    result_kvs.push_back({max_q_similarity_kv});
     std::set<uint32_t> processed_seq_ids{(uint32_t) topster->getKeyAt(0)};
-    while (result_kvs.size() < topster->size) {
+    while (result_kvs.size() < diversity_limit) {
         auto mmr = std::numeric_limits<double>::lowest();
         KV* max_kv = nullptr;
 
-        for (uint32_t i = 1; i < topster->size; i++) {
+        for (uint32_t i = 1; i < diversity_limit; i++) {
             auto kv_i = topster->getKV(i);
             const auto& seq_id_i = (uint32_t) kv_i->key;
             if (processed_seq_ids.count(seq_id_i) > 0) {
                 continue;
             }
 
-            auto left = diversity.lambda * kv_i->vector_distance;
-            auto max_similarity = std::numeric_limits<double>::lowest();
-            for (const auto& kv_j: result_kvs) {
-                const auto& seq_id_j = (uint32_t) kv_j[0]->key;
-                auto sim_op = similarity.calculate(seq_id_i, seq_id_j, diversity, sort_index, facet_index_v4);
-                if (!sim_op.ok()) {
-                    return Option<bool>(sim_op.code(), sim_op.error());
-                }
-                max_similarity = std::max(max_similarity, sim_op.get());
+            double normalized_score = kv_i->match_score_index == -1 ? 0 :
+                                                kv_i->scores[kv_i->match_score_index] / std::pow(10, decimal_scaling_j);
+            double left = diversity.lambda * normalized_score;
+            auto& max_similarity = max_similarities[i];
+            const auto& kv_j = result_kvs.back();
+            const auto& seq_id_j = (uint32_t) kv_j[0]->key;
+            auto sim_op = similarity_t::calculate(seq_id_i, seq_id_j, diversity, sort_index, facet_index_v4);
+            if (!sim_op.ok()) {
+                return Option<bool>(sim_op.code(), sim_op.error());
             }
+            max_similarity = std::max(max_similarity, sim_op.get());
 
-            auto right = (1 - diversity.lambda) * max_similarity;
-            auto mr = left - right;
+            double right = (1 - diversity.lambda) * max_similarity;
+            double mr = left - right;
             if (mr > mmr) {
                 max_kv = kv_i;
                 mmr = mr;
@@ -9072,6 +9106,10 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
 
         processed_seq_ids.insert((uint32_t) max_kv->key);
         result_kvs.push_back({max_kv});
+    }
+
+    for (size_t i = diversity_limit; i < topster->size; i++) {
+        result_kvs.push_back({topster->getKV(i)});
     }
 
     return Option<bool>(true);

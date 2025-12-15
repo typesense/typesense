@@ -37,6 +37,8 @@ class ConversationModel {
         static inline void _add_async_conversation(std::shared_ptr<http_req> req, const std::string& conversation_id) {
             async_conversations[req].conversation_id = conversation_id;
         }
+    private:
+        static Option<bool> run_input_guardrail(const std::string& prompt, const nlohmann::json& model_config);
     protected:
         static const inline std::string CONVERSATION_HISTORY = "\n\n<Conversation history>\n";
         static const inline std::string QUESTION = "\n\n<Question>\n";

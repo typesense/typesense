@@ -158,7 +158,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"string",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -173,7 +174,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"string",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":true,
@@ -188,7 +190,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"string[]",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":true,
@@ -203,7 +206,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"int32",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -218,7 +222,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"geopoint",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -233,7 +238,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"string",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -248,7 +254,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"int32",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -264,7 +271,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"object",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -282,7 +290,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "vec_dist":"cosine",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "async_reference":true,
@@ -300,7 +309,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "reference":"Products.product_id",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             },
             {
               "facet":false,
@@ -315,7 +325,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "type":"int64",
               "range_index":false,
               "stem":false,
-              "stem_dictionary": ""
+              "stem_dictionary": "",
+              "truncate_len": 100
             }
           ],
           "id":0,
@@ -1719,7 +1730,8 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "type":"string",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 },
                 {
                     "facet":true,
@@ -1735,7 +1747,8 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -1750,7 +1763,8 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 },{
                     "facet":true,
                     "index":true,
@@ -1765,7 +1779,8 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "type":"int32",
                     "range_index":false,
                     "stem":false,
-                    "stem_dictionary": ""
+                    "stem_dictionary": "",
+                    "truncate_len": 100
                 }
             ],
             "id":1,

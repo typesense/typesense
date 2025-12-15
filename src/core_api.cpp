@@ -1474,8 +1474,9 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                     res->body += message;
                 } else {
                     std::map<std::string, reference_filter_result_t> references = {};
-                    coll->prune_doc_with_lock(doc, export_state->include_fields, export_state->exclude_fields,
-                                              references, seq_id_op.get(), export_state->ref_include_exclude_fields_vec);
+                    Collection::prune_doc(doc, export_state->include_fields, export_state->exclude_fields, "", 0, references,
+                                          coll->get_name(), seq_id_op.get(), export_state->ref_include_exclude_fields_vec);
+
                     res->body += doc.dump();
                 }
             }
@@ -1908,8 +1909,8 @@ bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_
     auto const seq_id_op = collection->doc_id_to_seq_id(doc.at("id"));
 
     std::map<std::string, reference_filter_result_t> references = {};
-    const auto prune_op = collection->prune_doc_with_lock(doc, include_fields, exclude_fields, references, seq_id_op.get(),
-                                                          ref_include_exclude_fields_vec);
+    const auto prune_op = Collection::prune_doc(doc, include_fields, exclude_fields, "", 0, references,
+                                                collection->get_name(), seq_id_op.get(), ref_include_exclude_fields_vec);
     if (!prune_op.ok()) {
         res->set(prune_op.code(), prune_op.error());
         return false;
@@ -3377,7 +3378,14 @@ bool get_nl_search_models(const std::shared_ptr<http_req>& req, const std::share
          Collection::hide_credential(model, "api_key");
          Collection::hide_credential(model, "access_token");
          Collection::hide_credential(model, "refresh_token");
+         Collection::hide_credential(model, "client_id");
          Collection::hide_credential(model, "client_secret");
+         Collection::hide_credential(model, "project_id");
+         if(model.contains("service_account") && model["service_account"].is_object()) {
+             nlohmann::json& sa = model["service_account"];
+             Collection::hide_credential(sa, "private_key");
+             Collection::hide_credential(sa, "client_email");
+         }
      }
 
     res->set_200(models.dump());
@@ -3398,7 +3406,14 @@ bool get_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared
     Collection::hide_credential(model, "api_key");
     Collection::hide_credential(model, "access_token");
     Collection::hide_credential(model, "refresh_token");
+    Collection::hide_credential(model, "client_id");
     Collection::hide_credential(model, "client_secret");
+    Collection::hide_credential(model, "project_id");
+    if(model.contains("service_account") && model["service_account"].is_object()) {
+        nlohmann::json& sa = model["service_account"];
+        Collection::hide_credential(sa, "private_key");
+        Collection::hide_credential(sa, "client_email");
+    }
 
     res->set_200(model.dump());
     return true;
@@ -3432,7 +3447,14 @@ bool post_nl_search_model(const std::shared_ptr<http_req>& req, const std::share
     Collection::hide_credential(model_json, "api_key");
     Collection::hide_credential(model_json, "access_token");
     Collection::hide_credential(model_json, "refresh_token");
+    Collection::hide_credential(model_json, "client_id");
     Collection::hide_credential(model_json, "client_secret");
+    Collection::hide_credential(model_json, "project_id");
+    if(model_json.contains("service_account") && model_json["service_account"].is_object()) {
+        nlohmann::json& sa = model_json["service_account"];
+        Collection::hide_credential(sa, "private_key");
+        Collection::hide_credential(sa, "client_email");
+    }
 
     res->set_201(model_json.dump());
     return true;
@@ -3468,7 +3490,14 @@ bool put_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared
     Collection::hide_credential(model, "api_key");
     Collection::hide_credential(model, "access_token");
     Collection::hide_credential(model, "refresh_token");
+    Collection::hide_credential(model, "client_id");
     Collection::hide_credential(model, "client_secret");
+    Collection::hide_credential(model, "project_id");
+    if(model.contains("service_account") && model["service_account"].is_object()) {
+        nlohmann::json& sa = model["service_account"];
+        Collection::hide_credential(sa, "private_key");
+        Collection::hide_credential(sa, "client_email");
+    }
 
     res->set_200(model.dump());
     return true;
@@ -3487,6 +3516,16 @@ bool delete_nl_search_model(const std::shared_ptr<http_req>& req, const std::sha
     auto model = model_op.get();
 
     Collection::hide_credential(model, "api_key");
+    Collection::hide_credential(model, "access_token");
+    Collection::hide_credential(model, "refresh_token");
+    Collection::hide_credential(model, "client_id");
+    Collection::hide_credential(model, "client_secret");
+    Collection::hide_credential(model, "project_id");
+    if(model.contains("service_account") && model["service_account"].is_object()) {
+        nlohmann::json& sa = model["service_account"];
+        Collection::hide_credential(sa, "private_key");
+        Collection::hide_credential(sa, "client_email");
+    }
 
     res->set_200(model.dump());
     return true;

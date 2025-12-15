@@ -33,10 +33,138 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
                                 false;
     std::vector<field> fields;
     nlohmann::json fields_map = collection_meta[Collection::COLLECTION_SEARCH_FIELDS_KEY];
-    std::string temp;
-    auto parse_op = field::json_fields_to_fields(enable_nested_fields, fields_map, temp, fields, this_collection_name);
-    if (!parse_op.ok()) {
-        return Option<Collection*>(parse_op.code(), parse_op.error());
+
+    for (nlohmann::json::iterator it = fields_map.begin(); it != fields_map.end(); ++it) {
+        nlohmann::json & field_obj = it.value();
+
+        // handle older records indexed before optional field introduction
+        if(field_obj.count(fields::optional) == 0) {
+            field_obj[fields::optional] = false;
+        }
+
+        if(field_obj.count(fields::index) == 0) {
+            field_obj[fields::index] = true;
+        }
+
+        if(field_obj.count(fields::locale) == 0) {
+            field_obj[fields::locale] = "";
+        }
+
+        if(field_obj.count(fields::infix) == 0) {
+            field_obj[fields::infix] = -1;
+        }
+
+        if(field_obj.count(fields::nested) == 0) {
+            field_obj[fields::nested] = false;
+        }
+
+        if(field_obj.count(fields::nested_array) == 0) {
+            field_obj[fields::nested_array] = 0;
+        }
+
+        if(field_obj.count(fields::num_dim) == 0) {
+            field_obj[fields::num_dim] = 0;
+        }
+
+        if (field_obj.count(fields::reference) == 0) {
+            field_obj[fields::reference] = "";
+        }
+
+        if (field_obj.count(fields::async_reference) == 0) {
+            field_obj[fields::async_reference] = false;
+        }
+
+        if(field_obj.count(fields::embed) == 0) {
+            field_obj[fields::embed] = nlohmann::json::object();
+        }
+
+        if(field_obj.count(fields::model_config) == 0) {
+            field_obj[fields::model_config] = nlohmann::json::object();
+        }
+
+        if(field_obj.count(fields::hnsw_params) == 0) {
+            field_obj[fields::hnsw_params] = nlohmann::json::object();
+            field_obj[fields::hnsw_params]["ef_construction"] = 200;
+            field_obj[fields::hnsw_params]["M"] = 16;
+        }
+
+        if(field_obj.count(fields::stem) == 0) {
+            field_obj[fields::stem] = false;
+        }
+
+        if(field_obj.count(fields::stem_dictionary) == 0) {
+            field_obj[fields::stem_dictionary] = "";
+        }
+
+        if(field_obj.count(fields::range_index) == 0) {
+            field_obj[fields::range_index] = false;
+        }
+
+        if(field_obj.count(fields::store) == 0) {
+            field_obj[fields::store] = true;
+        }
+        
+        if(field_obj.count(fields::truncate_len) == 0) {
+            field_obj[fields::truncate_len] = 100;
+        }
+
+        if(field_obj.count(fields::token_separators) == 0) {
+            field_obj[fields::token_separators] = nlohmann::json::array();
+        }
+
+        if(field_obj.count(fields::symbols_to_index) == 0) {
+            field_obj[fields::symbols_to_index] = nlohmann::json::array();
+        }
+
+        if (field_obj.count(fields::cascade_delete) == 0) {
+            field_obj[fields::cascade_delete] = true;
+        }
+
+        vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
+
+        if(field_obj.count(fields::vec_dist) != 0 && field_obj[fields::vec_dist].is_string()) {
+            auto val = field_obj[fields::vec_dist].get<std::string>();
+            StringUtils::tolowercase(val);
+            auto vec_dist_type_op = magic_enum::enum_cast<vector_distance_type_t>(val);
+            if(vec_dist_type_op.has_value()) {
+                vec_dist_type = vec_dist_type_op.value();
+            }
+        }
+
+        if(field_obj.count(fields::embed) != 0 && !field_obj[fields::embed].empty()) {
+            size_t num_dim = field_obj[fields::num_dim];
+            auto& model_config = field_obj[fields::embed][fields::model_config];
+
+            auto res = EmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+            if(!res.ok()) {
+                const std::string& model_name = model_config["model_name"].get<std::string>();
+                LOG(ERROR) << "Error initializing model: " << model_name << ", error: " << res.error();
+                continue;
+            }
+
+            if(field_obj[fields::num_dim] == 0) {
+                field_obj[fields::num_dim] = num_dim;
+            }
+
+            LOG(INFO) << "Model init done.";
+        }
+
+        field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
+                field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
+                -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
+                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed],
+                field_obj[fields::range_index], field_obj[fields::store], field_obj[fields::stem], field_obj[fields::stem_dictionary],
+                field_obj[fields::hnsw_params], field_obj[fields::async_reference], field_obj[fields::token_separators],
+                field_obj[fields::symbols_to_index], field_obj[fields::cascade_delete], field_obj[fields::truncate_len]);
+
+        // value of `sort` depends on field type
+        if(field_obj.count(fields::sort) == 0) {
+            f.sort = f.is_num_sort_field();
+        } else {
+            f.sort = field_obj[fields::sort];
+        }
+
+        fields.push_back(f);
     }
 
     std::string default_sorting_field = collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();
@@ -275,7 +403,13 @@ void CollectionManager::_populate_referenced_ins(const std::vector<std::string>&
                 async_ref = true;
             }
 
-            auto ref_info = reference_info_t(collection_name, field_name, async_ref);
+            bool is_array = false;
+            if (field.contains(fields::type) && field[fields::type].is_string()) {
+                auto const& type = field[fields::type].get<std::string>();
+                is_array = (type.size() > 2 && type[type.size() - 2] == '[' && type[type.size() - 1] == ']');
+            }
+
+            auto ref_info = reference_info_t(collection_name, field_name, async_ref, is_array);
             if (!ref_field.name.empty()) {
                 ref_info.referenced_field = std::move(ref_field);
             }
@@ -795,6 +929,23 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         }
 
         ref_coll->remove_referenced_in(actual_coll_name, field_name, reference_info.is_async, reference_info.field);
+    }
+
+    auto async_referenced_ins = collection->get_async_referenced_ins();
+    for (const auto& item: async_referenced_ins) {
+        for (const auto& async_referenced_in: item.second) {
+            const auto& ref_coll_name = async_referenced_in.collection;
+            const auto& ref_field_name = async_referenced_in.field;
+
+            auto& cm = CollectionManager::get_instance();
+            auto ref_coll = cm.get_collection(ref_coll_name);
+            if (ref_coll == nullptr) {
+                LOG(ERROR) << "Referenced collection `" + ref_coll_name + "` not found.";
+                continue;
+            }
+
+            ref_coll->reset_async_reference_field(ref_field_name);
+        }
     }
 
     std::unique_lock u_lock(mutex);
@@ -2328,8 +2479,8 @@ Option<bool> CollectionManager::update_collection_curation_sets(const std::strin
         return Option<bool>(400, "failed to get collection.");
     }
 
-    auto& curation_index_manager = CurationIndexManager::get_instance();
-    for (const auto& curation_set_name : curation_sets) {
+    auto &curation_index_manager = CurationIndexManager::get_instance();
+    for (const auto &curation_set_name: curation_sets) {
         auto get_op = curation_index_manager.get_curation_index(curation_set_name);
         if (!get_op.ok()) {
             return Option<bool>(404, "Curation set `" + curation_set_name + "` not found.");
@@ -2347,9 +2498,126 @@ Option<bool> CollectionManager::update_collection_curation_sets(const std::strin
 
     collection_meta_json[Collection::COLLECTION_curation_sets] = curation_sets;
 
-    if(store->insert(collection_metakey, collection_meta_json.dump())) {
+    if (store->insert(collection_metakey, collection_meta_json.dump())) {
         return Option<bool>(true);
     }
 
     return Option<bool>(400, "failed to insert into store.");
+}
+
+Option<bool> CollectionManager::get_document_from_store(const std::string collection_name, const uint32_t& seq_id,
+                                                        nlohmann::json& document, bool raw_doc) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->get_document_from_store(seq_id, document, raw_doc);
+}
+
+Option<uint32_t> CollectionManager::doc_id_to_seq_id(const std::string collection_name, const std::string& doc_id) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<uint32_t>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->doc_id_to_seq_id(doc_id);
+}
+
+Option<bool> CollectionManager::get_filter_ids(const std::string collection_name, const std::string& filter_query,
+                                               filter_result_t& filter_result,
+                                               const bool& should_timeout, const bool& validate_field_names) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->get_filter_ids(filter_query, filter_result, should_timeout, validate_field_names);
+}
+
+Option<reference_info_t> CollectionManager::is_referenced_in(const std::string& referenced_coll_name,
+                                                             const std::string& referring_coll_name) const {
+    std::unique_lock lock(mutex);
+    auto it = referenced_ins.find(referenced_coll_name);
+    if (it == referenced_ins.end()) {
+        return Option<reference_info_t>(400, "referenced_coll_name: `" + referenced_coll_name + "` not found.");
+    }
+
+    auto inner_it = it->second.find(referring_coll_name);
+    if (inner_it == it->second.end()) {
+        return Option<reference_info_t>(400, "referring_coll_name: `" + referring_coll_name +
+                                                "` in referenced_coll_name: `" + referenced_coll_name + "` not found.");
+    }
+
+    return Option<reference_info_t>(inner_it->second);
+}
+
+Option<bool> CollectionManager::populate_include_exclude_fields(const std::string& collection_name,
+                                                                const std::string& ref_include,
+                                                                const std::string& ref_exclude,
+                                                                tsl::htrie_set<char>& include_fields_full,
+                                                                tsl::htrie_set<char>& exclude_fields_full) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    std::vector<std::string> ref_include_fields_vec, ref_exclude_fields_vec;
+    StringUtils::split(ref_include, ref_include_fields_vec, ",");
+    StringUtils::split(ref_exclude, ref_exclude_fields_vec, ",");
+
+    spp::sparse_hash_set<std::string> ref_include_fields, ref_exclude_fields;
+    ref_include_fields.insert(ref_include_fields_vec.begin(), ref_include_fields_vec.end());
+    ref_exclude_fields.insert(ref_exclude_fields_vec.begin(), ref_exclude_fields_vec.end());
+
+    return collection->populate_include_exclude_fields_lk(ref_include_fields,
+                                                          ref_exclude_fields,
+                                                          include_fields_full,
+                                                          exclude_fields_full);
+}
+
+Option<bool> CollectionManager::include_related_docs(const std::string& collection_name,
+                                                     nlohmann::json& doc, const uint32_t& seq_id,
+                                                     const reference_info_t& ref_info,
+                                                     const tsl::htrie_set<char>& ref_include_fields_full,
+                                                     const tsl::htrie_set<char>& ref_exclude_fields_full,
+                                                     const nlohmann::json& original_doc,
+                                                     const ref_include_exclude_fields& ref_include_exclude) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->include_related_docs(doc, seq_id, ref_info, ref_include_fields_full, ref_exclude_fields_full,
+                                            original_doc, ref_include_exclude);
+}
+
+Option<bool> CollectionManager::get_related_ids(const std::string& collection_name,
+                                                const std::string& field_name,
+                                                const std::vector<uint32_t>& seq_id_vec,
+                                                std::vector<uint32_t>& related_ids) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->get_related_ids_with_lock(field_name, seq_id_vec, related_ids);
+}
+
+Option<bool> CollectionManager::process_ref_include_fields_sort(const std::string& collection_name,
+                                                                const std::string& sort_by_str, size_t limit,
+                                                                std::vector<uint32_t>& doc_ids) {
+    auto& cm = CollectionManager::get_instance();
+    auto collection = cm.get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<bool>(400, "Collection `" + collection_name + "` not found.");
+    }
+
+    return collection->process_ref_include_fields_sort(sort_by_str, limit, doc_ids);
 }

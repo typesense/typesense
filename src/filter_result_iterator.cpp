@@ -1010,7 +1010,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         }
 
         bool is_referenced = coll->referenced_in.count(ref_collection_name) > 0,
-                has_reference = ref_collection->is_referenced_in(collection_name);
+                has_reference = coll->references(ref_collection_name);
         if (!is_referenced && !has_reference) {
             status = Option<bool>(400, "Failed to join on `" + ref_collection_name + "`: No reference field found.");
             validity = invalid;
@@ -1761,8 +1761,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             auto approx_filter_value_match = UINT32_MAX;
 
             while (tokenizer.next(str_token, token_index)) {
-                if (str_token.size() > 100) {
-                    str_token.erase(100);
+                if (str_token.size() > f.truncate_len && f.truncate_len > 0) {
+                    str_token.erase(f.truncate_len);
                 }
                 str_tokens.push_back(str_token);
 
@@ -3172,9 +3172,20 @@ bool filter_result_iterator_t::validate_object_filter_helper(Index const* const 
                     val.pop_back();
                 }
 
-                filter_val = val;
-                doc_val = doc[nested_field].get<std::string>();
-
+                const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
+                const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
+                Tokenizer tokenizer(val, true, false, f.locale, symbols, separators, f.get_stemmer());
+                
+                std::string tokenized_filter_val;
+                size_t token_index = 0;
+                filter_val = tokenizer.next(tokenized_filter_val, token_index) ? tokenized_filter_val : val;
+                
+                std::string doc_str = doc[nested_field].get<std::string>();
+                Tokenizer doc_tokenizer(doc_str, true, false, f.locale, symbols, separators, f.get_stemmer());
+                
+                std::string tokenized_doc_val;
+                size_t doc_token_index = 0;
+                doc_val = doc_tokenizer.next(tokenized_doc_val, doc_token_index) ? tokenized_doc_val : doc_str;
             } else if (f.is_float()) {
                 filter_val = std::stof(val);
                 doc_val = doc[nested_field].get<float>();

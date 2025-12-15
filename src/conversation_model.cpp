@@ -35,6 +35,10 @@ Option<bool> ConversationModel::validate_model(const nlohmann::json& model_confi
         return Option<bool>(400, "Property `max_bytes` is not provided or not a positive integer.");
     }
 
+    if(model_config.count("input_guardrail_prompt") != 0 && !model_config["input_guardrail_prompt"].is_string()) {
+        return Option<bool>(400, "Property `input_guardrail_prompt` is not a string.");
+    }
+    
     auto validate_converson_collection_op = ConversationManager::get_instance()
             .validate_conversation_store_collection(model_config["history_collection"].get<std::string>());
     if(!validate_converson_collection_op.ok()) {
@@ -61,10 +65,40 @@ Option<bool> ConversationModel::validate_model(const nlohmann::json& model_confi
     return Option<bool>(400, "Model namespace `" + model_namespace + "` is not supported.");
 }
 
+Option<bool> ConversationModel::run_input_guardrail(const std::string& prompt, const nlohmann::json& model_config) {
+    if(model_config.count("input_guardrail_prompt") != 0) {
+        std::string guardrail_prompt = R"(
+            You are an AI assistant that helps people find information.
+            Your task is to determine if the user's question is safe and appropriate to answer. Use these instructions to guide your decision:
+            " )" + model_config["input_guardrail_prompt"].get<std::string>() + R"(
+            If the question is safe and appropriate, respond with \"SAFE\".
+            If the question is not safe or appropriate, respond with \"UNSAFE\".
+            Only respond with \"SAFE\" or \"UNSAFE\", nothing else.)";
+        nlohmann::json model_config_copy = model_config;
+        model_config_copy.erase("input_guardrail_prompt");
+        auto guardrail_op = ConversationModel::get_answer(guardrail_prompt, prompt, model_config_copy);
+        if(!guardrail_op.ok()) {
+            return Option<bool>(guardrail_op.code(), guardrail_op.error());
+        }
+        std::string guardrail_response = guardrail_op.get();
+        guardrail_response = StringUtils::trim(guardrail_response);
+        std::transform(guardrail_response.begin(), guardrail_response.end(), guardrail_response.begin(), ::toupper);
+        if(guardrail_response != "SAFE") {
+            return Option<bool>(400, "The question was deemed unsafe or inappropriate to answer.");
+        }
+    }
+    return Option<bool>(true);
+}
+
 Option<std::string> ConversationModel::get_answer(const std::string& context, const std::string& prompt, const nlohmann::json& model_config) {
     
-
     const std::string& model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
+
+    auto guardrail_check_op = run_input_guardrail(prompt, model_config);
+    if(!guardrail_check_op.ok()) {
+        return Option<std::string>(guardrail_check_op.code(), guardrail_check_op.error());
+    }
+
     std::string system_prompt = "";
     if(model_config.count("system_prompt") != 0 && model_config["system_prompt"].is_string()) {
         system_prompt = model_config["system_prompt"].get<std::string>();
@@ -91,6 +125,12 @@ Option<std::string> ConversationModel::get_answer_stream(const std::string& cont
                                                         const std::string conversation_id) {
 
     const std::string& model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
+
+    auto guardrail_check_op = run_input_guardrail(prompt, model_config);
+    if(!guardrail_check_op.ok()) {
+        return Option<std::string>(guardrail_check_op.code(), guardrail_check_op.error());
+    }
+
     std::string system_prompt = "";
     if(model_config.count("system_prompt") != 0 && model_config["system_prompt"].is_string()) {
         system_prompt = model_config["system_prompt"].get<std::string>();

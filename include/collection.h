@@ -93,6 +93,7 @@ struct collection_search_args_t {
     static constexpr auto GROUP_BY = "group_by";
     static constexpr auto GROUP_LIMIT = "group_limit";
     static constexpr auto GROUP_MISSING_VALUES = "group_missing_values";
+    static constexpr auto GROUP_MAX_CANDIDATES = "group_max_candidates";
 
     static constexpr auto LIMIT_HITS = "limit_hits";
     static constexpr auto PER_PAGE = "per_page";
@@ -182,6 +183,9 @@ struct collection_search_args_t {
     static constexpr auto PERSONALIZATION_N_EVENTS = "personalization_n_events";
 
     static constexpr auto DIVERSITY_LAMBDA = "diversity_lambda";
+    static constexpr auto DIVERSITY_LIMIT = "diversity_limit";
+
+    static constexpr auto RAW_QUERY = "raw_query";
 
     std::string raw_query;
     std::vector<std::string> search_fields;
@@ -269,6 +273,8 @@ struct collection_search_args_t {
     std::string personalization_event_name;
     size_t personalization_n_events;
     float diversity_lamda;
+    size_t group_max_candidates;
+    size_t diversity_limit;
 
     std::vector<std::vector<KV*>> result_group_kvs{};
 
@@ -304,7 +310,7 @@ struct collection_search_args_t {
                              std::string personalization_type, std::string personalization_user_field,
                              std::string personalization_item_field, std::string personalization_event_name,
                              size_t personalization_n_events, std::vector<std::string> synonym_sets,
-                             float diversity_lamda) :
+                             float diversity_lamda, size_t group_max_candidates, size_t diversity_limit) :
             raw_query(std::move(raw_query)), search_fields(std::move(search_fields)), filter_query(std::move(filter_query)),
             facet_fields(std::move(facet_fields)), sort_fields(std::move(sort_fields)),
             num_typos(std::move(num_typos)), per_page(per_page), page(page), token_order(token_order),
@@ -336,7 +342,7 @@ struct collection_search_args_t {
             personalization_user_id(personalization_user_id), personalization_model_id(personalization_model_id),
             personalization_type(personalization_type), personalization_user_field(personalization_user_field),
             personalization_item_field(personalization_item_field), personalization_event_name(personalization_event_name), personalization_n_events(personalization_n_events),
-            synonym_sets(synonym_sets), diversity_lamda(diversity_lamda) {}
+            synonym_sets(synonym_sets), diversity_lamda(diversity_lamda), group_max_candidates(group_max_candidates), diversity_limit(diversity_limit) {}
 
     collection_search_args_t() = default;
 
@@ -353,6 +359,7 @@ class Collection: std::enable_shared_from_this<Collection> {
 private:
 
     mutable std::shared_mutex mutex;
+    mutable std::shared_mutex alter_mutex;
 
     static const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
@@ -442,7 +449,7 @@ private:
     /// "field name" -> List of <collection, field> pairs where this collection is referenced and is marked as `async`.
     spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins;
 
-    /// Reference fields that are part of an object. The reference doc of these fields will be included in the object
+    /// Reference fields that are part of an object. The referenced doc of these fields will be included in the object
     /// rather than in the document.
     tsl::htrie_set<char> object_reference_fields;
 
@@ -526,7 +533,8 @@ private:
                              std::vector<const curation_t*>& filter_curations,
                              bool& filter_curated_hits,
                              std::string& curated_sort_by,
-                             nlohmann::json& curation_metadata) const;
+                             nlohmann::json& curation_metadata,
+                             bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos) const;
 
     Option<bool> curate_results(std::string& actual_query, const std::string& filter_query, bool enable_curations, bool already_segmented,
                         const std::set<std::string>& tags,
@@ -536,7 +544,7 @@ private:
                         std::vector<uint32_t>& excluded_ids, std::vector<const curation_t*>& filter_curations,
                         bool& filter_curated_hits,
                         std::string& curated_sort_by, nlohmann::json& curation_metadata,
-                        diversity_t& diversity) const;
+                        diversity_t& diversity, bool synonym_prefix, uint32_t synonym_num_typos) const;
 
     static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
@@ -779,7 +787,7 @@ public:
 
     std::unordered_map<std::string, field> get_dynamic_fields();
 
-    tsl::htrie_map<char, field> get_schema();
+    tsl::htrie_map<char, field> get_schema() const;
 
     tsl::htrie_map<char, field> get_nested_fields();
 
@@ -820,17 +828,11 @@ public:
 
     static void remove_reference_helper_fields(nlohmann::json& document);
 
-    Option<bool> prune_doc_with_lock(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
-                                     const tsl::htrie_set<char>& exclude_names,
-                                     const std::map<std::string, reference_filter_result_t>& reference_filter_results = {},
-                                     const uint32_t& seq_id = 0,
-                                     const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec = {});
-
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",
                                   size_t depth = 0,
                                   const std::map<std::string, reference_filter_result_t>& reference_filter_results = {},
-                                  Collection *const collection = nullptr, const uint32_t& seq_id = 0,
+                                  const std::string& collection_name = {}, const uint32_t& seq_id = 0,
                                   const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec = {});
 
     const Index* _get_index() const;
@@ -853,14 +855,16 @@ public:
                             std::vector<std::vector<std::string>>& q_exclude_tokens,
                             std::vector<std::vector<std::string>>& q_phrases,
                             const std::string& locale, const bool already_segmented, const std::string& stopword_set="", std::shared_ptr<Stemmer> stemmer = nullptr,
-                            const std::vector<char>& curation_symbols_to_index = std::vector<char>(),
-                            const std::vector<char>& curation_token_separators = std::vector<char>()) const;
+                            const std::vector<char>& most_weighted_field_symbols_to_index = std::vector<char>(),
+                            const std::vector<char>& most_weighted_field_token_separators = std::vector<char>()) const;
     
     void process_tokens(std::vector<std::string>& tokens, std::vector<std::string>& q_include_tokens,
                        std::vector<std::vector<std::string>>& q_exclude_tokens,
                        std::vector<std::vector<std::string>>& q_phrases, bool& exclude_operator_prior, 
                        bool& phrase_search_op_prior, std::vector<std::string>& phrase, const std::string& stopwords_set, 
-                       const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer) const;
+                       const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer,
+                       const std::vector<char>& most_weighted_field_symbols_to_index,
+                       const std::vector<char>& most_weighted_field_token_separators) const;
 
     // PUBLIC OPERATIONS
 
@@ -977,7 +981,9 @@ public:
                                   std::string personalization_event_name = "",
                                   size_t personalization_n_events = 0,
                                   const std::vector<std::string>& search_synonym_sets = {},
-                                  float diversity_lamda = 0.5) const;
+                                  float diversity_lamda = diversity_t::DEFAULT_LAMDA_VALUE,
+                                  size_t group_max_candidates = Index::DEFAULT_TOPSTER_SIZE,
+                                  size_t diversity_limit = Index::DEFAULT_TOPSTER_SIZE) const;
 
     Option<bool> parse_and_validate_personalization_query(const std::string& personalization_user_id,
                                                           const std::string& personalization_model_id,
@@ -1124,6 +1130,8 @@ public:
 
     bool is_referenced_in(const std::string& collection_name) const;
 
+    bool references(const std::string& collection_name) const;
+
     // Return a copy of the referenced field in the referencing collection to avoid schema lookups in the future. The
     // tradeoff is that we have to make sure any changes during collection alter operation are passed to the referencing
     // collection.
@@ -1143,7 +1151,7 @@ public:
 
     Option<std::string> get_referenced_in_field_with_lock(const std::string& collection_name) const;
 
-    Option<bool> get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
+    Option<bool> get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
                                            std::vector<uint32_t>& result) const;
 
     Option<bool> update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
@@ -1161,11 +1169,15 @@ public:
                                     const std::vector<std::vector<KV*>>& result_group_kvs,
                                     const std::vector<std::string>& raw_search_fields, std::string& first_q);
 
+    Option<bool> get_object_array_related_id_with_lock(const std::string& ref_field_name,
+                                                       const uint32_t& seq_id, const uint32_t& object_index,
+                                                       uint32_t& result) const;
+
     Option<bool> get_object_array_related_id(const std::string& ref_field_name,
                                              const uint32_t& seq_id, const uint32_t& object_index,
                                              uint32_t& result) const;
 
-    Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
+    Option<bool> get_related_ids(const std::string& ref_field_name, const std::vector<uint32_t>& seq_id_vec,
                                  std::vector<uint32_t>& result) const;
 
     Option<int64_t> get_referenced_geo_distance_with_lock(const sort_by& sort_field, const bool& is_asc, const uint32_t& seq_id,
@@ -1183,6 +1195,15 @@ public:
     bool check_store_alter_status_msg(bool success, const std::string& msg = "");
 
     std::string get_facet_str_val_with_lock(const std::string& field_name, uint32_t facet_id);
+
+    Option<bool> include_related_docs(nlohmann::json& doc, const uint32_t& seq_id,
+                                      const reference_info_t& ref_info,
+                                      const tsl::htrie_set<char>& ref_include_fields_full,
+                                      const tsl::htrie_set<char>& ref_exclude_fields_full,
+                                      const nlohmann::json& original_doc,
+                                      const ref_include_exclude_fields& ref_include_exclude) const;
+
+    void reset_async_reference_field(const std::string& field_name);
 };
 
 template<class T>
