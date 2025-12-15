@@ -313,6 +313,10 @@ void Config::load_config_env() {
     if(!get_env("TYPESENSE_MAX_INDEXING_CONCURRENCY").empty()) {
         this->max_indexing_concurrency = std::stoi(get_env("TYPESENSE_MAX_INDEXING_CONCURRENCY"));
     }
+
+    if(!get_env("TYPESENSE_SHUTDOWN_DELAY_SECONDS").empty()) {
+        this->shutdown_delay_seconds = std::stoi(get_env("TYPESENSE_SHUTDOWN_DELAY_SECONDS"));
+    }
 }
 
 void Config::load_config_file(cmdline::parser& options) {
@@ -556,6 +560,10 @@ void Config::load_config_file(cmdline::parser& options) {
     if(reader.Exists("server", "max-indexing-concurrency")) {
         this->max_indexing_concurrency = reader.GetInteger("server", "max-indexing-concurrency", 4);
     }
+
+    if(reader.Exists("server", "shutdown-delay-seconds")) {
+        this->shutdown_delay_seconds = reader.GetInteger("server", "shutdown-delay-seconds", 0);
+    }
 }
 
 void Config::load_config_cmd_args(cmdline::parser& options)  {
@@ -771,6 +779,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("max-indexing-concurrency")) {
         this->max_indexing_concurrency = options.get<uint32_t>("max-indexing-concurrency");
+    }
+
+    if(options.exist("shutdown-delay-seconds")) {
+        this->shutdown_delay_seconds = options.get<uint32_t>("shutdown-delay-seconds");
     }
 }
 
