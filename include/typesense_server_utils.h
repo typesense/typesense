@@ -24,5 +24,3 @@ int init_root_logger(Config& config, const std::string& server_version);
 
 int run_server(const Config& config, const std::string& version,
                void (*master_server_routes)());
-
-void trigger_shutdown();

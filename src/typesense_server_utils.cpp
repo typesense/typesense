@@ -61,7 +61,19 @@ bool using_jemalloc() {
 
 void catch_interrupt(int sig) {
     LOG(INFO) << "Stopping Typesense server...";
-    trigger_shutdown();
+    if(sig == SIGHUP) {
+        LOG(INFO) << "shutdown is triggered.";
+        server->set_shutdown_triggered(); //inform http server
+        auto secs = Config::get_instance().get_shutdown_delay_seconds();
+        std::thread shutdown_thread([&]() {
+            std::this_thread::sleep_for(std::chrono::seconds(secs));
+            quit_raft_service.store(true);
+        });
+        shutdown_thread.detach();
+    } else {
+        quit_raft_service.store(true);
+    }
+
     signal(sig, SIG_IGN);  // ignore for now as we want to shut down elegantly
 }
 
@@ -422,7 +434,7 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
 
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
     size_t raft_counter = 0;
-    while (!brpc::IsAskedToQuit() && !quit_raft_service.load()) {
+    while (!quit_raft_service.load()) {
         if(raft_counter % 10 == 0) {
             // reset peer configuration periodically to identify change in cluster membership
             const Option<std::string> & refreshed_nodes_op = Config::fetch_nodes_config(path_to_nodes);
@@ -759,14 +771,4 @@ int run_server(const Config & config, const std::string & version, void (*master
     LOG(INFO) << "Bye.";
 
     return ret_code;
-}
-
-
-void trigger_shutdown() {
-    auto secs = Config::get_instance().get_shutdown_delay_seconds();
-    server->set_shutdown_triggered();
-    //sleep till delay timeout
-    sleep(secs);
-
-    quit_raft_service.store(true);
 }
