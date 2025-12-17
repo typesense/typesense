@@ -28,7 +28,7 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
         nfkc = icu::Normalizer2::getNFKCInstance(errcode);
     }
 
-    cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
+
 
     init(input);
 }
@@ -293,51 +293,44 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             start_index = i;
         }
 
-        char inbuf[5];
-        char *p = inbuf;
-
-        // group bytes to form a unicode representation
-        *p++ = text[i++];
-        if ((text[i] & 0xC0) == 0x80) *p++ = text[i++];
-        if ((text[i] & 0xC0) == 0x80) *p++ = text[i++];
-        if ((text[i] & 0xC0) == 0x80) *p++ = text[i++];
-        *p = 0;
-        size_t insize = (p - &inbuf[0]);
-
-        if(!normalize) {
-            out += inbuf;
-            continue;
+        // collect a sequence of 8 non-ASCII characters and transliterate them together
+        size_t max_non_ascii_seq_length = 8;
+        size_t start_non_ascii = i;
+        std::string non_ascii_seq;
+        non_ascii_seq.reserve(max_non_ascii_seq_length);  // pre-allocate buffer
+        while (i < text.length() && i - start_non_ascii < max_non_ascii_seq_length && !is_ascii_char(text[i])) {
+            non_ascii_seq += text[i];
+            i++;
         }
 
-        char outbuf[5] = {};
-        size_t outsize = sizeof(outbuf);
-        char *outptr = outbuf;
-        char *inptr = inbuf;
+        // use ICU transliterator
+        auto transliterator = TransliteratorPool::get_instance().acquire("Any-Latin;Latin-ASCII");
+        std::string converted;
 
-        //printf("[%s]\n", inbuf);
-
-        errno = 0;
-        iconv(cd, &inptr, &insize, &outptr, &outsize);  // this can be handled by ICU via "Latin-ASCII"
-
-        if(errno == EILSEQ) {
-            // symbol cannot be represented as ASCII, so write the original symbol
-            out += inbuf;
+        if (transliterator == nullptr) {
+            // fallback to original string
+            converted = non_ascii_seq;
         } else {
-            for(size_t out_index=0; out_index<5; out_index++) {
-                if(!normalize) {
-                    out += outbuf[out_index];
-                    continue;
-                }
+            icu::UnicodeString ustr = icu::UnicodeString::fromUTF8(non_ascii_seq);
+            transliterator->transliterate(ustr);
+            ustr.toUTF8String(converted);
+        }
 
-                bool unicode_is_ascii = is_ascii_char(outbuf[out_index]);
-                bool keep_char = !unicode_is_ascii || std::isalnum(outbuf[out_index]);
+        // add to output
+        for (char c : converted) {
+            if (!normalize) {
+                out += c;
+                continue;
+            }
 
-                if(keep_char) {
-                    if(unicode_is_ascii && std::isalnum(outbuf[out_index])) {
-                        outbuf[out_index] = char(std::tolower(outbuf[out_index]));
-                    }
-                    out += outbuf[out_index];
+            bool unicode_is_ascii = is_ascii_char(c);
+            bool keep_char = !unicode_is_ascii || std::isalnum(c);
+
+            if (keep_char) {
+                if (unicode_is_ascii && std::isalnum(c)) {
+                    c = char(std::tolower(c));
                 }
+                out += c;
             }
         }
     }

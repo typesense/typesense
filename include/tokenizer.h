@@ -2,7 +2,6 @@
 
 #include <string>
 #include <vector>
-#include <iconv.h>
 #include "japanese_localizer.h"
 #include "logger.h"
 #include "stemmer_manager.h"
@@ -17,7 +16,6 @@ private:
     const bool no_op;
 
     size_t token_counter = 0;
-    iconv_t cd;
 
     static const size_t INDEX = 0;
     static const size_t SEPARATE = 1;
@@ -68,7 +66,6 @@ public:
                        bool is_placeholder = false);
 
     ~Tokenizer() {
-        iconv_close(cd);
         free(normalized_text);
         delete bi;
     }
