@@ -19,6 +19,7 @@ struct curation_t {
         std::string locale="";
         std::string stemming_dictionary="";
         bool stem = false;
+        bool synonyms = false;
     };
 
     struct add_hit_t {

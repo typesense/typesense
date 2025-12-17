@@ -16,6 +16,7 @@ protected:
     std::atomic<bool> quit = false;
     Collection *coll_mul_fields;
     StemmerManager& stemmerManager = StemmerManager::get_instance();
+    SynonymIndexManager& manager = SynonymIndexManager::get_instance();
     std::string state_dir_path = "/tmp/typesense_test/collection_curation";
 
     void setupCollection() {
@@ -26,6 +27,10 @@ protected:
         stemmerManager.init(store);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
+
+        SynonymIndex synonym_index(store, "index");
+        manager.init_store(store);
+        manager.add_synonym_index("index", std::move(synonym_index));
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
         std::vector<field> fields = {
@@ -5911,4 +5916,98 @@ TEST_F(CollectionCurationTest, StemmingWithCuration) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
     ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionCurationTest, SynonymsMatchWithCuration) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+    nlohmann::json schema = R"({
+          "name": "products",
+          "fields": [
+              {"name": "title", "type": "string", "stem": true},
+              {"name": "categoryType", "type": "string"},
+              {"name": "region", "type": "string"},
+              {"name": "popularity", "type": "int32", "sort": true}
+          ],
+          "synonym_sets": ["index"]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    // Add test documents
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Office Chargers","categoryType":"Electronics","region":"act","popularity":50})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Office Staplers","categoryType":"Office","region":"act","popularity":30})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Notebook","categoryType":"Office","region":"nsw","popularity":70})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Bluetooth Speakers","categoryType":"Electronics","region":"act","popularity":90})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"5","title":"Office Notebooks","categoryType":"Electronics","region":"act","popularity":90})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"6","title":"Payment Card","categoryType":"Office","region":"act","popularity":80})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+        "id": "synonyms",
+        "rule": {
+            "query": "Speaker",
+            "match": "exact",
+            "synonyms" : true
+          },
+          "includes": [
+                {"id": "4", "position": 1}
+         ]
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "stemming", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    nlohmann::json synonym = R"({
+        "id": "notebook-syn",
+        "synonyms": ["notebook", "speaker"]
+    })"_json;
+
+    ASSERT_TRUE(manager.upsert_synonym_item("index", synonym).ok());
+
+    auto res_op = coll1->search("Notebook", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ("4", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ("3", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results["hits"][2]["document"]["id"].get<std::string>());
+
+    //multipel token synonym
+    curation_json = R"OVR(
+        {
+        "id": "synonyms2",
+        "rule": {
+            "query": "credit card",
+            "match": "exact",
+            "synonyms" : true
+          },
+          "includes": [
+                {"id": "4", "position": 1}
+         ]
+        }
+    )OVR"_json;
+
+    parse_op = curation_t::parse(curation_json, "stemming2", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    nlohmann::json synonym2 = R"({
+        "id": "card-synonyms",
+        "synonyms": ["credit card", "payment card", "cc"]
+    })"_json;
+
+    ASSERT_TRUE(manager.upsert_synonym_item("index", synonym2).ok());
+
+    res_op = coll1->search("payment card", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("4", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ("6", results["hits"][1]["document"]["id"].get<std::string>());
 }
