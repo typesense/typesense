@@ -2147,3 +2147,89 @@ int art_float_search(art_tree *t, float value, NUM_COMPARATOR comparator, std::v
     art_int_fuzzy_recurse(t->root, 0, chars, 8, comparator, results);
     return 0;
 }
+
+// Recursively calculate memory usage of an art_node and its children
+static uint64_t art_node_memory_size(const art_node* n) {
+    if (!n) return 0;
+
+    // Handle leaf nodes
+    if (IS_LEAF(n)) {
+        art_leaf* l = (art_leaf*)LEAF_RAW(n);
+        uint64_t leaf_size = sizeof(art_leaf) + l->key_len;
+        
+        // Add memory from posting list values
+        if (l->values) {
+            if (IS_COMPACT_POSTING(l->values)) {
+                compact_posting_list_t* clist = COMPACT_POSTING_PTR(l->values);
+                leaf_size += sizeof(compact_posting_list_t) + (clist->capacity * sizeof(uint32_t));
+            } else {
+                posting_list_t* plist = (posting_list_t*)l->values;
+                // Base posting_list_t structure
+                leaf_size += sizeof(posting_list_t);
+                // Each block in the posting list
+                for (auto& kv : plist->id_block_map) {
+                    posting_list_t::block_t* block = kv.second;
+                    if (block) {
+                        leaf_size += sizeof(posting_list_t::block_t);
+                        // sorted_array ids + offset_index + array offsets
+                        leaf_size += block->ids.getLength() * sizeof(uint32_t);
+                        leaf_size += block->offset_index.getLength() * sizeof(uint32_t);
+                        leaf_size += block->offsets.getLength() * sizeof(uint32_t);
+                    }
+                }
+            }
+        }
+        return leaf_size;
+    }
+
+    uint64_t size = 0;
+
+    // Calculate size based on node type
+    switch (n->type) {
+        case NODE4: {
+            size = sizeof(art_node4);
+            art_node4* p = (art_node4*)n;
+            for (int i = 0; i < n->num_children; i++) {
+                size += art_node_memory_size(p->children[i]);
+            }
+            break;
+        }
+        case NODE16: {
+            size = sizeof(art_node16);
+            art_node16* p = (art_node16*)n;
+            for (int i = 0; i < n->num_children; i++) {
+                size += art_node_memory_size(p->children[i]);
+            }
+            break;
+        }
+        case NODE48: {
+            size = sizeof(art_node48);
+            art_node48* p = (art_node48*)n;
+            for (int i = 0; i < 48; i++) {
+                if (p->children[i]) {
+                    size += art_node_memory_size(p->children[i]);
+                }
+            }
+            break;
+        }
+        case NODE256: {
+            size = sizeof(art_node256);
+            art_node256* p = (art_node256*)n;
+            for (int i = 0; i < 256; i++) {
+                if (p->children[i]) {
+                    size += art_node_memory_size(p->children[i]);
+                }
+            }
+            break;
+        }
+        default:
+            break;
+    }
+
+    return size;
+}
+
+uint64_t art_tree_memory_size(const art_tree* t) {
+    if (!t) return 0;
+    return sizeof(art_tree) + art_node_memory_size(t->root);
+}

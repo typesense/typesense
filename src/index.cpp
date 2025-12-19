@@ -9199,3 +9199,158 @@ void Index::transform_for_180th_meridian(GeoCoord &point, double offset) {
     point.lon = point.lon < 0.0 ? point.lon + offset : point.lon;
 }
 */
+
+nlohmann::json Index::get_memory_usage() const {
+    std::shared_lock lock(mutex);
+    
+    nlohmann::json result;
+    nlohmann::json fields = nlohmann::json::object();
+    uint64_t total_bytes = 0;
+
+    // Search index (art_tree for string fields)
+    for (const auto& kv : search_index) {
+        uint64_t field_bytes = art_tree_memory_size(kv.second);
+        fields[kv.first]["search_index_bytes"] = field_bytes;
+        total_bytes += field_bytes;
+    }
+
+    // Numerical index (num_tree_t)
+    for (const auto& kv : numerical_index) {
+        uint64_t field_bytes = sizeof(num_tree_t);
+        // Estimate memory for the int64map entries
+        field_bytes += kv.second->size() * (sizeof(int64_t) + sizeof(void*) + 64); // rough estimate per entry
+        
+        if (fields.contains(kv.first)) {
+            fields[kv.first]["numerical_index_bytes"] = field_bytes;
+        } else {
+            fields[kv.first] = nlohmann::json::object();
+            fields[kv.first]["numerical_index_bytes"] = field_bytes;
+        }
+        total_bytes += field_bytes;
+    }
+
+    // Range index (NumericTrie)
+    for (const auto& kv : range_index) {
+        // Estimate memory for NumericTrie - this is approximate
+        uint64_t field_bytes = sizeof(NumericTrie) + 1024; // base overhead
+        if (fields.contains(kv.first)) {
+            fields[kv.first]["range_index_bytes"] = field_bytes;
+        } else {
+            fields[kv.first] = nlohmann::json::object();
+            fields[kv.first]["range_index_bytes"] = field_bytes;
+        }
+        total_bytes += field_bytes;
+    }
+
+    // Geo range index
+    for (const auto& kv : geo_range_index) {
+        uint64_t field_bytes = sizeof(NumericTrie) + 1024;
+        if (fields.contains(kv.first)) {
+            fields[kv.first]["geo_range_index_bytes"] = field_bytes;
+        } else {
+            fields[kv.first] = nlohmann::json::object();
+            fields[kv.first]["geo_range_index_bytes"] = field_bytes;
+        }
+        total_bytes += field_bytes;
+    }
+
+    // Sort index
+    for (const auto& kv : sort_index) {
+        uint64_t field_bytes = sizeof(spp::sparse_hash_map<uint32_t, int64_t, Hasher32>);
+        field_bytes += kv.second->size() * (sizeof(uint32_t) + sizeof(int64_t) + 16); // entry overhead
+        
+        if (fields.contains(kv.first)) {
+            fields[kv.first]["sort_index_bytes"] = field_bytes;
+        } else {
+            fields[kv.first] = nlohmann::json::object();
+            fields[kv.first]["sort_index_bytes"] = field_bytes;
+        }
+        total_bytes += field_bytes;
+    }
+
+    // String sort index (adi_tree_t)
+    for (const auto& kv : str_sort_index) {
+        uint64_t field_bytes = sizeof(adi_tree_t) + 1024; // base + estimated overhead
+        if (fields.contains(kv.first)) {
+            fields[kv.first]["str_sort_index_bytes"] = field_bytes;
+        } else {
+            fields[kv.first] = nlohmann::json::object();
+            fields[kv.first]["str_sort_index_bytes"] = field_bytes;
+        }
+        total_bytes += field_bytes;
+    }
+
+    // Vector index (HNSW)
+    for (const auto& kv : vector_index) {
+        hnsw_index_t* hnsw = kv.second;
+        uint64_t field_bytes = sizeof(hnsw_index_t);
+        
+        if (hnsw && hnsw->vecdex) {
+            // Memory = num_elements * (dimensions * sizeof(float) + overhead for links)
+            size_t num_elements = hnsw->vecdex->getCurrentElementCount();
+            size_t num_dim = hnsw->num_dim;
+            // Each element stores: vector data + links to neighbors
+            // Links overhead is approximately M * 2 * sizeof(unsigned int) per layer
+            field_bytes += num_elements * (num_dim * sizeof(float) + 256); // 256 bytes overhead per element for links
+            field_bytes += hnsw->vecdex->getMaxElements() * sizeof(void*); // label lookup table
+        }
+        
+        if (fields.contains(kv.first)) {
+            fields[kv.first]["vector_index_bytes"] = field_bytes;
+        } else {
+            fields[kv.first] = nlohmann::json::object();
+            fields[kv.first]["vector_index_bytes"] = field_bytes;
+        }
+        total_bytes += field_bytes;
+    }
+
+    // Infix index
+    for (const auto& kv : infix_index) {
+        uint64_t field_bytes = 0;
+        for (const auto& trie_ptr : kv.second) {
+            if (trie_ptr) {
+                field_bytes += sizeof(tsl::htrie_set<char>) + 1024; // base + estimated content
+            }
+        }
+        if (field_bytes > 0) {
+            if (fields.contains(kv.first)) {
+                fields[kv.first]["infix_index_bytes"] = field_bytes;
+            } else {
+                fields[kv.first] = nlohmann::json::object();
+                fields[kv.first]["infix_index_bytes"] = field_bytes;
+            }
+            total_bytes += field_bytes;
+        }
+    }
+
+    // Geo array index
+    for (const auto& kv : geo_array_index) {
+        uint64_t field_bytes = sizeof(spp::sparse_hash_map<uint32_t, int64_t*>);
+        field_bytes += kv.second->size() * (sizeof(uint32_t) + sizeof(int64_t*) + 32);
+        
+        if (fields.contains(kv.first)) {
+            fields[kv.first]["geo_array_index_bytes"] = field_bytes;
+        } else {
+            fields[kv.first] = nlohmann::json::object();
+            fields[kv.first]["geo_array_index_bytes"] = field_bytes;
+        }
+        total_bytes += field_bytes;
+    }
+
+    // Calculate totals per field
+    for (auto& [field_name, field_data] : fields.items()) {
+        uint64_t field_total = 0;
+        for (auto& [key, value] : field_data.items()) {
+            if (value.is_number()) {
+                field_total += value.get<uint64_t>();
+            }
+        }
+        field_data["total_bytes"] = field_total;
+    }
+
+    result["fields"] = fields;
+    result["total_bytes"] = total_bytes;
+    result["num_documents"] = num_documents;
+
+    return result;
+}

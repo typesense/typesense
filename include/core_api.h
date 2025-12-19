@@ -23,6 +23,10 @@ bool del_drop_collection(const std::shared_ptr<http_req>& req, const std::shared
 
 bool get_collection_summary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool get_collection_memory_usage(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_all_collections_memory_usage(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Documents
 
 bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

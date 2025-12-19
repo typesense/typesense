@@ -1235,6 +1235,12 @@ public:
     static void update_async_references(const std::string& collection_name, std::vector<index_record>& iter_batch,
                                         const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins =
                                         spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+
+    /**
+     * Get memory usage statistics for all index data structures.
+     * Returns a JSON object with per-field memory breakdown.
+     */
+    nlohmann::json get_memory_usage() const;
 };
 
 template<class T>

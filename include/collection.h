@@ -1204,6 +1204,12 @@ public:
                                       const ref_include_exclude_fields& ref_include_exclude) const;
 
     void reset_async_reference_field(const std::string& field_name);
+
+    /**
+     * Get memory usage statistics for this collection.
+     * Returns a JSON object with per-field memory breakdown.
+     */
+    nlohmann::json get_memory_usage() const;
 };
 
 template<class T>
