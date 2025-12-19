@@ -4255,12 +4255,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     process_search_results:
 
-    //for hybrid search, optionally compute aux scores
+    //for hybrid search, optionally compute aux scores, no need to compute for curated topster
     if(!vector_query.field_name.empty() && !is_wildcard_query && rerank_hybrid_matches) {
         compute_aux_scores(topster, the_fields, field_query_tokens[0].q_include_tokens, searched_queries.size(),
-                           sort_fields_std, sort_order, vector_query, match_type, prioritize_exact_match,
-                           prioritize_token_position, prioritize_num_matching_fields);
-        compute_aux_scores(curated_topster, the_fields, field_query_tokens[0].q_include_tokens, searched_queries.size(),
                            sort_fields_std, sort_order, vector_query, match_type, prioritize_exact_match,
                            prioritize_token_position, prioritize_num_matching_fields);
     }
