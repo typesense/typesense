@@ -9038,7 +9038,16 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
         return Option<bool>(true);
     }
 
-    if (topster->size == 0 || diversity.similarity_equation.empty()) {
+    // We will apply MMR diversification to each bucket later.
+    auto text_match_bucketing = false;
+    for (const auto& sort_by: sort_by_fields) {
+        if (sort_by.name == sort_field_const::text_match &&
+                (sort_by.text_match_bucket_size != 0 || sort_by.text_match_buckets != 0)) {
+            text_match_bucketing = true;
+        }
+    }
+
+    if (topster->size == 0 || text_match_bucketing || diversity.similarity_equation.empty()) {
         for(uint32_t t = 0; t < topster->size; t++) {
             KV* kv = topster->getKV(t);
             result_kvs.push_back({kv});
@@ -9199,3 +9208,75 @@ void Index::transform_for_180th_meridian(GeoCoord &point, double offset) {
     point.lon = point.lon < 0.0 ? point.lon + offset : point.lon;
 }
 */
+
+Option<bool> Index::diversify_text_score_buckets(const std::vector<std::pair<size_t, size_t>>& bucket_indexes,
+                                                 const diversity_t& diversity,
+                                                 std::vector<std::vector<KV*>>& raw_result_kvs) {
+    if (diversity.similarity_equation.empty() || raw_result_kvs.empty() || bucket_indexes.empty()) {
+        return Option<bool>(true);
+    }
+    std::shared_lock lock(mutex);
+
+    for (const auto& [start, end]: bucket_indexes) {
+        const auto& bucket_size = end - start;
+        auto max_similarities = std::vector<double>(bucket_size, std::numeric_limits<double>::lowest());
+        auto max_q_similarity_kv = raw_result_kvs[start][0];
+
+        // Using decimal scaling to normalize the match score of the document so it can be effectively used in the MMR
+        // algorithm otherwise the `left` side is usually too large for `right` side to make any difference to the response.
+        auto max_score = max_q_similarity_kv->match_score_index == -1 ? 0 :
+                         max_q_similarity_kv->scores[max_q_similarity_kv->match_score_index];
+        size_t decimal_scaling_j = 0;
+        while ((max_score /= 10) != 0) {
+            decimal_scaling_j++;
+        }
+        auto result_kvs = std::vector<KV*>({max_q_similarity_kv});
+        std::set<uint32_t> processed_seq_ids{(uint32_t) max_q_similarity_kv->key};
+
+        while (processed_seq_ids.size() < bucket_size) {
+            auto mmr = std::numeric_limits<double>::lowest();
+            KV* max_kv = nullptr;
+
+            for (uint32_t i = start + 1; i < end; i++) {
+                auto kv_i = raw_result_kvs[i][0];
+                const auto& seq_id_i = (uint32_t) kv_i->key;
+                if (processed_seq_ids.count(seq_id_i) > 0) {
+                    continue;
+                }
+
+                double normalized_score = kv_i->match_score_index == -1 ? 0 :
+                                          kv_i->scores[kv_i->match_score_index] / std::pow(10, decimal_scaling_j);
+                double left = diversity.lambda * normalized_score;
+                auto& max_similarity = max_similarities[i - start];
+                const auto& kv_j = result_kvs.back();
+                const auto& seq_id_j = (uint32_t) kv_j->key;
+                auto sim_op = similarity_t::calculate(seq_id_i, seq_id_j, diversity, sort_index, facet_index_v4,
+                                                      vector_index);
+                if (!sim_op.ok()) {
+                    return Option<bool>(sim_op.code(), sim_op.error());
+                }
+                max_similarity = std::max(max_similarity, sim_op.get());
+
+                double right = (1 - diversity.lambda) * max_similarity;
+                double mr = left - right;
+                if (mr > mmr) {
+                    max_kv = kv_i;
+                    mmr = mr;
+                }
+            }
+
+            processed_seq_ids.insert((uint32_t) max_kv->key);
+            result_kvs.push_back({max_kv});
+        }
+
+        if (result_kvs.size() != bucket_size) {
+            return Option<bool>(500, "`result_kvs.size() " + std::to_string(result_kvs.size()) + "` != `bucket_size " +
+                                        std::to_string(bucket_size) + "`.");
+        }
+        for (size_t i = start, j = 0; i < end && j < result_kvs.size(); i++, j++) {
+            raw_result_kvs[i][0] = result_kvs[j];
+        }
+    }
+
+    return Option<bool>(true);
+}
