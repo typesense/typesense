@@ -1329,6 +1329,45 @@ bool get_collection_summary(const std::shared_ptr<http_req>& req, const std::sha
     return true;
 }
 
+bool get_collection_memory_usage(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager& collectionManager = CollectionManager::get_instance();
+    auto collection = collectionManager.get_collection(req->params["collection"]);
+
+    if(collection == nullptr) {
+        res->set_404("Collection not found");
+        return false;
+    }
+
+    nlohmann::json json_response = collection->get_memory_usage();
+    res->set_200(json_response.dump(2));
+
+    return true;
+}
+
+bool get_all_collections_memory_usage(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager& collectionManager = CollectionManager::get_instance();
+    std::vector<std::string> collection_names = collectionManager.get_collection_names();
+
+    nlohmann::json result = nlohmann::json::object();
+    nlohmann::json collections_json = nlohmann::json::array();
+    uint64_t total_bytes = 0;
+
+    for(const auto& collection_name : collection_names) {
+        auto collection = collectionManager.get_collection(collection_name);
+        if(collection != nullptr) {
+            nlohmann::json collection_memory = collection->get_memory_usage();
+            collections_json.push_back(collection_memory);
+            total_bytes += collection_memory["total_bytes"].get<uint64_t>();
+        }
+    }
+
+    result["collections"] = collections_json;
+    result["total_bytes"] = total_bytes;
+    res->set_200(result.dump(2));
+
+    return true;
+}
+
 Option<bool> populate_include_exclude(const std::shared_ptr<http_req>& req, std::shared_ptr<Collection>& collection,
                                       const std::string& filter_query,
                                       tsl::htrie_set<char>& include_fields, tsl::htrie_set<char>& exclude_fields,

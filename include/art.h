@@ -284,6 +284,12 @@ int art_int64_search(art_tree *t, int64_t value, NUM_COMPARATOR comparator, std:
 
 int art_float_search(art_tree *t, float value, NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results);
 
+/**
+ * Calculate the total memory usage of an ART tree in bytes.
+ * This includes all nodes, leaves, and posting lists.
+ */
+uint64_t art_tree_memory_size(const art_tree* t);
+
 #ifdef __cplusplus
 }
 #endif

@@ -45,6 +45,10 @@ void master_server_routes() {
     server->del("/collections/:collection", del_drop_collection);
     server->get("/collections/:collection", get_collection_summary);
 
+    // memory usage
+    server->get("/collections/:collection/memory", get_collection_memory_usage);
+    server->get("/memory", get_all_collections_memory_usage);
+
     server->get("/aliases", get_aliases);
     server->get("/aliases/:alias", get_alias);
     server->put("/aliases/:alias", put_upsert_alias);

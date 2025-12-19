@@ -9298,3 +9298,28 @@ void Collection::reset_async_reference_field(const std::string& field_name) {
 
     update_matching_filter("id: *", doc.dump(), req_dirty_values, true, 5000);
 }
+
+nlohmann::json Collection::get_memory_usage() const {
+    std::shared_lock lock(mutex);
+    
+    nlohmann::json result;
+    result["name"] = name;
+    result["num_documents"] = num_documents.load();
+    
+    // Get memory usage from the index
+    nlohmann::json index_memory = index->get_memory_usage();
+    result["index"] = index_memory;
+    
+    // Calculate field schema metadata size
+    uint64_t schema_bytes = 0;
+    for (const auto& f : fields) {
+        schema_bytes += sizeof(field) + f.name.size();
+    }
+    result["schema_bytes"] = schema_bytes;
+    
+    // Total bytes
+    uint64_t total_bytes = index_memory["total_bytes"].get<uint64_t>() + schema_bytes;
+    result["total_bytes"] = total_bytes;
+    
+    return result;
+}
