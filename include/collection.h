@@ -1202,8 +1202,6 @@ public:
                                       const tsl::htrie_set<char>& ref_exclude_fields_full,
                                       const nlohmann::json& original_doc,
                                       const ref_include_exclude_fields& ref_include_exclude) const;
-
-    void reset_async_reference_field(const std::string& field_name);
 };
 
 template<class T>

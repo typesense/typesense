@@ -931,23 +931,6 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         ref_coll->remove_referenced_in(actual_coll_name, field_name, reference_info.is_async, reference_info.field);
     }
 
-    auto async_referenced_ins = collection->get_async_referenced_ins();
-    for (const auto& item: async_referenced_ins) {
-        for (const auto& async_referenced_in: item.second) {
-            const auto& ref_coll_name = async_referenced_in.collection;
-            const auto& ref_field_name = async_referenced_in.field;
-
-            auto& cm = CollectionManager::get_instance();
-            auto ref_coll = cm.get_collection(ref_coll_name);
-            if (ref_coll == nullptr) {
-                LOG(ERROR) << "Referenced collection `" + ref_coll_name + "` not found.";
-                continue;
-            }
-
-            ref_coll->reset_async_reference_field(ref_field_name);
-        }
-    }
-
     std::unique_lock u_lock(mutex);
     collections.erase(actual_coll_name);
     collection_id_names.erase(collection->get_collection_id());

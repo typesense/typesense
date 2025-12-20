@@ -1278,6 +1278,20 @@ void Index::update_async_references(const std::string& collection_name, std::vec
                     continue;
                 }
 
+                // The value must be unique in this collection.
+                filter_result_t filter_result;
+                auto op = CollectionManager::get_filter_ids(collection_name, referenced_field + ":=" += ref_filter_value,
+                                                            filter_result);
+                if (!op.ok()) {
+                    continue;
+                } else if (filter_result.count > 1) {
+                    record.index_failure(400, "Error while updating async reference field `" + referencing_field_name +
+                                              "` of collection `" += referencing_collection_name + "`: The value `" +=
+                                              ref_filter_value + "` of the field `" += referenced_field +
+                                              "` is not unique in `" += collection_name + "` collection.");
+                    break;
+                }
+
                 auto const ref_filter = referencing_field_name + ":= " += ref_filter_value;
                 auto update_op = referencing_coll->update_async_references_with_lock(collection_name, ref_filter, values, seq_id,
                                                                                      referencing_field_name);
