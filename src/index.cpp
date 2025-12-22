@@ -9038,16 +9038,7 @@ Option<bool> Index::populate_result_kvs(Topster<KV>* topster, std::vector<std::v
         return Option<bool>(true);
     }
 
-    // We will apply MMR diversification to each bucket later.
-    auto text_match_bucketing = false;
-    for (const auto& sort_by: sort_by_fields) {
-        if (sort_by.name == sort_field_const::text_match &&
-                (sort_by.text_match_bucket_size != 0 || sort_by.text_match_buckets != 0)) {
-            text_match_bucketing = true;
-        }
-    }
-
-    if (topster->size == 0 || text_match_bucketing || diversity.similarity_equation.empty()) {
+    if (topster->size == 0 || diversity.similarity_equation.empty()) {
         for(uint32_t t = 0; t < topster->size; t++) {
             KV* kv = topster->getKV(t);
             result_kvs.push_back({kv});
