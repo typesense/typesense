@@ -10,10 +10,9 @@ CurationIndexManager::~CurationIndexManager() = default;
 
 void CurationIndexManager::init_store(Store* store) {
     this->store = store;
-    load_curation_indices();
 }
 
-Option<CurationIndex*> CurationIndexManager::add_curation_index(const std::string& index_name, CurationIndex&& index) {
+Option<CurationIndex*> CurationIndexManager::add_curation_index(const std::string& index_name, CurationIndex&& index, bool write_to_store) {
     auto res = curation_index_list.insert(curation_index_list.end(), std::move(index));
     if(curation_index_map.find(index_name) != curation_index_map.end()) {
         LOG(INFO) << "Removing existing curation index: " << index_name;
@@ -21,11 +20,13 @@ Option<CurationIndex*> CurationIndexManager::add_curation_index(const std::strin
         curation_index_map.erase(index_name);
     }
     curation_index_map.emplace(index_name, res);
-    store->insert(CurationIndexManager::get_curation_index_key(index_name), index_name);
+    if(write_to_store) {
+        store->insert(CurationIndexManager::get_curation_index_key(index_name), index_name);
+    }
     return Option<CurationIndex*>(&(*res));
 }
 
-Option<CurationIndex*> CurationIndexManager::add_curation_index(const std::string& index_name) {
+Option<CurationIndex*> CurationIndexManager::add_curation_index(const std::string& index_name, bool write_to_store) {
     CurationIndex index(store, index_name);
     auto res = curation_index_list.insert(curation_index_list.end(), std::move(index));
     if(curation_index_map.find(index_name) != curation_index_map.end()) {
@@ -34,7 +35,9 @@ Option<CurationIndex*> CurationIndexManager::add_curation_index(const std::strin
         LOG(INFO) << "Removed existing curation index: " << index_name;
     }
     curation_index_map.emplace(index_name, res);
-    store->insert(CurationIndexManager::get_curation_index_key(index_name), index_name);
+    if(write_to_store) {
+        store->insert(CurationIndexManager::get_curation_index_key(index_name), index_name);
+    }
     return Option<CurationIndex*>(&(*res));
 }
 
@@ -105,7 +108,7 @@ void CurationIndexManager::load_curation_indices() {
         index_names
     );
     for(const auto& name: index_names) {
-        auto add_op = add_curation_index(name);
+        auto add_op = add_curation_index(name, false);
         if(!add_op.ok()) {
             LOG(ERROR) << "Failed to add curation index: " << name << ", error: " << add_op.error();
             continue;

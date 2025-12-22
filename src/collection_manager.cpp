@@ -513,6 +513,12 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     }
     delete iter;
 
+    // load synonym sets
+    SynonymIndexManager::get_instance().load_synonym_indices();
+
+    // load curation sets
+    CurationIndexManager::get_instance().load_curation_indices();
+
     ThreadPool loading_pool(collection_batch_size);
 
     size_t num_processed = 0;
@@ -2042,6 +2048,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     auto begin = std::chrono::high_resolution_clock::now();
 
     while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
+        break;
         num_found_docs++;
         const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
 

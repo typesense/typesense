@@ -11,10 +11,9 @@ SynonymIndexManager::~SynonymIndexManager() = default;
 
 void SynonymIndexManager::init_store(Store* store) {
     this->store = store;
-    load_synonym_indices();
 }
 
-Option<SynonymIndex*> SynonymIndexManager::add_synonym_index(const std::string& index_name, SynonymIndex&& index) {
+Option<SynonymIndex*> SynonymIndexManager::add_synonym_index(const std::string& index_name, SynonymIndex&& index, bool write_to_store) {
     auto res = synonym_index_list.insert(synonym_index_list.end(), std::move(index));
     if(synonym_index_map.find(index_name) != synonym_index_map.end()) {
         LOG(INFO) << "Removing existing synonym index: " << index_name;
@@ -22,11 +21,13 @@ Option<SynonymIndex*> SynonymIndexManager::add_synonym_index(const std::string& 
         synonym_index_map.erase(index_name);
     }
     synonym_index_map.emplace(index_name, res);
-    store->insert(SynonymIndexManager::get_synonym_index_key(index_name), index_name);
+    if(write_to_store) {
+        store->insert(SynonymIndexManager::get_synonym_index_key(index_name), index_name);
+    }
     return Option<SynonymIndex*>(&(*res));
 }
 
-Option<SynonymIndex*> SynonymIndexManager::add_synonym_index(const std::string& index_name) {
+Option<SynonymIndex*> SynonymIndexManager::add_synonym_index(const std::string& index_name, bool write_to_store) {
     SynonymIndex index(store, index_name);
     auto res = synonym_index_list.insert(synonym_index_list.end(), std::move(index));
     if(synonym_index_map.find(index_name) != synonym_index_map.end()) {
@@ -35,7 +36,9 @@ Option<SynonymIndex*> SynonymIndexManager::add_synonym_index(const std::string& 
         LOG(INFO) << "Removed existing synonym index: " << index_name;
     }
     synonym_index_map.emplace(index_name, res);
-    store->insert(SynonymIndexManager::get_synonym_index_key(index_name), index_name);
+    if(write_to_store) {
+        store->insert(SynonymIndexManager::get_synonym_index_key(index_name), index_name);
+    }
     return Option<SynonymIndex*>(&(*res));
 }
 
@@ -114,7 +117,7 @@ void SynonymIndexManager::load_synonym_indices() {
 
     for (const auto& synonym_index_name : synonym_index_names) {
         // create SynonymIndex object
-        auto add_op = add_synonym_index(synonym_index_name);
+        auto add_op = add_synonym_index(synonym_index_name, false);
         if (!add_op.ok()) {
             LOG(ERROR) << "Failed to add synonym index: " << synonym_index_name << ", error: " << add_op.error();
             continue;
