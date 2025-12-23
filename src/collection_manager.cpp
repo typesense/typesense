@@ -103,7 +103,7 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
         if(field_obj.count(fields::store) == 0) {
             field_obj[fields::store] = true;
         }
-        
+
         if(field_obj.count(fields::truncate_len) == 0) {
             field_obj[fields::truncate_len] = 100;
         }
@@ -319,6 +319,8 @@ void CollectionManager::init(Store *store, const float max_memory_ratio, const s
                              const uint16_t& filter_by_max_operations) {
     ThreadPool* thread_pool = new ThreadPool(8);
     init(store, thread_pool, max_memory_ratio, auth_key, quit, filter_by_max_operations);
+    CurationIndexManager::get_instance().init_store(store);
+    SynonymIndexManager::get_instance().init_store(store);
 }
 
 field get_referenced_field(const std::string& ref_schema, const std::string& ref_field_name) {
@@ -680,6 +682,8 @@ void CollectionManager::dispose() {
     referenced_ins.clear();
     store->close();
     collection_id_names.clear();
+    SynonymIndexManager::get_instance().dispose();
+    CurationIndexManager::get_instance().dispose();
 }
 
 bool CollectionManager::auth_key_matches(const string& req_auth_key, const string& action,
@@ -2048,7 +2052,6 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     auto begin = std::chrono::high_resolution_clock::now();
 
     while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
-        break;
         num_found_docs++;
         const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
 
@@ -2170,7 +2173,7 @@ Option<bool> CollectionManager::delete_preset(const string& preset_name) {
     return Option<bool>(true);
 }
 
-Option<Collection*> CollectionManager::clone_collection(const string& existing_name, const nlohmann::json& req_json, 
+Option<Collection*> CollectionManager::clone_collection(const string& existing_name, const nlohmann::json& req_json,
                                                        const bool copy_documents) {
     std::shared_lock lock(mutex);
 
@@ -2223,7 +2226,7 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
         lock.unlock();
 
         LOG(INFO) << "Copying documents from " << existing_name << " to " << new_name;
-        
+
         // Fetch records from the store and index them in the new collection using add_many
         const std::string seq_id_prefix = existing_coll->get_seq_id_collection_prefix();
         std::string upper_bound_key = existing_coll->get_seq_id_collection_prefix() + "`";
@@ -2268,12 +2271,12 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
                 // Use add_many which handles both indexing and storage properly
                 nlohmann::json dummy_doc;
                 auto add_result = new_coll->add_many(json_batch, dummy_doc, CREATE, "", DIRTY_VALUES::COERCE_OR_DROP);
-                
+
                 size_t num_imported = 0;
                 if(add_result.contains("num_imported")) {
                     num_imported = add_result["num_imported"].get<size_t>();
                 }
-                
+
                 num_indexed_docs += num_imported;
                 batch_doc_str_size = 0;
                 json_batch.clear();
@@ -2446,7 +2449,7 @@ void CollectionManager::remove_internal_fields(std::map<std::string, std::string
     }
 }
 
-Option<bool> CollectionManager::update_collection_synonym_sets(const std::string& collection, 
+Option<bool> CollectionManager::update_collection_synonym_sets(const std::string& collection,
                                                                const std::vector<std::string>& synonym_sets) {
     auto collection_ptr = get_collection(collection);
     if (collection_ptr == nullptr) {
@@ -2479,7 +2482,7 @@ Option<bool> CollectionManager::update_collection_synonym_sets(const std::string
     return Option<bool>(400, "failed to insert into store.");
 }
 
-Option<bool> CollectionManager::update_collection_curation_sets(const std::string& collection, 
+Option<bool> CollectionManager::update_collection_curation_sets(const std::string& collection,
                                                                 const std::vector<std::string>& curation_sets) {
     auto collection_ptr = get_collection(collection);
     if (collection_ptr == nullptr) {

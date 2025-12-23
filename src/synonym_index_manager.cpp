@@ -109,6 +109,10 @@ Option<bool> SynonymIndexManager::validate_synonym_index(const nlohmann::json& p
 
 void SynonymIndexManager::load_synonym_indices() {
     std::vector<std::string> synonym_index_names;
+    if (!store) {
+        LOG(ERROR) << "Store not initialized for loading synonym indices.";
+        return;
+    }
     store->scan_fill(
         SynonymIndexManager::SYNONYM_INDEX_KEY + std::string("_"),
         SynonymIndexManager::SYNONYM_INDEX_KEY + std::string("`"),
@@ -234,5 +238,5 @@ Option<bool> SynonymIndexManager::delete_synonym_item(const std::string& name, c
 void SynonymIndexManager::dispose() {
     synonym_index_list.clear();
     synonym_index_map.clear();
-
+    this->store = nullptr;
 }

@@ -102,6 +102,10 @@ Option<bool> CurationIndexManager::validate_curation_index(const nlohmann::json&
 
 void CurationIndexManager::load_curation_indices() {
     std::vector<std::string> index_names;
+    if (!store) {
+        LOG(ERROR) << "Store not initialized for loading curation indices.";
+        return;
+    }
     store->scan_fill(
         CurationIndexManager::OVERRIDE_INDEX_KEY + std::string("_"),
         CurationIndexManager::OVERRIDE_INDEX_KEY + std::string("`"),
@@ -217,6 +221,7 @@ Option<bool> CurationIndexManager::delete_curation_item(const std::string& name,
 void CurationIndexManager::dispose() {
     curation_index_list.clear();
     curation_index_map.clear();
+    this->store = nullptr;
 }
 
 
