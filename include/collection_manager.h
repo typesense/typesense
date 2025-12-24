@@ -88,7 +88,7 @@ public:
                                         const std::atomic<bool>& quit,
                                         const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos);
 
-    Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json, 
+    Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json,
                                          const bool copy_documents = false);
 
     void add_to_collections(Collection* collection);
@@ -202,9 +202,9 @@ public:
 
     Option<bool> update_collection_metadata(const std::string& collection, const nlohmann::json& metadata);
 
-    Option<bool> update_collection_synonym_sets(const std::string& collection, const std::vector<std::string>& synonym_sets);
+    Option<bool> update_collection_synonym_sets(const std::string& collection, const std::vector<std::string>& synonym_sets, bool is_live_req = true);
 
-    Option<bool> update_collection_curation_sets(const std::string& collection, const std::vector<std::string>& curation_sets);
+    Option<bool> update_collection_curation_sets(const std::string& collection, const std::vector<std::string>& curation_sets, bool is_live_req = true);
 
     Option<nlohmann::json> get_collection_alter_status() const;
 

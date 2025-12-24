@@ -2450,17 +2450,20 @@ void CollectionManager::remove_internal_fields(std::map<std::string, std::string
 }
 
 Option<bool> CollectionManager::update_collection_synonym_sets(const std::string& collection,
-                                                               const std::vector<std::string>& synonym_sets) {
+                                                               const std::vector<std::string>& synonym_sets,
+                                                               bool is_live_req) {
     auto collection_ptr = get_collection(collection);
     if (collection_ptr == nullptr) {
         return Option<bool>(400, "failed to get collection.");
     }
 
     auto& synonym_index_manager = SynonymIndexManager::get_instance();
-    for (const auto& synonym_set_name : synonym_sets) {
+    if (is_live_req) {
+        for (const auto& synonym_set_name : synonym_sets) {
         auto get_op = synonym_index_manager.get_synonym_index(synonym_set_name);
-        if (!get_op.ok()) {
-            return Option<bool>(404, "Synonym set `" + synonym_set_name + "` not found.");
+            if (!get_op.ok()) {
+                return Option<bool>(404, "Synonym set `" + synonym_set_name + "` not found.");
+            }
         }
     }
 
@@ -2483,17 +2486,19 @@ Option<bool> CollectionManager::update_collection_synonym_sets(const std::string
 }
 
 Option<bool> CollectionManager::update_collection_curation_sets(const std::string& collection,
-                                                                const std::vector<std::string>& curation_sets) {
+                                                                const std::vector<std::string>& curation_sets,
+                                                                bool is_live_req) {
     auto collection_ptr = get_collection(collection);
     if (collection_ptr == nullptr) {
         return Option<bool>(400, "failed to get collection.");
     }
 
-    auto &curation_index_manager = CurationIndexManager::get_instance();
-    for (const auto &curation_set_name: curation_sets) {
-        auto get_op = curation_index_manager.get_curation_index(curation_set_name);
-        if (!get_op.ok()) {
-            return Option<bool>(404, "Curation set `" + curation_set_name + "` not found.");
+    if (is_live_req) {
+        for (const auto& curation_set_name : curation_sets) {
+            auto get_op = CurationIndexManager::get_instance().get_curation_index(curation_set_name);
+            if (!get_op.ok()) {
+                return Option<bool>(404, "Curation set `" + curation_set_name + "` not found.");
+            }
         }
     }
 
