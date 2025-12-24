@@ -65,17 +65,17 @@ long RemoteEmbedder::call_remote_api(const std::string& method, const std::strin
 }
 
 
-const std::string RemoteEmbedder::get_model_key(const nlohmann::json& model_config) {
+const std::string RemoteEmbedder::get_model_key(const nlohmann::json& model_config, size_t num_dims) {
     const std::string model_namespace = EmbedderManager::get_model_namespace(model_config["model_name"].get<std::string>());
 
     if(model_namespace == "openai") {
-        return OpenAIEmbedder::get_model_key(model_config);
+        return OpenAIEmbedder::get_model_key(model_config, num_dims);
     } else if(model_namespace == "google") {
-        return GoogleEmbedder::get_model_key(model_config);
+        return GoogleEmbedder::get_model_key(model_config, num_dims);
     } else if(model_namespace == "gcp") {
-        return GCPEmbedder::get_model_key(model_config);
+        return GCPEmbedder::get_model_key(model_config, num_dims);
     } else if(model_namespace == "azure") {
-        return AzureEmbedder::get_model_key(model_config);
+        return AzureEmbedder::get_model_key(model_config, num_dims);
     } else {
         return "";
     }
@@ -331,8 +331,12 @@ nlohmann::json OpenAIEmbedder::get_error_json(const nlohmann::json& req_body, lo
     return get_error_json(req_body, res_code, res_body, get_embedding_url());
 }
 
-std::string OpenAIEmbedder::get_model_key(const nlohmann::json& model_config) {
-    return model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+std::string OpenAIEmbedder::get_model_key(const nlohmann::json& model_config, size_t num_dims) {
+    std::string key = model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+    if(num_dims > 0) {
+        key += ":" + std::to_string(num_dims);
+    }
+    return key;
 }
 
 GoogleEmbedder::GoogleEmbedder(const std::string& google_api_key) : google_api_key(google_api_key) {
@@ -478,8 +482,12 @@ nlohmann::json GoogleEmbedder::get_error_json(const nlohmann::json& req_body, lo
     return embedding_res;
 }
 
-std::string GoogleEmbedder::get_model_key(const nlohmann::json& model_config) {
-    return model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+std::string GoogleEmbedder::get_model_key(const nlohmann::json& model_config, size_t num_dims) {
+    std::string key = model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+    if(num_dims > 0) {
+        key += ":" + std::to_string(num_dims);
+    }
+    return key;
 }
 
 
@@ -1002,15 +1010,21 @@ Option<std::string> GCPEmbedder::generate_access_token(const std::string& refres
     return Option<std::string>(access_token);
 }
 
-std::string GCPEmbedder::get_model_key(const nlohmann::json& model_config) {
+std::string GCPEmbedder::get_model_key(const nlohmann::json& model_config, size_t num_dims) {
     const std::string name = model_config["model_name"].get<std::string>();
     const std::string project = model_config["project_id"].get<std::string>();
+    std::string key;
     if(model_config.count("service_account") > 0 && model_config["service_account"].is_object()) {
         const auto& sa = model_config["service_account"];
         const std::string email = sa.count("client_email") && sa["client_email"].is_string() ? sa["client_email"].get<std::string>() : std::string("unknown");
-        return name + ":" + project + ":sa:" + email;
+        key = name + ":" + project + ":sa:" + email;
+    } else {
+        key = name + ":" + project + ":" + model_config["client_secret"].get<std::string>();
     }
-    return name + ":" + project + ":" + model_config["client_secret"].get<std::string>();
+    if(num_dims > 0) {
+        key += ":" + std::to_string(num_dims);
+    }
+    return key;
 }
 
 
@@ -1102,6 +1116,10 @@ nlohmann::json AzureEmbedder::get_error_json(const nlohmann::json& req_body, lon
     return OpenAIEmbedder::get_error_json(req_body, res_code, res_body, azure_url);
 }
 
-std::string AzureEmbedder::get_model_key(const nlohmann::json& model_config) {
-    return model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+std::string AzureEmbedder::get_model_key(const nlohmann::json& model_config, size_t num_dims) {
+    std::string key = model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+    if(num_dims > 0) {
+        key += ":" + std::to_string(num_dims);
+    }
+    return key;
 }
