@@ -1210,7 +1210,8 @@ public:
                                             const bool& is_group_by_first_pass,
                                             const diversity_t& diversity,
                                             const spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*>& sort_index,
-                                            const facet_index_t* facet_index_v4);
+                                            const facet_index_t* facet_index_v4,
+                                            const spp::sparse_hash_map<std::string, hnsw_index_t*>& vector_index);
 
     GeoPolygonIndex* get_geopolygon_index(const std::string& field_name) const;
 
@@ -1234,6 +1235,10 @@ public:
     static void update_async_references(const std::string& collection_name, std::vector<index_record>& iter_batch,
                                         const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins =
                                         spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+
+    Option<bool> diversify_text_score_buckets(const std::vector<std::pair<size_t, size_t>>& bucket_indexes,
+                                              const diversity_t& diversity,
+                                              std::vector<std::vector<KV*>>& raw_result_kvs);
 };
 
 template<class T>

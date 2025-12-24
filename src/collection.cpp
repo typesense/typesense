@@ -165,21 +165,7 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
         auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
 
         if (field.is_singular()) {
-            // Referenced value must be unique.
-            if (existing_document.contains(reference_helper_field_name) &&
-                existing_document[reference_helper_field_name].is_number_integer()) {
-                const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name].get<int64_t>();
-                if (existing_ref_seq_id != Join::reference_helper_sentinel_value &&
-                    existing_ref_seq_id != ref_seq_id) {
-                    return Option<bool>(400, "Document `id: " + id + "` already has a reference to document `" +=
-                                                std::to_string(existing_ref_seq_id) + "` of `" += ref_coll_name +
-                                                "` collection, having reference value `" +=
-                                                get_field_value(existing_document, field_name) + "`.");
-                } else if (existing_ref_seq_id == ref_seq_id) {
-                    continue;
-                }
-            }
-
+            // Referenced value is guaranteed to be unique.
             // Set reference helper field of all the docs that matched filter to `ref_seq_id`.
             nlohmann::json update_document;
             update_document["id"] = id;
@@ -212,18 +198,6 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
             for (uint32_t j = 0; j < existing_document[field_name].size(); j++) {
                 auto const& ref_value = get_array_field_value(existing_document, field_name, j);
                 if (filter_values.count(ref_value) == 0) {
-                    continue;
-                }
-
-                const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name][j].get<int64_t>();
-                if (existing_ref_seq_id != Join::reference_helper_sentinel_value &&
-                    existing_ref_seq_id != ref_seq_id) {
-                    return Option<bool>(400, "Document `id: " + id + "` at `" += field_name +
-                                                "` reference array field and index `" + std::to_string(j) +
-                                                "` already has a reference to document `" += std::to_string(existing_ref_seq_id) +
-                                                "` of `" += ref_coll_name + "` collection, having reference value `" +=
-                                                get_array_field_value(existing_document, field_name, j) + "`.");
-                } else if (existing_ref_seq_id == ref_seq_id) {
                     continue;
                 }
 
@@ -1157,6 +1131,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                 auto it = search_schema.find(item.field);
                                 if (it == search_schema.end()) {
                                     return Option<bool>(400, "`" + item.field + "` field not found in the schema.");
+                                } else if (it->num_dim > 0 && item.method == diversity_t::similarity_methods::vector_distance) {
+                                    continue;
                                 }
                                 if (it->is_array() && !it->facet) {
                                     return Option<bool>(400, "Enable faceting on `" + item.field + "` array field to use in diversity.");
@@ -2998,10 +2974,25 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                               KV::is_greater_kv_group);
 
             // restore original scores
+            int64_t bucket_score = 0;
+            size_t bucket_start_index = 0;
+            std::vector<std::pair<size_t, size_t>> bucket_indexes;
+            auto const& diversity = search_params->diversity;
+            const auto diversity_limit = std::min<size_t>(search_params->topster->size, diversity.limit);
             for(i = 0; i < max_kvs_bucketed; i++) {
-                raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index] =
-                        result_scores[raw_result_kvs[i][0]->key];
+                auto& score = raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index];
+                if (!diversity.similarity_equation.empty() && bucket_score != score && i <= diversity_limit) {
+                    // We will diversify the buckets independently.
+                    bucket_indexes.emplace_back(bucket_start_index, i);
+                    bucket_score = score;
+                    bucket_start_index = i;
+                }
+
+                score = result_scores[raw_result_kvs[i][0]->key];
             }
+
+            bucket_indexes.emplace_back(bucket_start_index, max_kvs_bucketed);
+            index->diversify_text_score_buckets(bucket_indexes, diversity, raw_result_kvs);
         }
     }
 
@@ -9287,12 +9278,4 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
     }
 
     return Option<bool>(true);
-}
-
-void Collection::reset_async_reference_field(const std::string& field_name) {
-    nlohmann::json doc;
-    doc[field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX] = Join::reference_helper_sentinel_value;
-    std::string req_dirty_values = "reject";
-
-    update_matching_filter("id: *", doc.dump(), req_dirty_values, true, 5000);
 }

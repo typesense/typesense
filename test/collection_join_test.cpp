@@ -1472,8 +1472,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
         ASSERT_FALSE(add_doc_op.ok());
         // Singular reference field can only reference one document.
         ASSERT_EQ("Error while updating async reference field `product_id` of collection `Customers`: "
-                  "Document `id: 0` already has a reference to document `0` of `Products` collection, "
-                  "having reference value `product_a`.", add_doc_op.error());
+                  "The value `product_a` of the field `product_id` is not unique in `Products` collection.", add_doc_op.error());
 
         doc = coll1->get("2").get();
         ASSERT_EQ("2", doc["id"]);
@@ -1970,8 +1969,8 @@ TEST_F(CollectionJoinTest, RecreateAsyncReferencedCollection) {
 
     collectionManager.drop_collection("Products");
 
-    // Reset the references to sentinel values if an async referenced collection is dropped.
-    expected = {UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX};
+    // We will allow updating the references later.
+    expected = {0, 1, 0, 1};
     for (size_t i = 0; i < expected.size(); i++) {
         auto const doc_id = std::to_string(i);
         auto doc = coll->get(doc_id).get();
