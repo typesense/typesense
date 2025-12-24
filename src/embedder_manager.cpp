@@ -60,7 +60,7 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
     }
 
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
-    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config) : model_name;
+    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config, num_dims) : model_name;
     auto text_embedder_it = text_embedders.find(model_key);
     if(text_embedder_it == text_embedders.end()) {
         text_embedders.emplace(model_key, std::make_shared<TextEmbedder>(model_config, num_dims, has_custom_dims));
@@ -181,10 +181,10 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
     return Option<bool>(true);
 }
 
-Option<TextEmbedder*> EmbedderManager::get_text_embedder(const nlohmann::json& model_config) {
+Option<TextEmbedder*> EmbedderManager::get_text_embedder(const nlohmann::json& model_config, size_t num_dims) {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
     const std::string& model_name = model_config.at("model_name");
-    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config) : model_name;
+    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config, num_dims) : model_name;
     auto text_embedder_it = text_embedders.find(model_key);
 
     if(text_embedder_it == text_embedders.end()) {

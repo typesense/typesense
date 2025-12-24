@@ -42,7 +42,7 @@ public:
     EmbedderManager(const EmbedderManager&) = delete;
     EmbedderManager& operator=(const EmbedderManager&) = delete;
 
-    Option<TextEmbedder*> get_text_embedder(const nlohmann::json& model_config);
+    Option<TextEmbedder*> get_text_embedder(const nlohmann::json& model_config, size_t num_dims = 0);
     Option<ImageEmbedder*> get_image_embedder(const nlohmann::json& model_config);
 
     void delete_text_embedder(const std::string& model_path);
