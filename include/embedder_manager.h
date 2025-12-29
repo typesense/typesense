@@ -85,7 +85,7 @@ public:
     Option<bool> validate_and_init_local_model(const nlohmann::json& model_config, size_t& num_dims);
     Option<bool> validate_and_init_model(const nlohmann::json& model_config, size_t& num_dims);
 
-    Option<bool> update_remote_model_apikey(const nlohmann::json& model_config, const std::string& new_apikey);
+    Option<bool> update_remote_model_apikey(const nlohmann::json& model_config, const std::string& new_apikey, size_t num_dims = 0);
 
     std::unordered_map<std::string, std::shared_ptr<TextEmbedder>> _get_text_embedders() {
         return text_embedders;
