@@ -6,11 +6,16 @@ import { TypesenseTestRunner } from "./index";
 async function main() {
   const args = process.argv.slice(2);
   const runner = TypesenseTestRunner.getInstance();
-  if (args.length === 1 && args[0] === "--no-secrets") {
-    await runner.run([Filters.SECRETS]);
-  } else {
-    await runner.run([]);
-  }
+
+  // Check for --no-secrets flag
+  const noSecretsIndex = args.indexOf("--no-secrets");
+  const filters: Filters[] = noSecretsIndex !== -1 ? [Filters.SECRETS] : [];
+
+  // Check for file path argument (any argument that's not a flag and ends with .test.ts)
+  const fileArg = args.find(arg => arg.endsWith(".test.ts") && !arg.startsWith("--"));
+  const testFile = fileArg || null;
+
+  await runner.run(filters, testFile);
 }
 
 main();

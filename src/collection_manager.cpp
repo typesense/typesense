@@ -103,7 +103,7 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
         if(field_obj.count(fields::store) == 0) {
             field_obj[fields::store] = true;
         }
-        
+
         if(field_obj.count(fields::truncate_len) == 0) {
             field_obj[fields::truncate_len] = 100;
         }
@@ -319,6 +319,8 @@ void CollectionManager::init(Store *store, const float max_memory_ratio, const s
                              const uint16_t& filter_by_max_operations) {
     ThreadPool* thread_pool = new ThreadPool(8);
     init(store, thread_pool, max_memory_ratio, auth_key, quit, filter_by_max_operations);
+    CurationIndexManager::get_instance().init_store(store);
+    SynonymIndexManager::get_instance().init_store(store);
 }
 
 field get_referenced_field(const std::string& ref_schema, const std::string& ref_field_name) {
@@ -513,6 +515,12 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     }
     delete iter;
 
+    // load synonym sets
+    SynonymIndexManager::get_instance().load_synonym_indices();
+
+    // load curation sets
+    CurationIndexManager::get_instance().load_curation_indices();
+
     ThreadPool loading_pool(collection_batch_size);
 
     size_t num_processed = 0;
@@ -674,6 +682,8 @@ void CollectionManager::dispose() {
     referenced_ins.clear();
     store->close();
     collection_id_names.clear();
+    SynonymIndexManager::get_instance().dispose();
+    CurationIndexManager::get_instance().dispose();
 }
 
 bool CollectionManager::auth_key_matches(const string& req_auth_key, const string& action,
@@ -2146,7 +2156,7 @@ Option<bool> CollectionManager::delete_preset(const string& preset_name) {
     return Option<bool>(true);
 }
 
-Option<Collection*> CollectionManager::clone_collection(const string& existing_name, const nlohmann::json& req_json, 
+Option<Collection*> CollectionManager::clone_collection(const string& existing_name, const nlohmann::json& req_json,
                                                        const bool copy_documents) {
     std::shared_lock lock(mutex);
 
@@ -2199,7 +2209,7 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
         lock.unlock();
 
         LOG(INFO) << "Copying documents from " << existing_name << " to " << new_name;
-        
+
         // Fetch records from the store and index them in the new collection using add_many
         const std::string seq_id_prefix = existing_coll->get_seq_id_collection_prefix();
         std::string upper_bound_key = existing_coll->get_seq_id_collection_prefix() + "`";
@@ -2244,12 +2254,12 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
                 // Use add_many which handles both indexing and storage properly
                 nlohmann::json dummy_doc;
                 auto add_result = new_coll->add_many(json_batch, dummy_doc, CREATE, "", DIRTY_VALUES::COERCE_OR_DROP);
-                
+
                 size_t num_imported = 0;
                 if(add_result.contains("num_imported")) {
                     num_imported = add_result["num_imported"].get<size_t>();
                 }
-                
+
                 num_indexed_docs += num_imported;
                 batch_doc_str_size = 0;
                 json_batch.clear();
@@ -2422,18 +2432,21 @@ void CollectionManager::remove_internal_fields(std::map<std::string, std::string
     }
 }
 
-Option<bool> CollectionManager::update_collection_synonym_sets(const std::string& collection, 
-                                                               const std::vector<std::string>& synonym_sets) {
+Option<bool> CollectionManager::update_collection_synonym_sets(const std::string& collection,
+                                                               const std::vector<std::string>& synonym_sets,
+                                                               bool is_live_req) {
     auto collection_ptr = get_collection(collection);
     if (collection_ptr == nullptr) {
         return Option<bool>(400, "failed to get collection.");
     }
 
     auto& synonym_index_manager = SynonymIndexManager::get_instance();
-    for (const auto& synonym_set_name : synonym_sets) {
+    if (is_live_req) {
+        for (const auto& synonym_set_name : synonym_sets) {
         auto get_op = synonym_index_manager.get_synonym_index(synonym_set_name);
-        if (!get_op.ok()) {
-            return Option<bool>(404, "Synonym set `" + synonym_set_name + "` not found.");
+            if (!get_op.ok()) {
+                return Option<bool>(404, "Synonym set `" + synonym_set_name + "` not found.");
+            }
         }
     }
 
@@ -2455,18 +2468,20 @@ Option<bool> CollectionManager::update_collection_synonym_sets(const std::string
     return Option<bool>(400, "failed to insert into store.");
 }
 
-Option<bool> CollectionManager::update_collection_curation_sets(const std::string& collection, 
-                                                                const std::vector<std::string>& curation_sets) {
+Option<bool> CollectionManager::update_collection_curation_sets(const std::string& collection,
+                                                                const std::vector<std::string>& curation_sets,
+                                                                bool is_live_req) {
     auto collection_ptr = get_collection(collection);
     if (collection_ptr == nullptr) {
         return Option<bool>(400, "failed to get collection.");
     }
 
-    auto &curation_index_manager = CurationIndexManager::get_instance();
-    for (const auto &curation_set_name: curation_sets) {
-        auto get_op = curation_index_manager.get_curation_index(curation_set_name);
-        if (!get_op.ok()) {
-            return Option<bool>(404, "Curation set `" + curation_set_name + "` not found.");
+    if (is_live_req) {
+        for (const auto& curation_set_name : curation_sets) {
+            auto get_op = CurationIndexManager::get_instance().get_curation_index(curation_set_name);
+            if (!get_op.ok()) {
+                return Option<bool>(404, "Curation set `" + curation_set_name + "` not found.");
+            }
         }
     }
 
