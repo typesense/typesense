@@ -986,6 +986,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
     const char* UNION_RESULT = "union";
     const char* UNION_REMOVE_DUPLICATES = "remove_duplicates";
+    const char* CONCURRENCY = "concurrency";
     auto is_union = false;
     auto union_remove_duplicates = true;
     auto it = req_json.find(UNION_RESULT);
@@ -1066,9 +1067,15 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
     }
 
+    bool is_concurrent = false;
+    it = req_json.find(CONCURRENCY);
+    if(it != req_json.end() && it.value().is_boolean()) {
+        is_concurrent = it.value();
+    }
+
     if (is_union) {
         Option<bool> union_op = CollectionManager::do_union(req->params, req->embedded_params_vec, searches,
-                                                            response, req->conn_ts, union_remove_duplicates);
+                                                            response, req->conn_ts, union_remove_duplicates, is_concurrent);
         if(!union_op.ok() && union_op.code() == 408) {
             res->set(union_op.code(), union_op.error());
             req->overloaded = true;
@@ -1077,57 +1084,39 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     } else {
         response["results"] = nlohmann::json::array();
 
-        for(size_t i = 0; i < searches.size(); i++) {
-            auto& search_params = searches[i];
-            req->params = orig_req_params;
+        uint64_t prompt_cache_ttl = NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC;
+        if(req->params.count("nl_query_prompt_cache_ttl") && StringUtils::is_uint64_t(req->params["nl_query_prompt_cache_ttl"])) {
+            prompt_cache_ttl = std::stoull(req->params["nl_query_prompt_cache_ttl"]);
+        }
 
-            auto validate_op = multi_search_validate_and_add_params(req->params, search_params, conversation);
-            if (!validate_op.ok()) {
-                LOG(ERROR) << "multi_search parameter validation failed: " << validate_op.error()
-                          << " with code: " << validate_op.code();
-                // Log the problematic search parameters
-                LOG(ERROR) << "Problematic search parameters: " << search_params.dump();
-                res->set_400(validate_op.error());
-                res->final = true;
-                stream_response(req, res);
-                return false;
-            }
+        auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req->params, prompt_cache_ttl);
 
-            uint64_t prompt_cache_ttl = NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC;
-            if(req->params.count("nl_query_prompt_cache_ttl") && StringUtils::is_uint64_t(req->params["nl_query_prompt_cache_ttl"])) {
-                prompt_cache_ttl = std::stoull(req->params["nl_query_prompt_cache_ttl"]);
-            }
+        auto multi_search_op = CollectionManager::do_multi_search(req->params, req->embedded_params_vec, searches, response["results"],
+                                                                  req->conn_ts, is_concurrent);
 
-            auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req->params, prompt_cache_ttl);
+        auto nl_processing_time_ms = nl_search_op.ok() ? nl_search_op.get() : 0;
 
-            std::string results_json_str;
-            Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i],
-                                                                  results_json_str, req->conn_ts);
-
-            auto nl_processing_time_ms = nl_search_op.ok() ? nl_search_op.get() : 0;
-            if(search_op.ok()) {
-                auto results_json = nlohmann::json::parse(results_json_str);
-                if(conversation) {
-                    results_json["request_params"]["q"] = common_query;
+        if(multi_search_op.ok()) {
+            for(auto& json_res : response["results"]) {
+                if (conversation) {
+                    json_res["request_params"]["q"] = common_query;
                 }
 
-                NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &(req->params), nl_processing_time_ms);
-
-                response["results"].push_back(results_json);
-            } else {
-                if(search_op.code() == 408) {
-                    res->set(search_op.code(), search_op.error());
+                NaturalLanguageSearchModelManager::add_nl_query_data_to_results(json_res, &(req->params), nl_processing_time_ms);
+            }
+        } else {
+                if(multi_search_op.code() == 408) {
+                    res->set(multi_search_op.code(), multi_search_op.error());
                     req->overloaded = true;
                     res->final = true;
                     stream_response(req, res);
                     return false;
                 }
                 nlohmann::json err_res;
-                err_res["error"] = search_op.error();
-                err_res["code"] = search_op.code();
+                err_res["error"] = multi_search_op.error();
+                err_res["code"] = multi_search_op.code();
                 NaturalLanguageSearchModelManager::add_nl_query_data_to_results(err_res, &(req->params), nl_processing_time_ms, true);
                 response["results"].push_back(err_res);
-            }
         }
     }
 

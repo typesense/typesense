@@ -3590,6 +3590,12 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
     return Option<nlohmann::json>(result);
 }
 
+Option<nlohmann::json> Collection::run_search_with_lock(collection_search_args_t& coll_args) {
+    std::shared_lock lock(mutex);
+
+    return search(coll_args);
+}
+
 void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schema, const bool& enable_nested_fields,
                                  const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
                                  const string& query, const std::vector<std::string>& raw_search_fields,
@@ -3722,13 +3728,14 @@ void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schem
 
 }
 
-Option<bool> Collection::run_search_with_lock(search_args* search_params) const {
+Option<bool> Collection::search_index_with_lock(search_args* search_params) const {
     std::shared_lock lock(mutex);
     return index->run_search(search_params);
 }
+
 Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
-                                  std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,
-                                  const union_global_params_t& union_params, nlohmann::json& result, bool remove_duplicates) {
+                                  std::vector<collection_search_args_t>& searches, const union_global_params_t& union_params,
+                                  nlohmann::json& result, bool remove_duplicates, bool is_concurrent) {
     if (searches.size() != collection_ids.size()) {
         return Option<bool>(400, "Expected `collection_ids` and `searches` size to be equal.");
     }
@@ -3759,159 +3766,244 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     auto group_limit = searches[0].group_limit;
     auto found_docs = 0;
 
-    for (size_t search_index = 0; search_index < searches.size(); search_index++) {
-        auto begin = std::chrono::high_resolution_clock::now();
-        auto& coll_args = searches[search_index];
-        const auto& coll_id = collection_ids[search_index];
+    std::mutex mut;
 
-        auto& cm = CollectionManager::get_instance();
-        auto coll = cm.get_collection_with_id(coll_id);
-        if (coll == nullptr) {
-            return Option<bool>(400, "Collection having `coll_id: " + std::to_string(coll_id) + "` not found.");
-        }
-
-        auto& search_params_guard = search_params_guards[search_index];
-        auto& query = queries[search_index];
-        auto& included_ids = included_ids_list[search_index];
-        auto& include_fields_full = include_fields_full_list[search_index];
-        auto& exclude_fields_full = exclude_fields_full_list[search_index];
-        auto& q_tokens = q_tokens_list[search_index];
-        auto& conversation_standalone_query = conversation_standalone_queries[search_index];
-        auto& vector_query = vector_queries[search_index];
-        auto& facets = facets_list[search_index];
-        auto& per_page = per_pages[search_index] = union_params.per_page;;
-        auto& transcribed_query = transcribed_queries[search_index];
-        auto& curation_metadata = curation_metadata_list[search_index];
-        const auto default_sorting_field_used = coll_args.sort_fields.empty() &&
-                                                !coll->default_sorting_field.empty();
-
-        const auto init_index_search_args_op = coll->init_index_search_args_with_lock(coll_args, search_params_guard, query, included_ids,
-                                                                                      include_fields_full, exclude_fields_full,
-                                                                                      q_tokens, conversation_standalone_query,
-                                                                                      vector_query, facets, per_page,
-                                                                                      transcribed_query, curation_metadata,
-                                                                                      true, search_index);
-        if (!init_index_search_args_op.ok()) {
-            return init_index_search_args_op;
-        }
-
-        const auto search_op = coll->run_search_with_lock(search_params_guard.get());
-
-        searchTimeMillis.emplace_back(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                            std::chrono::high_resolution_clock::now() - begin).count());
-        totalSearchTime += searchTimeMillis.back();
-
-        if (!search_op.ok()) {
-            return search_op;
-        }
-
-        const auto& search_params = search_params_guard;
-        const auto& found = search_params->found_count;
-        total += found;
-        found_docs += found;
-        if (unique_collection_ids.count(coll_id) == 0) {
-            out_of += coll->get_num_documents();
-            unique_collection_ids.insert(coll_id);
-        }
-
-        auto& index_symbols = index_symbols_list[search_index];
-        for(char c: coll->get_symbols_to_index()) {
-            index_symbols[uint8_t(c)] = 1;
-        }
-
-        const auto& highlight_fields = coll_args.highlight_fields;
-        const auto& highlight_full_fields = coll_args.highlight_full_fields;
-        const auto& weighted_search_fields = search_params->search_fields;
-        const auto& raw_search_fields = coll_args.search_fields;
-        const auto& infixes = search_params->infixes;
-
-        auto& highlight_field_names = highlight_field_names_list[search_index];
-        StringUtils::split(highlight_fields, highlight_field_names, ",");
-
-        auto& highlight_full_field_names = highlight_full_field_names_list[search_index];
-        StringUtils::split(highlight_full_fields, highlight_full_field_names, ",");
-        if (query != "*") {
-            coll->process_highlight_fields_with_lock(weighted_search_fields, raw_search_fields, include_fields_full, exclude_fields_full,
-                                     highlight_field_names, highlight_full_field_names, infixes, q_tokens,
-                                     search_params->qtoken_set, highlight_items_list[search_index]);
-        }
-
-        nlohmann::json params;
-        params["collection_name"] = coll->get_name();
-        params["per_page"] = union_params.per_page;
-        params["q"] = coll_args.raw_query;
-        params["found"] = found;
-        request_json_list[search_index] = params;
-
-        // All the searches should sort_by on the same type of field and in the same order.
-        if (search_index > 0) {
-            const auto& first_search_sort_fields = search_params_guards[0]->sort_fields_std;
-            const auto& this_search_sort_fields = search_params->sort_fields_std;
-            if (this_search_sort_fields.size() != first_search_sort_fields.size()) {
-                std::string message = "Expected size of `sort_by` parameter of all searches to be equal. "
-                                      "The first union search sorts on {";
-                for (const auto& item: first_search_sort_fields) {
-                    message += ("`" + item.name + ": " + std::string(magic_enum::enum_name(item.type)) + "`, ");
-                }
-                if (message.back() != '{') {
-                    message[message.size() - 2] = '}';
-                } else {
-                    message += "} ";
-                }
-                message += ( "but the search at index `" + std::to_string(search_index) + "` sorts on {");
-                for (const auto& item: this_search_sort_fields) {
-                    message += ("`" + item.name + ": " + std::string(magic_enum::enum_name(item.type)) + "`, ");
-                }
-                if (message.back() != '{') {
-                    message[message.size() - 2] = '}';
-                    message[message.size() - 1] = '.';
-                } else {
-                    message += "}.";
-                }
-                return Option<bool>(400, message);
+    auto process_and_search = [&](size_t start_index, size_t batch_len)->Option<bool> {
+        for (int i = 0; i < batch_len; ++i) {
+            auto search_index = start_index + i;
+            auto begin = std::chrono::high_resolution_clock::now();
+            auto& coll_args = searches[search_index];
+            const auto& coll_id = collection_ids[search_index];
+            auto& cm = CollectionManager::get_instance();
+            auto coll = cm.get_collection_with_id(coll_id);
+            if (coll == nullptr) {
+                return Option<bool>(400, "Collection having `coll_id: " + std::to_string(coll_id) + "` not found.");
             }
 
-            for (size_t i = 0; i < first_search_sort_fields.size(); i++) {
-                if (this_search_sort_fields[i].type != first_search_sort_fields[i].type) {
-                    std::string append_hint;
-                    const auto& first_search_collection_name = request_json_list[0]["collection_name"].get<std::string>();
-                    if (default_sorting_field_used && first_request_default_sorting_field_used) {
-                        // Both the current and first search request have declared a default sorting field.
-                        append_hint = " Both `" + coll->get_name() + "` and `" + first_search_collection_name +
-                                        "` collections have declared a default sorting field of different type. Since"
-                                        " union expects the searches to sort_by on the same type of fields, default"
-                                        " sorting fields of the collections should be removed.";
-                    } else if (default_sorting_field_used) {
-                        append_hint = " `" + coll->get_name() + "` collection has declared a default sorting field of "
-                                        "different type. Since union expects the searches to sort_by on the same type "
-                                        "of fields, default sorting field of the collection should be removed.";
-                    } else if (first_request_default_sorting_field_used) {
-                        append_hint = " `" + first_search_collection_name + "` collection has declared a default sorting"
-                                        " field of different type. Since union expects the searches to sort_by on the"
-                                        " same type of fields, default sorting field of the collection should be removed.";
+            auto& search_params_guard = search_params_guards[search_index];
+            auto& query = queries[search_index];
+            auto& included_ids = included_ids_list[search_index];
+            auto& include_fields_full = include_fields_full_list[search_index];
+            auto& exclude_fields_full = exclude_fields_full_list[search_index];
+            auto& q_tokens = q_tokens_list[search_index];
+            auto& conversation_standalone_query = conversation_standalone_queries[search_index];
+            auto& vector_query = vector_queries[search_index];
+            auto& facets = facets_list[search_index];
+            auto& per_page = per_pages[search_index] = union_params.per_page;;
+            auto& transcribed_query = transcribed_queries[search_index];
+            auto& curation_metadata = curation_metadata_list[search_index];
+            const auto default_sorting_field_used = coll_args.sort_fields.empty() &&
+                                                    !coll->default_sorting_field.empty();
+
+            const auto init_index_search_args_op = coll->init_index_search_args_with_lock(coll_args,
+                                                                                          search_params_guard, query,
+                                                                                          included_ids,
+                                                                                          include_fields_full,
+                                                                                          exclude_fields_full,
+                                                                                          q_tokens,
+                                                                                          conversation_standalone_query,
+                                                                                          vector_query, facets,
+                                                                                          per_page,
+                                                                                          transcribed_query,
+                                                                                          curation_metadata,
+                                                                                          true, search_index);
+            if (!init_index_search_args_op.ok()) {
+                return init_index_search_args_op;
+            }
+
+            const auto search_op = coll->search_index_with_lock(search_params_guard.get());
+
+            auto searchTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::high_resolution_clock::now() - begin).count();
+
+            //update common data structures
+            std::unique_lock<std::mutex> lock(mut);
+
+            totalSearchTime += searchTimeMillis;
+
+            if (!search_op.ok()) {
+                return search_op;
+            }
+
+            const auto& search_params = search_params_guard;
+            const auto& found = search_params->found_count;
+            total += found;
+            found_docs += found;
+            if (unique_collection_ids.count(coll_id) == 0) {
+                out_of += coll->get_num_documents();
+                unique_collection_ids.insert(coll_id);
+            }
+
+            auto& index_symbols = index_symbols_list[search_index];
+            for (char c: coll->get_symbols_to_index()) {
+                index_symbols[uint8_t(c)] = 1;
+            }
+
+            lock.unlock();
+
+            const auto& highlight_fields = coll_args.highlight_fields;
+            const auto& highlight_full_fields = coll_args.highlight_full_fields;
+            const auto& weighted_search_fields = search_params->search_fields;
+            const auto& raw_search_fields = coll_args.search_fields;
+            const auto& infixes = search_params->infixes;
+
+            auto& highlight_field_names = highlight_field_names_list[search_index];
+            StringUtils::split(highlight_fields, highlight_field_names, ",");
+
+            auto& highlight_full_field_names = highlight_full_field_names_list[search_index];
+            StringUtils::split(highlight_full_fields, highlight_full_field_names, ",");
+            if (query != "*") {
+                coll->process_highlight_fields_with_lock(weighted_search_fields, raw_search_fields, include_fields_full,
+                                                         exclude_fields_full,
+                                                         highlight_field_names, highlight_full_field_names, infixes,
+                                                         q_tokens,
+                                                         search_params->qtoken_set, highlight_items_list[search_index]);
+            }
+
+            nlohmann::json params;
+            params["collection_name"] = coll->get_name();
+            params["per_page"] = union_params.per_page;
+            params["q"] = coll_args.raw_query;
+            params["found"] = found;
+            request_json_list[search_index] = params;
+
+            // All the searches should sort_by on the same type of field and in the same order.
+            if (search_index > 0) {
+                const auto& first_search_sort_fields = search_params_guards[0]->sort_fields_std;
+                const auto& this_search_sort_fields = search_params->sort_fields_std;
+                if (this_search_sort_fields.size() != first_search_sort_fields.size()) {
+                    std::string message = "Expected size of `sort_by` parameter of all searches to be equal. "
+                                          "The first union search sorts on {";
+                    for (const auto& item: first_search_sort_fields) {
+                        message += ("`" + item.name + ": " + std::string(magic_enum::enum_name(item.type)) + "`, ");
+                    }
+                    if (message.back() != '{') {
+                        message[message.size() - 2] = '}';
+                    } else {
+                        message += "} ";
+                    }
+                    message += ("but the search at index `" + std::to_string(search_index) + "` sorts on {");
+                    for (const auto& item: this_search_sort_fields) {
+                        message += ("`" + item.name + ": " + std::string(magic_enum::enum_name(item.type)) + "`, ");
+                    }
+                    if (message.back() != '{') {
+                        message[message.size() - 2] = '}';
+                        message[message.size() - 1] = '.';
+                    } else {
+                        message += "}.";
+                    }
+                    return Option<bool>(400, message);
+                }
+
+                for (size_t i = 0; i < first_search_sort_fields.size(); i++) {
+                    if (this_search_sort_fields[i].type != first_search_sort_fields[i].type) {
+                        std::string append_hint;
+                        const auto& first_search_collection_name = request_json_list[0]["collection_name"].get<std::string>();
+                        if (default_sorting_field_used && first_request_default_sorting_field_used) {
+                            // Both the current and first search request have declared a default sorting field.
+                            append_hint = " Both `" + coll->get_name() + "` and `" + first_search_collection_name +
+                                          "` collections have declared a default sorting field of different type. Since"
+                                          " union expects the searches to sort_by on the same type of fields, default"
+                                          " sorting fields of the collections should be removed.";
+                        } else if (default_sorting_field_used) {
+                            append_hint =
+                                    " `" + coll->get_name() + "` collection has declared a default sorting field of "
+                                                              "different type. Since union expects the searches to sort_by on the same type "
+                                                              "of fields, default sorting field of the collection should be removed.";
+                        } else if (first_request_default_sorting_field_used) {
+                            append_hint =
+                                    " `" + first_search_collection_name + "` collection has declared a default sorting"
+                                                                          " field of different type. Since union expects the searches to sort_by on the"
+                                                                          " same type of fields, default sorting field of the collection should be removed.";
+                        }
+
+                        return Option<bool>(400, "Expected type of `" + this_search_sort_fields[i].name + "` sort_by ("
+                                                 + std::string(magic_enum::enum_name(this_search_sort_fields[i].type)) +
+                                                 ") at search index `" += std::to_string(search_index) + "` to be "
+                                                                                                         "the same as the type of `" +
+                                                                          first_search_sort_fields[i].name +
+                                                                          "` sort_by (" += std::string(
+                                magic_enum::enum_name(first_search_sort_fields[i].type)) +
+                                                                                           ") at search index `" +=
+                                                                          std::to_string(0) + "`." += append_hint);
                     }
 
-                    return Option<bool>(400, "Expected type of `" + this_search_sort_fields[i].name + "` sort_by ("
-                                                + std::string(magic_enum::enum_name(this_search_sort_fields[i].type)) +
-                                                ") at search index `" += std::to_string(search_index) + "` to be "
-                                                "the same as the type of `" + first_search_sort_fields[i].name +
-                                                "` sort_by (" += std::string(magic_enum::enum_name(first_search_sort_fields[i].type)) +
-                                                ") at search index `" += std::to_string(0) + "`." += append_hint);
+                    if (this_search_sort_fields[i].order != first_search_sort_fields[i].order) {
+                        return Option<bool>(400, "Expected order of `" + this_search_sort_fields[i].name + "` sort_by ("
+                                += this_search_sort_fields[i].order + ") at search index `" +=
+                                   std::to_string(search_index) + "` to be the same as the order of `" +
+                                   first_search_sort_fields[i].name + "` sort_by ("
+                                           += first_search_sort_fields[i].order + ") at search index `" +=
+                                           std::to_string(0) + "`.");
+                    }
                 }
-
-                if (this_search_sort_fields[i].order != first_search_sort_fields[i].order) {
-                    return Option<bool>(400, "Expected order of `" + this_search_sort_fields[i].name + "` sort_by ("
-                                             += this_search_sort_fields[i].order + ") at search index `" +=
-                                             std::to_string(search_index) + "` to be the same as the order of `" +
-                                             first_search_sort_fields[i].name + "` sort_by ("
-                                             += first_search_sort_fields[i].order + ") at search index `" +=
-                                             std::to_string(0) + "`.");
-                }
+            } else {
+                first_request_default_sorting_field_used = default_sorting_field_used;
             }
-        } else {
-            first_request_default_sorting_field_used = default_sorting_field_used;
+        }
+
+        return Option<bool>(true);
+    };
+
+
+    if (is_concurrent) {
+        auto thread_pool = CollectionManager::get_instance().get_thread_pool();
+
+        const size_t concurrency = 4;
+        const size_t num_threads = std::min(concurrency, searches.size());
+        const size_t window_size = (num_threads == 0) ? 0 :
+                                   (searches.size() + num_threads - 1) / num_threads;
+
+        std::mutex m_process;
+        std::condition_variable cv_process;
+        size_t num_queued = 0;
+        size_t num_processed = 0;
+        size_t search_index = 0;
+        Option<bool> error_state = Option<bool>(true);
+
+        for (size_t thread_id = 0; thread_id < num_threads && search_index < searches.size(); thread_id++) {
+            size_t batch_len = window_size;
+
+            if (search_index + window_size > searches.size()) {
+                batch_len = searches.size() - search_index;
+            }
+
+            num_queued++;
+
+            thread_pool->enqueue([&, search_index, batch_len]() {
+                error_state = process_and_search(search_index, batch_len);
+
+                std::unique_lock<std::mutex> lock(m_process);
+                num_processed++;
+
+                cv_process.notify_one();
+            });
+
+            if(!error_state.ok()) {
+                break;
+            }
+
+            search_index += batch_len;
+        }
+
+        {
+            std::unique_lock<std::mutex> lock_process(m_process);
+            cv_process.wait(lock_process, [&]() { return num_processed == num_queued; });
+        }
+
+        if(!error_state.ok()) {
+            return error_state;
+        }
+
+    } else {
+        for (size_t search_index = 0; search_index < searches.size(); ++search_index) {
+            auto op = process_and_search(search_index, 1);
+            if(!op.ok()) {
+                return op;
+            }
         }
     }
+
 
     if (search_cutoff && total == 0) {
         // this can happen if other requests stopped this request from being processed
@@ -4189,6 +4281,140 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     }
 
     result["search_cutoff"] = search_cutoff;
+
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::do_multi_search(const std::vector<uint32_t>& collection_ids,
+                                         std::vector<collection_search_args_t>& searches,
+                                         std::vector<long>& searchTimeMillis, nlohmann::json& results,
+                                         const std::string& user_id, bool is_concurrent) {
+    std::mutex mut;
+
+    auto process_and_search = [&](size_t start_index, size_t batch_len)->Option<bool> {
+        for (int i = 0; i < batch_len; ++i) {
+            auto search_index = start_index + i;
+            auto begin = std::chrono::high_resolution_clock::now();
+            auto& coll_args = searches[search_index];
+            const auto& coll_id = collection_ids[search_index];
+            auto& cm = CollectionManager::get_instance();
+            auto coll = cm.get_collection_with_id(coll_id);
+            if (coll == nullptr) {
+                return Option<bool>(400, "Collection having `coll_id: " + std::to_string(coll_id) + "` not found.");
+            }
+
+            auto search_op = coll->run_search_with_lock(coll_args);
+
+            if(!search_op.ok()) {
+                return Option<bool>(search_op.code(), search_op.error());
+            }
+
+            auto result = search_op.get();
+
+            if(Config::get_instance().get_enable_search_analytics()) {
+                if(coll_args.enable_analytics && result.contains("found")) {
+                    std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(coll_args.raw_query);
+                    search_internal_event_t internal_event = {
+                            SearchAnalytics::LOG_TYPE,
+                            coll->name,
+                            analytics_query,
+                            "",
+                            user_id,
+                            coll_args.filter_query,
+                            coll_args.analytics_tag
+                    };
+
+                    if(result["found"].get<size_t>() != 0) {
+                        const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
+                                result["request_params"]["first_q"].get<std::string>());
+                        internal_event.expanded_q = expanded_query;
+                        AnalyticsManager::get_instance().add_internal_event(internal_event);
+                        internal_event.type = SearchAnalytics::POPULAR_QUERIES_TYPE;
+                        AnalyticsManager::get_instance().add_internal_event(internal_event);
+                    } else {
+                        AnalyticsManager::get_instance().add_internal_event(internal_event);
+                        internal_event.type = SearchAnalytics::NO_HIT_QUERIES_TYPE;
+                        AnalyticsManager::get_instance().add_internal_event(internal_event);
+                    }
+                }
+            }
+
+            if(coll_args.exclude_fields.count("search_time_ms") == 0) {
+                auto searchTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::high_resolution_clock::now() - begin).count();
+                result["search_time_ms"] = searchTimeMillis;
+            }
+
+            if(coll_args.page == 0 && coll_args.offset != 0) {
+                result["offset"] = coll_args.offset;
+            } else {
+                result["page"] = (coll_args.page == 0) ? 1 : coll_args.page;
+            }
+
+            std::unique_lock<std::mutex> lock(mut); //fencing to avoid race
+            results.push_back(result);
+        }
+
+        return Option<bool>(true);
+    };
+
+    if (is_concurrent) {
+        auto thread_pool = CollectionManager::get_instance().get_thread_pool();
+
+        const size_t concurrency = 4;
+        const size_t num_threads = std::min(concurrency, searches.size());
+        const size_t window_size = (num_threads == 0) ? 0 :
+                                   (searches.size() + num_threads - 1) / num_threads;
+
+        std::mutex m_process;
+        std::condition_variable cv_process;
+        size_t num_queued = 0;
+        size_t num_processed = 0;
+        size_t search_index = 0;
+        Option<bool> error_state = Option<bool>(true);
+
+        for (size_t thread_id = 0; thread_id < num_threads && search_index < searches.size(); thread_id++) {
+            size_t batch_len = window_size;
+
+            if (search_index + window_size > searches.size()) {
+                batch_len = searches.size() - search_index;
+            }
+
+            num_queued++;
+
+            thread_pool->enqueue([&, search_index, batch_len]() {
+                error_state = process_and_search(search_index, batch_len);
+
+                std::unique_lock<std::mutex> lock(m_process);
+                num_processed++;
+
+                cv_process.notify_one();
+            });
+
+            if(!error_state.ok()) {
+                break;
+            }
+
+            search_index += batch_len;
+        }
+
+        {
+            std::unique_lock<std::mutex> lock_process(m_process);
+            cv_process.wait(lock_process, [&]() { return num_processed == num_queued; });
+        }
+
+        if(!error_state.ok()) {
+            return error_state;
+        }
+
+    } else {
+        for (size_t search_index = 0; search_index < searches.size(); ++search_index) {
+            auto op = process_and_search(search_index, 1);
+            if(!op.ok()) {
+                return op;
+            }
+        }
+    }
 
     return Option<bool>(true);
 }
