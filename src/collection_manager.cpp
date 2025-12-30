@@ -2594,8 +2594,10 @@ Option<bool> CollectionManager::populate_collection_args(std::map<std::string, s
         auto& search_params = searches[i];
         req_params = orig_req_params;
 
-        // Only global pagination params are considered during union.
-        remove_global_params(search_params);
+        if(union_params) {
+            // Only global pagination params are considered during union.
+            remove_global_params(search_params);
+        }
 
         auto validate_op = multi_search_validate_and_add_params(req_params, search_params, false);
         if (!validate_op.ok()) {
@@ -2641,12 +2643,12 @@ Option<bool> CollectionManager::populate_collection_args(std::map<std::string, s
             group_by_args_count++;
         }
 
-        coll_searches.emplace_back(std::move(args));
-        collection_ids.emplace_back(collection->get_collection_id());
-
         if(union_params) {
             args.curation_union_global_params(union_params.value());
         }
+
+        coll_searches.emplace_back(std::move(args));
+        collection_ids.emplace_back(collection->get_collection_id());
     }
 
     return Option<bool>(true);
