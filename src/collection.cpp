@@ -1378,7 +1378,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     std::vector<std::vector<float>> embeddings;
                     for(const auto& q: sort_field_std.vector_query.query.queries) {
                         EmbedderManager& embedder_manager = EmbedderManager::get_instance();
-                        auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
+                        auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config], vector_field_it.value().num_dim);
                         if(!embedder_op.ok()) {
                             return Option<bool>(400, embedder_op.error());
                         }
@@ -1442,7 +1442,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     // generate embeddings for the query
 
                     EmbedderManager& embedder_manager = EmbedderManager::get_instance();
-                    auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
+                    auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config], vector_field_it.value().num_dim);
                     if(!embedder_op.ok()) {
                         return Option<bool>(embedder_op.code(), embedder_op.error());
                     }
@@ -2253,7 +2253,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                 }
 
                 EmbedderManager& embedder_manager = EmbedderManager::get_instance();
-                auto embedder_op = embedder_manager.get_text_embedder(search_field.embed[fields::model_config]);
+                auto embedder_op = embedder_manager.get_text_embedder(search_field.embed[fields::model_config], search_field.num_dim);
                 if(!embedder_op.ok()) {
                     return Option<bool>(400, embedder_op.error());
                 }
@@ -6497,7 +6497,7 @@ Option<bool> Collection::update_apikey(const nlohmann::json& model_config, const
             }
 
             //update in remote embedder first the in collection
-            auto update_op = EmbedderManager::get_instance().update_remote_model_apikey(coll_model_config, api_key);
+            auto update_op = EmbedderManager::get_instance().update_remote_model_apikey(coll_model_config, api_key, coll_field.num_dim);
 
             if (!update_op.ok()) {
                 return update_op;
@@ -8592,7 +8592,7 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
         std::vector<std::vector<float>> embeddings;
         for(const auto& q: vector_query.queries) {
             EmbedderManager& embedder_manager = EmbedderManager::get_instance();
-            auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
+            auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config], vector_field_it.value().num_dim);
             if(!embedder_op.ok()) {
                 return Option<bool>(400, embedder_op.error());
             }

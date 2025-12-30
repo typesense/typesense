@@ -11,6 +11,7 @@
 #include "core_api.h"
 #include "vq_model_manager.h"
 #include "conversation_model.h"
+#include "text_embedder_remote.h"
 
 class CollectionVectorTest : public ::testing::Test {
 protected:
@@ -5866,4 +5867,38 @@ nlohmann::json schema = R"({
     })"_json;
     add_op = coll1->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
+}
+
+TEST_F(CollectionVectorTest, TestEmbedderCacheKeyIncludesDimensions) {
+    // Test that embedder cache keys include num_dims for matryoshka models
+    nlohmann::json model_config = R"({
+        "model_name": "openai/text-embedding-3-large",
+        "api_key": "test-api-key"
+    })"_json;
+
+    // Same model with different dimensions should have different cache keys
+    std::string key_512 = OpenAIEmbedder::get_model_key(model_config, 512);
+    std::string key_1024 = OpenAIEmbedder::get_model_key(model_config, 1024);
+    std::string key_default = OpenAIEmbedder::get_model_key(model_config, 0);
+
+    ASSERT_NE(key_512, key_1024);
+    ASSERT_NE(key_512, key_default);
+    ASSERT_NE(key_1024, key_default);
+
+    // Verify key format includes dimensions
+    ASSERT_TRUE(key_512.find(":512") != std::string::npos);
+    ASSERT_TRUE(key_1024.find(":1024") != std::string::npos);
+
+    // Key with 0 dims should not have a dimension suffix (backward compatible)
+    ASSERT_TRUE(key_default.find(":0") == std::string::npos);
+
+    // Test Azure embedder as well
+    nlohmann::json azure_config = R"({
+        "model_name": "azure/text-embedding-3-large",
+        "api_key": "test-api-key"
+    })"_json;
+
+    std::string azure_key_512 = AzureEmbedder::get_model_key(azure_config, 512);
+    std::string azure_key_1024 = AzureEmbedder::get_model_key(azure_config, 1024);
+    ASSERT_NE(azure_key_512, azure_key_1024);
 }

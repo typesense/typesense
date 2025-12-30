@@ -8293,7 +8293,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
         }
 
         if(!values_text.empty()) {
-            auto embedder_op = embedder_manager.get_text_embedder(field.embed[fields::model_config]);
+            auto embedder_op = embedder_manager.get_text_embedder(field.embed[fields::model_config], field.num_dim);
             if(!embedder_op.ok()) {
                 LOG(ERROR) << "Error while getting embedder for model: " << field.embed[fields::model_config];
                 LOG(ERROR) << "Error: " << embedder_op.error();
