@@ -5519,6 +5519,8 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
     highlight.matched_tokens.emplace_back();
     std::vector<std::string>& matched_tokens = highlight.matched_tokens.back();
     bool found_first_match = false;
+    // track first match token index for nested fields
+    size_t first_match_token_index = 0;  
 
     size_t text_len = Tokenizer::is_ascii_char(text[0]) ? text.size() : StringUtils::get_num_chars(text);
 
@@ -5656,12 +5658,14 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
 
                 if(!found_first_match) {
                     snippet_start_offset = snippet_start_window.front();
+                    first_match_token_index = raw_token_index;
                 }
 
                 found_first_match = true;
             } else if(raw_token_found && is_arr_obj_ele) {
                 if(!found_first_match) {
                     snippet_start_offset = snippet_start_window.front();
+                    first_match_token_index = raw_token_index;
                 }
 
                 found_first_match = true;
@@ -5672,7 +5676,12 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
             token_hits.insert(raw_token);
         }
 
-        if(last_valid_offset_index != -1 && raw_token_index >= last_valid_offset + highlight_affix_num_tokens) {
+        // set snippet_end_offset for nested fields with single token matches
+        if(is_arr_obj_ele && last_valid_offset_index == -1 && found_first_match && 
+           snippet_end_offset == text.size() - 1 && 
+           raw_token_index >= first_match_token_index + highlight_affix_num_tokens) {
+            snippet_end_offset = tok_end;
+        } else if(last_valid_offset_index != -1 && raw_token_index >= last_valid_offset + highlight_affix_num_tokens) {
             // register end of highlight snippet
             if(snippet_end_offset == text.size() - 1) {
                 snippet_end_offset = tok_end;
@@ -5685,10 +5694,12 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
         // c) raw_token_index exceeds snippet threshold
         // d) highlight fully is not requested
 
-        if(raw_token_index >= snippet_threshold &&
+        bool should_break = raw_token_index >= snippet_threshold &&
            match_offset_index > last_valid_offset_index &&
            raw_token_index >= last_valid_offset + highlight_affix_num_tokens &&
-           !is_arr_obj_ele && !highlight_fully) {
+           !is_arr_obj_ele && !highlight_fully;
+        
+        if(should_break) {
             break;
         }
     }
