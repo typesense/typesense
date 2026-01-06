@@ -1451,8 +1451,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     Option<nlohmann::json> result_op = collection->search(args);
 
-    auto reqTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::high_resolution_clock::now().time_since_epoch()).count() - start_ts;
+    auto end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto reqTimeMillis = (end_ts - start_ts) / 1000;
     update_app_metrics(reqTimeMillis);
 
     if(!result_op.ok()) {
