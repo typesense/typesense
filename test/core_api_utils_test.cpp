@@ -3120,3 +3120,209 @@ TEST_F(CoreAPIUtilsTest, UnionRemoveDuplicates) {
     ASSERT_EQ("1", response["hits"][3]["document"]["id"]);
     ASSERT_EQ("1", response["hits"][4]["document"]["id"]);
 }
+
+TEST_F(CoreAPIUtilsTest, ConcurencyMultiSearch) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    nlohmann::json doc;
+    for(auto i = 0; i < 100; ++i) {
+        doc["name"] = "Shampoo_" + std::to_string(i+1);
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    for(auto i = 100; i < 200; ++i) {
+        doc["name"] = "Soap_" + std::to_string(i+1);
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    for(auto i = 200; i < 300; ++i) {
+        doc["name"] = "Perfume_" + std::to_string(i+1);
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+
+    nlohmann::json searches = R"([
+                    {
+                        "collection": "coll1",
+                        "q": "shampoo",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "soap",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "perfume",
+                        "query_by": "name"
+                    }
+                ])"_json;
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    //try union search first
+    //without concurrency
+    nlohmann::json body;
+    body["searches"] = searches;
+    body["union"] = true;
+
+    req->body = body.dump();
+    nlohmann::json embedded_params;
+    req->embedded_params_vec = std::vector<nlohmann::json>(3, embedded_params);
+    req->params["concurrency"] = false;
+
+    post_multi_search(req, res);
+    auto response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(30, response["found"].get<size_t>());
+    ASSERT_EQ(10, response["hits"].size());
+    ASSERT_EQ("83", response["hits"][0]["document"]["id"]);
+    ASSERT_EQ("68", response["hits"][1]["document"]["id"]);
+    ASSERT_EQ("67", response["hits"][2]["document"]["id"]);
+    ASSERT_EQ("66", response["hits"][3]["document"]["id"]);
+    ASSERT_EQ("65", response["hits"][4]["document"]["id"]);
+    ASSERT_EQ("63", response["hits"][5]["document"]["id"]);
+    ASSERT_EQ("61", response["hits"][6]["document"]["id"]);
+    ASSERT_EQ("60", response["hits"][7]["document"]["id"]);
+    ASSERT_EQ("59", response["hits"][8]["document"]["id"]);
+    ASSERT_EQ("5", response["hits"][9]["document"]["id"]);
+
+    //try with concurrency, results should be same
+    req->params.clear();
+    req->body.clear();
+    body["searches"] = searches;
+    body["union"] = true;
+
+    req->body = body.dump();
+    embedded_params.clear();
+    req->embedded_params_vec = std::vector<nlohmann::json>(3, embedded_params);
+    req->params["concurrency"] = true;
+
+    post_multi_search(req, res);
+    response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(30, response["found"].get<size_t>());
+    ASSERT_EQ(10, response["hits"].size());
+    ASSERT_EQ("83", response["hits"][0]["document"]["id"]);
+    ASSERT_EQ("68", response["hits"][1]["document"]["id"]);
+    ASSERT_EQ("67", response["hits"][2]["document"]["id"]);
+    ASSERT_EQ("66", response["hits"][3]["document"]["id"]);
+    ASSERT_EQ("65", response["hits"][4]["document"]["id"]);
+    ASSERT_EQ("63", response["hits"][5]["document"]["id"]);
+    ASSERT_EQ("61", response["hits"][6]["document"]["id"]);
+    ASSERT_EQ("60", response["hits"][7]["document"]["id"]);
+    ASSERT_EQ("59", response["hits"][8]["document"]["id"]);
+    ASSERT_EQ("5", response["hits"][9]["document"]["id"]);
+
+    //try normal searches now
+    res->body.clear();
+    req->params.clear();
+    req->body.clear();
+    body["union"] = false;
+    body["searches"] = searches;
+
+    req->body = body.dump();
+    embedded_params.clear();
+    req->embedded_params_vec = std::vector<nlohmann::json>(3, embedded_params);
+    req->params["concurrency"] = false;
+    post_multi_search(req, res);
+
+    response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(3, response["results"].size());
+    ASSERT_EQ(10, response["results"][0]["found"].get<size_t>());
+    ASSERT_EQ(10, response["results"][0]["hits"].size());
+    ASSERT_EQ("83", response["results"][0]["hits"][0]["document"]["id"]);
+    ASSERT_EQ("68", response["results"][0]["hits"][1]["document"]["id"]);
+    ASSERT_EQ("67", response["results"][0]["hits"][2]["document"]["id"]);
+    ASSERT_EQ("66", response["results"][0]["hits"][3]["document"]["id"]);
+    ASSERT_EQ("65", response["results"][0]["hits"][4]["document"]["id"]);
+    ASSERT_EQ("63", response["results"][0]["hits"][5]["document"]["id"]);
+    ASSERT_EQ("61", response["results"][0]["hits"][6]["document"]["id"]);
+    ASSERT_EQ("60", response["results"][0]["hits"][7]["document"]["id"]);
+    ASSERT_EQ("59", response["results"][0]["hits"][8]["document"]["id"]);
+    ASSERT_EQ("5", response["results"][0]["hits"][9]["document"]["id"]);
+
+    ASSERT_EQ(10, response["results"][1]["hits"].size());
+    ASSERT_EQ("148", response["results"][1]["hits"][0]["document"]["id"]);
+    ASSERT_EQ("147", response["results"][1]["hits"][1]["document"]["id"]);
+    ASSERT_EQ("146", response["results"][1]["hits"][2]["document"]["id"]);
+    ASSERT_EQ("145", response["results"][1]["hits"][3]["document"]["id"]);
+    ASSERT_EQ("144", response["results"][1]["hits"][4]["document"]["id"]);
+    ASSERT_EQ("143", response["results"][1]["hits"][5]["document"]["id"]);
+    ASSERT_EQ("142", response["results"][1]["hits"][6]["document"]["id"]);
+    ASSERT_EQ("141", response["results"][1]["hits"][7]["document"]["id"]);
+    ASSERT_EQ("140", response["results"][1]["hits"][8]["document"]["id"]);
+    ASSERT_EQ("139", response["results"][1]["hits"][9]["document"]["id"]);
+
+    ASSERT_EQ(10, response["results"][2]["hits"].size());
+    ASSERT_EQ("248", response["results"][2]["hits"][0]["document"]["id"]);
+    ASSERT_EQ("247", response["results"][2]["hits"][1]["document"]["id"]);
+    ASSERT_EQ("246", response["results"][2]["hits"][2]["document"]["id"]);
+    ASSERT_EQ("245", response["results"][2]["hits"][3]["document"]["id"]);
+    ASSERT_EQ("244", response["results"][2]["hits"][4]["document"]["id"]);
+    ASSERT_EQ("243", response["results"][2]["hits"][5]["document"]["id"]);
+    ASSERT_EQ("242", response["results"][2]["hits"][6]["document"]["id"]);
+    ASSERT_EQ("241", response["results"][2]["hits"][7]["document"]["id"]);
+    ASSERT_EQ("240", response["results"][2]["hits"][8]["document"]["id"]);
+    ASSERT_EQ("239", response["results"][2]["hits"][9]["document"]["id"]);
+
+    //with concurrency, result should be same
+    res->body.clear();
+    req->params.clear();
+    req->body.clear();
+    body["searches"] = searches;
+
+    req->body = body.dump();
+    embedded_params.clear();
+    req->embedded_params_vec = std::vector<nlohmann::json>(3, embedded_params);
+    req->params["concurrency"] = true;
+    post_multi_search(req, res);
+
+    response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(3, response["results"].size());
+    ASSERT_EQ(10, response["results"][0]["found"].get<size_t>());
+    ASSERT_EQ(10, response["results"][0]["hits"].size());
+    ASSERT_EQ("83", response["results"][0]["hits"][0]["document"]["id"]);
+    ASSERT_EQ("68", response["results"][0]["hits"][1]["document"]["id"]);
+    ASSERT_EQ("67", response["results"][0]["hits"][2]["document"]["id"]);
+    ASSERT_EQ("66", response["results"][0]["hits"][3]["document"]["id"]);
+    ASSERT_EQ("65", response["results"][0]["hits"][4]["document"]["id"]);
+    ASSERT_EQ("63", response["results"][0]["hits"][5]["document"]["id"]);
+    ASSERT_EQ("61", response["results"][0]["hits"][6]["document"]["id"]);
+    ASSERT_EQ("60", response["results"][0]["hits"][7]["document"]["id"]);
+    ASSERT_EQ("59", response["results"][0]["hits"][8]["document"]["id"]);
+    ASSERT_EQ("5", response["results"][0]["hits"][9]["document"]["id"]);
+
+    ASSERT_EQ(10, response["results"][1]["hits"].size());
+    ASSERT_EQ("148", response["results"][1]["hits"][0]["document"]["id"]);
+    ASSERT_EQ("147", response["results"][1]["hits"][1]["document"]["id"]);
+    ASSERT_EQ("146", response["results"][1]["hits"][2]["document"]["id"]);
+    ASSERT_EQ("145", response["results"][1]["hits"][3]["document"]["id"]);
+    ASSERT_EQ("144", response["results"][1]["hits"][4]["document"]["id"]);
+    ASSERT_EQ("143", response["results"][1]["hits"][5]["document"]["id"]);
+    ASSERT_EQ("142", response["results"][1]["hits"][6]["document"]["id"]);
+    ASSERT_EQ("141", response["results"][1]["hits"][7]["document"]["id"]);
+    ASSERT_EQ("140", response["results"][1]["hits"][8]["document"]["id"]);
+    ASSERT_EQ("139", response["results"][1]["hits"][9]["document"]["id"]);
+
+    ASSERT_EQ(10, response["results"][2]["hits"].size());
+    ASSERT_EQ("248", response["results"][2]["hits"][0]["document"]["id"]);
+    ASSERT_EQ("247", response["results"][2]["hits"][1]["document"]["id"]);
+    ASSERT_EQ("246", response["results"][2]["hits"][2]["document"]["id"]);
+    ASSERT_EQ("245", response["results"][2]["hits"][3]["document"]["id"]);
+    ASSERT_EQ("244", response["results"][2]["hits"][4]["document"]["id"]);
+    ASSERT_EQ("243", response["results"][2]["hits"][5]["document"]["id"]);
+    ASSERT_EQ("242", response["results"][2]["hits"][6]["document"]["id"]);
+    ASSERT_EQ("241", response["results"][2]["hits"][7]["document"]["id"]);
+    ASSERT_EQ("240", response["results"][2]["hits"][8]["document"]["id"]);
+    ASSERT_EQ("239", response["results"][2]["hits"][9]["document"]["id"]);
+}

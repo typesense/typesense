@@ -163,7 +163,18 @@ public:
 
     static Option<bool> do_union(std::map<std::string, std::string>& req_params,
                                  std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
-                                 nlohmann::json& response, uint64_t start_ts, bool remove_duplicates = true);
+                                 nlohmann::json& response, uint64_t start_ts, bool remove_duplicates = true,
+                                 bool concurrency = false);
+
+    static Option<bool> populate_collection_args(std::map<std::string, std::string>& req_params,
+                                          std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
+                                          std::vector<collection_search_args_t>& coll_searches, std::vector<uint32_t>& collection_ids,
+                                          int& group_by_args_count, uint64_t start_ts,
+                                          std::optional<union_global_params_t> union_params = std::nullopt);
+
+    static Option<bool> do_multi_search(std::map<std::string, std::string>& req_params,
+                                        std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
+                                        nlohmann::json& results, uint64_t start_ts, bool concurrency = false);
 
     static bool parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields);
 

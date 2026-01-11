@@ -1537,7 +1537,7 @@ void remove_global_params(std::map<std::string, std::string>& req_params) {
 
 Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req_params,
                                          std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
-                                         nlohmann::json& response, uint64_t start_ts, bool remove_duplicates) {
+                                         nlohmann::json& response, uint64_t start_ts, bool remove_duplicates, bool concurrency) {
     union_global_params_t union_params(req_params);
     if (!union_params.init_op.ok()) {
         const auto& op = union_params.init_op;
@@ -1547,73 +1547,12 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
     }
     remove_global_params(req_params);
 
-    auto const orig_req_params = req_params;
     std::vector<collection_search_args_t> coll_searches;
     std::vector<uint32_t> collection_ids;
-    auto result_op = Option<bool>(true);
     auto group_by_args_count = 0;
 
-    for(size_t i = 0; i < searches.size(); i++) {
-        auto& search_params = searches[i];
-        req_params = orig_req_params;
-
-        // Only global pagination params are considered during union.
-        remove_global_params(search_params);
-
-        auto validate_op = multi_search_validate_and_add_params(req_params, search_params, false);
-        if (!validate_op.ok()) {
-            result_op = std::move(validate_op);
-            break;
-        }
-
-        auto begin = std::chrono::high_resolution_clock::now();
-
-        auto &embedded_params = embedded_params_vec[i];
-        // enrich params with values from embedded params
-        auto apply_embedded_params_op = apply_embedded_params(embedded_params, req_params);
-        if (!apply_embedded_params_op.ok()) {
-            result_op = std::move(apply_embedded_params_op);
-            break;
-        }
-
-        auto apply_preset_op = apply_preset(req_params);
-        if (!apply_preset_op.ok()) {
-            result_op = std::move(apply_preset_op);
-            break;
-        }
-
-        std::string stopwords_set;
-        auto get_stopwords_op = get_stopword_set(req_params, stopwords_set);
-        if (!get_stopwords_op.ok()) {
-            result_op = std::move(get_stopwords_op);
-            break;
-        }
-
-        CollectionManager& collectionManager = CollectionManager::get_instance();
-        const std::string& orig_coll_name = req_params["collection"];
-        auto collection = collectionManager.get_collection(orig_coll_name);
-
-        if (collection == nullptr) {
-            result_op = Option<bool>(404, "`" + orig_coll_name + "` collection not found.");
-            break;
-        }
-
-        collection_search_args_t args;
-        auto init_op = collection_search_args_t::init(req_params, collection->get_num_documents(), stopwords_set,
-                                                      start_ts, args);
-        if (!init_op.ok()) {
-            result_op = std::move(init_op);
-            break;
-        }
-
-        if(args.group_limit) {
-            group_by_args_count++;
-        }
-
-        args.curation_union_global_params(union_params);
-        coll_searches.emplace_back(std::move(args));
-        collection_ids.emplace_back(collection->get_collection_id());
-    }
+    auto result_op = populate_collection_args(req_params, embedded_params_vec, searches, coll_searches, collection_ids,
+                                              group_by_args_count, start_ts, union_params);
 
     if(result_op.ok() && group_by_args_count > 0 && group_by_args_count != searches.size()) {
         result_op = Option<bool>(400, "Invalid group_by searches count. All searches with union search should be uniform.");
@@ -1625,9 +1564,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
         return Option<bool>(true);
     }
 
-    std::vector<long> searchTimeMillis;
-
-    auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, union_params, response, remove_duplicates);
+    auto union_op = Collection::do_union(collection_ids, coll_searches, union_params, response, remove_duplicates, concurrency);
 
     auto reqTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now().time_since_epoch()).count() - start_ts;
@@ -1641,6 +1578,32 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
         response["error"] = union_op.error();
         response["code"] = union_op.code();
         return Option<bool>(true);
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> CollectionManager::do_multi_search(std::map<std::string, std::string>& req_params,
+                             std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
+                             nlohmann::json& results, uint64_t start_ts, bool concurrency) {
+
+    std::vector<collection_search_args_t> coll_searches;
+    std::vector<uint32_t> collection_ids;
+    int group_by_args_count = 0;
+
+    auto populate_args_op = CollectionManager::populate_collection_args(req_params, embedded_params_vec, searches,
+                                                                        coll_searches, collection_ids, group_by_args_count,
+                                                                        start_ts);
+    if(!populate_args_op.ok()) {
+        return Option<bool>(populate_args_op.code(), populate_args_op.error());
+    }
+
+    std::vector<long> searchTimeMillis;
+    auto search_op = Collection::do_multi_search(collection_ids, coll_searches, searchTimeMillis, results,
+                                                 req_params["x-typesense-user-id"], concurrency);
+
+    if(!search_op.ok()) {
+        return Option<bool>(search_op.code(), search_op.error());
     }
 
     return Option<bool>(true);
@@ -2618,4 +2581,75 @@ Option<bool> CollectionManager::process_ref_include_fields_sort(const std::strin
     }
 
     return collection->process_ref_include_fields_sort(sort_by_str, limit, doc_ids);
+}
+
+Option<bool> CollectionManager::populate_collection_args(std::map<std::string, std::string>& req_params,
+                                                         std::vector<nlohmann::json>& embedded_params_vec,
+                                                         nlohmann::json searches, std::vector<collection_search_args_t>& coll_searches,
+                                                         std::vector<uint32_t>& collection_ids, int& group_by_args_count,
+                                                         uint64_t start_ts, std::optional<union_global_params_t> union_params) {
+    auto const orig_req_params = req_params;
+
+    for(size_t i = 0; i < searches.size(); i++) {
+        auto& search_params = searches[i];
+        req_params = orig_req_params;
+
+        if(union_params) {
+            // Only global pagination params are considered during union.
+            remove_global_params(search_params);
+        }
+
+        auto validate_op = multi_search_validate_and_add_params(req_params, search_params, false);
+        if (!validate_op.ok()) {
+            return validate_op;
+        }
+
+        auto begin = std::chrono::high_resolution_clock::now();
+
+        auto &embedded_params = embedded_params_vec[i];
+        // enrich params with values from embedded params
+        auto apply_embedded_params_op = apply_embedded_params(embedded_params, req_params);
+        if (!apply_embedded_params_op.ok()) {
+            return apply_embedded_params_op;
+        }
+
+        auto apply_preset_op = apply_preset(req_params);
+        if (!apply_preset_op.ok()) {
+            return apply_preset_op;
+        }
+
+        std::string stopwords_set;
+        auto get_stopwords_op = get_stopword_set(req_params, stopwords_set);
+        if (!get_stopwords_op.ok()) {
+            return get_stopwords_op;
+        }
+
+        CollectionManager& collectionManager = CollectionManager::get_instance();
+        const std::string& orig_coll_name = req_params["collection"];
+        auto collection = collectionManager.get_collection(orig_coll_name);
+
+        if (collection == nullptr) {
+            return Option<bool>(404, "`" + orig_coll_name + "` collection not found.");
+        }
+
+        collection_search_args_t args;
+        auto init_op = collection_search_args_t::init(req_params, collection->get_num_documents(), stopwords_set,
+                                                      start_ts, args);
+        if (!init_op.ok()) {
+            return init_op;
+        }
+
+        if(args.group_limit) {
+            group_by_args_count++;
+        }
+
+        if(union_params) {
+            args.curation_union_global_params(union_params.value());
+        }
+
+        coll_searches.emplace_back(std::move(args));
+        collection_ids.emplace_back(collection->get_collection_id());
+    }
+
+    return Option<bool>(true);
 }

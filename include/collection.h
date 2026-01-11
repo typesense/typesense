@@ -709,11 +709,13 @@ private:
                                         const bool& is_union_search,
                                         const uint32_t& union_search_index) const;
 
-    Option<bool> run_search_with_lock(search_args* search_params) const;
+    Option<bool> search_index_with_lock(search_args* search_params) const;
 
     void reset_alter_status_counters();
 
     std::string get_facet_str_val(const std::string& field_name, uint32_t facet_id);
+
+    Option<nlohmann::json> run_search_with_lock(collection_search_args_t& coll_args);
 
 public:
 
@@ -997,8 +999,12 @@ public:
                                                           bool& is_wildcard_query) const;
 
     static Option<bool> do_union(const std::vector<uint32_t>& collection_ids,
+                                 std::vector<collection_search_args_t>& searches, const union_global_params_t& union_params,
+                                 nlohmann::json& result, bool remove_duplicates, bool is_concurrent);
+
+    static Option<bool> do_multi_search(const std::vector<uint32_t>& collection_ids,
                                  std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,
-                                 const union_global_params_t& union_params, nlohmann::json& result, bool remove_duplicates);
+                                 nlohmann::json& result, const std::string& user_id, bool is_concurrent);
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result,
                                 const bool& should_timeout = true, const bool& validate_field_names = true) const;
