@@ -715,6 +715,13 @@ private:
 
     std::string get_facet_str_val(const std::string& field_name, uint32_t facet_id);
 
+    Option<bool> fix_broken_reference(const std::string& seq_id_key, const uint32_t& seq_id,
+                                      const tsl::htrie_set<char>& include_fields_full,
+                                      const tsl::htrie_set<char>& exclude_fields_full,
+                                      const KV* field_order_kv,
+                                      const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
+                                      nlohmann::json& document);
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
@@ -898,7 +905,7 @@ public:
 
     void do_housekeeping();
 
-    Option<nlohmann::json> search(collection_search_args_t& coll_args) const;
+    Option<nlohmann::json> search(collection_search_args_t& coll_args);
 
     // Only for tests.
     Option<nlohmann::json> search(std::string query, const std::vector<std::string> & search_fields,
@@ -983,7 +990,7 @@ public:
                                   const std::vector<std::string>& search_synonym_sets = {},
                                   float diversity_lamda = diversity_t::DEFAULT_LAMDA_VALUE,
                                   size_t group_max_candidates = Index::DEFAULT_TOPSTER_SIZE,
-                                  size_t diversity_limit = Index::DEFAULT_TOPSTER_SIZE) const;
+                                  size_t diversity_limit = Index::DEFAULT_TOPSTER_SIZE);
 
     Option<bool> parse_and_validate_personalization_query(const std::string& personalization_user_id,
                                                           const std::string& personalization_model_id,

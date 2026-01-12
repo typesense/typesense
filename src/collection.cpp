@@ -2819,7 +2819,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           const std::vector<std::string>& search_synonym_sets,
                                           float diversity_lamda,
                                           size_t group_max_candidates,
-                                          size_t diversity_limit) const {
+                                          size_t diversity_limit) {
     std::shared_lock lock(mutex);
 
     auto args = collection_search_args_t(query, search_fields, filter_query,
@@ -2855,7 +2855,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     return search(args);
 }
 
-Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) const {
+Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
     std::shared_lock lock(mutex);
 
     std::unique_ptr<search_args> search_params_guard;
@@ -3173,6 +3173,14 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 LOG(ERROR) << "Document fetch error. " << document_op.error();
                 continue;
             }
+            nlohmann::json broken_ref_doc{};
+            for (auto it = document.begin(); !reference_fields.empty() && it != document.end(); it++) {
+                const auto& key = it.key();
+                if (key == "id" || key == ".flat" || key == fields::reference_helper_fields ||
+                        reference_fields.count(key) != 0) {
+                    broken_ref_doc[key] = it.value();
+                }
+            }
 
             nlohmann::json highlight_res;
             nlohmann::json wrapper_doc;
@@ -3193,16 +3201,32 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             remove_flat_fields(document);
             remove_reference_helper_fields(document);
 
+            const auto seq_id = get_seq_id_from_key(seq_id_key);
             auto prune_op = prune_doc(document,
                                       include_fields_full,
                                       exclude_fields_full,
                                       "",
                                       0,
                                       field_order_kv->reference_filter_results,
-                                      get_name(), get_seq_id_from_key(seq_id_key),
+                                      get_name(), seq_id,
                                       ref_include_exclude_fields_vec);
             if (!prune_op.ok()) {
-                return Option<nlohmann::json>(prune_op.code(), prune_op.error());
+                // Error code 1 returned from `Join::include_references` means reference value is invalid.
+                if (prune_op.code() != 1) {
+                    return Option<nlohmann::json>(prune_op.code(), prune_op.error());
+                }
+                lock.unlock();
+                document = broken_ref_doc;
+                auto fix_op = fix_broken_reference(seq_id_key, seq_id,
+                                                   include_fields_full, exclude_fields_full,
+                                                   field_order_kv, ref_include_exclude_fields_vec, document);
+                if (!fix_op.ok()) {
+                    if (fix_op.code() == 1) {
+                        continue;
+                    }
+                    return Option<nlohmann::json>(fix_op.code(), fix_op.error());
+                }
+                lock.lock();
             }
 
             wrapper_doc["document"] = document;
@@ -4042,6 +4066,14 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                 LOG(ERROR) << "Document fetch error. " << document_op.error();
                 continue;
             }
+            nlohmann::json broken_ref_doc{};
+            for (auto it = document.begin(); !coll->reference_fields.empty() && it != document.end(); it++) {
+                const auto& key = it.key();
+                if (key == "id" || key == ".flat" || key == fields::reference_helper_fields ||
+                        coll->reference_fields.count(key) != 0) {
+                    broken_ref_doc[key] = it.value();
+                }
+            }
 
             const auto& coll_args = searches[search_index];
             const auto& search_params = search_params_guards[search_index].get();
@@ -4084,6 +4116,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
             const auto& include_fields_full = include_fields_full_list[search_index];
             const auto& exclude_fields_full = exclude_fields_full_list[search_index];
+            const auto seq_id = get_seq_id_from_key(seq_id_key);
             const auto& ref_include_exclude_fields_vec = coll_args.ref_include_exclude_fields_vec;
 
             auto prune_op = prune_doc(document,
@@ -4092,12 +4125,24 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                       "",
                                       0,
                                       kv->reference_filter_results,
-                                      coll->get_name(), get_seq_id_from_key(seq_id_key),
+                                      coll->get_name(), seq_id,
                                       ref_include_exclude_fields_vec);
             if (!prune_op.ok()) {
-                return prune_op;
+                // Error code 1 returned from `Join::include_references` means reference value is invalid.
+                if (prune_op.code() != 1) {
+                    return prune_op;
+                }
+                document = broken_ref_doc;
+                auto fix_op = coll->fix_broken_reference(seq_id_key, seq_id,
+                                                         include_fields_full, exclude_fields_full,
+                                                         kv, ref_include_exclude_fields_vec, document);
+                if (!fix_op.ok()) {
+                    if (fix_op.code() == 1) {
+                        continue;
+                    }
+                    return fix_op;
+                }
             }
-
 
             wrapper_doc["document"] = document;
             wrapper_doc["highlight"] = highlight_res;
@@ -6311,11 +6356,16 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key,
     StoreStatus json_doc_status = store->get(seq_id_key, json_doc_str);
 
     if(json_doc_status != StoreStatus::FOUND) {
-        const std::string& seq_id = std::to_string(get_seq_id_from_key(seq_id_key));
         if(json_doc_status == StoreStatus::NOT_FOUND) {
-            return Option<bool>(404, "Could not locate the JSON document for sequence ID: " + seq_id);
+            const auto seq_id = get_seq_id_from_key(seq_id_key);
+            std::shared_lock lock(mutex);
+            if (index->validate_seq_id(seq_id)) {
+                LOG(ERROR) << "Document having seq_id `" << seq_id << "` present in index but not in store.";
+            }
+            return Option<bool>(404, ERROR_could_not_locate_document_in_store + std::to_string(seq_id));
         }
 
+        const std::string& seq_id = std::to_string(get_seq_id_from_key(seq_id_key));
         return Option<bool>(500, "Error while fetching JSON document for sequence ID: " + seq_id);
     }
 
@@ -9289,4 +9339,39 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
     }
 
     return Option<bool>(true);
+}
+
+Option<bool> Collection::fix_broken_reference(const std::string& seq_id_key, const uint32_t& seq_id,
+                                              const tsl::htrie_set<char>& include_fields_full,
+                                              const tsl::htrie_set<char>& exclude_fields_full,
+                                              const KV* field_order_kv,
+                                              const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
+                                              nlohmann::json& document) {
+    std::string dirty_values = "REJECT";
+    // `update_matching_filter()` internally calls `Join::populate_reference_helper_fields()` which will fix the
+    // invalid reference values.
+    auto update_op = update_matching_filter("id:" + document["id"].get<std::string>(), document.dump(),
+                                            dirty_values);
+    if (!update_op.ok()) {
+        LOG(ERROR) << "Document update error. " << update_op.error();
+        return Option<bool>(1, "");
+    }
+
+    auto document_op = get_document_from_store(seq_id_key, document);
+    if(!document_op.ok()) {
+        LOG(ERROR) << "Document fetch error. " << document_op.error();
+        return Option<bool>(1, "");
+    }
+
+    remove_flat_fields(document);
+    remove_reference_helper_fields(document);
+
+    return prune_doc(document,
+                     include_fields_full,
+                     exclude_fields_full,
+                     "",
+                     0,
+                     field_order_kv->reference_filter_results,
+                     get_name(), seq_id,
+                     ref_include_exclude_fields_vec);
 }

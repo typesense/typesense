@@ -951,6 +951,8 @@ public:
 
     size_t num_seq_ids() const;
 
+    bool validate_seq_id(const uint32_t& seq_id) const;
+
     void handle_exclusion(const size_t num_search_fields, std::vector<query_tokens_t>& field_query_tokens,
                           const std::vector<search_field_t>& search_fields, uint32_t*& exclude_token_ids,
                           size_t& exclude_token_ids_size) const;

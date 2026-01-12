@@ -7991,6 +7991,11 @@ size_t Index::num_seq_ids() const {
     return seq_ids->num_ids();
 }
 
+bool Index::validate_seq_id(const uint32_t& seq_id) const {
+    std::shared_lock lock(mutex);
+    return seq_ids->contains(seq_id);
+}
+
 Option<bool> Index::seq_ids_outside_top_k(const std::string& field_name, size_t k,
                                           std::vector<uint32_t>& outside_seq_ids) {
     std::shared_lock lock(mutex);
