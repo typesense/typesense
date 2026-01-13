@@ -4179,3 +4179,102 @@ TEST_F(CollectionSpecificMoreTest, NestedFieldSingleTokenSnippetTruncation) {
     
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificMoreTest, PrioritizeTokenPositionWithRepeat) {
+    nlohmann::json schema = R"({
+             "name": "companies",
+             "fields": [
+               {"name": "company_name", "type": "string", "infix": true}
+             ],
+             "symbols_to_index": ["&",".","?"]
+           })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["company_name"] = "MAHINDRA & MAHINDRA LTD";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["company_name"] = "KOTAK MAHINDRA BANK";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    bool prioritize_token_position = false;
+
+    auto results = coll1->search("mahindra", {"company_name"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 3, 3, 2, 2, prioritize_token_position).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+
+    prioritize_token_position = true;
+
+    results = coll1->search("mahindra", {"company_name"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 3, 3, 2, 2, prioritize_token_position).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+
+    //check with arrays
+    schema = R"({
+             "name": "greeks",
+             "fields": [
+               {"name": "name", "type": "string[]", "infix": true}
+             ],
+             "symbols_to_index": ["&",".","?"]
+           })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    coll1 = op.get();
+
+    doc["id"] = "0";
+    doc["name"] = {"Alpha Omega Gamma", "Beta Alpha Beta"};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = {"Gamma Beta Omega", "Omega Theta Beta"};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    prioritize_token_position = false;
+    results = coll1->search("Beta", {"name"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 3, 3, 2, 2, prioritize_token_position).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    prioritize_token_position = true;
+    results = coll1->search("Beta", {"name"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 3, 3, 2, 2, prioritize_token_position).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
