@@ -16,6 +16,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Check disk space (baseline)
+        run: df -h
+
       - name: Install dependencies
         run: |
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
@@ -45,6 +48,9 @@ jobs:
           repository-cache: true
           external-cache: true
 
+      - name: Check disk space (after Bazel setup)
+        run: df -h
+
       - name: Build protobuf deps
         run: |
           bazel build @com_google_protobuf//:protobuf_headers
@@ -52,14 +58,32 @@ jobs:
           bazel build @com_google_protobuf//:protobuf
           bazel build @com_google_protobuf//:protoc
 
+      - name: Check disk space (after protobuf build)
+        run: df -h
+
       - name: Build Typesense
         run: bazel build //:typesense-server
+
+      - name: Check disk space (after Typesense build)
+        run: df -h
+
+      - name: Check disk space (before downloading models)
+        run: df -h
 
       - name: Setup artifacts for tests
         run: curl https://dl.typesense.org/ci/tyrec/tyrec-1-models.tar.gz > ./test/resources/models.tar.gz
 
+      - name: Check disk space (after downloading models)
+        run: df -h
+
+      - name: Check disk space (before running tests)
+        run: df -h
+
       - name: Run tests
         run: bazel test --cache_test_results=no --test_output=all //:typesense-test --test_timeout=900
+
+      - name: Check disk space (after running tests)
+        run: df -h
 
       # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
       - name: Set BAZEL_BIN_FULL_PATH
