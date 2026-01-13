@@ -42,6 +42,9 @@ class TextEmbedder {
             return remote_embedder_->update_api_key(api_key);
         }
 
+        const bool is_image_embedding() const {
+            return is_image_embedding_model;
+        }
     private:
         std::shared_ptr<Ort::Session> session_;
         std::shared_ptr<Ort::Env> env_;
@@ -53,5 +56,6 @@ class TextEmbedder {
         static std::vector<float> mean_pooling(const std::vector<std::vector<float>>& input, const std::vector<int64_t>& attention_mask);
         std::string output_tensor_name;
         size_t num_dim;
+        bool is_image_embedding_model = false;
         std::mutex mutex_;
 };

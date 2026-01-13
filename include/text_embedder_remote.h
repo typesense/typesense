@@ -59,7 +59,7 @@ class RemoteEmbedder {
         virtual embedding_res_t embed_query(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) = 0;
         virtual std::vector<embedding_res_t> embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
                                                          const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) = 0;
-        static const std::string get_model_key(const nlohmann::json& model_config);
+        static const std::string get_model_key(const nlohmann::json& model_config, size_t num_dims = 0);
         static void init(ReplicationState* rs) {
             raft_server = rs;
         }
@@ -83,7 +83,7 @@ class AzureEmbedder : public RemoteEmbedder {
         std::vector<embedding_res_t> embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
         nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) override;
-        static std::string get_model_key(const nlohmann::json& model_config);
+        static std::string get_model_key(const nlohmann::json& model_config, size_t num_dims = 0);
         bool update_api_key(const std::string& api_key) override {
             std::lock_guard<std::shared_mutex> lock(mutex);
             this->api_key = api_key;
@@ -139,7 +139,7 @@ class OpenAIEmbedder : public RemoteEmbedder {
         std::vector<embedding_res_t> embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
         nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) override;
-        static std::string get_model_key(const nlohmann::json& model_config);
+        static std::string get_model_key(const nlohmann::json& model_config, size_t num_dims = 0);
 
         bool update_api_key(const std::string& apikey) override {
             std::lock_guard<std::shared_mutex> lock(mutex);
@@ -163,7 +163,7 @@ class GoogleEmbedder : public RemoteEmbedder {
         std::vector<embedding_res_t> embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
         nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) override;
-        static std::string get_model_key(const nlohmann::json& model_config);
+        static std::string get_model_key(const nlohmann::json& model_config, size_t num_dims = 0);
         bool update_api_key(const std::string& apikey) override {
             std::lock_guard<std::shared_mutex> lock(mutex);
             google_api_key = apikey;
@@ -220,7 +220,7 @@ class GCPEmbedder : public RemoteEmbedder {
         std::vector<embedding_res_t> embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
         nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) override;
-        static std::string get_model_key(const nlohmann::json& model_config);
+        static std::string get_model_key(const nlohmann::json& model_config, size_t num_dims = 0);
         bool update_api_key(const std::string& api_key) override {
             return true;
         }

@@ -17,8 +17,8 @@ class CurationIndexManager {
 
         void init_store(Store* store);
 
-        Option<CurationIndex*> add_curation_index(const std::string& index_name, CurationIndex&& index);
-        Option<CurationIndex*> add_curation_index(const std::string& index_name);
+        Option<CurationIndex*> add_curation_index(const std::string& index_name, CurationIndex&& index, bool write_to_store = true);
+        Option<CurationIndex*> add_curation_index(const std::string& index_name, bool write_to_store = true);
 
         Option<CurationIndex*> get_curation_index(const std::string& index_name);
         Option<bool> remove_curation_index(const std::string& index_name);

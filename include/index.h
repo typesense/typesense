@@ -592,7 +592,8 @@ private:
                               const bool group_missing_values,
                               std::vector<std::vector<art_leaf*>> & searched_queries,
                               bool is_group_by_first_pass,
-                              std::set<uint32_t>& group_by_missing_value_ids) const;
+                              std::set<uint32_t>& group_by_missing_value_ids,
+                              const std::map<std::string, reference_filter_result_t>& references) const;
 
     static void compute_facet_stats(facet &a_facet, const std::string& raw_value,
                                     const std::string & field_type, const size_t count);
@@ -817,7 +818,19 @@ public:
                                           const std::vector<char>& symbols_to_index,
                                           const bool do_validation, const size_t remote_embedding_batch_size = 200,
                                           const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true);
-
+    
+    static void batch_validate_and_preprocess(Index* index, std::vector<index_record>&  iter_batch,
+                                        const std::string& default_sorting_field,
+                                        const tsl::htrie_map<char, field> & actual_search_schema,
+                                        const tsl::htrie_map<char, field> & embedding_fields,
+                                        const std::string& fallback_field_type,
+                                        const std::vector<char>& token_separators,
+                                        const std::vector<char>& symbols_to_index,
+                                        const bool do_validation,
+                                        const size_t remote_embedding_batch_size = 200,
+                                        const size_t remote_embedding_timeout_ms = 60000,
+                                        const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true);
+                
     static size_t batch_memory_index(Index *index,
                                      std::vector<index_record>& iter_batch,
                                      const std::string& default_sorting_field,
@@ -826,11 +839,7 @@ public:
                                      const std::string& fallback_field_type,
                                      const std::vector<char>& token_separators,
                                      const std::vector<char>& symbols_to_index,
-                                     const bool do_validation,
                                      std::unordered_set<std::string>& found_fields,
-                                     const size_t remote_embedding_batch_size = 200,
-                                     const size_t remote_embedding_timeout_ms = 60000,
-                                     const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true,
                                      const bool use_addition_fields = false,
                                      const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>(),
                                      const std::string& collection_name = "");
@@ -941,6 +950,8 @@ public:
                                 std::vector<std::vector<std::string>>& resolved_queries) const;
 
     size_t num_seq_ids() const;
+
+    bool validate_seq_id(const uint32_t& seq_id) const;
 
     void handle_exclusion(const size_t num_search_fields, std::vector<query_tokens_t>& field_query_tokens,
                           const std::vector<search_field_t>& search_fields, uint32_t*& exclude_token_ids,
@@ -1201,7 +1212,8 @@ public:
                                             const bool& is_group_by_first_pass,
                                             const diversity_t& diversity,
                                             const spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*>& sort_index,
-                                            const facet_index_t* facet_index_v4);
+                                            const facet_index_t* facet_index_v4,
+                                            const spp::sparse_hash_map<std::string, hnsw_index_t*>& vector_index);
 
     GeoPolygonIndex* get_geopolygon_index(const std::string& field_name) const;
 
@@ -1225,6 +1237,10 @@ public:
     static void update_async_references(const std::string& collection_name, std::vector<index_record>& iter_batch,
                                         const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins =
                                         spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+
+    Option<bool> diversify_text_score_buckets(const std::vector<std::pair<size_t, size_t>>& bucket_indexes,
+                                              const diversity_t& diversity,
+                                              std::vector<std::vector<KV*>>& raw_result_kvs);
 };
 
 template<class T>

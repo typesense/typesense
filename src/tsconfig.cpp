@@ -542,15 +542,15 @@ void Config::load_config_file(cmdline::parser& options) {
     }
 
     if(reader.Exists("server", "db-max-write-buffer-number")) {
-        this->db_write_buffer_size = (size_t) reader.GetInteger("server", "db-max-write-buffer-number", 2);
+        this->db_max_write_buffer_number = (size_t) reader.GetInteger("server", "db-max-write-buffer-number", 2);
     }
 
     if(reader.Exists("server", "db-max-log-file-size")) {
-        this->db_write_buffer_size = (size_t) reader.GetInteger("server", "db-max-log-file-size", 4*1048576);
+        this->db_max_log_file_size = (size_t) reader.GetInteger("server", "db-max-log-file-size", 4*1048576);
     }
 
     if(reader.Exists("server", "db-keep-log-file-num")) {
-        this->db_write_buffer_size = (size_t) reader.GetInteger("server", "db-keep-log-file-num", 5);
+        this->db_keep_log_file_num = (size_t) reader.GetInteger("server", "db-keep-log-file-num", 5);
     }
 
     if(reader.Exists("server", "max-indexing-concurrency")) {
@@ -758,15 +758,15 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
     }
 
     if(options.exist("db-max-write-buffer-number")) {
-        this->db_write_buffer_size = options.get<uint32_t>("db-max-write-buffer-number");
+        this->db_max_write_buffer_number = options.get<uint32_t>("db-max-write-buffer-number");
     }
 
     if(options.exist("db-max-log-file-size")) {
-        this->db_write_buffer_size = options.get<uint32_t>("db-max-log-file-size");
+        this->db_max_log_file_size = options.get<uint32_t>("db-max-log-file-size");
     }
 
     if(options.exist("db-keep-log-file-num")) {
-        this->db_write_buffer_size = options.get<uint32_t>("db-keep-log-file-num");
+        this->db_keep_log_file_num = options.get<uint32_t>("db-keep-log-file-num");
     }
 
     if(options.exist("max-indexing-concurrency")) {
