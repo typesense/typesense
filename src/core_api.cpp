@@ -999,8 +999,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         union_remove_duplicates = it.value();
     }
 
-    bool conversation = orig_req_params["conversation"] == "true" && !is_union;
-    bool conversation_stream = orig_req_params["conversation_stream"] == "true" && !is_union;
+    bool conversation = orig_req_params["conversation"] == "true";
+    bool conversation_stream = orig_req_params["conversation_stream"] == "true";
     bool conversation_history = orig_req_params.find("conversation_id") != orig_req_params.end();
     std::string common_query;
 
