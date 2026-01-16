@@ -1,6 +1,14 @@
 name: tests
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      clean_cache:
+        description: "Run once without restoring/saving Bazel caches"
+        required: false
+        default: "false"
 
 # Cancel previous running if a new push is made
 # Source: https://stackoverflow.com/a/72408109/123545
@@ -44,9 +52,10 @@ jobs:
         uses: bazel-contrib/setup-bazel@0.14.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ github.workflow }}
-          repository-cache: true
-          external-cache: true
+          disk-cache: ${{ inputs.clean_cache == 'true' && 'false' || github.workflow }}
+          repository-cache: ${{ inputs.clean_cache == 'true' && 'false' || 'true' }}
+          external-cache: ${{ inputs.clean_cache == 'true' && 'false' || 'true' }}
+          cache-save: ${{ inputs.clean_cache != 'true' }}
 
       - name: Check disk space (after Bazel setup)
         run: df -h
