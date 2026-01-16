@@ -1063,16 +1063,6 @@ public:
                                                    bool enable_typos_for_numerical_tokens = true,
                                                    bool enable_typos_for_alpha_numerical_tokens = true) const;
 
-    void find_across_fields(const token_t& previous_token,
-                            const std::string& previous_token_str,
-                            const std::vector<search_field_t>& the_fields,
-                            const size_t num_search_fields,
-                            filter_result_iterator_t* const filter_result_iterator,
-                            const uint32_t* exclude_token_ids,
-                            size_t exclude_token_ids_size,
-                            std::vector<uint32_t>& prev_token_doc_ids,
-                            std::vector<size_t>& top_prefix_field_ids) const;
-
     Option<bool> search_across_fields(const std::vector<token_t>& query_tokens,
                                       const std::vector<uint32_t>& num_typos,
                                       const std::vector<bool>& prefixes,
