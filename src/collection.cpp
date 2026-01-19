@@ -3318,7 +3318,9 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
         facet_result["sampled"] = a_facet.sampled;
         facet_result["counts"] = nlohmann::json::array();
 
-        if(!a_facet.reference_collection_name.empty()) {
+        if (!a_facet.reference_collection_alias_name.empty()) {
+            facet_result["field_name"] = "$" + a_facet.reference_collection_alias_name + "(" + a_facet.field_name + ")";
+        } else if(!a_facet.reference_collection_name.empty()) {
             facet_result["field_name"] = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
         }
 
@@ -3366,7 +3368,10 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
                     facet_value_t facet_value = {facet_range_iter->second.range_label, std::string(), facet_count.count};
 
                     if(!a_facet.reference_collection_name.empty()) {
-                        std::string facet_filter = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ": ";
+                        const auto& ref_coll_name = a_facet.reference_collection_alias_name.empty() ?
+                                                        a_facet.reference_collection_name :
+                                                        a_facet.reference_collection_alias_name;
+                        std::string facet_filter = "$" + ref_coll_name + "(" + a_facet.field_name + ": ";
                         std::string lower_range, upper_range;
                         //lower range
                         if(the_field.is_float()){
@@ -3515,7 +3520,10 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
                                              facet_count.sort_field_val, parent};
 
                 if(!a_facet.reference_collection_name.empty()) {
-                    std::string facet_filter = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ": ";
+                    const auto& ref_coll_name = a_facet.reference_collection_alias_name.empty() ?
+                                                    a_facet.reference_collection_name :
+                                                    a_facet.reference_collection_alias_name;
+                    std::string facet_filter = "$" + ref_coll_name + "(" + a_facet.field_name + ": ";
 
                     if(the_field.is_string()) {
                         facet_filter += std::string("`") + value + std::string("`");
@@ -7733,6 +7741,11 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             return Option<bool>(400,
                                 error_message + "Referenced collection `" + ref_collection_name + "` not found.");
         }
+        std::string ref_alias_collection_name;
+        if (ref_collection_name != ref_collection->name) {
+            ref_alias_collection_name = ref_collection_name;
+            ref_collection_name = ref_collection->name;
+        }
 
         std::string ref_facet_expression = facet_field.substr(open_paren_pos + 1,
                                                               facet_field.size() - open_paren_pos - 2);
@@ -7749,6 +7762,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
         for (auto& ref_facet: ref_facets) {
             ref_facet.reference_collection_name = ref_collection_name;
+            ref_facet.reference_collection_alias_name = ref_alias_collection_name;
             ref_facet.orig_index = facets.size();
             facets.emplace_back(std::move(ref_facet));
         }

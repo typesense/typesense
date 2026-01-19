@@ -10419,6 +10419,29 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ("75", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
     ASSERT_EQ("140", res_obj["facet_counts"][0]["counts"][2]["value"].get<std::string>());
     ASSERT_EQ("143", res_obj["facet_counts"][0]["counts"][3]["value"].get<std::string>());
+
+    auto symlink_op = collectionManager.upsert_symlink("Customers_alias", "Customers");
+    ASSERT_TRUE(symlink_op.ok());
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers_alias(id: *)"},
+            {"facet_by", "$Customers_alias(product_price(sort_by: product_price:desc))"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(1, res_obj["facet_counts"].size());
+    ASSERT_EQ(4, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("$Customers_alias(product_price)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ("143", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("140", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ("75", res_obj["facet_counts"][0]["counts"][2]["value"].get<std::string>());
+    ASSERT_EQ("73.5", res_obj["facet_counts"][0]["counts"][3]["value"].get<std::string>());
 }
 
 TEST_F(CollectionJoinTest, FacetByReferenceExtended) {

@@ -4330,7 +4330,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 value_facets[num_value_facets % num_threads].emplace_back(this_facet.field_name, this_facet.orig_index,
                                           this_facet.is_top_k, this_facet.facet_range_map,
                                           this_facet.is_range_query, this_facet.is_sort_by_alpha,
-                                          this_facet.sort_order, this_facet.sort_field, this_facet.reference_collection_name);
+                                          this_facet.sort_order, this_facet.sort_field,
+                                          this_facet.reference_collection_name,
+                                          this_facet.reference_collection_alias_name);
                 num_value_facets++;
                 continue;
             }
@@ -4339,7 +4341,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 facet_batches[j].emplace_back(this_facet.field_name, this_facet.orig_index, this_facet.is_top_k,
                                               this_facet.facet_range_map, this_facet.is_range_query,
                                               this_facet.is_sort_by_alpha, this_facet.sort_order, this_facet.sort_field,
-                                              this_facet.reference_collection_name);
+                                              this_facet.reference_collection_name,
+                                              this_facet.reference_collection_alias_name);
             }
         }
 
