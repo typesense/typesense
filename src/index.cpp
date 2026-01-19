@@ -4365,10 +4365,13 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
         for (auto& item: reference_facet_ids) {
             auto& reference_facet_result = item.second;
-            uint32_t batch_reference_facet_len = window_size;
-            for(size_t reference_facet_index = 0; reference_facet_index < reference_facet_result.count; ) {
-                if (reference_facet_index + window_size > reference_facet_result.count) {
-                    batch_reference_facet_len = reference_facet_result.count - reference_facet_index;
+            const auto& ref_ids_len = reference_facet_result.count;
+            const size_t ref_window_size = (num_threads == 0) ? 0 :
+                                                (ref_ids_len + num_threads - 1) / num_threads;
+            uint32_t batch_reference_facet_len = ref_window_size;
+            for(size_t reference_facet_index = 0; reference_facet_index < ref_ids_len; ) {
+                if (reference_facet_index + ref_window_size > ref_ids_len) {
+                    batch_reference_facet_len = ref_ids_len - reference_facet_index;
                 }
 
                 auto batch_res_ids = new uint32_t[batch_reference_facet_len];
@@ -6353,7 +6356,6 @@ Option<bool> Index::compute_facet_infos(const std::vector<facet>& facets, facet_
             }
 
             auto& ref_facet_info = ref_facet_infos.front();
-            ref_facet_info.reference_collection_name = ref_collection_name;
             facet_infos[findex] = std::move(ref_facet_info);
             continue;
         }

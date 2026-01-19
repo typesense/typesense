@@ -861,7 +861,6 @@ struct facet_info_t {
     bool should_compute_stats = false;
     bool use_value_index = false;
     field facet_field{"", "", false};
-    std::string reference_collection_name;
 };
 
 struct facet_query_t {
