@@ -5971,3 +5971,162 @@ TEST_F(CollectionVectorTest, DISABLED_TestImageEmbeddingMultilingual) {
     ASSERT_EQ(results4["hits"].size(), 2);
     ASSERT_EQ(results4["hits"][0]["document"]["id"], "1");
 }
+
+TEST_F(CollectionVectorTest, ConversationWithUnion) {
+    auto schema_json = R"({
+                            "name": "conversation_history",
+                            "fields": [
+                                        {"name": "conversation_id", "type": "string"},
+                                        {"name": "model_id", "type": "string"},
+                                        {"name": "role", "type": "string"},
+                                        {"name": "message", "type": "string"},
+                                        {"name": "timestamp", "type": "int32"}
+                            ]
+                            })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+
+    auto conversation_model_config = R"({
+        "id": "conv-model",
+        "model_name": "openai/gpt-3.5-turbo",
+        "max_bytes": 16000,
+        "history_collection": "conversation_history",
+        "system_prompt": "You are a helpful travel assistant."
+    })"_json;
+
+    conversation_model_config["api_key"] = api_key;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto model_add_op = ConversationModelManager::add_model(conversation_model_config, "conv-model", true);
+    ASSERT_TRUE(model_add_op.ok());
+
+    auto schema2 = R"({
+        "name": "destinations",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "content", "type": "string"},
+            {"name": "embedding", "type": "float[]",
+                "embed": {
+                    "from": ["title", "content"],
+                    "model_config": {"model_name": "ts/all-MiniLM-L12-v2"}
+                }
+            }
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema2);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll_dest = collection_create_op.get();
+
+    auto add_op = coll_dest->add(R"({
+                                        "id": "1",
+                                        "title": "Amalfi Coast",
+                                        "content": "Beautiful coastal region in Italy with stunning views and colorful villages."
+                                })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll_dest->add(R"({
+                                     "id": "2",
+                                     "title": "Positano",
+                                     "content": "A cliffside village on the Amalfi Coast known for pebble beaches."
+                                })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto schema3 = R"({
+        "name": "attractions",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "content", "type": "string"},
+            {"name": "embedding", "type": "float[]", "embed": {
+                "from": ["title", "content"],
+                "model_config": {"model_name": "ts/all-MiniLM-L12-v2"}
+            }}
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema3);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll_att = collection_create_op.get();
+
+    add_op = coll_att->add(R"({
+                                "id": "1",
+                                "title": "Path of the Gods",
+                                "content": "Famous hiking trail along the Amalfi Coast."
+                            })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll_att->add(R"({
+                                "id": "2",
+                                "title": "Ravello Gardens",
+                                 "content": "Beautiful gardens overlooking the Amalfi Coast"
+                            })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json search_body;
+    search_body["searches"] = nlohmann::json::array();
+
+    nlohmann::json search1;
+    search1["collection"] = "destinations";
+    search1["exclude_fields"] = "embedding";
+    search1["query_by"] = "title,content";
+    search1["prefix"] = false;
+
+    nlohmann::json search2;
+    search2["collection"] = "attractions";
+    search2["exclude_fields"] = "embedding";
+    search2["query_by"] = "title,content";
+    search2["prefix"] = false;
+
+    search_body["searches"].push_back(search1);
+    search_body["searches"].push_back(search2);
+
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["conversation"] = "true";
+    req->params["conversation_model_id"] = "conv-model";
+    req->params["q"] = "What are the highlights of the AmalfiCoast";
+
+    req->body = search_body.dump();
+    nlohmann::json embedded_params;
+    req->embedded_params_vec.push_back(embedded_params);
+    req->embedded_params_vec.push_back(embedded_params);
+
+    post_multi_search(req, res);
+    auto results = nlohmann::json::parse(res->body);
+
+    ASSERT_TRUE(results.contains("conversation"));
+    ASSERT_TRUE(results["conversation"].is_object());
+    ASSERT_TRUE(results["conversation"].contains("conversation_history"));
+    ASSERT_TRUE(results["conversation"]["conversation_history"].is_object());
+    ASSERT_TRUE(results["conversation"].contains("answer"));
+
+    //enable union
+    search_body["union"] = true;
+    req->params["conversation"] = "true";
+    req->params["conversation_model_id"] = "conv-model";
+    req->params["q"] = "What are the highlights of the AmalfiCoast";
+
+    req->body = search_body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body);
+
+    ASSERT_TRUE(results.contains("conversation"));
+    ASSERT_TRUE(results["conversation"].is_object());
+    ASSERT_TRUE(results["conversation"].contains("conversation_history"));
+    ASSERT_TRUE(results["conversation"]["conversation_history"].is_object());
+    ASSERT_TRUE(results["conversation"].contains("answer"));
+}
