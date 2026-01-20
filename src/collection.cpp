@@ -9328,7 +9328,11 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
             std::vector<uint32_t> ids;
             auto get_references_op = get_related_ids_with_lock(field_name, {seq_id}, ids);
             if (!get_references_op.ok()) {
-                LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+                auto const& schema = get_schema();
+                auto it = schema.find(field_name);
+                if (it != schema.end() && !it->optional) {
+                    LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+                }
                 return Option<bool>(true);
             }
             reference_filter_result_t result(ids.size(), &ids[0]);
@@ -9342,7 +9346,11 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
         std::vector<uint32_t> ids;
         auto get_references_op = get_related_ids_with_lock(field_name, {seq_id}, ids);
         if (!get_references_op.ok()) {
-            LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+            auto const& schema = get_schema();
+            auto it = schema.find(field_name);
+            if (it != schema.end() && !it->optional) {
+                LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+            }
             return Option<bool>(true);
         }
         reference_filter_result_t result(ids.size(), &ids[0]);
