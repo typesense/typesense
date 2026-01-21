@@ -1630,8 +1630,9 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
 
     auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, union_params, response, remove_duplicates);
 
-    auto reqTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::high_resolution_clock::now().time_since_epoch()).count() - start_ts;
+    auto end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto reqTimeMillis = (end_ts - start_ts) / 1000;
     update_app_metrics(reqTimeMillis);
 
     if (!union_op.ok()) {
