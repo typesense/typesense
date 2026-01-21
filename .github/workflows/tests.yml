@@ -41,7 +41,7 @@ jobs:
         uses: bazel-contrib/setup-bazel@0.14.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ github.workflow }}
+          disk-cache: ${{ vars.BAZEL_CACHE_KEY != '' && vars.BAZEL_CACHE_KEY || github.workflow }}
           repository-cache: true
           external-cache: true
 
