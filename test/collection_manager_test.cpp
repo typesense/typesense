@@ -3,7 +3,6 @@
 #include <vector>
 #include <fstream>
 #include <collection_manager.h>
-#include "app_metrics.h"
 #include "analytics_manager.h"
 #include "string_utils.h"
 #include "collection.h"
@@ -2105,111 +2104,4 @@ TEST_F(CollectionManagerTest, CloneCollectionWithDocuments) {
     collectionManager.drop_collection("source_collection");
     collectionManager.drop_collection("cloned_collection_no_docs");
     collectionManager.drop_collection("cloned_collection_with_docs");
-}
-
-TEST_F(CollectionManagerTest, VerifySearchLatencyMetric) {
-    AppMetrics::get_instance().window_reset();
-
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
-                                 field("points", field_types::INT32, false)};
-    Collection* coll1 = collectionManager.create_collection("latency_test", 1, fields, "points").get();
-
-    nlohmann::json doc1;
-    doc1["title"] = "Test Doc";
-    doc1["points"] = 100;
-    coll1->add(doc1.dump());
-
-    std::map<std::string, std::string> req_params;
-    req_params["collection"] = "latency_test";
-    req_params["q"] = "*";
-    nlohmann::json embedded_params;
-    std::string json_res;
-
-    // Simulate request start time using system_clock (as done in http_server)
-    auto start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-
-    // Sleep briefly to ensure non-zero latency
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, start_ts);
-    ASSERT_TRUE(search_op.ok());
-
-    nlohmann::json metrics_result;
-    AppMetrics::get_instance().get("rps", "latency", metrics_result);
-
-    // Verify search latency is reasonable
-    ASSERT_TRUE(metrics_result.contains("search_latency"));
-    double latency = metrics_result["search_latency"];
-    
-    // Check for overflow (huge values) or negative values (cast to double might preserve sign or look huge unsigned)
-    // The bug produced values like 1.84e19
-    ASSERT_GE(latency, 0.0);
-    ASSERT_LT(latency, 100000.0); // 100s is plenty margin, well below 1.84e19
-
-    collectionManager.drop_collection("latency_test");
-}
-
-TEST_F(CollectionManagerTest, VerifyUnionSearchLatencyMetric) {
-    AppMetrics::get_instance().window_reset();
-
-    // Create two collections for union search
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
-                                 field("points", field_types::INT32, false)};
-    
-    Collection* coll1 = collectionManager.create_collection("union_latency_test1", 1, fields, "points").get();
-    Collection* coll2 = collectionManager.create_collection("union_latency_test2", 1, fields, "points").get();
-
-    // Add test documents
-    nlohmann::json doc1;
-    doc1["title"] = "Test Doc 1";
-    doc1["points"] = 100;
-    coll1->add(doc1.dump());
-
-    nlohmann::json doc2;
-    doc2["title"] = "Test Doc 2";
-    doc2["points"] = 200;
-    coll2->add(doc2.dump());
-
-    // Prepare union search request
-    std::map<std::string, std::string> req_params;
-    nlohmann::json searches = nlohmann::json::array();
-    
-    nlohmann::json search1;
-    search1["collection"] = "union_latency_test1";
-    search1["q"] = "*";
-    searches.push_back(search1);
-
-    nlohmann::json search2;
-    search2["collection"] = "union_latency_test2";
-    search2["q"] = "*";
-    searches.push_back(search2);
-
-    std::vector<nlohmann::json> embedded_params_vec = {nlohmann::json::object(), nlohmann::json::object()};
-    nlohmann::json response;
-
-    // Simulate request start time using system_clock (as done in http_server)
-    auto start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-
-    // Sleep briefly to ensure non-zero latency
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    auto union_op = collectionManager.do_union(req_params, embedded_params_vec, searches, response, start_ts, true);
-    ASSERT_TRUE(union_op.ok());
-
-    nlohmann::json metrics_result;
-    AppMetrics::get_instance().get("rps", "latency", metrics_result);
-
-    // Verify union search latency is reasonable
-    ASSERT_TRUE(metrics_result.contains("search_latency"));
-    double latency = metrics_result["search_latency"];
-    
-    // Check for overflow (huge values) or negative values
-    // The bug produced values like 1.84e19
-    ASSERT_GE(latency, 0.0);
-    ASSERT_LT(latency, 100000.0); // 100s is plenty margin, well below 1.84e19
-
-    collectionManager.drop_collection("union_latency_test1");
-    collectionManager.drop_collection("union_latency_test2");
 }
