@@ -681,6 +681,25 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf_non_prefix) {
     ASSERT_TRUE(res == 0);
 }
 
+TEST(ArtTest, test_art_fuzzy_search_short_query) {
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    const char* key = "bbb";
+    art_document doc = get_document((uint32_t) 1);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key, strlen(key)+1, &doc));
+
+    unsigned char term[1] = {'a'};
+    std::vector<art_leaf*> leaves;
+    exclude_leaves.clear();
+    art_fuzzy_search(&t, term, 1, 0, 2, 10, FREQUENCY, false, false, "", nullptr, 0, leaves, exclude_leaves);
+    ASSERT_TRUE(leaves.empty());
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
 TEST(ArtTest, test_art_prefix_larger_than_key) {
     art_tree t;
     int res = art_tree_init(&t);

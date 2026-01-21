@@ -10,6 +10,8 @@
 #include "threadpool.h"
 #include "batched_indexer.h"
 
+const std::string ERROR_could_not_locate_document_in_store = "Could not locate the JSON document for sequence ID: ";
+
 // Singleton, for managing meta information of all collections and house keeping
 class CollectionManager {
 private:

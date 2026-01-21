@@ -72,6 +72,10 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
             continue;
         }
 
+        if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
+            Config::get_instance().update_proxy_src_ips(actual_nodes_config);
+        }
+
         LOG(INFO) << "Nodes configuration: " << actual_nodes_config;
         break;
     }
@@ -1012,6 +1016,10 @@ bool ReplicationState::reset_peers() {
         if(nodes_config.empty()) {
             LOG(WARNING) << "No nodes resolved from peer configuration.";
             return false;
+        }
+
+        if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
+            Config::get_instance().update_proxy_src_ips(nodes_config);
         }
 
         braft::Configuration peer_config;

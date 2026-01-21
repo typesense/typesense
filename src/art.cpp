@@ -1556,7 +1556,7 @@ static inline int fuzzy_search_state(const bool prefix, int key_index, unsigned 
             dacrcyystlg ia
         */
         bool letter_more = (key_index+1 < query_len && query[key_index+1] == c);
-        bool letter_less = (key_index > 0 && query[key_index-1] == c);
+        bool letter_less = (key_index > 0 && key_index - 1 < query_len && query[key_index-1] == c);
         if(letter_more || letter_less) {
             return 0;
         }
@@ -1585,7 +1585,7 @@ static inline int fuzzy_search_state(const bool prefix, int key_index, unsigned 
             expl e
        */
 
-        bool two_letter_less = (key_index > 1 && query[key_index-2] == c);
+        bool two_letter_less = (key_index > 1 && key_index - 2 < query_len && query[key_index-2] == c);
         if(two_letter_less) {
             return 0;
         }

@@ -603,9 +603,6 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
         // the rest will be added by enqueue() when raft log is completely read
 
         if(req_res.is_complete) {
-            LOG(INFO) << "req_res.start_ts: " <<  req_res.start_ts
-                      << ", req_res.next_chunk_index: " << req_res.next_chunk_index;
-
             const std::string& coll_name = get_collection_name(req);
             uint64_t queue_id = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % num_threads;
             queue_ids.insert(queue_id);

@@ -27,6 +27,7 @@
 #include "natural_language_search_model.h"
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
+#include "api_acl.h"
 
 using namespace std::chrono_literals;
 
@@ -998,8 +999,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         union_remove_duplicates = it.value();
     }
 
-    bool conversation = orig_req_params["conversation"] == "true" && !is_union;
-    bool conversation_stream = orig_req_params["conversation_stream"] == "true" && !is_union;
+    bool conversation = orig_req_params["conversation"] == "true";
+    bool conversation_stream = orig_req_params["conversation_stream"] == "true";
     bool conversation_history = orig_req_params.find("conversation_id") != orig_req_params.end();
     std::string common_query;
 
@@ -3049,6 +3050,15 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         return false;
     }
 
+    uint32_t url_status_code = 400;
+    std::string url_error = "Bad request.";
+    const std::vector<std::string>& allowed_src_ips = Config::get_instance().get_proxy_allowed_src_ips();
+
+    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips)) {
+        res->set(url_status_code, url_error);
+        return false;
+    }
+
     auto response = proxy.send(url, method, body, headers);
 
     if(response.status_code != 200) {
@@ -3356,6 +3366,17 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     } catch(const std::exception& e) {
         LOG(ERROR) << "JSON error: " << e.what();
         res->set_400("Bad JSON.");
+        res->final = true;
+        stream_response(req, res);
+        return false;
+    }
+
+    uint32_t url_status_code = 400;
+    std::string url_error = "Bad request.";
+    const std::vector<std::string>& allowed_src_ips = Config::get_instance().get_proxy_allowed_src_ips();
+
+    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips)) {
+        res->set(url_status_code, url_error);
         res->final = true;
         stream_response(req, res);
         return false;

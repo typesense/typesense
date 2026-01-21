@@ -174,7 +174,7 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
     text_embedders.emplace(model_name, embedder);
 
     // if model is clip, generate image embedder
-    if(embedder->get_tokenizer_type() == TokenizerType::clip) {
+    if(embedder->is_image_embedding()) {
         auto image_embedder = std::make_shared<CLIPImageEmbedder>(embedder->get_session(), embedder->get_env(), get_model_subdir(model_name_without_namespace, is_public_model));
         image_embedders.emplace(model_name, image_embedder);
     }
