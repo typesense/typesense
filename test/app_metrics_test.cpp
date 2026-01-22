@@ -193,8 +193,15 @@ TEST_F(AppMetricsTest, MultiSearchLatencyStats) {
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-        auto multi_op = collectionManager.do_union(req_params, embedded_params_vec, searches, response, start_ts, false);
-        ASSERT_TRUE(multi_op.ok());
+        for(size_t i = 0; i < searches.size(); i++) {
+            std::map<std::string, std::string> search_params;
+            search_params["collection"] = searches[i]["collection"];
+            search_params["q"] = searches[i]["q"];
+            std::string json_res;
+            
+            auto search_op = collectionManager.do_search(search_params, embedded_params_vec[i], json_res, start_ts);
+            ASSERT_TRUE(search_op.ok());
+        }
 
         nlohmann::json metrics_result;
         metrics.get("rps", "latency", metrics_result);
