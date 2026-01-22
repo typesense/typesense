@@ -139,9 +139,10 @@ TEST_F(AppMetricsTest, SearchLatencyStats) {
     double latency = metrics_result["search_latency"];
     
     // Check for overflow (huge values) or negative values (cast to double might preserve sign or look huge unsigned)
-    // The bug produced values like 1.84e19
-    ASSERT_GE(latency, 0.0);
-    ASSERT_LT(latency, 100000.0); // 100s is plenty margin, well below 1.84e19
+    // The bug produced values like 1.84e19 due to mixing system_clock and high_resolution_clock
+    // We slept for 10ms, so latency should be at least 10ms
+    ASSERT_GE(latency, 10.0); // At least 10ms since we slept for 10ms
+    ASSERT_LT(latency, 1000.0);
 
     collectionManager.drop_collection("latency_test");
 }
@@ -208,9 +209,9 @@ TEST_F(AppMetricsTest, MultiSearchLatencyStats) {
 
         ASSERT_TRUE(metrics_result.contains("search_latency"));
         double latency = metrics_result["search_latency"];
-        
-        ASSERT_GE(latency, 0.0);
-        ASSERT_LT(latency, 100000.0); // 100s is plenty margin, well below 1.84e19
+
+        ASSERT_GE(latency, 10.0); 
+        ASSERT_LT(latency, 1000.0); 
     }
 
     // Test 2: Multi-search WITH union
@@ -231,8 +232,8 @@ TEST_F(AppMetricsTest, MultiSearchLatencyStats) {
         ASSERT_TRUE(metrics_result.contains("search_latency"));
         double latency = metrics_result["search_latency"];
         
-        ASSERT_GE(latency, 0.0);
-        ASSERT_LT(latency, 100000.0); // 100s is plenty margin, well below 1.84e19
+        ASSERT_GE(latency, 10.0); 
+        ASSERT_LT(latency, 1000.0);
     }
 
     collectionManager.drop_collection("products_collection");
