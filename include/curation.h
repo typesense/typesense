@@ -3,6 +3,7 @@
 #include <json.hpp>
 #include <diversity.h>
 #include "option.h"
+#include "filter.h"
 
 struct curation_t {
     static const std::string MATCH_EXACT;
@@ -15,6 +16,7 @@ struct curation_t {
         bool dynamic_query = false;
         bool dynamic_filter = false;
         std::string filter_by;
+        DNF filter_tree_dnf;
         std::set<std::string> tags;
         std::string locale="";
         std::string stemming_dictionary="";

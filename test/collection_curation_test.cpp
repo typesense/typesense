@@ -6253,3 +6253,323 @@ TEST_F(CollectionCurationTest, OverridesWithRerankHybridSearches) {
     ASSERT_EQ(4, res_obj["hits"].size());
     ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
 }
+
+TEST_F(CollectionCurationTest, CurationMatchExtended) {
+    Config::get_instance().set_enable_search_analytics(true);
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+         "name": "products",
+         "fields": [
+           {"name": "title", "type": "string" },
+           {"name": "description", "type": "string" },
+           {"name": "is_available", "type": "bool", "facet": true },
+           {"name": "is_enabled", "type": "bool", "facet": true },
+           {"name": "price", "type": "float" }
+         ]
+       })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    std::vector<std::tuple<std::string, std::string, bool, bool, float>> records = {{"Regular Product A","A normal product",true,true,29.99},
+                                                                                    {"Regular Product B","Another normal product",true,true,49.99},
+                                                                                    {"Featured Product","This should be promoted by curation",true,true,99.99},
+                                                                                    {"Unavailable Product","Not available",false,true,19.99},
+                                                                                    {"Disabled Product","Not enabled",true,false,39.99}
+    };
+
+    nlohmann::json doc;
+    for (auto i = 0; i != records.size(); ++i) {
+        doc["id"] = std::to_string(i);
+        doc["title"] = std::get<0>(records[i]);
+        doc["description"] = std::get<1>(records[i]);
+        doc["is_available"] = std::get<2>(records[i]);
+        doc["is_enabled"] = std::get<3>(records[i]);
+        doc["price"] = std::get<4>(records[i]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    nlohmann::json curation_json = R"OVR({
+          "id" : "featured_rule",
+          "rule": {
+            "query": "*",
+            "match": "exact",
+            "filter_by": "is_available:true && is_enabled:true"
+          },
+          "includes": [
+            {"id": "2", "position": 1}
+          ]
+        })OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "featured_rule", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    curation_json = R"OVR({
+          "id" : "featured_rule2",
+          "rule": {
+            "query": "*",
+            "match": "exact",
+            "filter_by": "is_available:true || is_enabled:true"
+          },
+          "includes": [
+            {"id": "2", "position": 1}
+          ]
+        })OVR"_json;
+
+    curation_t ov2;
+    parse_op = curation_t::parse(curation_json, "featured_rule2", ov2);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    curation_json = R"OVR({
+          "id" : "featured_rule3",
+          "rule": {
+            "query": "*",
+            "match": "exact",
+            "filter_by": "is_available:true && (is_enabled:true || price:>30)"
+          },
+          "includes": [
+            {"id": "2", "position": 1}
+          ]
+        })OVR"_json;
+
+    curation_t ov3;
+    parse_op = curation_t::parse(curation_json, "featured_rule3", ov3);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    curation_json = R"OVR({
+          "id" : "featured_rule4",
+          "rule": {
+            "query": "*",
+            "match": "exact",
+            "filter_by": "price:[10..30]"
+          },
+          "includes": [
+            {"id": "2", "position": 1}
+          ]
+        })OVR"_json;
+
+    curation_t ov4;
+    parse_op = curation_t::parse(curation_json, "featured_rule4", ov4);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    // Test 1: Exact match - should trigger curation
+    nlohmann::json embedded_params;
+    std::string json_res;
+    long now_ts = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+    std::map<std::string, std::string> req_params =  {
+            {"collection", "products"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", "is_available:true && is_enabled:true"}
+    };
+
+    json_res.clear();
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    nlohmann::json results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, results["found"].get<uint32_t>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_TRUE(results["hits"][0]["curated"]);
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+
+
+    //Test 2: Array syntax - should trigger but doesn't
+    req_params =  {
+            {"collection", "products"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", "is_available:[true] && is_enabled:[true]"}
+    };
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, results["found"].get<uint32_t>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_TRUE(results["hits"][0]["curated"]);
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+
+    //Test 3: Reversed order - should trigger but doesn't
+    req_params =  {
+            {"collection", "products"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", "is_enabled:true && is_available:true"}
+    };
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, results["found"].get<uint32_t>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_TRUE(results["hits"][0]["curated"]);
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+
+    //Test 4: Mixed syntax - array and reversed
+    req_params =  {
+            {"collection", "products"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", "is_enabled:[true] && is_available:[true]"}
+    };
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, results["found"].get<uint32_t>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_TRUE(results["hits"][0]["curated"]);
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+
+    req_params =  {
+            {"collection", "products"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", "is_available:true || is_enabled:true"}
+    };
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, results["found"].get<uint32_t>());
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_TRUE(results["hits"][0]["curated"]);
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+
+    req_params =  {
+            {"collection", "products"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", "is_enabled:true || is_available:true"}
+    };
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, results["found"].get<uint32_t>());
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_TRUE(results["hits"][0]["curated"]);
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+
+    req_params =  {
+            {"collection", "products"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", "is_enabled:[true] || is_available:[true]"}
+    };
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, results["found"].get<uint32_t>());
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_TRUE(results["hits"][0]["curated"]);
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+
+    req_params =  {
+            {"collection", "products"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", " is_available:true && (is_enabled:true || price:>30)"}
+    };
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, results["found"].get<uint32_t>());
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_TRUE(results["hits"][0]["curated"]);
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+
+    req_params =  {
+            {"collection", "products"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", " (is_enabled:true || price:>30) && is_available:true"}
+    };
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, results["found"].get<uint32_t>());
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_TRUE(results["hits"][0]["curated"]);
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+
+    //should not match
+    req_params =  {
+            {"collection", "products"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", " (is_available:true || price:>30) && is_enabled:true"}
+    };
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, results["found"].get<uint32_t>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_FALSE(results["hits"].count("curated") != 0);
+
+    //should trigger curation is price falls into curation rule range
+    req_params =  {
+            {"collection", "products"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", "price:19.99"}
+    };
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, results["found"].get<uint32_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_TRUE(results["hits"][0]["curated"]);
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+
+    //should not match any curation rule
+    req_params =  {
+            {"collection", "products"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", "price:99.99"}
+    };
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, results["found"].get<uint32_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_FALSE(results["hits"].count("curated") != 0);
+}

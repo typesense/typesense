@@ -1077,3 +1077,178 @@ Option<bool> filter::parse_filter_string(const std::string& filter_query, std::s
     token += filter_query.substr(token_start_index, index - token_start_index);
     return Option<bool>(true);
 }
+
+bool filter::clause_implies(const Conjunction& query_clause, const Conjunction& rule_clause) {
+    if (rule_clause.empty()) return true;
+
+    std::map<std::string, const AtomicCondition*> rule_map;
+    for (const auto& r : rule_clause) {
+        rule_map[r.field_name] = &r;
+    }
+
+    for (const auto& [field, r_ptr] : rule_map) {
+        const auto& r = *r_ptr;
+        bool found = false;
+
+        for (const auto& q : query_clause) {
+            if (q.field_name != field) continue;
+            found = true;
+
+            if (r.negated != q.negated) return false;
+
+            if (!r.equality_values.empty()) {
+                for (const auto& rv : r.equality_values) {
+                    if (q.equality_values.find(rv) == q.equality_values.end()) {
+                        return false;
+                    }
+                }
+            }
+
+            if (r.has_range) {
+                if (r.min_val > -std::numeric_limits<double>::infinity()) {
+                    if (!q.has_range ||
+                        q.min_val == -std::numeric_limits<double>::infinity() ||
+                        q.min_val < r.min_val ||
+                        (q.min_val == r.min_val && !q.min_inclusive && r.min_inclusive)) {
+                        return false;
+                    }
+                }
+                if (r.max_val < std::numeric_limits<double>::infinity()) {
+                    if (!q.has_range ||
+                        q.max_val == std::numeric_limits<double>::infinity() ||
+                        q.max_val > r.max_val ||
+                        (q.max_val == r.max_val && !q.max_inclusive && r.max_inclusive)) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        if (!found) return false;
+    }
+
+    return true;
+}
+
+DNF filter::to_dnf(const filter_node_t* node) {
+    DNF result;
+
+    if (!node) {
+        return result;
+    }
+
+    if (!node->isOperator) {
+        AtomicCondition atom;
+        const auto& f = node->filter_exp;
+
+        atom.field_name = f.field_name;
+        atom.negated = f.apply_not_equals;
+        bool is_numeric = false;
+
+        if (!f.comparators.empty()) {
+            for (auto comp : f.comparators) {
+                if (comp == GREATER_THAN || comp == GREATER_THAN_EQUALS ||
+                    comp == LESS_THAN || comp == LESS_THAN_EQUALS) {
+                    is_numeric = true;
+                    break;
+                }
+            }
+        }
+
+        if (f.values.size() == 1 && f.values[0].find("..") != std::string::npos) {
+            is_numeric = true;
+        }
+
+        if (is_numeric) {
+            atom.has_range = true;
+            try {
+                double val = std::stod(f.values[0]);
+                switch (f.comparators[0]) {
+                    case GREATER_THAN:
+                        atom.min_val = val;
+                        atom.min_inclusive = false;
+                        break;
+                    case GREATER_THAN_EQUALS:
+                        atom.min_val = val;
+                        atom.min_inclusive = true;
+                        break;
+                    case LESS_THAN:
+                        atom.max_val = val;
+                        atom.max_inclusive = false;
+                        break;
+                    case LESS_THAN_EQUALS:
+                        atom.max_val = val;
+                        atom.max_inclusive = true;
+                        break;
+                    default:
+                        break;
+                }
+            } catch (...) {
+                // invalid number → treat as empty
+            }
+        } else {
+            for (const auto& v : f.values) {
+                atom.equality_values.insert(v);
+            }
+        }
+
+        Conjunction clause;
+        if (!atom.field_name.empty()) {
+            clause.push_back(std::move(atom));
+        }
+        result.push_back(std::move(clause));
+        return result;
+    }
+
+    DNF left = to_dnf(node->left);
+    DNF right = to_dnf(node->right);
+
+    if (node->filter_operator == AND) {
+        DNF combined;
+        for (const auto& l : left) {
+            for (const auto& r : right) {
+                Conjunction merged = l;
+                merged.insert(merged.end(), r.begin(), r.end());
+                combined.push_back(std::move(merged));
+            }
+        }
+        return combined;
+    } else { // OR
+        result = std::move(left);
+        result.insert(result.end(), right.begin(), right.end());
+        return result;
+    }
+}
+
+bool filter::query_satisfies_rule(const DNF& rule_dnf, const DNF& query_dnf) {
+    // If rule or query filter_by is empty then reject
+    if (rule_dnf.empty() || query_dnf.empty()) {
+        return false;
+    }
+
+    // Rule → Query
+    for (const auto& rule_clause : rule_dnf) {
+        bool covered = false;
+        for (const auto& query_clause : query_dnf) {
+            if (clause_implies(query_clause, rule_clause)) {
+                covered = true;
+                break;
+            }
+        }
+        if (!covered) return false;
+    }
+
+    // Query → Rule
+    for (const auto& query_clause : query_dnf) {
+        bool covered = false;
+        for (const auto& rule_clause : rule_dnf) {
+            if (clause_implies(rule_clause, query_clause)) {
+                covered = true;
+                break;
+            }
+        }
+        if (!covered) return false;
+    }
+
+    return true;
+}

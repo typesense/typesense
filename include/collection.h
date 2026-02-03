@@ -522,7 +522,8 @@ private:
 
     bool does_curation_match(const curation_t& curation, std::string& query,
                              std::set<uint32_t>& excluded_set,
-                             std::string& actual_query, const std::string& curation_normalized_query, const string& filter_query,
+                             std::string& actual_query, const std::string& curation_normalized_query,
+                             const DNF& filter_query_dnf,
                              bool already_segmented,
                              const bool tags_matched,
                              const bool wildcard_tag_matched,
@@ -536,15 +537,15 @@ private:
                              nlohmann::json& curation_metadata,
                              bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos) const;
 
-    Option<bool> curate_results(std::string& actual_query, const std::string& filter_query, bool enable_curations, bool already_segmented,
-                        const std::set<std::string>& tags,
-                        const std::map<size_t, std::vector<std::string>>& pinned_hits,
-                        const std::vector<std::string>& hidden_hits,
-                        std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
-                        std::vector<uint32_t>& excluded_ids, std::vector<const curation_t*>& filter_curations,
-                        bool& filter_curated_hits,
-                        std::string& curated_sort_by, nlohmann::json& curation_metadata,
-                        diversity_t& diversity, bool synonym_prefix, uint32_t synonym_num_typos) const;
+    Option<bool> curate_results(std::string& actual_query, const filter_node_t* filter_query, bool enable_curations,
+                                bool already_segmented, const std::set<std::string>& tags,
+                                const std::map<size_t, std::vector<std::string>>& pinned_hits,
+                                const std::vector<std::string>& hidden_hits,
+                                std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
+                                std::vector<uint32_t>& excluded_ids, std::vector<const curation_t*>& filter_curations,
+                                bool& filter_curated_hits,
+                                std::string& curated_sort_by, nlohmann::json& curation_metadata,
+                                diversity_t& diversity, bool synonym_prefix, uint32_t synonym_num_typos) const;
 
     static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
