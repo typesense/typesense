@@ -105,6 +105,7 @@ void master_server_routes() {
 
     // meta
     server->get("/metrics.json", get_metrics_json);
+    server->get("/metrics", get_prometheus_metrics);
     server->get("/stats.json", get_stats_json);
     server->get("/debug", get_debug);
     server->get("/health", get_health);

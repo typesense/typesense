@@ -352,3 +352,9 @@ http_archive(
     strip_prefix = "libarchive-3.7.7",
     urls = ["https://github.com/libarchive/libarchive/releases/download/v3.7.7/libarchive-3.7.7.tar.gz"],
 )
+
+new_git_repository(
+    name = "com_github_jupp0r_prometheus_cpp",
+    commit = "f13cdd052eeae5e89decc11bf03697d0f78b15bc", 
+    remote = "https://github.com/jupp0r/prometheus-cpp.git",
+)

@@ -261,3 +261,5 @@ bool post_nl_search_model(const std::shared_ptr<http_req>& req, const std::share
 bool put_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool delete_nl_search_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_prometheus_metrics(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

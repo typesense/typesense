@@ -5,6 +5,7 @@
 #include <analytics_manager.h>
 #include "analytics_manager.h"
 #include <housekeeper.h>
+#include <prometheus_metrics.h>
 #include <arpa/inet.h>
 #include "typesense_server_utils.h"
 #include "core_api.h"
@@ -815,6 +816,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         }
         res->final = true;
         stream_response(req, res);
+        PrometheusMetrics::get_instance().recordSearchRequest("", false, 0);
         return false;
     }
 
@@ -831,6 +833,12 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     res->set_200(results_json_str);
     res->final = true;
     stream_response(req, res);
+
+    // Record prometheus metrics for successful search
+    if(results_json.contains("search_time_ms")) {
+        double search_latency_ms = results_json["search_time_ms"].get<double>();
+        PrometheusMetrics::get_instance().recordSearchRequest("", true, search_latency_ms);
+    }
 
     // we will cache only successful requests
     if(use_cache && !conversation_stream) {
@@ -1688,6 +1696,8 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
 
     const index_operation_t operation = get_index_operation(req->params[ACTION]);
 
+    auto import_start_time = std::chrono::high_resolution_clock::now();
+
     if(!single_partial_record_body) {
         nlohmann::json document;
 
@@ -1718,6 +1728,13 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
 
     res->content_type_header = "text/plain; charset=utf-8";
     res->body = response_stream.str();
+
+    // Record prometheus metrics for import operation
+    if(!single_partial_record_body && req->last_chunk_aggregate) {
+        auto import_end_time = std::chrono::high_resolution_clock::now();
+        double import_latency_ms = std::chrono::duration<double, std::milli>(import_end_time - import_start_time).count();
+        PrometheusMetrics::get_instance().recordImportOperation(req->params["collection"], json_lines.size(), true, import_latency_ms);
+    }
 
     res->final.store(req->last_chunk_aggregate);
     stream_response(req, res);
@@ -1755,6 +1772,7 @@ bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_p
     const index_operation_t operation = get_index_operation(req->params[ACTION]);
     const auto& dirty_values = collection->parse_dirty_values_option(req->params[DIRTY_VALUES_PARAM]);
 
+    auto doc_start_time = std::chrono::high_resolution_clock::now();
     size_t remote_embedding_timeout_ms = 60000;
     size_t remote_embedding_num_tries = 2;
 
@@ -1800,10 +1818,22 @@ bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_p
         }
 
         res->body = res_doc.dump();
+
+        // Record prometheus metrics for failed document operation
+        auto doc_end_time = std::chrono::high_resolution_clock::now();
+        double doc_latency_ms = std::chrono::duration<double, std::milli>(doc_end_time - doc_start_time).count();
+        PrometheusMetrics::get_instance().recordDocumentOperation(req->params["collection"], operation, false, doc_latency_ms);
+
         return false;
     }
 
     res->set_201(document.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
+
+    // Record prometheus metrics for successful document operation
+    auto doc_end_time = std::chrono::high_resolution_clock::now();
+    double doc_latency_ms = std::chrono::duration<double, std::milli>(doc_end_time - doc_start_time).count();
+    PrometheusMetrics::get_instance().recordDocumentOperation(req->params["collection"], operation, true, doc_latency_ms);
+
     return true;
 }
 
@@ -1824,15 +1854,26 @@ bool patch_update_document(const std::shared_ptr<http_req>& req, const std::shar
         req->params[DIRTY_VALUES_PARAM] = "";  // set it empty as default will depend on whether schema is enabled
     }
 
+    auto update_start_time = std::chrono::high_resolution_clock::now();
     const auto& dirty_values = collection->parse_dirty_values_option(req->params[DIRTY_VALUES_PARAM]);
     Option<nlohmann::json> upserted_doc_op = collection->add(req->body, index_operation_t::UPDATE, doc_id, dirty_values);
 
     if(!upserted_doc_op.ok()) {
         res->set(upserted_doc_op.code(), upserted_doc_op.error());
+        // Record prometheus metrics for failed update
+        auto update_end_time = std::chrono::high_resolution_clock::now();
+        double update_latency_ms = std::chrono::duration<double, std::milli>(update_end_time - update_start_time).count();
+        PrometheusMetrics::get_instance().recordDocumentOperation(req->params["collection"], index_operation_t::UPDATE, false, update_latency_ms);
         return false;
     }
 
     res->set_200(upserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
+
+    // Record prometheus metrics for successful update
+    auto update_end_time = std::chrono::high_resolution_clock::now();
+    double update_latency_ms = std::chrono::duration<double, std::milli>(update_end_time - update_start_time).count();
+    PrometheusMetrics::get_instance().recordDocumentOperation(req->params["collection"], index_operation_t::UPDATE, true, update_latency_ms);
+
     return true;
 }
 
@@ -1936,6 +1977,8 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
         return false;
     }
 
+    auto delete_start_time = std::chrono::high_resolution_clock::now();
+
     Option<nlohmann::json> doc_option = collection->get(doc_id);
 
     if (!doc_option.ok()) {
@@ -1947,6 +1990,10 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
         }
 
         res->set(doc_option.code(), doc_option.error());
+        // Record prometheus metrics for failed delete
+        auto delete_end_time = std::chrono::high_resolution_clock::now();
+        double delete_latency_ms = std::chrono::duration<double, std::milli>(delete_end_time - delete_start_time).count();
+        PrometheusMetrics::get_instance().recordDocumentOperation(req->params["collection"], index_operation_t::DELETE, false, delete_latency_ms);
         return false;
     }
 
@@ -1961,11 +2008,20 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
         }
 
         res->set(deleted_id_op.code(), deleted_id_op.error());
+        // Record prometheus metrics for failed delete
+        auto delete_end_time = std::chrono::high_resolution_clock::now();
+        double delete_latency_ms = std::chrono::duration<double, std::milli>(delete_end_time - delete_start_time).count();
+        PrometheusMetrics::get_instance().recordDocumentOperation(req->params["collection"], index_operation_t::DELETE, false, delete_latency_ms);
         return false;
     }
 
     nlohmann::json doc = doc_option.get();
     res->set_200(doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
+
+    // Record prometheus metrics for successful delete
+    auto delete_end_time = std::chrono::high_resolution_clock::now();
+    double delete_latency_ms = std::chrono::duration<double, std::milli>(delete_end_time - delete_start_time).count();
+    PrometheusMetrics::get_instance().recordDocumentOperation(req->params["collection"], index_operation_t::DELETE, true, delete_latency_ms);
 
     return true;
 }
@@ -4076,5 +4132,12 @@ bool del_curation_set_item(const std::shared_ptr<http_req>& req, const std::shar
     nlohmann::json res_json;
     res_json["id"] = id;
     res->set_200(res_json.dump());
+    return true;
+}
+
+bool get_prometheus_metrics(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    std::string metrics_text = PrometheusMetrics::get_instance().get_metrics_text();
+    res->content_type_header = "text/plain; version=0.0.4; charset=utf-8";
+    res->set_200(metrics_text);
     return true;
 }

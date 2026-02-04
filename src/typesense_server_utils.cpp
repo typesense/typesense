@@ -32,6 +32,7 @@
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
 #include "api_acl.h"
+#include "prometheus_metrics.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -640,6 +641,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     EmbedderManager::set_model_dir(config.get_data_dir() + "/models");
 
     EmbedderManager::get_instance().migrate_public_models();
+
+    PrometheusMetrics::get_instance().initialize();
 
     // first we start the peering service
 
