@@ -5,9 +5,6 @@
 PrometheusMetrics::PrometheusMetrics() {
 
 }
-PrometheusMetrics::~PrometheusMetrics() {
-    shutdown();
-}
 
 void PrometheusMetrics::initialize() {
     registry_ = std::make_shared<prometheus::Registry>();
@@ -21,9 +18,6 @@ void PrometheusMetrics::initialize() {
     getHistogramFamily("import_operation_latency_ms", {"collection"});
 
     LOG(INFO) << "Prometheus metrics initialized.";
-}
-
-void PrometheusMetrics::shutdown() {
 }
 
 void PrometheusMetrics::recordSearchRequest(const std::string& model_name, bool success, double latency_ms) {

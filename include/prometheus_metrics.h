@@ -29,9 +29,6 @@ public:
     // Initialize the Prometheus exposer
     void initialize();
 
-    // Shutdown the Prometheus exposer
-    void shutdown();
-
     void recordSearchRequest(const std::string& model_name, bool success, double latency_ms);
 
     void recordDocumentOperation(const std::string& collection, const index_operation_t operation, bool success, double latency_ms);
@@ -41,7 +38,6 @@ public:
     std::string get_metrics_text();  // Standard Prometheus exposition format
 private:
     PrometheusMetrics();
-    ~PrometheusMetrics();
 
     std::shared_ptr<prometheus::Registry> registry_;
     std::unordered_map<std::string, prometheus::Family<prometheus::Counter>*> counter_map;
