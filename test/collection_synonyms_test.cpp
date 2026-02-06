@@ -23,6 +23,7 @@ protected:
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
+        manager.init_store(store);
         collectionManager.load(8, 1000);
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
@@ -34,6 +35,8 @@ protected:
         };
 
         coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
+        SynonymIndex synonym_index(store, "index");
+        manager.add_synonym_index("index", std::move(synonym_index));
         if(coll_mul_fields == nullptr) {
             coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
             coll_mul_fields->set_synonym_sets({"index"});
@@ -46,10 +49,6 @@ protected:
         }
 
         infile.close();
-
-        SynonymIndex synonym_index(store, "index");
-        manager.init_store(store);
-        manager.add_synonym_index("index", std::move(synonym_index));
     }
 
     virtual void SetUp() {
@@ -59,6 +58,7 @@ protected:
     virtual void TearDown() {
         collectionManager.drop_collection("coll_mul_fields");
         collectionManager.dispose();
+        manager.dispose();
         delete store;
     }
 };

@@ -27,6 +27,7 @@
 #include "natural_language_search_model.h"
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
+#include "api_acl.h"
 
 using namespace std::chrono_literals;
 
@@ -359,7 +360,7 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         }
 
         auto synonym_sets = req_json["synonym_sets"].get<std::vector<std::string>>();
-        auto op = CollectionManager::get_instance().update_collection_synonym_sets(req->params["collection"], synonym_sets);
+        auto op = CollectionManager::get_instance().update_collection_synonym_sets(req->params["collection"], synonym_sets, res->is_alive);
         if(!op.ok()) {
             res->set(op.code(), op.error());
             return false;
@@ -371,9 +372,9 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
             res->set_400("The `curation_sets` value should be an array.");
             return false;
         }
-        
+
         auto curation_sets = req_json["curation_sets"].get<std::vector<std::string>>();
-        auto op = CollectionManager::get_instance().update_collection_curation_sets(req->params["collection"], curation_sets);
+        auto op = CollectionManager::get_instance().update_collection_curation_sets(req->params["collection"], curation_sets, res->is_alive);
         if(!op.ok()) {
             res->set(op.code(), op.error());
             return false;
@@ -998,8 +999,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         union_remove_duplicates = it.value();
     }
 
-    bool conversation = orig_req_params["conversation"] == "true" && !is_union;
-    bool conversation_stream = orig_req_params["conversation_stream"] == "true" && !is_union;
+    bool conversation = orig_req_params["conversation"] == "true";
+    bool conversation_stream = orig_req_params["conversation_stream"] == "true";
     bool conversation_history = orig_req_params.find("conversation_id") != orig_req_params.end();
     std::string common_query;
 
@@ -1258,7 +1259,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         std::vector<std::string> exclude_fields;
         StringUtils::split(req->params["exclude_fields"], exclude_fields, ",");
         bool exclude_conversation_history = std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
-        
+
         auto new_conversation_op = ConversationManager::get_last_n_messages(conversation_history["conversation"], 2);
         if(!new_conversation_op.ok()) {
             res->set_400(new_conversation_op.error());
@@ -3026,7 +3027,7 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         return false;
     }
 
-    try {        
+    try {
         if(req_json.count("body") != 0 && !req_json["body"].is_string()) {
             res->set_400("Body must be a string.");
             return false;
@@ -3049,8 +3050,17 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         return false;
     }
 
+    uint32_t url_status_code = 400;
+    std::string url_error = "Bad request.";
+    const std::vector<std::string>& allowed_src_ips = Config::get_instance().get_proxy_allowed_src_ips();
+
+    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips)) {
+        res->set(url_status_code, url_error);
+        return false;
+    }
+
     auto response = proxy.send(url, method, body, headers);
-    
+
     if(response.status_code != 200) {
         int code = response.status_code;
         res->set_body(code, response.body);
@@ -3181,7 +3191,7 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
 
 bool post_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
-    
+
     if (!req->params.count("name") || !req->params.count("type")) {
         res->set_400("Missing required parameters 'name' and 'type'.");
         return false;
@@ -3204,19 +3214,19 @@ bool post_personalization_model(const std::shared_ptr<http_req>& req, const std:
         res->set(create_op.code(), create_op.error());
         return false;
     }
-    
+
     auto model = create_op.get();
     if (model.contains("model_path")) {
       model.erase("model_path");
     }
     res->set_201(model.dump());
-    
+
     return true;
 }
 
 bool get_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string& model_id = req->params["id"];
-    
+
     auto model_op = PersonalizationModelManager::get_model(model_id);
     if (!model_op.ok()) {
         res->set(model_op.code(), model_op.error());
@@ -3252,7 +3262,7 @@ bool get_personalization_models(const std::shared_ptr<http_req>& req, const std:
 
 bool del_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string& model_id = req->params["id"];
-    
+
     auto delete_op = PersonalizationModelManager::delete_model(model_id);
     if (!delete_op.ok()) {
         res->set(delete_op.code(), delete_op.error());
@@ -3269,7 +3279,7 @@ bool del_personalization_model(const std::shared_ptr<http_req>& req, const std::
 
 bool put_personalization_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
-    
+
     if (req->params.count("name") && !req->params["name"].empty()) {
         req_json["name"] = req->params["name"];
     }
@@ -3356,6 +3366,17 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     } catch(const std::exception& e) {
         LOG(ERROR) << "JSON error: " << e.what();
         res->set_400("Bad JSON.");
+        res->final = true;
+        stream_response(req, res);
+        return false;
+    }
+
+    uint32_t url_status_code = 400;
+    std::string url_error = "Bad request.";
+    const std::vector<std::string>& allowed_src_ips = Config::get_instance().get_proxy_allowed_src_ips();
+
+    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips)) {
+        res->set(url_status_code, url_error);
         res->final = true;
         stream_response(req, res);
         return false;

@@ -4072,3 +4072,110 @@ TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightingInNestedFields) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificMoreTest, NestedFieldSingleTokenSnippetTruncation) {
+    // verify that snippets for single-token matches in nested fields are properly truncated
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "experiences", "type": "object[]"},
+            {"name": "experiences.description", "type": "string[]"},
+            {"name": "experiences.company", "type": "string[]"},
+            {"name": "experiences.title", "type": "string[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["experiences"] = nlohmann::json::array();
+    nlohmann::json exp1;
+    exp1["company"] = "Acme Corporation";
+    exp1["title"] = "Senior Director";
+
+    // long description with "business" in the middle
+    exp1["description"] = "LEADERSHIP OVERVIEW: \nI design, lead, negotiate and manage transformative initiatives at this international strategic organization, working with Group CEOs of largest companies globally, to innovate and scale up industry contributions to enabling transitioning to a resilient and sustainable economy. I leverage executive engagement and cross-sectoral partnerships to innovate.\n\nPioneered a multi-phase initiative to expedite commercialization, market adoption and industrial-scale deployment of technologies for energy transition and industrial transformation, by mobilizing the industry and orchestrating critical public-private partnerships to innovate structured risk management to mobilize private finance, with a supply chain perspective.\n- Partners: Various government agencies, technology companies, banks, project owners.\n- Technologies: Advanced systems, carbon removal and storage, long-term energy storage, renewables\n\nPROFESSIONAL HIGHLIGHTS: \n➢ Led first of its kind initiative to classify sources of emerging risk against corporations and governments with impacts on the insurance and finance sectors, and how to mitigate this risk.\n➢ Leading enterprise-wide innovation in risk assessment and scenario analysis for strategic and business decision-making and meeting regulatory compliance. Built unprecedented industry partnership and engaged with multiple regulatory bodies, to innovative processes to assess financial risks to support core decision-making at the Executive Management and Board levels; and, building capacities to meet requirements for compliance and reporting.\n➢ Launching a major initiative with insurance, financial and public sectors to develop solutions for long-term stability of assets and infrastructure systems, against extreme event risks.\n➢ Lead training and strategy sessions for executive management and board of directors.";
+    doc1["experiences"].push_back(exp1);
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    // search for single token "business" (not a phrase)
+    // using snippet_threshold=30 and highlight_affix_num_tokens=4
+    auto search_op = coll1->search("business", {"experiences.description"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                   "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                   fallback, 1000);
+    
+    ASSERT_TRUE(search_op.ok());
+    auto results = search_op.get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    const auto& hit1 = results["hits"][0];
+    
+    ASSERT_TRUE(hit1.count("highlight") > 0) << "document should have highlight object (nested field)";
+    ASSERT_TRUE(hit1["highlight"].count("experiences") > 0) << "document should have experiences in highlight object";
+    ASSERT_GE(hit1["highlight"]["experiences"].size(), 1) << "document should have at least 1 experience entry";
+    
+    const auto& exp1_highlight = hit1["highlight"]["experiences"][0];
+    ASSERT_TRUE(exp1_highlight.count("description") > 0) << "experience should have description in highlight";
+    
+    const auto& desc_highlight = exp1_highlight["description"];
+    ASSERT_TRUE(desc_highlight.count("snippet") > 0) << "description should have snippet";
+    ASSERT_TRUE(desc_highlight.count("matched_tokens") > 0) << "description should have matched_tokens";
+    
+    std::string snippet = desc_highlight["snippet"].get<std::string>();
+    std::string full_description = exp1["description"].get<std::string>();
+    
+    ASSERT_TRUE(snippet.find("<mark>business</mark>") != std::string::npos || 
+                snippet.find("<mark>Business</mark>") != std::string::npos)
+        << "Snippet should contain the matched token 'business'. Snippet: " << snippet;
+    
+    ASSERT_GT(desc_highlight["matched_tokens"].size(), 0) << "matched_tokens should not be empty";
+    bool found_business = false;
+    for(const auto& token : desc_highlight["matched_tokens"]) {
+        std::string token_str = token.get<std::string>();
+        std::transform(token_str.begin(), token_str.end(), token_str.begin(), ::tolower);
+        if(token_str == "business") {
+            found_business = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(found_business) << "matched_tokens should contain 'business'";
+    
+    // with highlight_affix_num_tokens=4, expect ~ 4 tokens before + 4 tokens after + matched token
+    // the full description is ~2000 characters. a properly truncated snippet should be < 400 chars
+    size_t full_desc_len = full_description.length();
+    size_t snippet_len = snippet.length();
+    
+    // if snippet is more than 80% of full text length, it likely includes the full text after the matched token
+    ASSERT_LT(snippet_len, full_desc_len * 0.2) 
+        << "BUG DETECTED: Snippet is too long (" << snippet_len << " chars), likely includes full text (" 
+        << full_desc_len << " chars). Snippet should be < 20% of full text length. "
+        << "First 300 chars of snippet: " << snippet.substr(0, 300);
+    
+    // snippet should not end with the same text as the full description (match is in the middle)
+    if(snippet_len > 100) {
+        std::string full_desc_end = full_description.substr(std::max(0, (int)full_desc_len - 100));
+        std::string snippet_end = snippet.substr(std::max(0, (int)snippet_len - 100));
+        if(snippet_end == full_desc_end && snippet_len > full_desc_len * 0.5) {
+            FAIL() << "Snippet ends with same text as full description and is > 50% of full length. "
+                   << "This definitively indicates the bug. Snippet length: " << snippet_len 
+                   << ", Full length: " << full_desc_len << ". Snippet: " << snippet;
+        }
+    }
+    
+    // snippet should be reasonable length (not too short, not too long)
+    // with 4 affix tokens, expect roughly 100-300 characters
+    ASSERT_GT(snippet_len, 50) 
+        << "Snippet should have reasonable length (at least 50 chars). Got: " << snippet_len;
+    ASSERT_LT(snippet_len, 400) 
+        << "Snippet should be truncated (max 400 chars with 4 affix tokens). Got: " << snippet_len 
+        << " chars. This indicates the bug where full text is included.";
+    
+    collectionManager.drop_collection("coll1");
+}

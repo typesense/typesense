@@ -24,9 +24,19 @@ void search_event_t::to_json(nlohmann::json& obj, const std::string& coll, const
 void search_counter_event_t::serialize_as_docs(std::string& docs) {
   for(const auto& kv : query_counts) {
     nlohmann::json doc;
-    doc["id"] = std::to_string(StringUtils::hash_wy(kv.first.query.c_str(), kv.first.query.size()));
+    std::string id_source = kv.first.query;
+
+    if (meta_fields.find("filter_by") != meta_fields.end() && !kv.first.filter_str.empty()) {
+      id_source += "|filter:" + kv.first.filter_str;
+    }
+
+    if (meta_fields.find("analytics_tag") != meta_fields.end() && !kv.first.tag_str.empty()) {
+      id_source += "|tag:" + kv.first.tag_str;
+    }
+
+    doc["id"] = std::to_string(StringUtils::hash_wy(id_source.c_str(), id_source.size()));
     doc["q"] = kv.first.query;
-    if (meta_fields.find("filter_by") != meta_fields.end() && kv.first.filter_str.empty()) {
+    if (meta_fields.find("filter_by") != meta_fields.end() && !kv.first.filter_str.empty()) {
       doc["filter_by"] = kv.first.filter_str;
     }
 
@@ -539,5 +549,4 @@ void SearchAnalytics::remove_all_rules() {
 void SearchAnalytics::dispose() {
   remove_all_rules();
 }
-
 
