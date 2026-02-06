@@ -445,8 +445,6 @@ private:
 
     ThreadPool* thread_pool;
 
-    size_t num_documents;
-
     tsl::htrie_map<char, field> search_schema;
 
     spp::sparse_hash_map<std::string, art_tree*> search_index;
