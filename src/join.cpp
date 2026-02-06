@@ -615,7 +615,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
                                                                                         ref_include_exclude.exclude_fields,
                                                                                         ref_include_fields_full,
                                                                                         ref_exclude_fields_full);
-        auto error_prefix = "Referenced collection `" + ref_collection_name + "`: ";
+        const auto error_prefix = "Referenced collection `" + ref_collection_name + "`: ";
         if (!include_exclude_op.ok()) {
             return Option<bool>(include_exclude_op.code(), error_prefix + include_exclude_op.error());
         }
@@ -630,6 +630,12 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
             prune_doc_op = CollectionManager::include_related_docs(collection_name, doc, seq_id, ref_info,
                                                                    ref_include_fields_full, ref_exclude_fields_full,
                                                                    original_doc, ref_include_exclude);
+            if (!prune_doc_op.ok() && prune_doc_op.code() == 404) {
+                const auto pattern = std::regex("^" + error_prefix += ERROR_could_not_locate_document_in_store);
+                if (std::regex_search(prune_doc_op.error(), pattern)) {
+                    prune_doc_op = Option<bool>(1, "");
+                }
+            }
         } else if (joined_coll_has_reference) {
             auto const& reference_field_name = ref_info.field;
             auto const& reference_filter_result = reference_filter_results.at(joined_coll_having_reference);

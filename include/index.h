@@ -951,6 +951,8 @@ public:
 
     size_t num_seq_ids() const;
 
+    bool validate_seq_id(const uint32_t& seq_id) const;
+
     void handle_exclusion(const size_t num_search_fields, std::vector<query_tokens_t>& field_query_tokens,
                           const std::vector<search_field_t>& search_fields, uint32_t*& exclude_token_ids,
                           size_t& exclude_token_ids_size) const;
@@ -1060,16 +1062,6 @@ public:
                                                    std::set<uint32_t>& group_by_missing_value_ids,
                                                    bool enable_typos_for_numerical_tokens = true,
                                                    bool enable_typos_for_alpha_numerical_tokens = true) const;
-
-    void find_across_fields(const token_t& previous_token,
-                            const std::string& previous_token_str,
-                            const std::vector<search_field_t>& the_fields,
-                            const size_t num_search_fields,
-                            filter_result_iterator_t* const filter_result_iterator,
-                            const uint32_t* exclude_token_ids,
-                            size_t exclude_token_ids_size,
-                            std::vector<uint32_t>& prev_token_doc_ids,
-                            std::vector<size_t>& top_prefix_field_ids) const;
 
     Option<bool> search_across_fields(const std::vector<token_t>& query_tokens,
                                       const std::vector<uint32_t>& num_typos,
@@ -1210,7 +1202,8 @@ public:
                                             const bool& is_group_by_first_pass,
                                             const diversity_t& diversity,
                                             const spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*>& sort_index,
-                                            const facet_index_t* facet_index_v4);
+                                            const facet_index_t* facet_index_v4,
+                                            const spp::sparse_hash_map<std::string, hnsw_index_t*>& vector_index);
 
     GeoPolygonIndex* get_geopolygon_index(const std::string& field_name) const;
 
@@ -1234,6 +1227,10 @@ public:
     static void update_async_references(const std::string& collection_name, std::vector<index_record>& iter_batch,
                                         const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins =
                                         spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+
+    Option<bool> diversify_text_score_buckets(const std::vector<std::pair<size_t, size_t>>& bucket_indexes,
+                                              const diversity_t& diversity,
+                                              std::vector<std::vector<KV*>>& raw_result_kvs);
 };
 
 template<class T>

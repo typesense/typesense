@@ -533,7 +533,8 @@ private:
                              std::vector<const curation_t*>& filter_curations,
                              bool& filter_curated_hits,
                              std::string& curated_sort_by,
-                             nlohmann::json& curation_metadata) const;
+                             nlohmann::json& curation_metadata,
+                             bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos) const;
 
     Option<bool> curate_results(std::string& actual_query, const std::string& filter_query, bool enable_curations, bool already_segmented,
                         const std::set<std::string>& tags,
@@ -543,7 +544,7 @@ private:
                         std::vector<uint32_t>& excluded_ids, std::vector<const curation_t*>& filter_curations,
                         bool& filter_curated_hits,
                         std::string& curated_sort_by, nlohmann::json& curation_metadata,
-                        diversity_t& diversity) const;
+                        diversity_t& diversity, bool synonym_prefix, uint32_t synonym_num_typos) const;
 
     static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
@@ -713,6 +714,13 @@ private:
     void reset_alter_status_counters();
 
     std::string get_facet_str_val(const std::string& field_name, uint32_t facet_id);
+
+    Option<bool> fix_broken_reference(const std::string& seq_id_key, const uint32_t& seq_id,
+                                      const tsl::htrie_set<char>& include_fields_full,
+                                      const tsl::htrie_set<char>& exclude_fields_full,
+                                      const KV* field_order_kv,
+                                      const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
+                                      nlohmann::json& document);
 
     Option<bool> populate_facets(std::vector<facet> facets, size_t max_facet_values,
                                         const std::vector<std::string>& facet_return_parent,
@@ -906,7 +914,7 @@ public:
 
     void do_housekeeping();
 
-    Option<nlohmann::json> search(collection_search_args_t& coll_args) const;
+    Option<nlohmann::json> search(collection_search_args_t& coll_args);
 
     // Only for tests.
     Option<nlohmann::json> search(std::string query, const std::vector<std::string> & search_fields,
@@ -991,7 +999,7 @@ public:
                                   const std::vector<std::string>& search_synonym_sets = {},
                                   float diversity_lamda = diversity_t::DEFAULT_LAMDA_VALUE,
                                   size_t group_max_candidates = Index::DEFAULT_TOPSTER_SIZE,
-                                  size_t diversity_limit = Index::DEFAULT_TOPSTER_SIZE) const;
+                                  size_t diversity_limit = Index::DEFAULT_TOPSTER_SIZE);
 
     Option<bool> parse_and_validate_personalization_query(const std::string& personalization_user_id,
                                                           const std::string& personalization_model_id,
@@ -1210,8 +1218,6 @@ public:
                                       const tsl::htrie_set<char>& ref_exclude_fields_full,
                                       const nlohmann::json& original_doc,
                                       const ref_include_exclude_fields& ref_include_exclude) const;
-
-    void reset_async_reference_field(const std::string& field_name);
 };
 
 template<class T>

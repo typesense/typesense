@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cmdline.h>
+#include <shared_mutex>
 #include "option.h"
 #include "string_utils.h"
 #include "INIReader.h"
@@ -99,6 +100,14 @@ private:
 
     uint32_t max_indexing_concurrency;
 
+    uint32_t proxy_rate_limit;
+
+    std::string proxy_disallowed_dest_cidrs;
+    std::vector<std::string> proxy_allowed_src_ips;
+    bool proxy_allow_only_peer_src_ips;
+
+    std::shared_mutex m;
+
 protected:
 
     Config() {
@@ -150,6 +159,10 @@ protected:
         this->db_keep_log_file_num = 5;
 
         this->max_indexing_concurrency = 4;
+
+        this->proxy_rate_limit = 1000;
+
+        this->proxy_allow_only_peer_src_ips = false;
     }
 
     Config(Config const&) {
@@ -519,6 +532,23 @@ public:
         return this->max_indexing_concurrency;
     }
 
+    uint32_t get_proxy_rate_limit() const {
+        return this->proxy_rate_limit;
+    }
+
+    std::string get_proxy_disallowed_dest_cidrs() const {
+        return this->proxy_disallowed_dest_cidrs;
+    }
+
+    std::vector<std::string> get_proxy_allowed_src_ips() {
+        std::shared_lock lk(m);
+        return this->proxy_allowed_src_ips;
+    }
+
+    bool get_proxy_allow_only_peer_src_ips() {
+        return proxy_allow_only_peer_src_ips;
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -538,6 +568,8 @@ public:
     void load_config_file(cmdline::parser & options);
 
     void load_config_cmd_args(cmdline::parser & options);
+
+    void update_proxy_src_ips(const std::string& nodes_config);
 
     // validation
 

@@ -18,9 +18,9 @@ class SynonymIndexManager {
         void init_store(Store* store);
 
         // Add a synonym index by moving
-        Option<SynonymIndex*> add_synonym_index(const std::string& index_name, SynonymIndex&& index);
+        Option<SynonymIndex*> add_synonym_index(const std::string& index_name, SynonymIndex&& index, bool write_to_store = true);
         // Construct from scratch with a given name
-        Option<SynonymIndex*> add_synonym_index(const std::string& index_name);
+        Option<SynonymIndex*> add_synonym_index(const std::string& index_name, bool write_to_store = true);
 
         Option<SynonymIndex*> get_synonym_index(const std::string& index_name);
 

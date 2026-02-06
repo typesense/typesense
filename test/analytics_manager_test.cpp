@@ -724,6 +724,184 @@ TEST_F(AnalyticsManagerTest, PopularQueries) {
   }
 }
 
+TEST_F(AnalyticsManagerTest, MetaFieldsGenerateUniqueIDs) {
+  nlohmann::json products_schema = R"({
+      "name": "products_meta_id",
+      "fields": [
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" }
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  nlohmann::json queries_schema = R"({
+      "name": "queries_meta_id",
+      "fields": [
+          {"name": "q", "type": "string"},
+          {"name": "analytics_tag", "type": "string"},
+          {"name": "count", "type": "int32"}
+      ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto queries_coll_create_op = collectionManager.create_collection(queries_schema);
+  ASSERT_TRUE(queries_coll_create_op.ok());
+
+  nlohmann::json rule = R"({
+    "name": "unique_id_meta_tag_rule",
+    "type": "popular_queries",
+    "collection": "products_meta_id",
+    "event_type": "search",
+    "params": {
+      "destination_collection": "queries_meta_id",
+      "capture_search_requests": false,
+      "meta_fields": ["analytics_tag"],
+      "limit": 100
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_rule(rule, false, true, true);
+  ASSERT_TRUE(create_op.ok());
+
+  auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "unique_id_meta_tag_rule",
+    "data": {
+      "q": "black",
+      "user_id": "user1",
+      "analytics_tag": "tag1"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "unique_id_meta_tag_rule",
+    "data": {
+      "q": "black",
+      "user_id": "user2",
+      "analytics_tag": "tag2"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  auto get_counter_op = search_analytics.get_search_counter_events();
+  ASSERT_EQ(get_counter_op.size(), 1);
+  ASSERT_EQ(get_counter_op["unique_id_meta_tag_rule"].query_counts.size(), 2);
+
+  std::string docs;
+  get_counter_op["unique_id_meta_tag_rule"].serialize_as_docs(docs);
+  std::stringstream docs_stream(docs);
+  std::string line;
+  std::unordered_set<std::string> ids;
+  while (std::getline(docs_stream, line)) {
+    if (line.empty()) {
+      continue;
+    }
+    auto doc = nlohmann::json::parse(line);
+    ids.insert(doc["id"].get<std::string>());
+    ASSERT_EQ(doc["q"].get<std::string>(), "black");
+    ASSERT_TRUE(doc.contains("analytics_tag"));
+    ASSERT_FALSE(doc.contains("filter_by"));
+  }
+  ASSERT_EQ(ids.size(), 2);
+}
+
+TEST_F(AnalyticsManagerTest, MetaFieldsGenerateUniqueIDsWithFilterAndTag) {
+  nlohmann::json products_schema = R"({
+      "name": "products_meta_id_filter",
+      "fields": [
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" }
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  nlohmann::json queries_schema = R"({
+      "name": "queries_meta_id_filter",
+      "fields": [
+          {"name": "q", "type": "string"},
+          {"name": "filter_by", "type": "string"},
+          {"name": "analytics_tag", "type": "string"},
+          {"name": "count", "type": "int32"}
+      ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto queries_coll_create_op = collectionManager.create_collection(queries_schema);
+  ASSERT_TRUE(queries_coll_create_op.ok());
+
+  nlohmann::json rule = R"({
+    "name": "unique_id_filter_tag_rule",
+    "type": "popular_queries",
+    "collection": "products_meta_id_filter",
+    "event_type": "search",
+    "params": {
+      "destination_collection": "queries_meta_id_filter",
+      "capture_search_requests": false,
+      "meta_fields": ["filter_by", "analytics_tag"],
+      "limit": 100
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_rule(rule, false, true, true);
+  ASSERT_TRUE(create_op.ok());
+
+  auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "unique_id_filter_tag_rule",
+    "data": {
+      "q": "black",
+      "user_id": "user1",
+      "filter_by": "size:>30",
+      "analytics_tag": "tag1"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "unique_id_filter_tag_rule",
+    "data": {
+      "q": "black",
+      "user_id": "user2",
+      "filter_by": "size:>30",
+      "analytics_tag": "tag2"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "unique_id_filter_tag_rule",
+    "data": {
+      "q": "black",
+      "user_id": "user3",
+      "filter_by": "size:>40",
+      "analytics_tag": "tag1"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  auto get_counter_op = search_analytics.get_search_counter_events();
+  ASSERT_EQ(get_counter_op.size(), 1);
+  ASSERT_EQ(get_counter_op["unique_id_filter_tag_rule"].query_counts.size(), 3);
+
+  std::string docs;
+  get_counter_op["unique_id_filter_tag_rule"].serialize_as_docs(docs);
+  std::stringstream docs_stream(docs);
+  std::string line;
+  std::unordered_set<std::string> ids;
+  while (std::getline(docs_stream, line)) {
+    if (line.empty()) {
+      continue;
+    }
+    auto doc = nlohmann::json::parse(line);
+    ids.insert(doc["id"].get<std::string>());
+    ASSERT_EQ(doc["q"].get<std::string>(), "black");
+    ASSERT_TRUE(doc.contains("filter_by"));
+    ASSERT_TRUE(doc.contains("analytics_tag"));
+  }
+  ASSERT_EQ(ids.size(), 3);
+}
+
 TEST_F(AnalyticsManagerTest, NoHitsQueries) {
   nlohmann::json products_schema = R"({
       "name": "products",
@@ -1424,4 +1602,69 @@ TEST_F(AnalyticsManagerTest, QueryLogEventsWithCaptureGetInMemory) {
   ASSERT_EQ(events[0]["query"], "typesense");
   ASSERT_EQ(events[0]["filter_by"], "country:US");
   ASSERT_EQ(events[0]["analytics_tag"], "tag1");
+}
+
+TEST_F(AnalyticsManagerTest, UninitializedAnalyticsStore) {
+    //when analytics store is not uninitialized, it should return empty events
+
+    system(("rm -rf " + analytics_dir_path + " && mkdir -p " + analytics_dir_path).c_str());
+
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    analyticsManager.init(store, nullptr, analytics_minute_rate_limit);  //initialize with null anlaytics store
+    analyticsManager.resetToggleRateLimit(false);
+
+    nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "name", "type": "string" }
+      ]
+    })"_json;
+
+    auto coll_create_op = collectionManager.create_collection(products_schema);
+    ASSERT_TRUE(coll_create_op.ok());
+    auto coll1 = coll_create_op.get();
+
+    nlohmann::json products_queries_schema = R"({
+      "name": "products_queries",
+       "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+    })"_json;
+
+    coll_create_op = collectionManager.create_collection(products_queries_schema);
+    ASSERT_TRUE(coll_create_op.ok());
+    auto coll2 = coll_create_op.get();
+
+    nlohmann::json popular_queries_analytics_rule = R"({
+        "name": "product_queries_aggregation",
+        "type": "popular_queries",
+        "collection": "products",
+        "event_type": "search",
+        "rule_tag": "popular_queries",
+        "params": {
+          "destination_collection": "products_queries",
+          "capture_search_requests": false,
+          "limit": 1000
+        }
+      })"_json;
+
+    auto create_op = analyticsManager.create_rule(popular_queries_analytics_rule, false, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "product_queries_aggregation",
+    "event_type": "search",
+    "data": {
+            "q": "running shoes",
+            "user_id": "1234"
+    }})"_json);
+    ASSERT_TRUE(add_event_op.ok());
+
+    auto get_events_op = analyticsManager.get_events("1234", "product_queries_aggregation", 10);
+    ASSERT_TRUE(get_events_op.ok());
+    const auto& events = get_events_op.get()["events"].get<std::vector<nlohmann::json>>();
+    ASSERT_TRUE(events.empty());
 }

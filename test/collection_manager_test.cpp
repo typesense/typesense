@@ -630,9 +630,9 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(2, synonyms.at(0)->root.size());
     ASSERT_EQ(1, synonyms.at(0)->synonyms.size());
 
-    ASSERT_STREQ("id3", synonyms.at(2)->id.c_str());
-    ASSERT_EQ(0, synonyms.at(2)->root.size());
-    ASSERT_EQ(2, synonyms.at(2)->synonyms.size());
+    ASSERT_STREQ("id3", synonyms.at(1)->id.c_str());
+    ASSERT_EQ(0, synonyms.at(1)->root.size());
+    ASSERT_EQ(2, synonyms.at(1)->synonyms.size());
 
     std::vector<char> expected_symbols = {'+'};
     std::vector<char> expected_separators = {'-'};

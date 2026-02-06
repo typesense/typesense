@@ -53,6 +53,9 @@ class DistilbertTokenizer : public BertTokenizerWrapper {
     public:
         DistilbertTokenizer(const std::string& vocab_path);
         encoded_input_t Encode(const std::string& text) override;
+        virtual TokenizerType get_tokenizer_type() override {
+            return TokenizerType::distilbert;
+        }
 };
 
 class XLMRobertaTokenizer : public TextEmbeddingTokenizer {

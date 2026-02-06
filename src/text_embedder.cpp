@@ -47,9 +47,6 @@ TextEmbedder::TextEmbedder(const std::string& model_name, const bool is_public_m
         tokenizer_ = std::make_unique<XLMRobertaTokenizer>(vocab_path);
     } else if(tokenizer_type == TokenizerType::clip) {
         tokenizer_ = std::make_unique<CLIPTokenizerWrapper>(vocab_path);
-        output_tensor_name = "text_embeds";
-        num_dim = 512;
-        return;
     }
     auto output_tensor_count = session_->GetOutputCount();
     for (size_t i = 0; i < output_tensor_count; i++) {
@@ -58,6 +55,20 @@ TextEmbedder::TextEmbedder(const std::string& model_name, const bool is_public_m
             Ort::AllocatorWithDefaultOptions allocator;
             output_tensor_name = std::string(session_->GetOutputNameAllocated(i, allocator).get());
             num_dim = shape[2];
+            break;
+        } else if(shape.size() == 2 && shape[0] == -1 && shape[1] > 0) {
+            Ort::AllocatorWithDefaultOptions allocator;
+            output_tensor_name = std::string(session_->GetOutputNameAllocated(i, allocator).get());
+            num_dim = shape[1];
+            break;
+        }
+    }
+
+    auto input_count = session_->GetInputCount();
+    for(size_t i = 0; i < input_count; i++) {
+        auto input_name = session_->GetInputNameAllocated(i, Ort::AllocatorWithDefaultOptions());
+        if(std::strcmp(input_name.get(), "pixel_values") == 0) {
+            is_image_embedding_model = true;
             break;
         }
     }
@@ -154,35 +165,37 @@ embedding_res_t TextEmbedder::embed_query(const std::string& text, const size_t 
         std::vector<Ort::Value> input_tensors;
         std::vector<std::vector<int64_t>> input_shapes;
         std::vector<const char*> input_node_names = {"input_ids", "attention_mask"};
-        // If model is DistilBERT or sentencepiece, it has 2 inputs, else it has 3 inputs
-        if(session_->GetInputCount() == 3 && tokenizer_->get_tokenizer_type() != TokenizerType::clip) {
-            input_node_names.push_back("token_type_ids");
-        } else if(session_->GetInputCount() == 3 && tokenizer_->get_tokenizer_type() == TokenizerType::clip) {
-            input_node_names.push_back("pixel_values");
-        }
+
         input_shapes.push_back({1, static_cast<int64_t>(encoded_input.input_ids.size())});
         input_shapes.push_back({1, static_cast<int64_t>(encoded_input.attention_mask.size())});
-        if(session_->GetInputCount() == 3 && tokenizer_->get_tokenizer_type() != TokenizerType::clip) {
-            // edge case: xlm_roberta does not have token_type_ids, but if the model has it as input, we need to fill it with 0s
-            if(encoded_input.token_type_ids.size() == 0) {
-                encoded_input.token_type_ids.resize(encoded_input.input_ids.size(), 0);
-            }
 
-            input_shapes.push_back({1, static_cast<int64_t>(encoded_input.token_type_ids.size())});
-        } else if(session_->GetInputCount() == 3 && tokenizer_->get_tokenizer_type() == TokenizerType::clip) {
-            // dummy input for clip
-            input_shapes.push_back({1, 3, 224, 224});
-        }
         input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, encoded_input.input_ids.data(), encoded_input.input_ids.size(), input_shapes[0].data(), input_shapes[0].size()));
         input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, encoded_input.attention_mask.data(), encoded_input.attention_mask.size(), input_shapes[1].data(), input_shapes[1].size()));
-        if(session_->GetInputCount() == 3 && tokenizer_->get_tokenizer_type() != TokenizerType::clip) {
-            input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, encoded_input.token_type_ids.data(), encoded_input.token_type_ids.size(), input_shapes[2].data(), input_shapes[2].size()));
-        } else if(session_->GetInputCount() == 3 && tokenizer_->get_tokenizer_type() == TokenizerType::clip) {
-            // dummy input for clip
-            std::vector<float> pixel_values(3 * 224 * 224, 0.5);
-            input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, pixel_values.data(), pixel_values.size(), input_shapes[2].data(), input_shapes[2].size()));
-        }
 
+        // If model is DistilBERT or sentencepiece, it has 2 inputs, else it has 3 inputs
+        if(session_->GetInputCount() == 3) {
+            if(is_image_embedding_model) {
+                input_node_names.push_back("pixel_values");
+
+                // dummy input for clip
+                input_shapes.push_back({1, 3, 224, 224});
+
+                std::vector<float> pixel_values(3 * 224 * 224, 0.5);
+                input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, pixel_values.data(), pixel_values.size(), input_shapes[2].data(), input_shapes[2].size()));
+            } else {
+                input_node_names.push_back("token_type_ids");
+
+                // edge case: xlm_roberta does not have token_type_ids, but if the model has it as input, we need to fill it with 0s
+                if(encoded_input.token_type_ids.size() == 0) {
+                    encoded_input.token_type_ids.resize(encoded_input.input_ids.size(), 0);
+                }
+
+                input_shapes.push_back({1, static_cast<int64_t>(encoded_input.token_type_ids.size())});
+
+                input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, encoded_input.token_type_ids.data(), encoded_input.token_type_ids.size(), input_shapes[2].data(), input_shapes[2].size()));
+            }
+        }
+        
         //LOG(INFO) << "Running model";
         // create output tensor object
         std::vector<const char*> output_node_names = {output_tensor_name.c_str()};
@@ -206,7 +219,7 @@ embedding_res_t TextEmbedder::embed_query(const std::string& text, const size_t 
                 temp.push_back(data[i * shape[2] + j]);
             }
             // edge case for clip model
-            if(tokenizer_->get_tokenizer_type() == TokenizerType::clip) {
+            if(is_image_embedding_model) {
                 return embedding_res_t(temp);
             }
             output.push_back(temp);
@@ -230,21 +243,9 @@ std::vector<embedding_res_t> TextEmbedder::embed_documents(const std::vector<std
             std::vector<Ort::Value> input_tensors;
             std::vector<std::vector<int64_t>> input_shapes;
             std::vector<const char*> input_node_names = {"input_ids", "attention_mask"};
-            // If model is DistilBERT or sentencepiece, it has 2 inputs, else it has 3 inputs
-            if(session_->GetInputCount() == 3 && tokenizer_->get_tokenizer_type() != TokenizerType::clip) {
-                input_node_names.push_back("token_type_ids");
-            } else if(session_->GetInputCount() == 3 && tokenizer_->get_tokenizer_type() == TokenizerType::clip) {
-                input_node_names.push_back("pixel_values");
-            }
 
             input_shapes.push_back({static_cast<int64_t>(encoded_inputs.input_ids.size()), static_cast<int64_t>(encoded_inputs.input_ids[0].size())});
             input_shapes.push_back({static_cast<int64_t>(encoded_inputs.attention_mask.size()), static_cast<int64_t>(encoded_inputs.attention_mask[0].size())});
-            if(session_->GetInputCount() == 3 && tokenizer_->get_tokenizer_type() != TokenizerType::clip) {
-                input_shapes.push_back({static_cast<int64_t>(encoded_inputs.token_type_ids.size()), static_cast<int64_t>(encoded_inputs.token_type_ids[0].size())});
-            } else if(session_->GetInputCount() == 3 && tokenizer_->get_tokenizer_type() == TokenizerType::clip) {
-                // dummy input for clip
-                input_shapes.push_back({1, 3, 224, 224});
-            }
 
             std::vector<int64_t> input_ids_flatten;
             std::vector<int64_t> attention_mask_flatten;
@@ -262,22 +263,32 @@ std::vector<embedding_res_t> TextEmbedder::embed_documents(const std::vector<std
                 }
             }
 
-            if(session_->GetInputCount() == 3) {
-                for (int i = 0; i < encoded_inputs.token_type_ids.size(); i++) {
-                    for (int j = 0; j < encoded_inputs.token_type_ids[i].size(); j++) {
-                        token_type_ids_flatten.push_back(encoded_inputs.token_type_ids[i][j]);
-                    }
-                }
-            }
-
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, input_ids_flatten.data(), input_ids_flatten.size(), input_shapes[0].data(), input_shapes[0].size()));
             input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask_flatten.data(), attention_mask_flatten.size(), input_shapes[1].data(), input_shapes[1].size()));
-            if(session_->GetInputCount() == 3 && tokenizer_->get_tokenizer_type() != TokenizerType::clip) {
-                input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, token_type_ids_flatten.data(), token_type_ids_flatten.size(), input_shapes[2].data(), input_shapes[2].size()));
-            } else if(session_->GetInputCount() == 3 && tokenizer_->get_tokenizer_type() == TokenizerType::clip) {
-                // dummy input for clip
-                std::vector<float> pixel_values(3 * 224 * 224, 0.5);
-                input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, pixel_values.data(), pixel_values.size(), input_shapes[2].data(), input_shapes[2].size()));
+            
+            if(session_->GetInputCount() == 3) {
+                if(is_image_embedding_model) {
+                    input_node_names.push_back("pixel_values");
+
+                    // dummy input for clip
+                    input_shapes.push_back({1, 3, 224, 224});
+
+                    std::vector<float> pixel_values(3 * 224 * 224, 0.5);
+                    input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, pixel_values.data(), pixel_values.size(), input_shapes[2].data(), input_shapes[2].size()));
+                } else {
+                    input_node_names.push_back("token_type_ids");
+
+
+                    
+                    for (int i = 0; i < encoded_inputs.token_type_ids.size(); i++) {
+                        for (int j = 0; j < encoded_inputs.token_type_ids[i].size(); j++) {
+                            token_type_ids_flatten.push_back(encoded_inputs.token_type_ids[i][j]);
+                        }
+                    }
+
+                    input_shapes.push_back({static_cast<int64_t>(encoded_inputs.token_type_ids.size()), static_cast<int64_t>(encoded_inputs.token_type_ids[0].size())});
+                    input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, token_type_ids_flatten.data(), token_type_ids_flatten.size(), input_shapes[2].data(), input_shapes[2].size()));
+                }
             }
 
             //LOG(INFO) << "Running model";
@@ -310,14 +321,14 @@ std::vector<embedding_res_t> TextEmbedder::embed_documents(const std::vector<std
                     for (int k = 0; k < shape[2]; k++) {
                         output_row.push_back(data[i * shape[1] * shape[2] + j * shape[2] + k]);
                     }
-                    if(tokenizer_->get_tokenizer_type() == TokenizerType::clip) {
+                    if(is_image_embedding_model) {
                         // no mean pooling for clip
                         outputs.push_back(embedding_res_t(output_row));
                         continue;
                     }
                     output.push_back(output_row);
                 }
-                if(tokenizer_->get_tokenizer_type() != TokenizerType::clip) {
+                if(!is_image_embedding_model) {
                     outputs.push_back(embedding_res_t(mean_pooling(output, encoded_inputs.attention_mask[i])));
                 }
             }
@@ -384,9 +395,9 @@ Option<bool> TextEmbedder::validate() {
         return Option<bool>(400, "Invalid model: attention_mask tensor not found");
     }
 
-    if(session_->GetInputCount() == 3 && tokenizer_->get_tokenizer_type() != TokenizerType::clip) {
+    if(session_->GetInputCount() == 3) {
         auto token_type_ids_name = session_->GetInputNameAllocated(2, allocator);
-        if (std::strcmp(token_type_ids_name.get(), "token_type_ids") != 0) {
+        if (std::strcmp(token_type_ids_name.get(), "token_type_ids") != 0 && !is_image_embedding_model) {
             LOG(ERROR) << "Invalid model: token_type_ids tensor not found";
             return Option<bool>(400, "Invalid model: token_type_ids tensor not found");
         }
@@ -398,7 +409,7 @@ Option<bool> TextEmbedder::validate() {
     for (size_t i = 0; i < output_tensor_count; i++) {
         auto shape = session_->GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
         // clip output tensor
-        if(shape.size() == 2 && shape[0] == -1 && shape[1] == 512 && tokenizer_->get_tokenizer_type() == TokenizerType::clip) {
+        if(shape.size() == 2 && shape[0] == -1 && shape[1] > 0) {
             auto name = session_->GetOutputNameAllocated(i, allocator);
             if (std::strcmp(name.get(), "text_embeds") == 0) {
                 found_output_tensor = true;

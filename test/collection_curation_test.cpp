@@ -15,6 +15,8 @@ protected:
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
     Collection *coll_mul_fields;
+    StemmerManager& stemmerManager = StemmerManager::get_instance();
+    SynonymIndexManager& manager = SynonymIndexManager::get_instance();
     std::string state_dir_path = "/tmp/typesense_test/collection_curation";
 
     void setupCollection() {
@@ -22,8 +24,13 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
+        stemmerManager.init(store);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
+
+        SynonymIndex synonym_index(store, "index");
+        manager.init_store(store);
+        manager.add_synonym_index("index", std::move(synonym_index));
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
         std::vector<field> fields = {
@@ -5474,7 +5481,8 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
                 "name": "tags",
                 "fields": [
                     {"name": "app_id", "type": "string"},
-                    {"name": "ui_elements.group_id", "type": "string[]"}
+                    {"name": "ui_elements.group_id", "type": "string[]"},
+                    {"name": "embedding", "type": "float[]", "num_dim": 768}
                 ]
             })"_json;
     auto collection_create_op = collectionManager.create_collection(schema_json);
@@ -5501,6 +5509,10 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
                         "field": "ui_elements.group_id",
                         "method": "jaccard",
                         "weight": 0.1
+                      },
+                      {
+                        "field": "embedding",
+                        "method": "vector_distance"
                       }
                     ]
                   }
@@ -5510,7 +5522,7 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
     auto op = diversity_t::parse(json, diversity);
     ASSERT_TRUE(op.ok());
 
-    ASSERT_EQ(3, diversity.similarity_equation.size());
+    ASSERT_EQ(4, diversity.similarity_equation.size());
     ASSERT_EQ("flow_id", diversity.similarity_equation[0].field);
     ASSERT_EQ(diversity_t::similarity_methods::equality, diversity.similarity_equation[0].method);
     ASSERT_FLOAT_EQ(0.6, diversity.similarity_equation[0].weight);
@@ -5522,6 +5534,10 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
     ASSERT_EQ("ui_elements.group_id", diversity.similarity_equation[2].field);
     ASSERT_EQ(diversity_t::similarity_methods::jaccard, diversity.similarity_equation[2].method);
     ASSERT_FLOAT_EQ(0.1, diversity.similarity_equation[2].weight);
+
+    ASSERT_EQ("embedding", diversity.similarity_equation[3].field);
+    ASSERT_EQ(diversity_t::similarity_methods::vector_distance, diversity.similarity_equation[3].method);
+    ASSERT_FLOAT_EQ(1, diversity.similarity_equation[3].weight);
 
     json["id"] = "foo";
     json["rule"]["tags"] += "screen_pattern_rule";
@@ -5589,7 +5605,7 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
     ASSERT_EQ("foo", curation.id);
     ASSERT_EQ(1, curation.rule.tags.size());
     ASSERT_EQ("screen_pattern_rule", *curation.rule.tags.begin());
-    ASSERT_EQ(3, curation.diversity.similarity_equation.size());
+    ASSERT_EQ(4, curation.diversity.similarity_equation.size());
 
     create_op = ov_manager.upsert_curation_item("index", json);
     ASSERT_TRUE(create_op.ok());
@@ -5613,7 +5629,7 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
     ASSERT_EQ("foo", curation.id);
     ASSERT_EQ(1, curation.rule.tags.size());
     ASSERT_EQ("screen_pattern_rule", *curation.rule.tags.begin());
-    ASSERT_EQ(3, curation.diversity.similarity_equation.size());
+    ASSERT_EQ(4, curation.diversity.similarity_equation.size());
 }
 
 TEST_F(CollectionCurationTest, DiversityOverride) {
@@ -5622,16 +5638,17 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
             R"({
                 "name": "tags",
                 "fields": [
-                    {"name": "tags", "type": "string[]", "facet": true}
+                    {"name": "tags", "type": "string[]", "facet": true},
+                    {"name": "embedding", "type": "float[]", "num_dim": 4, "optional": true}
                 ]
             })"_json;
     std::vector<nlohmann::json> documents = {
-            R"({"tags": ["gold", "silver"]})"_json,
+            R"({"tags": ["gold", "silver"], "embedding": [0.851758, 0.909671, 0.823431, 0.372063]})"_json,
             R"({"tags": ["FINE PLATINUM"]})"_json,
-            R"({"tags": ["bronze", "gold"]})"_json,
-            R"({"tags": ["silver"]})"_json,
+            R"({"tags": ["bronze", "gold"], "embedding": [0.97826, 0.933157, 0.39557, 0.306488]})"_json,
+            R"({"tags": ["silver"], "embedding": [0.97826, 0.933157, 0.39557, 0.306488]})"_json,
             R"({"tags": ["silver", "gold", "bronze"]})"_json,
-            R"({"tags": ["silver", "FINE PLATINUM"]})"_json
+            R"({"tags": ["silver", "FINE PLATINUM"], "embedding": [0.230606, 0.634397, 0.514009, 0.399594]})"_json
     };
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -5783,7 +5800,7 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
-    res_obj = nlohmann::json::parse(json_res);LOG(INFO) << res_obj.dump(2);
+    res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(6, res_obj["found"].get<size_t>());
     ASSERT_EQ(6, res_obj["hits"].size());
     for (uint32_t i = 0; i < 6; i++) {
@@ -5805,4 +5822,434 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
     ASSERT_EQ("3", res_obj["hits"][3]["document"]["id"]);
     ASSERT_EQ("1", res_obj["hits"][4]["document"]["id"]);
     ASSERT_EQ("0", res_obj["hits"][5]["document"]["id"]);
+
+    json =
+        R"({
+              "id": "bar",
+              "rule": {
+                "tags": [
+                  "vector_rule"
+                ]
+              },
+              "diversity": {
+                "similarity_metric": [
+                  {
+                    "field": "embedding",
+                    "method": "vector_distance"
+                  }
+                ]
+              }
+            })"_json;
+    op = curation_t::parse(json, "", curation, "", {}, {});
+    ASSERT_TRUE(op.ok());
+    ov_manager.upsert_curation_item("index", json);
+
+    req_params = {
+            {"collection", "tags"},
+            {"q", "gold"},
+            {"query_by", "tags"},
+            {"vector_query", "embedding:([0.96826, 0.94, 0.39557, 0.306488])"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, res_obj["found"].get<size_t>());
+    ASSERT_EQ(5, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][2]["document"]["id"]);
+    ASSERT_EQ("3", res_obj["hits"][3]["document"]["id"]);
+    ASSERT_EQ("5", res_obj["hits"][4]["document"]["id"]);
+
+    req_params = {
+            {"collection", "tags"},
+            {"q", "gold"},
+            {"query_by", "tags"},
+            {"vector_query", "embedding:([0.96826, 0.94, 0.39557, 0.306488])"},
+            {"curation_tags", "vector_rule"} // Diversity re-ranking using MMR algorithm.
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, res_obj["found"].get<size_t>());
+    ASSERT_EQ(5, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("5", res_obj["hits"][2]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][3]["document"]["id"]);
+    ASSERT_EQ("3", res_obj["hits"][4]["document"]["id"]);
+}
+
+TEST_F(CollectionCurationTest, TextSortBucketDiversification) {
+    Collection* coll = nullptr;
+    auto schema_json =
+            R"({
+                "name": "test",
+                "fields": [
+                    {"name": "field", "type": "string", "sort": true},
+                    {"name": "mmr_field", "type": "int32", "sort": true, "facet": true}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({"field": "maximum", "mmr_field": 1})"_json,
+            R"({"field": "max", "mmr_field": 0})"_json,
+            R"({"field": "maximum", "mmr_field": 1})"_json,
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    coll = collection_create_op.get();
+    for (auto const &json: documents) {
+        auto add_op = coll->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "test"},
+            {"q", "maxi"},
+            {"query_by", "field"},
+            {"sort_by", "_text_match(bucket_size: 3):desc, mmr_field:desc"},
+            {"typo_tokens_threshold", "3"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    long now_ts = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    nlohmann::json res_obj = nlohmann::json::parse(json_res);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"]);
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][2]["document"]["id"]);
+
+    auto json =
+            R"({
+                  "id": "foo",
+                  "rule": {
+                    "tags": [
+                      "screen_pattern_rule"
+                    ]
+                  },
+                  "diversity": {
+                    "similarity_metric": [
+                      {
+                        "field": "mmr_field",
+                        "method": "equality"
+                      }
+                    ]
+                  }
+                })"_json;
+    curation_t curation;
+    auto op = curation_t::parse(json, "", curation, "", {}, {});
+    ASSERT_TRUE(op.ok());
+
+    auto& ov_manager = CurationIndexManager::get_instance();
+    ov_manager.upsert_curation_item("index", json);
+    coll->set_curation_sets({"index"});
+
+    req_params = {
+            {"collection", "test"},
+            {"q", "maxi"},
+            {"query_by", "field"},
+            {"sort_by", "_text_match(bucket_size: 3):desc, mmr_field:desc"},
+            {"typo_tokens_threshold", "3"},
+            {"curation_tags", "screen_pattern_rule"}, // Diversity re-ranking using MMR algorithm.
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"]);
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][2]["document"]["id"]);
+}
+
+TEST_F(CollectionCurationTest, StemmingWithCuration) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+    nlohmann::json schema = R"({
+          "name": "products",
+          "fields": [
+              {"name": "title", "type": "string", "stem": true},
+              {"name": "categoryType", "type": "string"},
+              {"name": "region", "type": "string"},
+              {"name": "popularity", "type": "int32", "sort": true}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    // Add test documents
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Bluetooth Speakers","categoryType":"Electronics","region":"act","popularity":90})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Child Play","categoryType":"Electronics","region":"act","popularity":90})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Children Notebooks","categoryType":"Electronics","region":"act","popularity":90})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Person Info","categoryType":"Office","region":"nsw","popularity":60})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"5","title":"People Info","categoryType":"Office","region":"nsw","popularity":60})").ok());
+
+    //check with stemming dictionary for irregular plurals
+    std::vector<std::string> json_lines;
+    std::string json_line = "{\"word\": \"people\", \"root\":\"person\"}";
+    json_lines.push_back(json_line);
+    json_line = "{\"word\": \"children\", \"root\":\"child\"}";
+    json_lines.push_back(json_line);
+
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set1", json_lines).ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+        "id": "stemmer",
+        "rule": {
+            "query": "Children",
+            "match": "exact",
+            "stem" : true,
+            "stemming_dictionary": "set1"
+          },
+          "includes": [
+                {"id": "1", "position": 1}
+         ]
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "stemming", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("Children", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ("3", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results.clear();
+    res_op = coll1->search("Child", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", results["hits"][2]["document"]["id"].get<std::string>());
+
+    curation_json = R"OVR(
+        {
+        "id": "stemmer2",
+        "rule": {
+            "query": "People",
+            "match": "exact",
+            "stem" : true,
+            "stemming_dictionary": "set1"
+          },
+          "includes": [
+                {"id": "1", "position": 1}
+         ]
+        }
+    )OVR"_json;
+
+    parse_op = curation_t::parse(curation_json, "stemming2", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    res_op = coll1->search("Person", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results.clear();
+    res_op = coll1->search("People", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionCurationTest, SynonymsMatchWithCuration) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+    nlohmann::json schema = R"({
+          "name": "products",
+          "fields": [
+              {"name": "title", "type": "string", "stem": true},
+              {"name": "categoryType", "type": "string"},
+              {"name": "region", "type": "string"},
+              {"name": "popularity", "type": "int32", "sort": true}
+          ],
+          "synonym_sets": ["index"]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    // Add test documents
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Office Chargers","categoryType":"Electronics","region":"act","popularity":50})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Office Staplers","categoryType":"Office","region":"act","popularity":30})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Notebook","categoryType":"Office","region":"nsw","popularity":70})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Bluetooth Speakers","categoryType":"Electronics","region":"act","popularity":90})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"5","title":"Office Notebooks","categoryType":"Electronics","region":"act","popularity":90})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"6","title":"Payment Card","categoryType":"Office","region":"act","popularity":80})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+        "id": "synonyms",
+        "rule": {
+            "query": "Speaker",
+            "match": "exact",
+            "synonyms" : true
+          },
+          "includes": [
+                {"id": "4", "position": 1}
+         ]
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "stemming", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    nlohmann::json synonym = R"({
+        "id": "notebook-syn",
+        "synonyms": ["notebook", "speaker"]
+    })"_json;
+
+    ASSERT_TRUE(manager.upsert_synonym_item("index", synonym).ok());
+
+    auto res_op = coll1->search("Notebook", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ("4", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ("3", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results["hits"][2]["document"]["id"].get<std::string>());
+
+    //multipel token synonym
+    curation_json = R"OVR(
+        {
+        "id": "synonyms2",
+        "rule": {
+            "query": "credit card",
+            "match": "exact",
+            "synonyms" : true
+          },
+          "includes": [
+                {"id": "4", "position": 1}
+         ]
+        }
+    )OVR"_json;
+
+    parse_op = curation_t::parse(curation_json, "stemming2", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    nlohmann::json synonym2 = R"({
+        "id": "card-synonyms",
+        "synonyms": ["credit card", "payment card", "cc"]
+    })"_json;
+
+    ASSERT_TRUE(manager.upsert_synonym_item("index", synonym2).ok());
+
+    res_op = coll1->search("payment card", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("4", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ("6", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionCurationTest, OverridesWithRerankHybridSearches) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+    nlohmann::json schema = R"({
+        "name": "articles",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "content", "type": "string"},
+            {"name": "embedding", "type": "float[]",
+                "embed": {
+                        "from": ["title", "content"],
+                        "model_config": {
+                            "model_name": "ts/clip-vit-b-p32"
+                        }
+                }
+            }
+        ]
+    })"_json;
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    // Add test documents
+    ASSERT_TRUE(coll1->add(R"({"id": "1", "title": "University Libraries", "content": "The library system includes Main Library and other specialized collections"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id": "2", "title": "Library Services Guide", "content": "A comprehensive guide to using the library resources"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id": "3", "title": "Campus Dining Options", "content": "Explore the various dining halls and restaurants on campus"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id": "4", "title": "Student Life at University", "content": "Overview of student organizations and campus activities"})").ok());
+
+    nlohmann::json curation_json = R"OVR({
+            "id": "rerank_hybrid",
+            "rule": {
+                "query": "library",
+                "match": "contains"
+            },
+            "includes": [{
+                "id": "1", "position": 1
+            }]
+        })OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "rerank_hybrid", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "articles"},
+            {"q", "library"},
+            {"query_by", "title, content, embedding"},
+            {"query_by_weights", "10,5,1"}
+    };
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    long now_ts = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    nlohmann::json res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+
+    //now search with rerank-hybrid-matches
+    req_params = {
+            {"collection", "articles"},
+            {"q", "library"},
+            {"query_by", "title, content, embedding"},
+            {"query_by_weights", "10,5,1"},
+            {"rerank_hybrid_matches", "true"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
 }

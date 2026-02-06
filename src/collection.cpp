@@ -165,21 +165,7 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
         auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
 
         if (field.is_singular()) {
-            // Referenced value must be unique.
-            if (existing_document.contains(reference_helper_field_name) &&
-                existing_document[reference_helper_field_name].is_number_integer()) {
-                const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name].get<int64_t>();
-                if (existing_ref_seq_id != Join::reference_helper_sentinel_value &&
-                    existing_ref_seq_id != ref_seq_id) {
-                    return Option<bool>(400, "Document `id: " + id + "` already has a reference to document `" +=
-                                                std::to_string(existing_ref_seq_id) + "` of `" += ref_coll_name +
-                                                "` collection, having reference value `" +=
-                                                get_field_value(existing_document, field_name) + "`.");
-                } else if (existing_ref_seq_id == ref_seq_id) {
-                    continue;
-                }
-            }
-
+            // Referenced value is guaranteed to be unique.
             // Set reference helper field of all the docs that matched filter to `ref_seq_id`.
             nlohmann::json update_document;
             update_document["id"] = id;
@@ -212,18 +198,6 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
             for (uint32_t j = 0; j < existing_document[field_name].size(); j++) {
                 auto const& ref_value = get_array_field_value(existing_document, field_name, j);
                 if (filter_values.count(ref_value) == 0) {
-                    continue;
-                }
-
-                const int64_t existing_ref_seq_id = existing_document[reference_helper_field_name][j].get<int64_t>();
-                if (existing_ref_seq_id != Join::reference_helper_sentinel_value &&
-                    existing_ref_seq_id != ref_seq_id) {
-                    return Option<bool>(400, "Document `id: " + id + "` at `" += field_name +
-                                                "` reference array field and index `" + std::to_string(j) +
-                                                "` already has a reference to document `" += std::to_string(existing_ref_seq_id) +
-                                                "` of `" += ref_coll_name + "` collection, having reference value `" +=
-                                                get_array_field_value(existing_document, field_name, j) + "`.");
-                } else if (existing_ref_seq_id == ref_seq_id) {
                     continue;
                 }
 
@@ -928,7 +902,9 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
                                      std::vector<const curation_t*>& filter_sort_curations,
                                      bool& filter_curated_hits,
                                      std::string& curated_sort_by,
-                                     nlohmann::json& curation_metadata) const {
+                                     nlohmann::json& curation_metadata,
+                                     bool enable_synonyms, bool synonym_prefix,
+                                     uint32_t synonym_num_typos) const {
 
     if(!wildcard_tag_matched && !tags_matched && !curation.rule.tags.empty()) {
         // only untagged curations must be considered when no tags are given in the query
@@ -958,6 +934,26 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
         bool query_match = (curation.rule.match == curation_t::MATCH_EXACT && curation_normalized_query == query) ||
                            (curation.rule.match == curation_t::MATCH_CONTAINS &&
                             StringUtils::contains_word(query, curation_normalized_query));
+
+        if(!query_match && enable_synonyms) { //try matching synonym with query
+            std::vector<std::vector<std::string>> results;
+            std::vector<std::string> tokens;
+            StringUtils::split(query, tokens, " ");
+            synonym_reduction(tokens, curation.rule.locale, results, synonym_prefix, synonym_num_typos);
+
+            if(!results.empty()) {
+                int i = 0;
+                while(!query_match && i < results.size()) {
+                    auto vec = results[i];
+                    auto token = StringUtils::join(vec, " ");
+                    query_match =
+                            (curation.rule.match == curation_t::MATCH_EXACT && curation_normalized_query == token) ||
+                            (curation.rule.match == curation_t::MATCH_CONTAINS &&
+                             StringUtils::contains_word(token, curation_normalized_query));
+                    ++i;
+                }
+            }
+        }
 
         if(!filter_by_match && !query_match) {
             return false;
@@ -1022,7 +1018,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                 bool& filter_curated_hits,
                                 std::string& curated_sort_by,
                                 nlohmann::json& curation_metadata,
-                                diversity_t& diversity) const {
+                                diversity_t& diversity, bool synonym_prefix,
+                                uint32_t synonym_num_typos) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -1061,33 +1058,16 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
         }
         s_lock.unlock();
 
-        auto compute_normalized_query = [this](const std::string& query) {
-          auto symbols = symbols_to_index;
-          symbols.push_back('{');
-          symbols.push_back('}');
-          symbols.push_back('*');
-          symbols.push_back('.');
+        auto tokenize_query = [&] (bool stem = false, const std::string& locale = "",
+                const std::string& dictionary = "") -> std::string {
 
-          std::vector<std::string> tokens;
-          Tokenizer tokenizer(query, true, false, "", symbols, token_separators, nullptr, true);
-          tokenizer.tokenize(tokens);
-          auto query_normalized = StringUtils::join(tokens, " ");
-          size_t i = 0;
-          while(i < query_normalized.size()) {
-              if(query_normalized[i] == '{') {
-                  // look for closing curly
-                  i++;
-                  while(i < query_normalized.size()) {
-                      if(query_normalized[i] == '}') {
-                          query_normalized = StringUtils::trim_curly_spaces(query_normalized);
-                          break;
-                      }
-                      i++;
-                  }
-              }
-              i++;
-          }
-          return query_normalized;
+            std::vector<std::string> tokens;
+
+            auto stemmer = stem ? StemmerManager::get_instance().get_stemmer(locale, dictionary) : nullptr;
+
+            Tokenizer tokenizer(actual_query, true, false, "", symbols_to_index, token_separators, stemmer);
+            tokenizer.tokenize(tokens);
+            return StringUtils::join(tokens, " ");
         };
 
         if(!curation_set_curations.empty()) {
@@ -1096,10 +1076,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
           if(actual_query == "*") {
               query = "*";
           } else {
-              std::vector<std::string> tokens;
-              Tokenizer tokenizer(actual_query, true, false, "", symbols_to_index, token_separators);
-              tokenizer.tokenize(tokens);
-              query = StringUtils::join(tokens, " ");
+              query = tokenize_query();
           }
 
           if(!tags.empty()) {
@@ -1108,13 +1085,17 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                   // exact AND match only when multiple tags are sent
                   for(const auto* ov : curation_set_curations) {
                       if(ov->rule.tags == tags) {
-                          auto normalized_curation_query = compute_normalized_query(ov->rule.query);
+                          if(ov->rule.stem) {
+                            query = tokenize_query(true, ov->rule.locale, ov->rule.stemming_dictionary);
+                          }
+
                           bool match_found = does_curation_match(*ov, query, excluded_set, actual_query,
-                                                                normalized_curation_query,
+                                                                ov->rule.normalized_query,
                                                                 filter_query, already_segmented, true, false,
                                                                 pinned_hits, hidden_hits, included_ids,
                                                                 excluded_ids, filter_sort_curations, filter_curated_hits,
-                                                                curated_sort_by, curation_metadata);
+                                                                curated_sort_by, curation_metadata, ov->rule.synonyms,
+                                                                synonym_prefix, synonym_num_typos);
                           if(match_found) {
                               all_tags_found = true;
                               if(ov->stop_processing) { break; }
@@ -1131,13 +1112,18 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                             tags.begin(), tags.end(),
                                             std::inserter(matching_tags, matching_tags.begin()));
                       if(matching_tags.empty()) { continue; }
-                      auto normalized_curation_query = compute_normalized_query(ov->rule.query);
+
+                      if(ov->rule.stem) {
+                          query = tokenize_query(true, ov->rule.locale, ov->rule.stemming_dictionary);
+                      }
+
                       bool match_found = does_curation_match(*ov, query, excluded_set, actual_query,
-                                                            normalized_curation_query,
+                                                             ov->rule.normalized_query,
                                                             filter_query, already_segmented, true, false,
                                                             pinned_hits, hidden_hits, included_ids,
                                                             excluded_ids, filter_sort_curations, filter_curated_hits,
-                                                            curated_sort_by, curation_metadata);
+                                                            curated_sort_by, curation_metadata, ov->rule.synonyms,
+                                                            synonym_prefix, synonym_num_typos);
                       if(match_found) {
                         if (!ov->diversity.similarity_equation.empty()) {
                             diversity = std::move(ov->diversity);
@@ -1145,6 +1131,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                 auto it = search_schema.find(item.field);
                                 if (it == search_schema.end()) {
                                     return Option<bool>(400, "`" + item.field + "` field not found in the schema.");
+                                } else if (it->num_dim > 0 && item.method == diversity_t::similarity_methods::vector_distance) {
+                                    continue;
                                 }
                                 if (it->is_array() && !it->facet) {
                                     return Option<bool>(400, "Enable faceting on `" + item.field + "` array field to use in diversity.");
@@ -1162,12 +1150,16 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
               // no curation tags given
               for(const auto* ov : curation_set_curations) {
                   bool wildcard_tag = ov->rule.tags.size() == 1 && *ov->rule.tags.begin() == "*";
-                  auto normalized_curation_query = compute_normalized_query(ov->rule.query);
-                  bool match_found = does_curation_match(*ov, query, excluded_set, actual_query, normalized_curation_query, filter_query,
+                  if(ov->rule.stem) {
+                      query = tokenize_query(true, ov->rule.locale, ov->rule.stemming_dictionary);
+                  }
+
+                  bool match_found = does_curation_match(*ov, query, excluded_set, actual_query, ov->rule.normalized_query, filter_query,
                                                         already_segmented, false, wildcard_tag,
                                                         pinned_hits, hidden_hits, included_ids,
                                                         excluded_ids, filter_sort_curations, filter_curated_hits,
-                                                        curated_sort_by, curation_metadata);
+                                                        curated_sort_by, curation_metadata, ov->rule.synonyms, synonym_prefix,
+                                                        synonym_num_typos);
                   if(match_found && ov->stop_processing) { break; }
               }
           }
@@ -1386,7 +1378,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     std::vector<std::vector<float>> embeddings;
                     for(const auto& q: sort_field_std.vector_query.query.queries) {
                         EmbedderManager& embedder_manager = EmbedderManager::get_instance();
-                        auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
+                        auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config], vector_field_it.value().num_dim);
                         if(!embedder_op.ok()) {
                             return Option<bool>(400, embedder_op.error());
                         }
@@ -1450,7 +1442,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     // generate embeddings for the query
 
                     EmbedderManager& embedder_manager = EmbedderManager::get_instance();
-                    auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
+                    auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config], vector_field_it.value().num_dim);
                     if(!embedder_op.ok()) {
                         return Option<bool>(embedder_op.code(), embedder_op.error());
                     }
@@ -2261,7 +2253,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                 }
 
                 EmbedderManager& embedder_manager = EmbedderManager::get_instance();
-                auto embedder_op = embedder_manager.get_text_embedder(search_field.embed[fields::model_config]);
+                auto embedder_op = embedder_manager.get_text_embedder(search_field.embed[fields::model_config], search_field.num_dim);
                 if(!embedder_op.ok()) {
                     return Option<bool>(400, embedder_op.error());
                 }
@@ -2557,7 +2549,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     diversity_t diversity{};
     auto curate_results_op = curate_results(query, filter_query, enable_curations, pre_segmented_query, curation_tag_set,
                    pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_curations, filter_curated_hits_curations,
-                   curated_sort_by, curation_metadata, diversity);
+                   curated_sort_by, curation_metadata, diversity, synonym_prefix, synonyms_num_typos);
     if(!curate_results_op.ok()) {
         return curate_results_op;
     }
@@ -2710,6 +2702,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             return Option<bool>(get_synonym_index_op.code(), get_synonym_index_op.error());
         }
     }
+
     size_t facet_sample_percent_computed = facet_sample_percent;
 
     if(facet_sample_slope > 0 && facet_sample_threshold > 0) {
@@ -2826,7 +2819,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           const std::vector<std::string>& search_synonym_sets,
                                           float diversity_lamda,
                                           size_t group_max_candidates,
-                                          size_t diversity_limit) const {
+                                          size_t diversity_limit) {
     std::shared_lock lock(mutex);
 
     auto args = collection_search_args_t(query, search_fields, filter_query,
@@ -2862,7 +2855,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     return search(args);
 }
 
-Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) const {
+Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
     std::shared_lock lock(mutex);
 
     std::unique_ptr<search_args> search_params_guard;
@@ -2981,10 +2974,25 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                               KV::is_greater_kv_group);
 
             // restore original scores
+            int64_t bucket_score = 0;
+            size_t bucket_start_index = 0;
+            std::vector<std::pair<size_t, size_t>> bucket_indexes;
+            auto const& diversity = search_params->diversity;
+            const auto diversity_limit = std::min<size_t>(search_params->topster->size, diversity.limit);
             for(i = 0; i < max_kvs_bucketed; i++) {
-                raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index] =
-                        result_scores[raw_result_kvs[i][0]->key];
+                auto& score = raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index];
+                if (!diversity.similarity_equation.empty() && bucket_score != score && i <= diversity_limit) {
+                    // We will diversify the buckets independently.
+                    bucket_indexes.emplace_back(bucket_start_index, i);
+                    bucket_score = score;
+                    bucket_start_index = i;
+                }
+
+                score = result_scores[raw_result_kvs[i][0]->key];
             }
+
+            bucket_indexes.emplace_back(bucket_start_index, max_kvs_bucketed);
+            index->diversify_text_score_buckets(bucket_indexes, diversity, raw_result_kvs);
         }
     }
 
@@ -3165,6 +3173,14 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                 LOG(ERROR) << "Document fetch error. " << document_op.error();
                 continue;
             }
+            nlohmann::json broken_ref_doc{};
+            for (auto it = document.begin(); !reference_fields.empty() && it != document.end(); it++) {
+                const auto& key = it.key();
+                if (key == "id" || key == ".flat" || key == fields::reference_helper_fields ||
+                        reference_fields.count(key) != 0) {
+                    broken_ref_doc[key] = it.value();
+                }
+            }
 
             nlohmann::json highlight_res;
             nlohmann::json wrapper_doc;
@@ -3185,16 +3201,32 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
             remove_flat_fields(document);
             remove_reference_helper_fields(document);
 
+            const auto seq_id = get_seq_id_from_key(seq_id_key);
             auto prune_op = prune_doc(document,
                                       include_fields_full,
                                       exclude_fields_full,
                                       "",
                                       0,
                                       field_order_kv->reference_filter_results,
-                                      get_name(), get_seq_id_from_key(seq_id_key),
+                                      get_name(), seq_id,
                                       ref_include_exclude_fields_vec);
             if (!prune_op.ok()) {
-                return Option<nlohmann::json>(prune_op.code(), prune_op.error());
+                // Error code 1 returned from `Join::include_references` means reference value is invalid.
+                if (prune_op.code() != 1) {
+                    return Option<nlohmann::json>(prune_op.code(), prune_op.error());
+                }
+                lock.unlock();
+                document = broken_ref_doc;
+                auto fix_op = fix_broken_reference(seq_id_key, seq_id,
+                                                   include_fields_full, exclude_fields_full,
+                                                   field_order_kv, ref_include_exclude_fields_vec, document);
+                if (!fix_op.ok()) {
+                    if (fix_op.code() == 1) {
+                        continue;
+                    }
+                    return Option<nlohmann::json>(fix_op.code(), fix_op.error());
+                }
+                lock.lock();
             }
 
             wrapper_doc["document"] = document;
@@ -3270,6 +3302,302 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) c
                     search_params->facet_query, coll_args.highlight_affix_num_tokens,
                     coll_args.snippet_threshold,
                     coll_args.highlight_start_tag, coll_args.highlight_end_tag, raw_query, result["facet_counts"]);
+    for(facet& a_facet: facets) {
+        // Don't return zero counts for a wildcard facet.
+        if (a_facet.is_wildcard_match &&
+                (((a_facet.is_intersected && a_facet.value_result_map.empty())) ||
+                (!a_facet.is_intersected && a_facet.result_map.empty()))) {
+            continue;
+        }
+
+        // check for search cutoff elapse
+        if((std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().
+            time_since_epoch()).count() - search_begin_us) > search_stop_us) {
+            search_cutoff = true;
+            break;
+        }
+
+        nlohmann::json facet_result = nlohmann::json::object();
+        facet_result["field_name"] = a_facet.field_name;
+        facet_result["sampled"] = a_facet.sampled;
+        facet_result["counts"] = nlohmann::json::array();
+
+        if (!a_facet.reference_collection_alias_name.empty()) {
+            facet_result["field_name"] = "$" + a_facet.reference_collection_alias_name + "(" + a_facet.field_name + ")";
+        } else if(!a_facet.reference_collection_name.empty()) {
+            facet_result["field_name"] = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
+        }
+
+        std::vector<facet_value_t> facet_values;
+        std::vector<facet_count_t> facet_counts;
+
+        for (const auto & kv : a_facet.result_map) {
+            facet_count_t v = kv.second;
+            v.fhash = kv.first;
+            v.sort_field_val = kv.second.sort_field_val;
+            facet_counts.emplace_back(v);
+        }
+
+        for (const auto& kv : a_facet.value_result_map) {
+            facet_count_t v = kv.second;
+            v.fvalue = kv.first;
+            v.fhash = StringUtils::hash_wy(kv.first.c_str(), kv.first.size());
+            facet_counts.emplace_back(v);
+        }
+
+        auto max_facets = std::min(max_facet_values, facet_counts.size());
+        auto nthElement = max_facets == facet_counts.size() ? max_facets - 1 : max_facets;
+        std::nth_element(facet_counts.begin(), facet_counts.begin() + nthElement, facet_counts.end(),
+                         Collection::facet_count_compare);
+
+        field the_field;
+        std::shared_ptr<Collection> ref_collection;
+        if (a_facet.reference_collection_name.empty()) {
+            the_field = search_schema.at(a_facet.field_name);
+        } else {
+            auto& cm = CollectionManager::get_instance();
+            ref_collection = cm.get_collection(a_facet.reference_collection_name);
+            if (ref_collection == nullptr) {
+                continue;
+            }
+
+            the_field = ref_collection->get_schema().at(a_facet.field_name);
+        }
+
+        if(a_facet.is_range_query){
+            for(const auto& kv : a_facet.result_map){
+                auto facet_range_iter = a_facet.facet_range_map.find(kv.first);
+                if(facet_range_iter != a_facet.facet_range_map.end()){
+                    auto & facet_count = kv.second;
+                    facet_value_t facet_value = {facet_range_iter->second.range_label, std::string(), facet_count.count};
+
+                    if(!a_facet.reference_collection_name.empty()) {
+                        const auto& ref_coll_name = a_facet.reference_collection_alias_name.empty() ?
+                                                        a_facet.reference_collection_name :
+                                                        a_facet.reference_collection_alias_name;
+                        std::string facet_filter = "$" + ref_coll_name + "(" + a_facet.field_name + ": ";
+                        std::string lower_range, upper_range;
+                        //lower range
+                        if(the_field.is_float()){
+                            lower_range = StringUtils::float_to_str(Index::int64_t_to_float(facet_range_iter->second.lower_range));
+                        } else {
+                            lower_range = std::to_string(facet_range_iter->second.lower_range);
+                        }
+
+                        //upper range
+                        if(the_field.is_float()){
+                            upper_range = StringUtils::float_to_str(Index::int64_t_to_float(facet_range_iter->first));
+                        } else {
+                            upper_range = std::to_string(facet_range_iter->first);
+                        }
+
+                        if(facet_range_iter->second.lower_range == INT64_MIN) {
+                            //format : range_label[ , val]
+                            facet_filter += "<=" + upper_range + ")";
+                        } else if(facet_range_iter->first == INT64_MAX) {
+                            //format : range_label[val, ]
+                            facet_filter += ">=" + lower_range + ")";
+                        } else {
+                            facet_filter += "[" + lower_range + ".." + upper_range + "])";
+                        }
+
+                        facet_value.facet_filter = facet_filter;
+                    }
+
+                    facet_values.emplace_back(facet_value);
+                }
+                else{
+                    LOG (ERROR) << "range_id not found in result map.";
+                }
+            }
+        } else {
+            bool should_return_parent;
+            if(facet_return_parent.size() == 1 && facet_return_parent[0] == "*") {
+                //wildcard match
+                should_return_parent = true;
+            } else {
+                should_return_parent = std::find(facet_return_parent.begin(), facet_return_parent.end(),
+                          the_field.name) != facet_return_parent.end();
+
+            }
+
+            for(size_t fi = 0; fi < max_facets; fi++) {
+                // remap facet value hash with actual string
+                auto & facet_count = facet_counts[fi];
+                std::string value;
+
+                if(a_facet.is_intersected) {
+                    value = facet_count.fvalue;
+                } else if(ref_collection != nullptr) {
+                    value = ref_collection->get_facet_str_val_with_lock(the_field.name, facet_count.fhash);
+                } else {
+                    value = index->get_facet_str_val(the_field.name, facet_count.fhash);
+                }
+
+                highlight_t highlight;
+
+                if(!facet_query.query.empty()) {
+                    bool use_word_tokenizer = Tokenizer::has_word_tokenizer(the_field.locale);
+                    bool normalise = !use_word_tokenizer;
+
+                    // Use field-level symbols/separators if available, otherwise fall back to collection-level
+                    const auto& symbols = the_field.symbols_to_index.empty() ? symbols_to_index : the_field.symbols_to_index;
+                    const auto& separators = the_field.token_separators.empty() ? token_separators : the_field.token_separators;
+
+                    std::vector<std::string> fquery_tokens;
+                    Tokenizer(facet_query.query, true, false, the_field.locale, symbols,
+                              separators, the_field.get_stemmer()).tokenize(fquery_tokens);
+
+                    if(fquery_tokens.empty()) {
+                        continue;
+                    }
+
+                    std::vector<string>& ftokens = a_facet.is_intersected ? a_facet.fvalue_tokens[facet_count.fvalue] :
+                                                   a_facet.hash_tokens[facet_count.fhash];
+
+                    tsl::htrie_map<char, token_leaf> qtoken_leaves;
+
+                    //LOG(INFO) << "working on hash_tokens for hash " << kv.first << " with size " << ftokens.size();
+                    for(size_t ti = 0; ti < ftokens.size(); ti++) {
+                        if(the_field.is_bool()) {
+                            if(ftokens[ti] == "1") {
+                                ftokens[ti] = "true";
+                            } else {
+                                ftokens[ti] = "false";
+                            }
+                        }
+
+                        Tokenizer(facet_query.query, true, false, the_field.locale, symbols,
+                                  separators, the_field.get_stemmer()).tokenize(ftokens[ti]);
+
+                        const std::string& resolved_token = ftokens[ti];
+                        size_t root_len = (fquery_tokens.size() == ftokens.size()) ?
+                                          fquery_tokens[ti].size() :
+                                          resolved_token.size();
+
+                        token_leaf leaf(nullptr, root_len, 0, (ti == ftokens.size()-1));
+                        qtoken_leaves.emplace(resolved_token, leaf);
+                    }
+
+                    std::vector<std::string> raw_fquery_tokens;
+                    Tokenizer(facet_query.query, normalise, false, the_field.locale, symbols,
+                              separators, the_field.get_stemmer()).tokenize(raw_fquery_tokens);
+
+                    if(raw_fquery_tokens.empty()) {
+                        continue;
+                    }
+
+                    size_t prefix_token_num_chars = StringUtils::get_num_chars(raw_fquery_tokens.back());
+
+                    StringUtils string_utils;
+                    size_t last_valid_offset = 0;
+                    int last_valid_offset_index = -1;
+                    match_index_t match_index(Match(), 0, 0);
+
+                    uint8_t index_symbols[256] = {};
+                    for(char c: symbols) {
+                        index_symbols[uint8_t(c)] = 1;
+                    }
+
+                    handle_highlight_text(value, normalise, the_field, false, symbols, separators,
+                                          highlight, string_utils, use_word_tokenizer,
+                                          highlight_affix_num_tokens, qtoken_leaves, last_valid_offset_index,
+                                          prefix_token_num_chars, false, snippet_threshold, false, ftokens,
+                                          last_valid_offset, highlight_start_tag, highlight_end_tag,
+                                          index_symbols, match_index, raw_query, {});
+                }
+
+                nlohmann::json parent;
+                if(the_field.nested && should_return_parent) {
+                    nlohmann::json document;
+                    const std::string &seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
+                    const Option<bool> &document_op = get_document_from_store(seq_id_key, document);
+                    if (!document_op.ok()) {
+                        LOG(ERROR) << "Facet fetch error. " << document_op.error();
+                        continue;
+                    }
+                    parent = get_facet_parent(the_field.name, document, value, the_field.is_array());
+                }
+
+                const auto& highlighted_text = highlight.snippets.empty() ? value : highlight.snippets[0];
+                facet_value_t facet_value = {value, highlighted_text, facet_count.count,
+                                             facet_count.sort_field_val, parent};
+
+                if(!a_facet.reference_collection_name.empty()) {
+                    const auto& ref_coll_name = a_facet.reference_collection_alias_name.empty() ?
+                                                    a_facet.reference_collection_name :
+                                                    a_facet.reference_collection_alias_name;
+                    std::string facet_filter = "$" + ref_coll_name + "(" + a_facet.field_name + ": ";
+
+                    if(the_field.is_string()) {
+                        facet_filter += std::string("`") + value + std::string("`");
+                    } else {
+                        facet_filter += value;
+                    }
+
+                    facet_filter += std::string(")");
+                    facet_value.facet_filter = facet_filter;
+                }
+
+                facet_values.emplace_back(facet_value);
+            }
+        }
+
+        if(a_facet.is_sort_by_alpha) {
+            bool is_asc = a_facet.sort_order == "asc";
+            std::stable_sort(facet_values.begin(), facet_values.end(),
+                             [&] (const auto& fv1, const auto& fv2) {
+                if(is_asc) {
+                    return fv1.value < fv2.value;
+                }
+
+                return fv1.value > fv2.value;
+            });
+        } else if(!a_facet.sort_field.empty()) {
+            bool is_asc = a_facet.sort_order == "asc";
+            std::stable_sort(facet_values.begin(), facet_values.end(),
+                             [&] (const auto& fv1, const auto& fv2) {
+                                 if (is_asc) {
+                                     return std::tie(fv1.sort_field_val, fv1.count) < std::tie(fv2.sort_field_val, fv2.count);
+                                 } else { //desc
+                                     return std::tie(fv1.sort_field_val, fv1.count) > std::tie(fv2.sort_field_val, fv2.count);
+                                 }
+                             });
+        } else {
+            std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
+        }
+
+        for(const auto & facet_count: facet_values) {
+            nlohmann::json facet_value_count = nlohmann::json::object();
+            const std::string & value = facet_count.value;
+
+            facet_value_count["value"] = value;
+            facet_value_count["highlighted"] = facet_count.highlighted;
+            facet_value_count["count"] = facet_count.count;
+
+            if(!facet_count.parent.empty()) {
+                facet_value_count["parent"] = facet_count.parent;
+            }
+
+            if(!facet_count.facet_filter.empty()) {
+                facet_value_count["facet_filter"] = facet_count.facet_filter;
+            }
+
+            facet_result["counts"].push_back(facet_value_count);
+        }
+
+        // add facet value stats
+        facet_result["stats"] = nlohmann::json::object();
+        if(a_facet.stats.fvcount != 0) {
+            facet_result["stats"]["min"] = a_facet.stats.fvmin;
+            facet_result["stats"]["max"] = a_facet.stats.fvmax;
+            facet_result["stats"]["sum"] = a_facet.stats.fvsum;
+            facet_result["stats"]["avg"] = (a_facet.stats.fvsum / a_facet.stats.fvcount);
+        }
+
+        facet_result["stats"]["total_values"] = facet_counts.size();
+        result["facet_counts"].push_back(facet_result);
+    }
 
     result["search_cutoff"] = search_cutoff;
 
@@ -3750,6 +4078,14 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                 LOG(ERROR) << "Document fetch error. " << document_op.error();
                 continue;
             }
+            nlohmann::json broken_ref_doc{};
+            for (auto it = document.begin(); !coll->reference_fields.empty() && it != document.end(); it++) {
+                const auto& key = it.key();
+                if (key == "id" || key == ".flat" || key == fields::reference_helper_fields ||
+                        coll->reference_fields.count(key) != 0) {
+                    broken_ref_doc[key] = it.value();
+                }
+            }
 
             const auto& coll_args = searches[search_index];
             const auto& search_params = search_params_guards[search_index].get();
@@ -3792,6 +4128,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
             const auto& include_fields_full = include_fields_full_list[search_index];
             const auto& exclude_fields_full = exclude_fields_full_list[search_index];
+            const auto seq_id = get_seq_id_from_key(seq_id_key);
             const auto& ref_include_exclude_fields_vec = coll_args.ref_include_exclude_fields_vec;
 
             auto prune_op = prune_doc(document,
@@ -3800,12 +4137,24 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                       "",
                                       0,
                                       kv->reference_filter_results,
-                                      coll->get_name(), get_seq_id_from_key(seq_id_key),
+                                      coll->get_name(), seq_id,
                                       ref_include_exclude_fields_vec);
             if (!prune_op.ok()) {
-                return prune_op;
+                // Error code 1 returned from `Join::include_references` means reference value is invalid.
+                if (prune_op.code() != 1) {
+                    return prune_op;
+                }
+                document = broken_ref_doc;
+                auto fix_op = coll->fix_broken_reference(seq_id_key, seq_id,
+                                                         include_fields_full, exclude_fields_full,
+                                                         kv, ref_include_exclude_fields_vec, document);
+                if (!fix_op.ok()) {
+                    if (fix_op.code() == 1) {
+                        continue;
+                    }
+                    return fix_op;
+                }
             }
-
 
             wrapper_doc["document"] = document;
             wrapper_doc["highlight"] = highlight_res;
@@ -5058,30 +5407,37 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
         text = string_utils.unicode_nfkd(text);
     }
 
-    // need an ordered map here to ensure that it is ordered by the key (start offset)
-    std::map<size_t, size_t> token_offsets;
-
-    int match_offset_index = 0;
-    std::string raw_token;
-    std::set<std::string> token_hits;  // used to identify repeating tokens
-    size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
-
-    // based on `highlight_affix_num_tokens`
-    size_t snippet_start_offset = 0, snippet_end_offset = (text.empty() ? 0 : text.size() - 1);
-
-    // window used to locate the starting offset for snippet on the text
-    std::list<size_t> snippet_start_window;
-
-    highlight.matched_tokens.emplace_back();
-    std::vector<std::string>& matched_tokens = highlight.matched_tokens.back();
-    bool found_first_match = false;
-
-    size_t text_len = Tokenizer::is_ascii_char(text[0]) ? text.size() : StringUtils::get_num_chars(text);
-
+    // special handling for phrase queries in nested array fields (array of objects)
+    // when is_arr_obj_ele is true, match.offsets is empty, so we need to manually check for phrase matches
     bool is_phrase_query = !q_phrases.empty();
-    std::unordered_set<size_t> phrase_matched_token_indices;
-    
-    if (is_phrase_query) {
+    if (is_phrase_query && is_arr_obj_ele && match.offsets.empty() && !text.empty()) {
+        struct TextToken {
+            std::string token;
+            size_t token_index;
+            size_t tok_start;
+            size_t tok_end;
+        };
+        std::vector<TextToken> text_tokens;
+        std::vector<std::pair<size_t, size_t>> text_token_positions; // (start, end) offsets
+
+        Tokenizer text_tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
+        Tokenizer text_word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
+
+        std::string token;
+        size_t token_index = 0, tok_start = 0, tok_end = 0;
+
+        while(text_tokenizer.next(token, token_index, tok_start, tok_end)) {
+            if(use_word_tokenizer) {
+                bool found_token = text_word_tokenizer.tokenize(token);
+                if(!found_token) {
+                    text_tokenizer.decr_token_counter();
+                    continue;
+                }
+            }
+            text_tokens.push_back({token, token_index, tok_start, tok_end});
+            text_token_positions.push_back({tok_start, tok_end});
+        }
+
         std::unordered_map<std::string, std::vector<std::vector<std::string>>> phrases_by_first_token;
         
         for(const auto& phrase : q_phrases) {
@@ -5099,30 +5455,10 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
             }
         }
         
-        struct TextToken {
-            std::string token;
-            size_t token_index;
-            size_t tok_start;
-            size_t tok_end;
-        };
-        std::vector<TextToken> text_tokens;
-        
-        Tokenizer phrase_tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
-        std::string phrase_token;
-        size_t phrase_token_index = 0, phrase_tok_start = 0, phrase_tok_end = 0;
-        
-        while(phrase_tokenizer.next(phrase_token, phrase_token_index, phrase_tok_start, phrase_tok_end)) {
-            if(use_word_tokenizer) {
-                bool found_token = word_tokenizer.tokenize(phrase_token);
-                if(!found_token) {
-                    phrase_tokenizer.decr_token_counter();
-                    continue;
-                }
-            }
-            text_tokens.push_back({phrase_token, phrase_token_index, phrase_tok_start, phrase_tok_end});
-        }
-        
-        // Single pass through text tokens to find phrase matches
+        // Single pass through text tokens to find phrase matches (track all matches)
+        bool found_phrase_match = false;
+        std::map<size_t, size_t> phrase_token_offsets;
+
         for(size_t i = 0; i < text_tokens.size(); i++) {
             std::string first_token_lower = text_tokens[i].token;
             StringUtils::tolowercase(first_token_lower);
@@ -5152,14 +5488,122 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                 }
                 
                 if(phrase_matches) {
+                    found_phrase_match = true;
                     // Record ALL matches, not just first
                     for(size_t j = 0; j < phrase.size(); j++) {
-                        phrase_matched_token_indices.insert(text_tokens[i + j].token_index);
+                        const auto& pos = text_token_positions[i + j];
+                        phrase_token_offsets[pos.first] = pos.second;
                     }
                 }
             }
         }
+
+        if(!found_phrase_match) {
+            return false;
+        }
+
+        std::map<size_t, size_t> token_offsets = phrase_token_offsets;
+
+        // set snippet boundaries with context around matched tokens
+        size_t snippet_start_offset = 0;
+        size_t snippet_end_offset = (text.empty() ? 0 : (text.size() > 0 ? text.size() - 1 : 0));
+
+        if(!token_offsets.empty() && !text_token_positions.empty()) {
+            size_t first_token_start = token_offsets.begin()->first;
+            size_t last_token_end = token_offsets.rbegin()->second;
+
+            // find the token index for the first matched token
+            size_t first_token_idx = 0;
+            for(size_t i = 0; i < text_token_positions.size(); i++) {
+                if(text_token_positions[i].first == first_token_start) {
+                    first_token_idx = i;
+                    break;
+                }
+            }
+
+            // find the token index for the last matched token
+            size_t last_token_idx = text_token_positions.size() - 1;
+            for(size_t i = 0; i < text_token_positions.size(); i++) {
+                if(text_token_positions[i].second == last_token_end) {
+                    last_token_idx = i;
+                    break;
+                }
+            }
+
+            if(first_token_idx >= highlight_affix_num_tokens) {
+                snippet_start_offset = text_token_positions[first_token_idx - highlight_affix_num_tokens].first;
+            } else {
+                snippet_start_offset = 0;
+            }
+
+            if(last_token_idx + highlight_affix_num_tokens < text_token_positions.size()) {
+                snippet_end_offset = text_token_positions[last_token_idx + highlight_affix_num_tokens].second;
+            } else {
+                snippet_end_offset = (text.empty() ? 0 : (text.size() > 0 ? text.size() - 1 : 0));
+            }
+        }
+
+        highlight.matched_tokens.emplace_back();
+        std::vector<std::string>& matched_tokens = highlight.matched_tokens.back();
+
+        // don't prepopulate matched_tokens, let highlight_text extract them from the text
+        size_t text_len = text.empty() ? 0 : (Tokenizer::is_ascii_char(text[0]) ? text.size() : StringUtils::get_num_chars(text));
+        if(snippet_threshold > 0 && text_len < snippet_threshold) {
+            snippet_start_offset = 0;
+            snippet_end_offset = (text.empty() ? 0 : (text.size() > 0 ? text.size() - 1 : 0));
+        }
+
+        auto offset_it = token_offsets.begin();
+        while(offset_it != token_offsets.end() && offset_it->first < snippet_start_offset) {
+            offset_it++;
+        }
+
+        std::stringstream highlighted_text;
+        highlight_text(highlight_start_tag, highlight_end_tag, text, token_offsets,
+                       snippet_end_offset, matched_tokens, offset_it,
+                       highlighted_text, index_symbols, snippet_start_offset);
+
+        highlight.snippets.push_back(highlighted_text.str());
+        if(search_field.type == field_types::STRING_ARRAY) {
+            highlight.indices.push_back(match_index.index);
+        }
+
+        if(highlight_fully) {
+            std::stringstream value_stream;
+            offset_it = token_offsets.begin();
+            std::vector<std::string> full_matched_tokens;
+            highlight_text(highlight_start_tag, highlight_end_tag, text, token_offsets,
+                           text.size()-1, full_matched_tokens, offset_it,
+                           value_stream, index_symbols, 0);
+            highlight.values.push_back(value_stream.str());
+        }
+
+        return true;
     }
+
+    // need an ordered map here to ensure that it is ordered by the key (start offset)
+    std::map<size_t, size_t> token_offsets;
+
+    int match_offset_index = 0;
+    std::string raw_token;
+    std::set<std::string> token_hits;  // used to identify repeating tokens
+    size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
+
+    // based on `highlight_affix_num_tokens`
+    size_t snippet_start_offset = 0, snippet_end_offset = (text.empty() ? 0 : text.size() - 1);
+
+    // window used to locate the starting offset for snippet on the text
+    std::list<size_t> snippet_start_window;
+
+    highlight.matched_tokens.emplace_back();
+    std::vector<std::string>& matched_tokens = highlight.matched_tokens.back();
+    bool found_first_match = false;
+    // track first match token index for nested fields
+    size_t first_match_token_index = 0;
+
+    size_t text_len = Tokenizer::is_ascii_char(text[0]) ? text.size() : StringUtils::get_num_chars(text);
+
+    std::unordered_set<size_t> phrase_matched_token_indices;
 
     while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
         if(use_word_tokenizer) {
@@ -5191,6 +5635,36 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
             match_offset_found = (qtoken_it != qtoken_leaves.end());
         }
 
+        // phrase query, only highlight tokens that are part of consecutive phrase matches
+        if (is_phrase_query && match_offset_found) {
+            bool is_consecutive_phrase_match = false;
+
+            std::unordered_set<size_t> offset_indices;
+            for (const auto& offset : match.offsets) {
+                offset_indices.insert(offset.offset);
+            }
+            if (offset_indices.count(raw_token_index) > 0) {
+                // check if the next token in the phrase is also in the match offsets
+                size_t next_token_index = raw_token_index + 1;
+                if (offset_indices.count(next_token_index) > 0) {
+                    is_consecutive_phrase_match = true;
+                }
+
+                if (!is_consecutive_phrase_match && raw_token_index > 0) {
+                    // the next token is not in the match offsets, check if the previous token is in the phrase
+                    size_t prev_token_index = raw_token_index - 1;
+                    if (offset_indices.count(prev_token_index) > 0) {
+                        is_consecutive_phrase_match = true;
+                    }
+                }
+            }
+
+            // this is not part of a consecutive phrase match, don't highlight it
+            if (!is_consecutive_phrase_match) {
+                match_offset_found = false;
+            }
+        }
+
         // Token might not appear in the best matched window, which is limited to a size of 10.
         // If field is marked to be highlighted fully, or field length exceeds snippet_threshold, we will
         // locate all tokens that appear in the query / query candidates. Likewise, for text within nested array of
@@ -5201,21 +5675,9 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                                 (highlight_fully || is_arr_obj_ele || text_len < snippet_threshold * 6) &&
                                 qtoken_leaves.find(raw_token) != qtoken_leaves.end();
         
-        // phrase query, only highlight tokens that are part of consecutive phrase matches
-        if (is_phrase_query) {
-            bool is_phrase_token = phrase_matched_token_indices.count(raw_token_index) > 0;
-            
-            if (match_offset_found) {
-                // Only highlight if it's part of a matched phrase
-                if (!is_phrase_token) {
-                    match_offset_found = false;
-                }
-            }
-            
-            // phrase query, also disable raw_token_found to prevent highlighting individual tokens
-            if (raw_token_found && !match_offset_found) {
-                raw_token_found = false;
-            }
+        // phrase query, also disable raw_token_found to prevent highlighting individual tokens
+        if (is_phrase_query && raw_token_found && !match_offset_found) {
+            raw_token_found = false;
         }
 
         if (match_offset_found || raw_token_found) {
@@ -5275,12 +5737,14 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
 
                 if(!found_first_match) {
                     snippet_start_offset = snippet_start_window.front();
+                    first_match_token_index = raw_token_index;
                 }
 
                 found_first_match = true;
             } else if(raw_token_found && is_arr_obj_ele) {
                 if(!found_first_match) {
                     snippet_start_offset = snippet_start_window.front();
+                    first_match_token_index = raw_token_index;
                 }
 
                 found_first_match = true;
@@ -5291,7 +5755,12 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
             token_hits.insert(raw_token);
         }
 
-        if(last_valid_offset_index != -1 && raw_token_index >= last_valid_offset + highlight_affix_num_tokens) {
+        // set snippet_end_offset for nested fields with single token matches
+        if(is_arr_obj_ele && last_valid_offset_index == -1 && found_first_match &&
+           snippet_end_offset == text.size() - 1 &&
+           raw_token_index >= first_match_token_index + highlight_affix_num_tokens) {
+            snippet_end_offset = tok_end;
+        } else if(last_valid_offset_index != -1 && raw_token_index >= last_valid_offset + highlight_affix_num_tokens) {
             // register end of highlight snippet
             if(snippet_end_offset == text.size() - 1) {
                 snippet_end_offset = tok_end;
@@ -5304,10 +5773,12 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
         // c) raw_token_index exceeds snippet threshold
         // d) highlight fully is not requested
 
-        if(raw_token_index >= snippet_threshold &&
+        bool should_break = raw_token_index >= snippet_threshold &&
            match_offset_index > last_valid_offset_index &&
            raw_token_index >= last_valid_offset + highlight_affix_num_tokens &&
-           !is_arr_obj_ele && !highlight_fully) {
+           !is_arr_obj_ele && !highlight_fully;
+
+        if(should_break) {
             break;
         }
     }
@@ -5890,7 +6361,7 @@ Option<bool> Collection::update_apikey(const nlohmann::json& model_config, const
             }
 
             //update in remote embedder first the in collection
-            auto update_op = EmbedderManager::get_instance().update_remote_model_apikey(coll_model_config, api_key);
+            auto update_op = EmbedderManager::get_instance().update_remote_model_apikey(coll_model_config, api_key, coll_field.num_dim);
 
             if (!update_op.ok()) {
                 return update_op;
@@ -5919,11 +6390,16 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key,
     StoreStatus json_doc_status = store->get(seq_id_key, json_doc_str);
 
     if(json_doc_status != StoreStatus::FOUND) {
-        const std::string& seq_id = std::to_string(get_seq_id_from_key(seq_id_key));
         if(json_doc_status == StoreStatus::NOT_FOUND) {
-            return Option<bool>(404, "Could not locate the JSON document for sequence ID: " + seq_id);
+            const auto seq_id = get_seq_id_from_key(seq_id_key);
+            std::shared_lock lock(mutex);
+            if (index->validate_seq_id(seq_id)) {
+                LOG(ERROR) << "Document having seq_id `" << seq_id << "` present in index but not in store.";
+            }
+            return Option<bool>(404, ERROR_could_not_locate_document_in_store + std::to_string(seq_id));
         }
 
+        const std::string& seq_id = std::to_string(get_seq_id_from_key(seq_id_key));
         return Option<bool>(500, "Error while fetching JSON document for sequence ID: " + seq_id);
     }
 
@@ -6638,17 +7114,14 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
                 // should also remove children if the field being dropped is an object
                 if(field_it.value().nested && enable_nested_fields) {
-                    auto prefix_it = search_schema.equal_prefix_range(field_name);
+                    auto prefix_it = search_schema.equal_prefix_range(field_name + ".");
                     for(auto prefix_kv = prefix_it.first; prefix_kv != prefix_it.second; ++prefix_kv) {
-                        bool exact_key_match = (prefix_kv.key().size() == field_name.size());
-                        if(!exact_key_match) {
-                            del_fields.push_back(prefix_kv.value());
-                            updated_search_schema.erase(prefix_kv.key());
-                            updated_nested_fields.erase(prefix_kv.key());
+                        del_fields.push_back(prefix_kv.value());
+                        updated_search_schema.erase(prefix_kv.key());
+                        updated_nested_fields.erase(prefix_kv.key());
 
-                            if(prefix_kv.value().embed.count(fields::from) != 0) {
-                                updated_embedding_fields.erase(prefix_kv.key());
-                            }
+                        if(prefix_kv.value().embed.count(fields::from) != 0) {
+                            updated_embedding_fields.erase(prefix_kv.key());
                         }
                     }
                 }
@@ -6772,22 +7245,19 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     check_and_add_nested_field(updated_nested_fields, f);
 
                     // should also add children if the field is an object
-                    auto prefix_it = search_schema.equal_prefix_range(field_name);
+                    auto prefix_it = search_schema.equal_prefix_range(field_name + ".");
                     for(auto prefix_kv = prefix_it.first; prefix_kv != prefix_it.second; ++prefix_kv) {
-                        bool exact_key_match = (prefix_kv.key().size() == field_name.size());
-                        if(!exact_key_match) {
-                            updated_search_schema.emplace(prefix_kv.key(), prefix_kv.value());
-                            check_and_add_nested_field(updated_nested_fields, prefix_kv.value());
+                        updated_search_schema.emplace(prefix_kv.key(), prefix_kv.value());
+                        check_and_add_nested_field(updated_nested_fields, prefix_kv.value());
 
-                            if(prefix_kv.value().embed.count(fields::from) != 0) {
-                                embedding_fields.emplace(prefix_kv.key(), prefix_kv.value());
-                            }
+                        if(prefix_kv.value().embed.count(fields::from) != 0) {
+                            embedding_fields.emplace(prefix_kv.key(), prefix_kv.value());
+                        }
 
-                            if(is_reindex) {
-                                reindex_fields.push_back(prefix_kv.value());
-                            } else {
-                                addition_fields.push_back(prefix_kv.value());
-                            }
+                        if(is_reindex) {
+                            reindex_fields.push_back(prefix_kv.value());
+                        } else {
+                            addition_fields.push_back(prefix_kv.value());
                         }
                     }
                 }
@@ -7297,6 +7767,11 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             return Option<bool>(400,
                                 error_message + "Referenced collection `" + ref_collection_name + "` not found.");
         }
+        std::string ref_alias_collection_name;
+        if (ref_collection_name != ref_collection->name) {
+            ref_alias_collection_name = ref_collection_name;
+            ref_collection_name = ref_collection->name;
+        }
 
         std::string ref_facet_expression = facet_field.substr(open_paren_pos + 1,
                                                               facet_field.size() - open_paren_pos - 2);
@@ -7313,6 +7788,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
         for (auto& ref_facet: ref_facets) {
             ref_facet.reference_collection_name = ref_collection_name;
+            ref_facet.reference_collection_alias_name = ref_alias_collection_name;
             ref_facet.orig_index = facets.size();
             facets.emplace_back(std::move(ref_facet));
         }
@@ -7991,7 +8467,7 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
         std::vector<std::vector<float>> embeddings;
         for(const auto& q: vector_query.queries) {
             EmbedderManager& embedder_manager = EmbedderManager::get_instance();
-            auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
+            auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config], vector_field_it.value().num_dim);
             if(!embedder_op.ok()) {
                 return Option<bool>(400, embedder_op.error());
             }
@@ -9263,7 +9739,11 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
             std::vector<uint32_t> ids;
             auto get_references_op = get_related_ids_with_lock(field_name, {seq_id}, ids);
             if (!get_references_op.ok()) {
-                LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+                auto const& schema = get_schema();
+                auto it = schema.find(field_name);
+                if (it != schema.end() && !it->optional) {
+                    LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+                }
                 return Option<bool>(true);
             }
             reference_filter_result_t result(ids.size(), &ids[0]);
@@ -9277,7 +9757,11 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
         std::vector<uint32_t> ids;
         auto get_references_op = get_related_ids_with_lock(field_name, {seq_id}, ids);
         if (!get_references_op.ok()) {
-            LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+            auto const& schema = get_schema();
+            auto it = schema.find(field_name);
+            if (it != schema.end() && !it->optional) {
+                LOG(ERROR) << "Error while getting related ids: " + get_references_op.error();
+            }
             return Option<bool>(true);
         }
         reference_filter_result_t result(ids.size(), &ids[0]);
@@ -9290,10 +9774,37 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
     return Option<bool>(true);
 }
 
-void Collection::reset_async_reference_field(const std::string& field_name) {
-    nlohmann::json doc;
-    doc[field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX] = Join::reference_helper_sentinel_value;
-    std::string req_dirty_values = "reject";
+Option<bool> Collection::fix_broken_reference(const std::string& seq_id_key, const uint32_t& seq_id,
+                                              const tsl::htrie_set<char>& include_fields_full,
+                                              const tsl::htrie_set<char>& exclude_fields_full,
+                                              const KV* field_order_kv,
+                                              const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
+                                              nlohmann::json& document) {
+    std::string dirty_values = "REJECT";
+    // `update_matching_filter()` internally calls `Join::populate_reference_helper_fields()` which will fix the
+    // invalid reference values.
+    auto update_op = update_matching_filter("id:" + document["id"].get<std::string>(), document.dump(),
+                                            dirty_values);
+    if (!update_op.ok()) {
+        LOG(ERROR) << "Document update error. " << update_op.error();
+        return Option<bool>(1, "");
+    }
 
-    update_matching_filter("id: *", doc.dump(), req_dirty_values, true, 5000);
+    auto document_op = get_document_from_store(seq_id_key, document);
+    if(!document_op.ok()) {
+        LOG(ERROR) << "Document fetch error. " << document_op.error();
+        return Option<bool>(1, "");
+    }
+
+    remove_flat_fields(document);
+    remove_reference_helper_fields(document);
+
+    return prune_doc(document,
+                     include_fields_full,
+                     exclude_fields_full,
+                     "",
+                     0,
+                     field_order_kv->reference_filter_results,
+                     get_name(), seq_id,
+                     ref_include_exclude_fields_vec);
 }
