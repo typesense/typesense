@@ -691,6 +691,18 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     std::string results_json_str;
     Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0],
                                                           results_json_str, req->conn_ts);
+    if(!search_op.ok()) {
+        nlohmann::json error_json;
+        NaturalLanguageSearchModelManager::add_nl_query_data_to_results(error_json, &(req->params), nl_search_time_ms, true);
+        error_json["message"] = search_op.error();
+        res->set_body(search_op.code(), error_json.dump());
+        if(search_op.code() == 408) {
+            req->overloaded = true;
+        }
+        res->final = true;
+        stream_response(req, res);
+        return false;
+    }
     if(conversation) {
         nlohmann::json results_json = nlohmann::json::parse(results_json_str);
         results_json["conversation"] = nlohmann::json::object();
@@ -803,19 +815,6 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
         results_json_str = results_json.dump();
 
-    }
-
-    if(!search_op.ok()) {
-        nlohmann::json error_json;
-        NaturalLanguageSearchModelManager::add_nl_query_data_to_results(error_json, &(req->params), nl_search_time_ms, true);
-        error_json["message"] = search_op.error();
-        res->set_body(search_op.code(), error_json.dump());
-        if(search_op.code() == 408) {
-            req->overloaded = true;
-        }
-        res->final = true;
-        stream_response(req, res);
-        return false;
     }
 
     nlohmann::json results_json = nlohmann::json::parse(results_json_str);
