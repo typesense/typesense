@@ -3120,3 +3120,173 @@ TEST_F(CoreAPIUtilsTest, UnionRemoveDuplicates) {
     ASSERT_EQ("1", response["hits"][3]["document"]["id"]);
     ASSERT_EQ("1", response["hits"][4]["document"]["id"]);
 }
+
+TEST_F(CoreAPIUtilsTest, DeleteDocumentsWithNestedFieldFilter) {
+    // Test delete with nested object filter to ensure only intended documents are deleted
+    nlohmann::json schema_json = R"({
+        "name": "nested_delete_test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "items", "type": "object[]"},
+            {"name": "items.status", "type": "string", "facet": true},
+            {"name": "items.price", "type": "int32", "facet": true}
+        ],
+        "enable_nested_fields": true
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll = collection_create_op.get();
+
+    // Doc 0: Should NOT be deleted - has active item but price >= 100
+    nlohmann::json doc0 = R"({
+        "id": "0",
+        "name": "Product A",
+        "items": [{"status": "active", "price": 150}, {"status": "inactive", "price": 50}]
+    })"_json;
+
+    // Doc 1: Should be deleted - has active item with price < 100
+    nlohmann::json doc1 = R"({
+        "id": "1",
+        "name": "Product B",
+        "items": [{"status": "active", "price": 50}, {"status": "inactive", "price": 200}]
+    })"_json;
+
+    // Doc 2: Should NOT be deleted - no active item with price < 100 (active has price 100, not < 100)
+    nlohmann::json doc2 = R"({
+        "id": "2",
+        "name": "Product C",
+        "items": [{"status": "active", "price": 100}, {"status": "pending", "price": 30}]
+    })"_json;
+
+    // Doc 3: Should be deleted - has active item with price < 100
+    nlohmann::json doc3 = R"({
+        "id": "3",
+        "name": "Product D",
+        "items": [{"status": "active", "price": 80}]
+    })"_json;
+
+    // Doc 4: Should NOT be deleted - no active status
+    nlohmann::json doc4 = R"({
+        "id": "4",
+        "name": "Product E",
+        "items": [{"status": "inactive", "price": 40}, {"status": "pending", "price": 20}]
+    })"_json;
+
+    ASSERT_TRUE(coll->add(doc0.dump()).ok());
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll->add(doc4.dump()).ok());
+
+    // Verify all 5 documents exist
+    nlohmann::json result;
+    coll->get_document_from_store("0", result);
+    ASSERT_EQ("Product A", result["name"]);
+
+    // Delete documents where items has status=active AND price < 100 (in the same nested object)
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["collection"] = "nested_delete_test";
+    req->params["filter_by"] = "items.{status: active && price: <100}";
+    req->params["return_id"] = "true";
+
+    del_remove_documents(req, res);
+
+    nlohmann::json res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ(2, res_json["num_deleted"].get<size_t>());
+
+    // Verify deleted IDs are 1 and 3
+    std::set<std::string> deleted_ids;
+    for (const auto& id : res_json["ids"]) {
+        deleted_ids.insert(id.get<std::string>());
+    }
+    ASSERT_TRUE(deleted_ids.count("1") > 0);
+    ASSERT_TRUE(deleted_ids.count("3") > 0);
+
+    // Verify remaining documents (0, 2, 4) still exist
+    ASSERT_TRUE(coll->get_document_from_store("0", result).ok());
+    ASSERT_TRUE(coll->get_document_from_store("2", result).ok());
+    ASSERT_TRUE(coll->get_document_from_store("4", result).ok());
+
+    // Verify deleted documents (1, 3) no longer exist
+    ASSERT_FALSE(coll->get_document_from_store("1", result).ok());
+    ASSERT_FALSE(coll->get_document_from_store("3", result).ok());
+
+    collectionManager.drop_collection("nested_delete_test");
+}
+
+TEST_F(CoreAPIUtilsTest, DeleteDocumentsWithDeepNestedFieldFilter) {
+    // Test delete with deep nested object filter (e.g., main.items.{...})
+    nlohmann::json schema_json = R"({
+        "name": "deep_nested_delete_test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "main", "type": "object"},
+            {"name": "main.items", "type": "object[]"},
+            {"name": "main.items.status", "type": "string", "facet": true},
+            {"name": "main.items.price", "type": "int32", "facet": true}
+        ],
+        "enable_nested_fields": true
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll = collection_create_op.get();
+
+    // Doc 0: Should NOT be deleted - active item has price >= 100
+    nlohmann::json doc0 = R"({
+        "id": "0",
+        "name": "Product A",
+        "main": {
+            "items": [{"status": "active", "price": 150}]
+        }
+    })"_json;
+
+    // Doc 1: Should be deleted - has active item with price < 100
+    nlohmann::json doc1 = R"({
+        "id": "1",
+        "name": "Product B",
+        "main": {
+            "items": [{"status": "active", "price": 50}]
+        }
+    })"_json;
+
+    // Doc 2: Should NOT be deleted - no active status
+    nlohmann::json doc2 = R"({
+        "id": "2",
+        "name": "Product C",
+        "main": {
+            "items": [{"status": "inactive", "price": 30}]
+        }
+    })"_json;
+
+    ASSERT_TRUE(coll->add(doc0.dump()).ok());
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    // Delete documents where main.items has status=active AND price < 100
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["collection"] = "deep_nested_delete_test";
+    req->params["filter_by"] = "main.items.{status: active && price: <100}";
+    req->params["return_id"] = "true";
+
+    del_remove_documents(req, res);
+
+    nlohmann::json res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ(1, res_json["num_deleted"].get<size_t>());
+    ASSERT_EQ("1", res_json["ids"][0].get<std::string>());
+
+    // Verify remaining documents (0, 2) still exist
+    nlohmann::json result;
+    ASSERT_TRUE(coll->get_document_from_store("0", result).ok());
+    ASSERT_TRUE(coll->get_document_from_store("2", result).ok());
+
+    // Verify deleted document (1) no longer exists
+    ASSERT_FALSE(coll->get_document_from_store("1", result).ok());
+
+    collectionManager.drop_collection("deep_nested_delete_test");
+}

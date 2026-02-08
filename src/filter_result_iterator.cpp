@@ -3301,7 +3301,8 @@ bool filter_result_iterator_t::validate_object_filter() {
         return false;
     }
 
-    for (const auto& nested_object: document[filter_node->object_field_name]) {
+    const auto& doc = get_nested_field_doc(filter_node->object_field_name, document);
+    for (const auto& nested_object: doc) {
         if (validate_object_filter_helper(index, nested_object, filter_node)) {
             return true;
         }
