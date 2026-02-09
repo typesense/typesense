@@ -918,13 +918,14 @@ public:
                                  const bool group_missing_values, const uint32_t* exclude_token_ids,
                                  size_t exclude_token_ids_size,
                                  uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                                 filter_result_iterator_t* const filter_result_iterator,
+                                 filter_result_iterator_t*& filter_result_iterator,
                                  const size_t concurrency,
                                  const int* sort_order,
                                  std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                  const std::vector<size_t>& geopoint_indices,
                                  const bool& is_group_by_first_pass,
-                                 std::set<uint32_t>& group_by_missing_value_ids) const;
+                                 std::set<uint32_t>& group_by_missing_value_ids,
+                                 const bool& enable_lazy_filter) const;
 
     void process_grouped_vector_results_hnsw(filter_result_iterator_t* filter_result_iterator_no_groups,
                                              const vector_query_t& vector_query,

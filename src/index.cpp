@@ -151,8 +151,6 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
             }
         }
     }
-
-    num_documents = 0;
 }
 
 Index::~Index() {
@@ -2754,7 +2752,8 @@ Option<bool> Index::run_search(search_args* search_params) {
                                                              search_begin_us, search_stop_us,
                                                              search_params->validate_field_names);
 
-            if (filter_root == nullptr) {
+            if (filter_root == nullptr && !(filter_result_iterator->is_value_or_reverse_iterator() ||
+                                            filter_result_iterator->is_left_it_value_or_reverse_iterator())) {
                 filter_root.reset(new_filter_tree_root);
 
                 filter_result_iterator = new_iterator;
@@ -3987,14 +3986,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 all_result_ids_len = nearest_ids.size();
             }
         } else {
-            // if filters were not provided, use the seq_ids index to generate the list of all document ids
-            if (!filter_by_provided) {
-                delete filter_result_iterator;
-                filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids(),
-                                                                      max_filter_by_candidates,
-                                                                      search_begin_us, search_stop_us);
-            }
-
             auto search_wildcard_op = search_wildcard(sort_fields_std, topster,
                                                       groups_processed, searched_query_tokens,
                                                       group_limit, group_by_fields,
@@ -4003,7 +3994,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                       all_result_ids, all_result_ids_len,
                                                       filter_result_iterator, concurrency,
                                                       sort_order, field_values, geopoint_indices, is_group_by_first_pass,
-                                                      group_by_missing_value_ids);
+                                                      group_by_missing_value_ids, enable_lazy_filter);
             if (!search_wildcard_op.ok()) {
                 return search_wildcard_op;
             }
@@ -6832,24 +6823,53 @@ Option<bool> Index::search_wildcard(const std::vector<sort_by>& sort_fields, Top
                                     const uint32_t* exclude_token_ids,
                                     size_t exclude_token_ids_size,
                                     uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                                    filter_result_iterator_t* const filter_result_iterator,
+                                    filter_result_iterator_t*& filter_result_iterator,
                                     const size_t concurrency,
                                     const int* sort_order,
                                     std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                     const std::vector<size_t>& geopoint_indices,
                                     const bool& is_group_by_first_pass,
-                                    std::set<uint32_t>& group_by_missing_value_ids) const {
+                                    std::set<uint32_t>& group_by_missing_value_ids,
+                                    const bool& enable_lazy_filter) const {
     const group_found_params_t group_found_params = topster->group_found_params;
     const size_t topster_size = topster->MAX_SIZE;
     const size_t distinct = topster->distinct;
-    if (is_group_by_first_pass) {
+
+    bool lazy_wildcard_search = false;
+    if (!sort_fields.empty() && enable_lazy_filter && (group_limit == 0 || is_group_by_first_pass) &&
+            (sort_fields.front().type == sort_by::sort_by_type_t::int32_field ||
+             sort_fields.front().type == sort_by::sort_by_type_t::int64_field ||
+             sort_fields.front().type == sort_by::sort_by_type_t::float_field ||
+             sort_fields.front().type == sort_by::sort_by_type_t::bool_field)) {
+        const auto& sort_by = sort_fields.front();
+        auto index_it = numerical_index.find(sort_by.name);
+        if (index_it != numerical_index.end()) {
+            filter_result_iterator = new filter_result_iterator_t(index_it->second, sort_by.name, sort_by.order == "DESC",
+                                                                  filter_result_iterator);
+        } else {
+            // todo: deal with range index
+        }
+
+        // else if (sort_by.type == sort_by::sort_by_type_t::string_field) {}
+        // else if (sort_by.type == sort_by::sort_by_type_t::insertion_order) {}
+
+        lazy_wildcard_search = true;
+    } else if (group_limit == 0 || is_group_by_first_pass) {
+        if (!filter_result_iterator->is_filter_provided()) {
+            delete filter_result_iterator;
+            filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids(),
+                                                                  0, search_begin_us, search_stop_us);
+        }
+        filter_result_iterator->compute_iterators();
+    }
+
+    const bool use_topster_log_log_counter = !is_group_by_first_pass || lazy_wildcard_search;
+    if (use_topster_log_log_counter) {
         // loglog_counter for the intermediate topsters will be initialized, we only need to merge their sketches in
         // `Index::aggregate_topster`.
         delete topster;
-        topster = new Topster<KV>(topster_size, 0, true, group_found_params, false);
+        topster = new Topster<KV>(topster_size, 0, true, group_found_params, use_topster_log_log_counter);
     }
-
-    filter_result_iterator->compute_iterators();
 
     auto const& approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
 
@@ -6896,7 +6916,8 @@ Option<bool> Index::search_wildcard(const std::vector<sort_by>& sort_fields, Top
 
         searched_query_tokens.push_back({});
 
-        topsters[thread_id] = new Topster<KV>(topster_size, distinct, is_group_by_first_pass, group_found_params);
+        topsters[thread_id] = new Topster<KV>(topster_size, distinct, is_group_by_first_pass, group_found_params,
+                                              use_topster_log_log_counter);
         auto& compute_sort_score_status = compute_sort_score_statuses[thread_id] = nullptr;
         missing_value_ids[thread_id] = new std::set<uint32_t>();
 
@@ -7012,7 +7033,8 @@ Option<bool> Index::search_wildcard(const std::vector<sort_by>& sort_fields, Top
     filter_result_iterator->reset(true);
 
     if (timed_out_before_processing || filter_result_iterator->validity == filter_result_iterator_t::valid) {
-        all_result_ids_len = filter_result_iterator->to_filter_id_array(all_result_ids);
+        all_result_ids_len = lazy_wildcard_search ? topster->getGroupsCount() :
+                                        filter_result_iterator->to_filter_id_array(all_result_ids);
         search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
     } else if (filter_result_iterator->validity == filter_result_iterator_t::timed_out) {
         auto partial_result = new filter_result_t();

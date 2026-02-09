@@ -481,6 +481,13 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     ASSERT_EQ(filter_result_iterator_t::valid, iter_add_phrase_ids_test->validity);
     ASSERT_EQ(2, iter_add_phrase_ids_test->seq_id);
+
+    iter_add_phrase_ids_test->next();
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_add_phrase_ids_test->validity);
+    ASSERT_EQ(4, iter_add_phrase_ids_test->seq_id);
+
+    iter_add_phrase_ids_test->next();
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_add_phrase_ids_test->validity);
     delete filter_tree_root;
 
     filter_tree_root = nullptr;
@@ -3023,4 +3030,254 @@ TEST_F(FilterTest, InfixLazyEvaluation) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
+}
+
+TEST_F(FilterTest, LazyWildcardSearchInsertionOrderSortBy) {
+    nlohmann::json schema =
+            R"({
+                "name": "Collection",
+                "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "age", "type": "int32"},
+                    {"name": "years", "type": "int32[]"},
+                    {"name": "rating", "type": "float"},
+                    {"name": "tags", "type": "string[]"}
+            })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::string json_line;
+    while (std::getline(infile, json_line)) {
+        auto add_op = coll->add(json_line);
+        ASSERT_TRUE(add_op.ok());
+    }
+    infile.close();
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    Option<bool> filter_op = filter::parse_filter_query("age: <40 && rating: >2", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto const enable_lazy_evaluation = true;
+    auto fit = new filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                            enable_lazy_evaluation);
+
+    ASSERT_TRUE(fit->init_status().ok());
+    ASSERT_EQ(3, fit->approx_filter_ids_length);
+    ASSERT_EQ(false, fit->_get_is_filter_result_initialized());
+
+    std::vector<int> expected = {2, 4};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+        ASSERT_EQ(i, fit->seq_id);
+        fit->next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+
+    // In case of insertion order sort_by, we iterate the seq_ids in reverse order.
+    auto seq_ids = new id_list_t(256);
+    for (auto i = 0; i < 5; i++) {
+        seq_ids->upsert(i);
+    }
+    fit = new filter_result_iterator_t(seq_ids, true, fit);
+
+    // Seq ids should be returned in descending order.
+    expected = {4, 2};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+        ASSERT_EQ(i, fit->seq_id);
+        fit->next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+
+    fit->reset();
+    ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+
+    uint32_t excluded_result_index = 0;
+    auto batch_result = new filter_result_t();
+    fit->get_n_ids(2, excluded_result_index, nullptr, 0, batch_result);
+
+    ASSERT_EQ(2, batch_result->count);
+    for (auto i = 0; i < 2; i++) {
+        ASSERT_EQ(expected[i], batch_result->docs[i]);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+    delete batch_result;
+
+    fit->reset();
+    batch_result = new filter_result_t();
+    fit->get_n_ids(1, excluded_result_index, nullptr, 0, batch_result);
+
+    ASSERT_EQ(1, batch_result->count);
+    for (auto i = 0; i < 1; i++) {
+        ASSERT_EQ(expected[i], batch_result->docs[i]);
+    }
+    ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+    delete batch_result;
+
+    fit->reset();
+    batch_result = new filter_result_t();
+    const auto excluded_result_ids = new uint32_t[2]{0, 2};
+    excluded_result_index = 0;
+    fit->get_n_ids(2, excluded_result_index, excluded_result_ids, 2, batch_result);
+
+    ASSERT_EQ(1, batch_result->count);
+    for (auto i = 0; i < 1; i++) {
+        ASSERT_EQ(expected[i], batch_result->docs[i]);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+    delete batch_result;
+
+    delete[] excluded_result_ids;
+    delete seq_ids;
+    delete fit;
+    delete filter_tree_root;
+}
+
+TEST_F(FilterTest, LazyWildcardSearchNumericFieldSortBy) {
+    nlohmann::json schema =
+            R"({
+                "name": "Collection",
+                "fields": [
+                    {"name": "name", "type": "string", "optional": true},
+                    {"name": "age", "type": "int32", "optional": true},
+                    {"name": "years", "type": "int32[]", "optional": true},
+                    {"name": "rating", "type": "float", "optional": true},
+                    {"name": "tags", "type": "string[]", "optional": true}
+                ]
+            })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::string json_line;
+    while (std::getline(infile, json_line)) {
+        auto add_op = coll->add(json_line);
+        ASSERT_TRUE(add_op.ok());
+    }
+    infile.close();
+
+    nlohmann::json doc = R"({"rating": 7.812})"_json;
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+    doc = R"({"rating": 0.0})"_json;
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    Option<bool> filter_op = filter::parse_filter_query("age: <40", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto const enable_lazy_evaluation = true;
+    auto const descending_sort_order = true;
+    auto const ascending_sort_order = false;
+    auto fit = new filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                            enable_lazy_evaluation);
+
+    ASSERT_TRUE(fit->init_status().ok());
+    ASSERT_EQ(3, fit->approx_filter_ids_length);
+    ASSERT_EQ(false, fit->_get_is_filter_result_initialized());
+
+    std::vector<int> expected = {0, 2, 4};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+        ASSERT_EQ(i, fit->seq_id);
+        fit->next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+
+    // In case of numeric field sort_by, we will pass the field's numeric index.
+    const auto& numerical_index = coll->_get_index()->_get_numerical_index();
+    auto index_it = numerical_index.find("rating");
+    fit = new filter_result_iterator_t(index_it->second, "rating", ascending_sort_order, fit);
+
+    // Seq ids will be returned according to the ascending order of `rating` field.
+    expected = {0, 4, 2};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+        ASSERT_EQ(i, fit->seq_id);
+        fit->next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+
+    fit->reset();
+    ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+
+    uint32_t excluded_result_index = 0;
+    auto batch_result = new filter_result_t();
+    fit->get_n_ids(3, excluded_result_index, nullptr, 0, batch_result);
+
+    ASSERT_EQ(3, batch_result->count);
+    for (auto i = 0; i < 3; i++) {
+        ASSERT_EQ(expected[i], batch_result->docs[i]);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+    delete batch_result;
+
+    fit->reset();
+    batch_result = new filter_result_t();
+    fit->get_n_ids(1, excluded_result_index, nullptr, 0, batch_result);
+
+    ASSERT_EQ(1, batch_result->count);
+    for (auto i = 0; i < 1; i++) {
+        ASSERT_EQ(expected[i], batch_result->docs[i]);
+    }
+    ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+    delete batch_result;
+
+    fit->reset();
+    batch_result = new filter_result_t();
+    const auto excluded_result_ids = new uint32_t[3]{2, 3, 4};
+    excluded_result_index = 0;
+    fit->get_n_ids(2, excluded_result_index, excluded_result_ids, 3, batch_result);
+
+    ASSERT_EQ(1, batch_result->count);
+    for (auto i = 0; i < 1; i++) {
+        ASSERT_EQ(expected[i], batch_result->docs[i]);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+    delete batch_result;
+
+    delete[] excluded_result_ids;
+    delete fit;
+
+    // DESC order should reverse the sequence of matches.
+    fit = new filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                       enable_lazy_evaluation);
+    fit = new filter_result_iterator_t(index_it->second, "rating", descending_sort_order, fit);
+    expected = {2, 4, 0};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+        ASSERT_EQ(i, fit->seq_id);
+        fit->next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+
+    delete fit;
+    delete filter_tree_root;
+
+    // Wildcard search with no filter.
+    fit = new filter_result_iterator_t(coll->get_name(), coll->_get_index(), nullptr, enable_lazy_evaluation);
+    fit = new filter_result_iterator_t(index_it->second, "rating", ascending_sort_order, fit);
+    expected = {3, 6, 0, 4, 2, 5, 1};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+        ASSERT_EQ(i, fit->seq_id);
+        fit->next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+    delete fit;
+
+    fit = new filter_result_iterator_t(coll->get_name(), coll->_get_index(), nullptr, enable_lazy_evaluation);
+    fit = new filter_result_iterator_t(index_it->second, "rating", descending_sort_order, fit);
+    expected = {1, 2, 5, 4, 0, 3, 6};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+        ASSERT_EQ(i, fit->seq_id);
+        fit->next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+    delete fit;
 }

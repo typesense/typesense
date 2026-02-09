@@ -267,7 +267,7 @@ struct Topster {
 
     explicit Topster(size_t capacity, size_t distinct, bool is_group_by_first_pass,
                      const group_found_params_t& group_found_params = {},
-                     const bool& initialize_loglog_counter = true) :
+                     const bool& initialize_loglog_counter = false) :
                         MAX_SIZE(capacity), size(0), distinct(distinct),
                         is_group_by_first_pass(is_group_by_first_pass),
                         group_found_params(group_found_params) {
@@ -285,7 +285,7 @@ struct Topster {
             kvs[i] = &data[i];
         }
 
-        if (is_group_by_first_pass && initialize_loglog_counter) {
+        if (is_group_by_first_pass || initialize_loglog_counter) {
             loglog_counter = std::make_unique<LogLogBeta>();
         }
 

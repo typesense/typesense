@@ -335,6 +335,33 @@ private:
 
     std::unique_ptr<filter_result_iterator_timeout_info> timeout_info;
 
+    /// In case we're iterating based on the values of a sort field or we're iterating in the reverse order, we will
+    /// need to reset the rest of the filter_iterator for every value or the seq_id in reverse order.
+    /// For example, if the seq_ids matching the filter_by are [1, 3, 4] and we are iterating on:
+    ///
+    /// 1. Values of a sort field say,
+    ///     [51 -> 0, 3, 5], [55 -> 1, 2, 4], [61 -> 3]
+    ///     Here 51, 55 and 61 are values present in the corresponding seq_ids. Since the order of the seq_ids cannot be
+    ///     guaranteed to be in sequence, we will need to reset the rest of the filter_iterator nodes for every value. If
+    ///     we don't reset other filter_iterator nodes, we will not include the seq_id 1 in the result regardless of if
+    ///     we're iterating the values in the ascending or descending order.
+    ///
+    /// 2. Reverse order of seq_ids say,
+    ///     [5, 4, 3, 2, 1, 0]
+    ///     If we don't reset the other filter_iterator nodes after every seq_id, only the seq_id 4 will be included in
+    ///     the result.
+    bool is_sort_by_value_iterator = false;
+    /// Also set to true in case we iterate on the sort_by values in the reverse order i.e. in case of DESC.
+    bool is_reverse_iterator = false;
+
+    /// Used to signal the parent node to reset the other child node.
+    bool reset_sibling = false;
+
+    const num_tree_t* num_tree = nullptr;
+    std::map<int64_t, void*>::const_iterator sort_by_numeric_value_it;
+    std::map<int64_t, void*>::const_reverse_iterator sort_by_numeric_value_it_rev;
+    id_list_t::iterator_t id_list_iterator = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
+
     /// Initializes the state of iterator node after it's creation.
     void init(const bool& enable_lazy_evaluation, const bool& validate_field_names);
 
@@ -360,11 +387,11 @@ private:
 
     /// Collects n doc ids while advancing the iterator. The iterator may become invalid during this operation.
     /// **The references are moved from filter_result_iterator_t.
-    void get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& curation_timeout = false,
+    void get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout = false,
                    const bool& is_group_by_first_pass = false);
 
     /// Updates `validity` of the iterator to `timed_out` if condition is met. Assumes `timeout_info` is not null.
-    inline bool is_timed_out(const bool& curation_function_call_counter = false);
+    inline bool is_timed_out(const bool& override_function_call_counter = false);
 
     /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
     /// this operation.
@@ -378,6 +405,18 @@ private:
                                               uint32_t object_index);
 
     bool validate_object_filter();
+
+    /// Returns true if the sibling node was reset, false otherwise.
+    bool reset_sibling_node();
+
+    void get_n_ids_iteratively(const uint32_t& n,
+                               uint32_t const* const excluded_result_ids,
+                               const size_t& excluded_result_ids_size,
+                               uint32_t& excluded_result_index,
+                               filter_result_t*& result);
+
+    /// Returns true if next sort_by value's iterator was successfully initialized, false otherwise.
+    bool next_sort_value_iterator();
 
 public:
     uint32_t seq_id = 0;
@@ -413,6 +452,13 @@ public:
                                       filter_result_iterator_t* new_iterator,
                                       std::unique_ptr<filter_node_t>& filter_root, filter_node_t* new_filter_tree_root);
 
+    explicit filter_result_iterator_t(id_list_t* seq_ids, const bool& is_reverse_iterator,
+                                      filter_result_iterator_t*& filter_result_iterator);
+
+    explicit filter_result_iterator_t(const num_tree_t* num_tree, const std::string& field_name,
+                                      const bool& is_reverse_iterator,
+                                      filter_result_iterator_t*& filter_result_iterator);
+
     ~filter_result_iterator_t();
 
     filter_result_iterator_t& operator=(filter_result_iterator_t&& obj) noexcept;
@@ -429,7 +475,7 @@ public:
     /// 0 : id is not valid
     /// 1 : id is valid
     /// -1: end of iterator / timed out
-    [[nodiscard]] int is_valid(uint32_t id, const bool& curation_timeout = false);
+    [[nodiscard]] int is_valid(uint32_t id, const bool& override_timeout = false);
 
     /// Advances the iterator to get the next value of doc and reference. The iterator may become invalid during this
     /// operation.
@@ -442,14 +488,14 @@ public:
     void get_n_ids(const uint32_t& n,
                    uint32_t& excluded_result_index,
                    uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                   filter_result_t*& result, const bool& curation_timeout = false,
+                   filter_result_t*& result, const bool& override_timeout = false,
                    const bool& is_group_by_first_pass = false);
 
     /// Returns true if at least one id from the posting list object matches the filter.
     bool contains_atleast_one(const void* obj);
 
     /// Returns to the initial state of the iterator.
-    void reset(const bool& curation_timeout = false);
+    void reset(const bool& override_timeout = false);
 
     /// Copies filter ids from `filter_result` into `filter_array`.
     ///
@@ -493,5 +539,14 @@ public:
 
     [[nodiscard]] inline bool result_has_references() const {
         return is_filter_result_initialized && filter_result.coll_to_references != nullptr;
+    }
+
+    [[nodiscard]] inline bool is_value_or_reverse_iterator() const {
+        return is_sort_by_value_iterator || is_reverse_iterator;
+    }
+
+    [[nodiscard]] inline bool is_left_it_value_or_reverse_iterator() const {
+        return filter_node != nullptr && filter_node->isOperator && filter_node->filter_operator == AND &&
+                    left_it != nullptr && left_it->is_value_or_reverse_iterator();
     }
 };

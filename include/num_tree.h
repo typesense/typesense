@@ -22,6 +22,8 @@ private:
         return ids_t::contains(ids, id);
     }
 
+    friend class filter_result_iterator_t;
+
 public:
 
     ~num_tree_t();

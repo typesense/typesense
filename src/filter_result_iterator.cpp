@@ -440,6 +440,39 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
 }
 
 void filter_result_iterator_t::and_filter_iterators() {
+    if (is_left_it_value_or_reverse_iterator() && left_it->filter_node->filter_exp.field_name == "id") {
+        while (left_it->validity) {
+            if (left_it->seq_id != right_it->seq_id) {
+                auto const& right_validity = right_it->is_valid(left_it->seq_id);
+
+                if (right_validity == 1) {
+                    seq_id = left_it->seq_id;
+
+                    reference.clear();
+                    for (const auto& item: right_it->reference) {
+                        reference[item.first] = item.second;
+                    }
+
+                    return;
+                }
+
+                left_it->next();
+                reset_sibling_node();
+            } else {
+                seq_id = left_it->seq_id;
+
+                reference.clear();
+                for (const auto& item: right_it->reference) {
+                    reference[item.first] = item.second;
+                }
+
+                return;
+            }
+        }
+        validity = invalid;
+        return;
+    }
+
     while (left_it->validity && right_it->validity) {
         if (timeout_info != nullptr && is_timed_out()) {
             return;
@@ -463,6 +496,12 @@ void filter_result_iterator_t::and_filter_iterators() {
             }
 
             if (left_validity == -1) {
+                // In case a sort value's iterator becomes invalid, we get iterator of the next sort value and reset
+                // the sibling tree.
+                if (is_left_it_value_or_reverse_iterator() &&
+                    left_it->next_sort_value_iterator() && reset_sibling_node()) {
+                    continue;
+                }
                 validity = invalid;
                 return;
             }
@@ -486,8 +525,19 @@ void filter_result_iterator_t::and_filter_iterators() {
             }
 
             if (right_validity == -1) {
+                // In case sibling iterator becomes invalid, we get iterator of the next sort value and reset the sibling
+                // tree.
+                if (is_left_it_value_or_reverse_iterator() &&
+                    left_it->next_sort_value_iterator() && reset_sibling_node()) {
+                    continue;
+                }
                 validity = invalid;
                 return;
+            }
+
+            if (is_left_it_value_or_reverse_iterator()) {
+                left_it->next();
+                reset_sibling_node();
             }
 
             continue;
@@ -1017,12 +1067,12 @@ void filter_result_iterator_t::next() {
     }
 
     if (filter_node->isOperator) {
-        auto last_seq_id = seq_id;
-
         // Advance the subtrees and then apply operators to arrive at the next valid doc.
         if (filter_node->filter_operator == AND) {
             left_it->next();
-            right_it->next();
+            if (!reset_sibling_node()) {
+                right_it->next();
+            }
             and_filter_iterators();
         } else {
             if (left_it->seq_id == seq_id && right_it->seq_id == seq_id) {
@@ -1033,7 +1083,6 @@ void filter_result_iterator_t::next() {
             } else if (right_it->seq_id == seq_id) {
                 right_it->next();
             }
-
             or_filter_iterators();
         }
 
@@ -1058,7 +1107,13 @@ void filter_result_iterator_t::next() {
     }
 
     if (a_filter.field_name == "id") {
-        all_seq_ids_iterator.next();
+        if (is_reverse_iterator) {
+            all_seq_ids_iterator.previous();
+            reset_sibling = true;
+        } else {
+            all_seq_ids_iterator.next();
+        }
+
         if (!all_seq_ids_iterator.valid()) {
             validity = invalid;
             return;
@@ -1075,7 +1130,16 @@ void filter_result_iterator_t::next() {
 
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_integer() || f.is_float()) {
+    if (is_value_or_reverse_iterator() && (f.is_integer() || f.is_float() || f.is_bool())) {
+        id_list_iterator.next();
+        if (id_list_iterator.valid()) {
+            equals_iterator_id = seq_id = id_list_iterator.id();
+            return;
+        }
+
+        next_sort_value_iterator();
+        return;
+    } else if (f.is_integer() || f.is_float()) {
         advance_numeric_filter_iterators();
         get_numeric_filter_match();
         return;
@@ -2127,7 +2191,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 }
                 value_tokens.back().is_prefix_searched = true;
 
-                filter_result_iterator_t dummy_it(nullptr, 0);
+                filter_result_iterator_t dummy_it((uint32_t*) nullptr, 0);
                 std::vector<sort_by> sort_fields;
                 std::vector<std::vector<std::string>> searched_filter_tokens;
                 tsl::htrie_map<char, token_leaf> qtoken_set;
@@ -2284,6 +2348,10 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
     }
 
     if (a_filter.field_name == "id") {
+        if (is_reverse_iterator) {
+            return;
+        }
+
         all_seq_ids_iterator.skip_to(id);
         if (!all_seq_ids_iterator.valid()) {
             validity = invalid;
@@ -2301,7 +2369,16 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_integer() || f.is_float()) {
+    if (is_value_or_reverse_iterator() && (f.is_integer() || f.is_float() || f.is_bool())) {
+        id_list_iterator.skip_to(id);
+        if (id_list_iterator.valid()) {
+            equals_iterator_id = seq_id = id_list_iterator.id();
+            return;
+        }
+
+        next_sort_value_iterator();
+        return;
+    } else if (f.is_integer() || f.is_float()) {
         // Skip all the iterators and find a new match.
         auto one_is_valid = false;
         for (uint32_t i = 0; i < id_list_iterators.size(); i++) {
@@ -2472,8 +2549,8 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
     }
 }
 
-int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout) {
-    if (validity == invalid || (!curation_timeout && timeout_info != nullptr && is_timed_out())) {
+int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout) {
+    if (validity == invalid || (!override_timeout && timeout_info != nullptr && is_timed_out())) {
         return -1;
     }
 
@@ -2486,6 +2563,10 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
     if (filter_node->isOperator) {
         // We only need to consider only valid/invalid state since child nodes can never time out.
         auto left_validity = left_it->is_valid(id), right_validity = right_it->is_valid(id);
+
+        if (is_left_it_value_or_reverse_iterator() && left_it->reset_sibling) {
+            return 0;
+        }
 
         if (filter_node->filter_operator == AND) {
             validity = (left_it->validity == valid && right_it->validity == valid) ? valid : invalid;
@@ -2682,12 +2763,12 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
     return false;
 }
 
-void filter_result_iterator_t::reset(const bool& curation_timeout) {
+void filter_result_iterator_t::reset(const bool& override_timeout) {
     if (filter_node == nullptr) {
         return;
     }
 
-    if (!curation_timeout && timeout_info != nullptr && is_timed_out()) {
+    if (!override_timeout && timeout_info != nullptr && is_timed_out()) {
         return;
     }
 
@@ -2758,7 +2839,8 @@ void filter_result_iterator_t::reset(const bool& curation_timeout) {
     }
 
     if (a_filter.field_name == "id") {
-        all_seq_ids_iterator = index->seq_ids->new_iterator();
+        all_seq_ids_iterator = is_reverse_iterator ? index->seq_ids->new_rev_iterator() :
+                                                        index->seq_ids->new_iterator();
         if (all_seq_ids_iterator.valid()) {
             seq_id = all_seq_ids_iterator.id();
             approx_filter_ids_length = index->seq_ids->num_ids();
@@ -2776,7 +2858,31 @@ void filter_result_iterator_t::reset(const bool& curation_timeout) {
 
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_integer() || f.is_float()) {
+    if (is_value_or_reverse_iterator() && (f.is_integer() || f.is_float() || f.is_bool())) {
+        for (auto item: expanded_id_lists) {
+            delete item;
+        }
+        expanded_id_lists.clear();
+
+        std::vector<id_list_t*> lists;
+        if (is_reverse_iterator) {
+            sort_by_numeric_value_it_rev = num_tree->int64map.crbegin();
+            ids_t::to_expanded_id_lists({sort_by_numeric_value_it_rev->second}, lists, expanded_id_lists);
+        } else {
+            sort_by_numeric_value_it = num_tree->int64map.cbegin();
+            ids_t::to_expanded_id_lists({sort_by_numeric_value_it->second}, lists, expanded_id_lists);
+        }
+
+        id_list_iterator = lists.front()->new_iterator();
+        if (id_list_iterator.valid()) {
+            equals_iterator_id = seq_id = id_list_iterator.id();
+            reset_sibling = true;
+            validity = valid;
+        } else {
+            validity = invalid;
+        }
+        return;
+    } else if (f.is_integer() || f.is_float()) {
         for (uint32_t i = 0; i < id_lists.size(); i++) {
             auto const& lists = id_lists[i];
 
@@ -3025,19 +3131,20 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
     return *this;
 }
 
-void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& curation_timeout,
+void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout,
                                          const bool& is_group_by_first_pass) {
-    if (!is_filter_result_initialized) {
-        return;
-    }
-
-    if (!curation_timeout && timeout_info != nullptr) {
+    if (!override_timeout && timeout_info != nullptr) {
         // In Index::search_wildcard number of calls to get_n_ids will be min(number of threads, filter match ids).
         // Therefore, `timeout_info->function_call_counter` won't reach `function_call_modulo` if only incremented on
         // function call.
         if (n > function_call_modulo && is_timed_out(true)) {
             return;
         }
+    }
+
+    if (!is_filter_result_initialized) {
+        uint32_t dummy;
+        return get_n_ids_iteratively(n, nullptr, 0, dummy, result);
     }
 
     auto result_length = result->count = std::min(n, filter_result.count - result_index);
@@ -3062,25 +3169,24 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
 void filter_result_iterator_t::get_n_ids(const uint32_t& n,
                                          uint32_t& excluded_result_index,
                                          uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                                         filter_result_t*& result, const bool& curation_timeout,
+                                         filter_result_t*& result, const bool& override_timeout,
                                          const bool& is_group_by_first_pass) {
     if (excluded_result_ids == nullptr || excluded_result_ids_size == 0 ||
         excluded_result_index >= excluded_result_ids_size) {
-        return get_n_ids(n, result, curation_timeout, is_group_by_first_pass);
+        return get_n_ids(n, result, override_timeout, is_group_by_first_pass);
     }
 
-    // This method is only called in Index::search_wildcard after filter_result_iterator_t::compute_iterators.
-    if (!is_filter_result_initialized) {
-        return;
-    }
-
-    if (!curation_timeout && timeout_info != nullptr) {
+    if (!override_timeout && timeout_info != nullptr) {
         // In Index::search_wildcard number of calls to get_n_ids will be min(number of threads, filter match ids).
         // Therefore, `timeout_info->function_call_counter` won't reach `function_call_modulo` if only incremented on
         // function call.
         if (n > function_call_modulo && is_timed_out(true)) {
             return;
         }
+    }
+
+    if (!is_filter_result_initialized) {
+        return get_n_ids_iteratively(n, excluded_result_ids, excluded_result_ids_size, excluded_result_index, result);
     }
 
     std::vector<uint32_t> match_indexes;
@@ -3511,12 +3617,12 @@ void filter_result_iterator_t::compute_iterators() {
     approx_filter_ids_length = filter_result.count;
 }
 
-bool filter_result_iterator_t::is_timed_out(const bool& curation_function_call_counter) {
+bool filter_result_iterator_t::is_timed_out(const bool& override_function_call_counter) {
     if (validity == timed_out) {
         return true;
     }
 
-    if (curation_function_call_counter || ++(timeout_info->function_call_counter) % function_call_modulo == 0) {
+    if (override_function_call_counter || ++(timeout_info->function_call_counter) % function_call_modulo == 0) {
         if ((std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count() - timeout_info->search_begin_us) > timeout_info->search_stop_us) {
             validity = timed_out;
@@ -3948,7 +4054,25 @@ filter_result_iterator_t::filter_result_iterator_t(FILTER_OPERATOR filter_operat
     timeout_info = std::move(filter_result_iterator->timeout_info);
     new_iterator->timeout_info.reset(nullptr);
 
-    if (filter_result_iterator->approx_filter_ids_length < new_iterator->approx_filter_ids_length) {
+    if (filter_result_iterator->is_left_it_value_or_reverse_iterator()) {
+        if (filter_operator == OR) {
+            validity = invalid;
+            return;
+        }
+
+        // We will make the value or reverse iterator node the left child of this filter iterators root node.
+        left_it = filter_result_iterator->left_it;
+        filter_result_iterator->left_it = new_iterator;
+        right_it = filter_result_iterator;
+
+        auto root = new filter_node_t(filter_operator, filter_root.release(), new_filter_tree_root);
+        filter_root.reset(root);
+    } else if (filter_result_iterator->approx_filter_ids_length < new_iterator->approx_filter_ids_length ||
+                filter_result_iterator->is_value_or_reverse_iterator()) {
+        if (filter_result_iterator->is_value_or_reverse_iterator() && filter_operator == OR) {
+            validity = invalid;
+            return;
+        }
         left_it = filter_result_iterator;
         right_it = new_iterator;
 
@@ -3964,4 +4088,239 @@ filter_result_iterator_t::filter_result_iterator_t(FILTER_OPERATOR filter_operat
     filter_node = filter_root.get();
 
     init(false, false);
+}
+
+filter_result_iterator_t::filter_result_iterator_t(id_list_t* seq_ids, const bool& is_rev_it,
+                                                   filter_result_iterator_t*& filter_result_iterator) :
+                                                    collection_name(filter_result_iterator->collection_name),
+                                                    index(filter_result_iterator->index) {
+    timeout_info = std::move(filter_result_iterator->timeout_info);
+    filter_result_iterator->timeout_info.reset(nullptr);
+
+    if (seq_ids == nullptr || seq_ids->num_ids() == 0) {
+        delete filter_result_iterator;
+        validity = invalid;
+        is_filter_result_initialized = true;
+        return;
+    }
+
+    // If no filter is provided, we only need to consider the seq_ids iterator.
+    if (!filter_result_iterator->is_filter_provided()) {
+        delete filter_result_iterator;
+
+        all_seq_ids_iterator = is_rev_it ? seq_ids->new_rev_iterator() : seq_ids->new_iterator();
+        is_reverse_iterator = is_rev_it;
+        seq_id = all_seq_ids_iterator.id();
+        approx_filter_ids_length = seq_ids->num_ids();
+        filter_node = new filter_node_t(filter{"id", {}, {}});
+        delete_filter_node = true;
+        return;
+    }
+
+    filter_result_iterator->reset();
+
+    auto left_filter_node = new filter_node_t(filter{"id", {"*"}, {EQUALS}});
+    left_it = new filter_result_iterator_t(filter_result_iterator->collection_name, filter_result_iterator->index,
+                                           left_filter_node, true);
+    left_it->delete_filter_node = true;
+    left_it->all_seq_ids_iterator = is_rev_it ? seq_ids->new_rev_iterator() : seq_ids->new_iterator();
+    left_it->is_reverse_iterator = is_rev_it;
+    left_it->seq_id = left_it->all_seq_ids_iterator.id();
+    left_it->approx_filter_ids_length = seq_ids->num_ids();
+
+    right_it = filter_result_iterator;
+
+    filter_node = new filter_node_t(AND, nullptr, nullptr);
+    delete_filter_node = true;
+    approx_filter_ids_length = std::min(left_it->approx_filter_ids_length, right_it->approx_filter_ids_length);
+    and_filter_iterators();
+}
+
+filter_result_iterator_t::filter_result_iterator_t(const num_tree_t* nt, const std::string& field_name,
+                                                   const bool& is_rev_it,
+                                                   filter_result_iterator_t*& filter_result_iterator) :
+                                                    collection_name(filter_result_iterator->collection_name),
+                                                    index(filter_result_iterator->index) {
+    timeout_info = std::move(filter_result_iterator->timeout_info);
+    filter_result_iterator->timeout_info.reset(nullptr);
+
+    if (nt == nullptr || nt->int64map.empty()) {
+        delete filter_result_iterator;
+        validity = invalid;
+        is_filter_result_initialized = true;
+        return;
+    }
+
+    // If no filter is provided, we only need to consider the num_tree iterator.
+    if (!filter_result_iterator->is_filter_provided()) {
+        delete filter_result_iterator;
+
+        std::vector<id_list_t*> lists;
+        if (is_rev_it) {
+            sort_by_numeric_value_it_rev = nt->int64map.crbegin();
+            ids_t::to_expanded_id_lists({sort_by_numeric_value_it_rev->second}, lists, expanded_id_lists);
+        } else {
+            sort_by_numeric_value_it = nt->int64map.cbegin();
+            ids_t::to_expanded_id_lists({sort_by_numeric_value_it->second}, lists, expanded_id_lists);
+        }
+
+        is_sort_by_value_iterator = true;
+        is_reverse_iterator = is_rev_it;
+        num_tree = nt;
+        id_list_iterator = lists.front()->new_iterator();
+        if (!id_list_iterator.valid()) {
+            validity = invalid;
+            return;
+        }
+        seq_id = id_list_iterator.id();
+        approx_filter_ids_length = index->seq_ids->num_ids();
+        filter_node = new filter_node_t(filter{field_name, {}, {}});
+        delete_filter_node = true;
+        return;
+    }
+
+    filter_result_iterator->reset();
+
+    left_it = new filter_result_iterator_t();
+    std::vector<id_list_t*> lists;
+    if (is_rev_it) {
+        left_it->sort_by_numeric_value_it_rev = nt->int64map.crbegin();
+        ids_t::to_expanded_id_lists({left_it->sort_by_numeric_value_it_rev->second}, lists, left_it->expanded_id_lists);
+    } else {
+        left_it->sort_by_numeric_value_it = nt->int64map.cbegin();
+        ids_t::to_expanded_id_lists({left_it->sort_by_numeric_value_it->second}, lists, expanded_id_lists);
+    }
+    left_it->is_sort_by_value_iterator = true;
+    left_it->is_reverse_iterator = is_rev_it;
+    left_it->num_tree = nt;
+    left_it->id_list_iterator = lists.front()->new_iterator();
+    if (!left_it->id_list_iterator.valid()) {
+        validity = invalid;
+        return;
+    }
+    left_it->seq_id = left_it->id_list_iterator.id();
+    left_it->approx_filter_ids_length = index->seq_ids->num_ids();
+    left_it->collection_name = collection_name;
+    left_it->index = index;
+    left_it->filter_node = new filter_node_t(filter{field_name});
+    left_it->delete_filter_node = true;
+
+    right_it = filter_result_iterator;
+
+    filter_node = new filter_node_t(AND, nullptr, nullptr);
+    delete_filter_node = true;
+    approx_filter_ids_length = std::min(left_it->approx_filter_ids_length, right_it->approx_filter_ids_length);
+    and_filter_iterators();
+}
+
+bool filter_result_iterator_t::reset_sibling_node() {
+    // Need to reset the sibling node since the seq_ids of left_it are not guaranteed to be in order.
+    if (left_it->reset_sibling) {
+        right_it->reset();
+        left_it->reset_sibling = false;
+        return true;
+    }
+    return false;
+}
+
+void filter_result_iterator_t::get_n_ids_iteratively(const uint32_t& n,
+                                                     uint32_t const* const excluded_result_ids,
+                                                     const size_t& excluded_result_ids_size,
+                                                     uint32_t& excluded_result_index,
+                                                     filter_result_t*& result) {
+    if (approx_filter_ids_length == 0) {
+        validity = invalid;
+        return;
+    } else if (validity != valid) {
+        return;
+    }
+
+    auto docs = new uint32_t[n];
+    std::map<std::string, reference_filter_result_t>* references = nullptr;
+    if (!reference.empty()) {
+        references = new std::map<std::string, reference_filter_result_t>[n]{};
+    }
+auto start = std::chrono::steady_clock::now();
+    // Can't rely on the excluded_result_index in case of value or reverse iterator since the sequence of ids is not guaranteed.
+    const auto use_excluded_result_index = !(is_value_or_reverse_iterator() || is_left_it_value_or_reverse_iterator());
+    size_t result_size = 0;
+    while (validity && result_size < n) {
+        if (excluded_result_ids != nullptr &&
+            ((use_excluded_result_index &&
+                ArrayUtils::skip_index_to_id(excluded_result_index, excluded_result_ids, excluded_result_ids_size, seq_id))
+                    ||
+            (!use_excluded_result_index &&
+                std::binary_search(excluded_result_ids, excluded_result_ids + excluded_result_ids_size, seq_id))
+            )) {
+            next();
+            continue;
+        }
+
+        docs[result_size] = seq_id;
+        if (!reference.empty()) {
+            references[result_size] = reference;
+        }
+        next();
+        result_size++;
+    }
+auto end = std::chrono::steady_clock::now();
+std::chrono::duration<double> elapsed_duration = end-start;
+LOG(INFO) << "uncompress time " << elapsed_duration.count() * 1000 << " ms\n";
+    if (result_size == n) {
+        result->count = result_size;
+        result->docs = docs;
+        result->coll_to_references = references;
+        return;
+    }
+
+    // shrink fit
+    result->count = result_size;
+    result->docs = new uint32_t[result_size];
+    memcpy(result->docs, docs, result_size * sizeof(uint32_t));
+    delete[] docs;
+    if (references != nullptr) {
+        result->coll_to_references = new std::map<std::string, reference_filter_result_t>[result_size]{};
+        for (size_t i = 0; i < result_size; i++) {
+            result->coll_to_references[i] = std::move(references[i]);
+        }
+        delete[] references;
+    }
+}
+
+bool filter_result_iterator_t::next_sort_value_iterator() {
+    if (!is_sort_by_value_iterator) {
+        return false;
+    }
+
+    // id_list_iterator for a certain sort value has become invalid, we will now get iterator of the next sort value.
+    for (auto item: expanded_id_lists) {
+        delete item;
+    }
+    expanded_id_lists.clear();
+
+    std::vector<id_list_t*> lists;
+    if (is_reverse_iterator) {
+        sort_by_numeric_value_it_rev++;
+        if (sort_by_numeric_value_it_rev == num_tree->int64map.crend()) {
+            validity = invalid;
+            return false;
+        }
+        ids_t::to_expanded_id_lists({sort_by_numeric_value_it_rev->second}, lists, expanded_id_lists);
+    } else {
+        sort_by_numeric_value_it++;
+        if (sort_by_numeric_value_it == num_tree->int64map.cend()) {
+            validity = invalid;
+            return false;
+        }
+        ids_t::to_expanded_id_lists({sort_by_numeric_value_it->second}, lists, expanded_id_lists);
+    }
+
+    id_list_iterator = lists.front()->new_iterator();
+    if (id_list_iterator.valid()) {
+        equals_iterator_id = seq_id = id_list_iterator.id();
+        reset_sibling = true;
+        return true;
+    }
+    validity = invalid;
+    return false;
 }
