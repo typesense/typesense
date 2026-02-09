@@ -377,7 +377,7 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
 
     for(auto it : req_json.items()) {
         if(allowed_keys.count(it.key()) == 0) {
-            res->set_400("Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.");
+            res->set_400("Only `fields`, `metadata`, `curation_sets` and `synonym_sets` can be updated at the moment.");
             return false;
         }
     }
