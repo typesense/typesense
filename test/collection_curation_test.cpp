@@ -6174,6 +6174,93 @@ TEST_F(CollectionCurationTest, SynonymsMatchWithCuration) {
     ASSERT_EQ("6", results["hits"][1]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionCurationTest, ToJsonSerializesSynonymsStemFields) {
+    // curation with synonyms + stem + stemming_dictionary
+    std::vector<std::string> json_lines;
+    json_lines.push_back(R"({"word": "shoes", "root": "shoe"})");
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("test-dict", json_lines).ok());
+
+    nlohmann::json curation_json = R"({
+        "id": "test-all-fields",
+        "rule": {
+            "query": "running shoes",
+            "match": "exact",
+            "synonyms": true,
+            "stem": true,
+            "stemming_dictionary": "test-dict"
+        },
+        "includes": [{"id": "0", "position": 1}]
+    })"_json;
+
+    curation_t curation;
+    auto parse_op = curation_t::parse(curation_json, "test-all-fields", curation);
+    ASSERT_TRUE(parse_op.ok());
+
+    nlohmann::json serialized = curation.to_json();
+    ASSERT_TRUE(serialized["rule"]["synonyms"].get<bool>());
+    ASSERT_TRUE(serialized["rule"]["stem"].get<bool>());
+    ASSERT_EQ("test-dict", serialized["rule"]["stemming_dictionary"].get<std::string>());
+
+    // curation with only synonyms (no stem)
+    curation_json = R"({
+        "id": "test-synonyms-only",
+        "rule": {
+            "query": "sneakers",
+            "match": "exact",
+            "synonyms": true
+        },
+        "includes": [{"id": "0", "position": 1}]
+    })"_json;
+
+    curation_t curation2;
+    parse_op = curation_t::parse(curation_json, "test-synonyms-only", curation2);
+    ASSERT_TRUE(parse_op.ok());
+
+    serialized = curation2.to_json();
+    ASSERT_TRUE(serialized["rule"]["synonyms"].get<bool>());
+    ASSERT_FALSE(serialized["rule"]["stem"].get<bool>());
+    ASSERT_EQ(0, serialized["rule"].count("stemming_dictionary"));
+
+    // curation with only stem (no synonyms, no dictionary)
+    curation_json = R"({
+        "id": "test-stem-only",
+        "rule": {
+            "query": "walking",
+            "match": "exact",
+            "stem": true
+        },
+        "includes": [{"id": "0", "position": 1}]
+    })"_json;
+
+    curation_t curation3;
+    parse_op = curation_t::parse(curation_json, "test-stem-only", curation3);
+    ASSERT_TRUE(parse_op.ok());
+
+    serialized = curation3.to_json();
+    ASSERT_FALSE(serialized["rule"]["synonyms"].get<bool>());
+    ASSERT_TRUE(serialized["rule"]["stem"].get<bool>());
+    ASSERT_EQ(0, serialized["rule"].count("stemming_dictionary"));
+
+    // curation with neither synonyms nor stem (defaults)
+    curation_json = R"({
+        "id": "test-defaults",
+        "rule": {
+            "query": "boots",
+            "match": "exact"
+        },
+        "includes": [{"id": "0", "position": 1}]
+    })"_json;
+
+    curation_t curation4;
+    parse_op = curation_t::parse(curation_json, "test-defaults", curation4);
+    ASSERT_TRUE(parse_op.ok());
+
+    serialized = curation4.to_json();
+    ASSERT_FALSE(serialized["rule"]["synonyms"].get<bool>());
+    ASSERT_FALSE(serialized["rule"]["stem"].get<bool>());
+    ASSERT_EQ(0, serialized["rule"].count("stemming_dictionary"));
+}
+
 TEST_F(CollectionCurationTest, OverridesWithRerankHybridSearches) {
     auto& ov_manager = CurationIndexManager::get_instance();
     nlohmann::json schema = R"({
