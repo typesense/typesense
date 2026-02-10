@@ -4240,11 +4240,11 @@ void filter_result_iterator_t::get_n_ids_iteratively(const uint32_t& n,
     if (!reference.empty()) {
         references = new std::map<std::string, reference_filter_result_t>[n]{};
     }
-auto start = std::chrono::steady_clock::now();
+
     // Can't rely on the excluded_result_index in case of value or reverse iterator since the sequence of ids is not guaranteed.
     const auto use_excluded_result_index = !(is_value_or_reverse_iterator() || is_left_it_value_or_reverse_iterator());
     size_t result_size = 0;
-    while (validity && result_size < n) {
+    while (validity == valid && result_size < n) {
         if (excluded_result_ids != nullptr &&
             ((use_excluded_result_index &&
                 ArrayUtils::skip_index_to_id(excluded_result_index, excluded_result_ids, excluded_result_ids_size, seq_id))
@@ -4263,9 +4263,7 @@ auto start = std::chrono::steady_clock::now();
         next();
         result_size++;
     }
-auto end = std::chrono::steady_clock::now();
-std::chrono::duration<double> elapsed_duration = end-start;
-LOG(INFO) << "uncompress time " << elapsed_duration.count() * 1000 << " ms\n";
+
     if (result_size == n) {
         result->count = result_size;
         result->docs = docs;
