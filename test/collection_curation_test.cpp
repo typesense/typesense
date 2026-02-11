@@ -5660,8 +5660,53 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
                   }
     })"_json;
 
-    diversity2;
     op = diversity_t::parse(json, diversity2);
+    ASSERT_FALSE(op.ok());
+
+    diversity_t diversity3;
+    json = R"({
+                  "diversity": {
+                    "similarity_metric": [
+                      {
+                        "field": "flow_id",
+                        "method": "equality",
+                        "weight": "true"
+                      }
+                    ]
+                  }
+    })"_json;
+
+    op = diversity_t::parse(json, diversity3);
+    ASSERT_FALSE(op.ok());
+
+    json = R"({
+                  "diversity": {
+                    "similarity_metric": [
+                      {
+                        "field": "flow_id",
+                        "method": "equality",
+                        "weight": true
+                      }
+                    ]
+                  }
+    })"_json;
+
+    op = diversity_t::parse(json, diversity3);
+    ASSERT_FALSE(op.ok());
+
+    json = R"({
+                  "diversity": {
+                    "similarity_metric": [
+                      {
+                        "field": "flow_id",
+                        "method": "equality",
+                        "weight": "32.1244, 25.1242"
+                      }
+                    ]
+                  }
+    })"_json;
+
+    op = diversity_t::parse(json, diversity3);
     ASSERT_FALSE(op.ok());
 }
 
