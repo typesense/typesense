@@ -5630,6 +5630,39 @@ TEST_F(CollectionCurationTest, DiversityOverrideParsing) {
     ASSERT_EQ(1, curation.rule.tags.size());
     ASSERT_EQ("screen_pattern_rule", *curation.rule.tags.begin());
     ASSERT_EQ(4, curation.diversity.similarity_equation.size());
+
+    //diversity weights should accept only numbers
+    json = R"({
+                  "diversity": {
+                    "similarity_metric": [
+                      {
+                        "field": "flow_id",
+                        "method": "equality",
+                        "weight": 6
+                      }
+                    ]
+                  }
+    })"_json;
+
+    diversity_t diversity2;
+    op = diversity_t::parse(json, diversity2);
+    ASSERT_TRUE(op.ok());
+
+    json = R"({
+                  "diversity": {
+                    "similarity_metric": [
+                      {
+                        "field": "flow_id",
+                        "method": "equality",
+                        "weight": "6"
+                      }
+                    ]
+                  }
+    })"_json;
+
+    diversity2;
+    op = diversity_t::parse(json, diversity2);
+    ASSERT_FALSE(op.ok());
 }
 
 TEST_F(CollectionCurationTest, DiversityOverride) {
