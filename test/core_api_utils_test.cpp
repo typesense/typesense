@@ -2082,7 +2082,9 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
                         "remove_matched_tokens":false,
                         "rule":{
                                 "match":"exact",
-                                "query":"not-found"
+                                "query":"not-found",
+                                "stem":false,
+                                "synonyms":false
                         },
                         "stop_processing":true
                     }])"_json;

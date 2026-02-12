@@ -108,6 +108,8 @@ private:
 
     std::shared_mutex m;
 
+    uint32_t shutdown_delay_seconds;
+
 protected:
 
     Config() {
@@ -230,6 +232,10 @@ public:
         this->max_indexing_concurrency = val;
     }
 
+    void set_shutdown_delay_seconds(uint32_t val) {
+        this->shutdown_delay_seconds = val;
+    }
+
     // @deprecated
     void set_search_only_api_key(const std::string & search_only_api_key) {
         this->search_only_api_key = search_only_api_key;
@@ -339,6 +345,9 @@ public:
         return this->api_key;
     }
 
+    uint32_t get_shutdown_delay_seconds() const {
+        return this->shutdown_delay_seconds;
+    }
     // @deprecated
     std::string get_search_only_api_key() const {
         return this->search_only_api_key;
