@@ -466,6 +466,26 @@ private:
 
     std::deque<nlohmann::json> alter_history;
 
+    Collection(const std::string& name, const uint32_t& collection_id, const uint64_t& created_at,
+               const uint32_t& next_seq_id, Store* store, const std::vector<field>& fields,
+               const std::string& default_sorting_field,
+               const float& max_memory_ratio, const std::string& fallback_field_type,
+               std::vector<char>&& symbols_to_index, std::vector<char>&& token_separators,
+               const bool& enable_nested_fields, std::shared_ptr<VQModel> vq_model,
+               spp::sparse_hash_map<std::string, std::string> referenced_in,
+               const nlohmann::json& metadata,
+               spp::sparse_hash_map<std::string, std::set<reference_pair_t>>&& async_referenced_ins,
+               const std::vector<std::string>& collection_synonym_sets,
+               const std::vector<std::string>& collection_curation_sets,
+               Index* index,
+               std::unordered_map<std::string, field>&& dynamic_fields,
+               tsl::htrie_map<char, field>&& nested_fields,
+               tsl::htrie_map<char, field>&& search_schema,
+               tsl::htrie_map<char, field>&& embedding_fields,
+               spp::sparse_hash_map<std::string, reference_info_t>&& reference_fields,
+               tsl::htrie_set<char>&& object_reference_fields,
+               std::set<update_reference_info_t>&& update_ref_infos);
+
     // methods
 
     std::string get_doc_id_key(const std::string & doc_id) const;
@@ -580,7 +600,16 @@ private:
 
     static Option<drop_tokens_param_t> parse_drop_tokens_mode(const std::string& drop_tokens_mode);
 
-    Index* init_index();
+    static Option<Index*> init_index(const bool& is_live_request, const std::string& name, const uint32_t& collection_id,
+                                     const std::vector<field>& fields, Store *store,
+                                     const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
+                                     std::unordered_map<std::string, field>& dynamic_fields,
+                                     tsl::htrie_map<char, field>& nested_fields,
+                                     tsl::htrie_map<char, field>& search_schema,
+                                     tsl::htrie_map<char, field>& embedding_fields,
+                                     spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
+                                     tsl::htrie_set<char>& object_reference_fields,
+                                     std::set<update_reference_info_t>& update_ref_infos);
 
     static std::vector<char> to_char_array(const std::vector<std::string>& strs);
 
@@ -722,6 +751,15 @@ private:
                                       const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
                                       nlohmann::json& document);
 
+    Option<bool> populate_facets(std::vector<facet> facets, size_t max_facet_values,
+                                        const std::vector<std::string>& facet_return_parent,
+                                        const facet_query_t& facet_query, size_t highlight_affix_num_tokens,
+                                        size_t snippet_threshold, const std::string& highlight_start_tag,
+                                        const std::string& highlight_end_tag, const std::string& raw_query,
+                                        nlohmann::json& results, bool is_union = false) const;
+
+    static Option<bool> merge_facet_results(nlohmann::json& result);
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
@@ -753,17 +791,19 @@ public:
 
     Collection() = delete;
 
-    Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
-               const uint32_t next_seq_id, Store *store, const std::vector<field>& fields,
-               const std::string& default_sorting_field,
-               const float max_memory_ratio, const std::string& fallback_field_type,
-               const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
-               const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model = nullptr,
-               spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>(),
-               const nlohmann::json& metadata = {},
-               spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins =
-                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
-               const std::vector<std::string>& collection_synonym_sets = {}, const std::vector<std::string>& collection_curation_sets = {});
+    static Option<Collection*> new_collection(const std::string& name, const uint32_t& collection_id,
+                                              const uint64_t& created_at,
+                                              const uint32_t& next_seq_id, Store *store, const std::vector<field>& fields,
+                                              const std::string& default_sorting_field,
+                                              const float& max_memory_ratio, const std::string& fallback_field_type,
+                                              const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
+                                              const bool& enable_nested_fields, std::shared_ptr<VQModel> vq_model,
+                                              spp::sparse_hash_map<std::string, std::string> referenced_in,
+                                              const nlohmann::json& metadata,
+                                              spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins,
+                                              const std::vector<std::string>& collection_synonym_sets,
+                                              const std::vector<std::string>& collection_curation_sets,
+                                              const bool& is_live_request);
 
     ~Collection();
 

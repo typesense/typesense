@@ -4364,13 +4364,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                       facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, collection, &reference_facet_ids);
         }
 
-        bool is_one_valid = true;
+        bool is_one_valid = false;
 
         for (auto& item: reference_facet_ids) {
             auto& reference_facet_result = item.second;
             const auto& ref_ids_len = reference_facet_result.count;
+            const auto max_ids_len = std::max((size_t)ref_ids_len, all_result_ids_len);
+
             const size_t ref_window_size = (num_threads == 0) ? 0 :
-                                                (ref_ids_len + num_threads - 1) / num_threads;
+                                           (max_ids_len + num_threads - 1) / num_threads;
             uint32_t batch_reference_facet_len = ref_window_size;
             for(size_t reference_facet_index = 0; reference_facet_index < ref_ids_len; ) {
                 if (reference_facet_index + ref_window_size > ref_ids_len) {
@@ -4406,7 +4408,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
 
             uint32_t* batch_result_ids = all_result_ids + result_index;
-            is_one_valid = false;
             num_queued++;
 
             thread_pool->enqueue([this, thread_id, &facets, &facet_batches, &facet_query, group_limit, group_by_fields,

@@ -327,6 +327,10 @@ void Config::load_config_env() {
     if(!get_env("TYPESENSE_PROXY_ALLOW_ONLY_PEER_SRC_IPS").empty()) {
       this->proxy_allow_only_peer_src_ips = std::stoi(get_env("TYPESENSE_PROXY_ALLOW_ONLY_PEER_SRC_IPS"));
     }
+
+    if(!get_env("TYPESENSE_SHUTDOWN_DELAY_SECONDS").empty()) {
+        this->shutdown_delay_seconds = std::stoi(get_env("TYPESENSE_SHUTDOWN_DELAY_SECONDS"));
+    }
 }
 
 void Config::load_config_file(cmdline::parser& options) {
@@ -583,6 +587,10 @@ void Config::load_config_file(cmdline::parser& options) {
       auto proxy_allow_src_ips_str = reader.Get("server", "proxy-allow-only-peer-src-ips", "false");
       this->proxy_allow_only_peer_src_ips = (proxy_allow_src_ips_str == "true");
     }
+
+    if(reader.Exists("server", "shutdown-delay-seconds")) {
+        this->shutdown_delay_seconds = reader.GetInteger("server", "shutdown-delay-seconds", 0);
+    }
 }
 
 void Config::load_config_cmd_args(cmdline::parser& options)  {
@@ -810,6 +818,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("proxy-allow-only-peer-src-ips")) {
       this->proxy_allow_only_peer_src_ips = options.get<bool>("proxy-allow-only-peer-src-ips");
+    }
+
+    if(options.exist("shutdown-delay-seconds")) {
+        this->shutdown_delay_seconds = options.get<uint32_t>("shutdown-delay-seconds");
     }
 }
 

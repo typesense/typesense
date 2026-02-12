@@ -162,6 +162,8 @@ private:
 
     ThreadPool* meta_thread_pool;
 
+    bool is_shutdown_triggered = false;
+
     bool (*auth_handler)(std::map<std::string, std::string>& params,
                          std::vector<nlohmann::json>& embedded_params_vec,
                          const std::string& body, const route_path& rpath,
@@ -297,4 +299,6 @@ public:
     void decr_pending_writes();
 
     static bool curl_only_http1(std::string_view ua);
+
+    void set_shutdown_triggered();
 };

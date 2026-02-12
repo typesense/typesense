@@ -66,8 +66,8 @@ Option<bool> diversity_t::parse(const nlohmann::json& json, diversity_t& diversi
         metric_it = metric.find("weight");
         if (metric_it == metric.end()) {
             weight = 1;
-        } else if (!metric_it.value().is_number_float()) {
-            return Option<bool>(400, "Invalid `weight` format: `" + metric_it.value().dump() + "`. Expected a float number.");
+        } else if (!metric_it.value().is_number()) {
+            return Option<bool>(400, "Invalid `weight` format: `" + metric_it.value().dump() + "`. Expected a number.");
         } else {
             weight = metric_it.value();
         }

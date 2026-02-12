@@ -299,6 +299,13 @@ nlohmann::json curation_t::to_json() const {
         curation["rule"]["tags"] = rule.tags;
     }
 
+    curation["rule"]["synonyms"] = rule.synonyms;
+    curation["rule"]["stem"] = rule.stem;
+
+    if(!rule.stemming_dictionary.empty()) {
+        curation["rule"]["stemming_dictionary"] = rule.stemming_dictionary;
+    }
+
     curation["includes"] = nlohmann::json::array();
 
     for(const auto & add_hit: add_hits) {
