@@ -1078,7 +1078,7 @@ Option<bool> filter::parse_filter_string(const std::string& filter_query, std::s
     return Option<bool>(true);
 }
 
-bool filter::clause_implies(const Conjunction& query_clause, const Conjunction& rule_clause) {
+bool filter::clause_implies(const Conjunction& query_clause, const Conjunction& rule_clause, bool& is_second_pass_required) {
     if (rule_clause.empty()) return true;
 
     std::map<std::string, const AtomicCondition*> rule_map;
@@ -1105,18 +1105,27 @@ bool filter::clause_implies(const Conjunction& query_clause, const Conjunction& 
             }
 
             if (r.has_range) {
-                if (r.min_val > -std::numeric_limits<double>::infinity()) {
-                    if (!q.has_range ||
-                        q.min_val == -std::numeric_limits<double>::infinity() ||
-                        q.min_val < r.min_val ||
+                is_second_pass_required = false; //for ranges, second pass check is not required
+
+                if (!q.has_range) {
+                    // If query has exact value instead of range, check if it's inside rule range
+                    if (!q.equality_values.empty() && q.equality_values.size() == 1) {
+                        try {
+                            double q_val = std::stod(*q.equality_values.begin());
+                            if (q_val < r.min_val || q_val > r.max_val) return false;
+                        } catch (...) {
+                            return false;
+                        }
+                    } else {
+                        return false; // query has neither range nor single value
+                    }
+                } else {
+                    // Both have ranges → query range must be inside rule range
+                    if (q.min_val < r.min_val ||
                         (q.min_val == r.min_val && !q.min_inclusive && r.min_inclusive)) {
                         return false;
                     }
-                }
-                if (r.max_val < std::numeric_limits<double>::infinity()) {
-                    if (!q.has_range ||
-                        q.max_val == std::numeric_limits<double>::infinity() ||
-                        q.max_val > r.max_val ||
+                    if (q.max_val > r.max_val ||
                         (q.max_val == r.max_val && !q.max_inclusive && r.max_inclusive)) {
                         return false;
                     }
@@ -1145,7 +1154,19 @@ DNF filter::to_dnf(const filter_node_t* node) {
         atom.negated = f.apply_not_equals;
         bool is_numeric = false;
 
-        if (!f.comparators.empty()) {
+        if (!f.comparators.empty() && f.comparators[0] == RANGE_INCLUSIVE && f.values.size() == 2) {
+            atom.has_range = true;
+
+            try {
+                atom.min_val = std::stod(f.values[0]);
+                atom.max_val = std::stod(f.values[1]);
+                atom.min_inclusive = true;
+                atom.max_inclusive = true;
+            } catch (...) {
+                // invalid numbers → fallback to empty
+                atom.has_range = false;
+            }
+        } else if (!f.comparators.empty()) {
             for (auto comp : f.comparators) {
                 if (comp == GREATER_THAN || comp == GREATER_THAN_EQUALS ||
                     comp == LESS_THAN || comp == LESS_THAN_EQUALS) {
@@ -1153,10 +1174,6 @@ DNF filter::to_dnf(const filter_node_t* node) {
                     break;
                 }
             }
-        }
-
-        if (f.values.size() == 1 && f.values[0].find("..") != std::string::npos) {
-            is_numeric = true;
         }
 
         if (is_numeric) {
@@ -1186,7 +1203,7 @@ DNF filter::to_dnf(const filter_node_t* node) {
             } catch (...) {
                 // invalid number → treat as empty
             }
-        } else {
+        } else if(!atom.has_range) {
             for (const auto& v : f.values) {
                 atom.equality_values.insert(v);
             }
@@ -1226,11 +1243,13 @@ bool filter::query_satisfies_rule(const DNF& rule_dnf, const DNF& query_dnf) {
         return false;
     }
 
+    bool is_second_pass_required = true;
+
     // Rule → Query
     for (const auto& rule_clause : rule_dnf) {
         bool covered = false;
         for (const auto& query_clause : query_dnf) {
-            if (clause_implies(query_clause, rule_clause)) {
+            if (clause_implies(query_clause, rule_clause, is_second_pass_required)) {
                 covered = true;
                 break;
             }
@@ -1238,16 +1257,18 @@ bool filter::query_satisfies_rule(const DNF& rule_dnf, const DNF& query_dnf) {
         if (!covered) return false;
     }
 
-    // Query → Rule
-    for (const auto& query_clause : query_dnf) {
-        bool covered = false;
-        for (const auto& rule_clause : rule_dnf) {
-            if (clause_implies(rule_clause, query_clause)) {
-                covered = true;
-                break;
+    if(is_second_pass_required) {
+        // Query → Rule
+        for (const auto& query_clause: query_dnf) {
+            bool covered = false;
+            for (const auto& rule_clause: rule_dnf) {
+                if (clause_implies(rule_clause, query_clause, is_second_pass_required)) {
+                    covered = true;
+                    break;
+                }
             }
+            if (!covered) return false;
         }
-        if (!covered) return false;
     }
 
     return true;

@@ -93,7 +93,7 @@ struct filter {
 
     static DNF to_dnf(const filter_node_t* node);
 
-    static bool clause_implies(const Conjunction& query_clause, const Conjunction& rule_clause);
+    static bool clause_implies(const Conjunction& query_clause, const Conjunction& rule_clause, bool& is_second_pass_required);
 
     static bool query_satisfies_rule(const DNF& rule_dnf, const DNF& query_dnf);
 };

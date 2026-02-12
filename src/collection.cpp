@@ -953,10 +953,14 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
             }
         }
 
-        bool filter_by_match = curation.rule.query.empty() && curation.rule.match.empty() &&
-                                filter::query_satisfies_rule(curation.rule.filter_tree_dnf, filter_query_dnf);
+        bool filter_by_match = filter::query_satisfies_rule(curation.rule.filter_tree_dnf, filter_query_dnf);
 
-        if(!query_match && !filter_by_match) {
+        if((!query_match && !filter_by_match) || query.empty()) {
+            return false;
+        }
+
+        //if curation rule has filter_by then it should match with query filter
+        if(!curation.rule.filter_by.empty() && !filter_by_match) {
             return false;
         }
     }

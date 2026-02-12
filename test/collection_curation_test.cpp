@@ -6318,7 +6318,7 @@ TEST_F(CollectionCurationTest, CurationMatchExtended) {
             "filter_by": "is_available:true || is_enabled:true"
           },
           "includes": [
-            {"id": "2", "position": 1}
+            {"id": "1", "position": 1}
           ]
         })OVR"_json;
 
@@ -6335,7 +6335,7 @@ TEST_F(CollectionCurationTest, CurationMatchExtended) {
             "filter_by": "is_available:true && (is_enabled:true || price:>30)"
           },
           "includes": [
-            {"id": "2", "position": 1}
+            {"id": "3", "position": 1}
           ]
         })OVR"_json;
 
@@ -6352,7 +6352,7 @@ TEST_F(CollectionCurationTest, CurationMatchExtended) {
             "filter_by": "price:[10..30]"
           },
           "includes": [
-            {"id": "2", "position": 1}
+            {"id": "4", "position": 1}
           ]
         })OVR"_json;
 
@@ -6452,8 +6452,8 @@ TEST_F(CollectionCurationTest, CurationMatchExtended) {
     ASSERT_EQ(5, results["found"].get<uint32_t>());
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_TRUE(results["hits"][0]["curated"]);
-    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
-    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("Another normal product", results["hits"][0]["document"]["description"]);
 
     req_params =  {
             {"collection", "products"},
@@ -6469,8 +6469,8 @@ TEST_F(CollectionCurationTest, CurationMatchExtended) {
     ASSERT_EQ(5, results["found"].get<uint32_t>());
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_TRUE(results["hits"][0]["curated"]);
-    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
-    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("Another normal product", results["hits"][0]["document"]["description"]);
 
     req_params =  {
             {"collection", "products"},
@@ -6486,8 +6486,8 @@ TEST_F(CollectionCurationTest, CurationMatchExtended) {
     ASSERT_EQ(5, results["found"].get<uint32_t>());
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_TRUE(results["hits"][0]["curated"]);
-    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
-    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("Another normal product", results["hits"][0]["document"]["description"]);
 
     req_params =  {
             {"collection", "products"},
@@ -6500,11 +6500,11 @@ TEST_F(CollectionCurationTest, CurationMatchExtended) {
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     results = nlohmann::json::parse(json_res);
-    ASSERT_EQ(4, results["found"].get<uint32_t>());
-    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ(5, results["found"].get<uint32_t>());
+    ASSERT_EQ(5, results["hits"].size());
     ASSERT_TRUE(results["hits"][0]["curated"]);
-    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
-    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("Not available", results["hits"][0]["document"]["description"]);
 
     req_params =  {
             {"collection", "products"},
@@ -6517,11 +6517,11 @@ TEST_F(CollectionCurationTest, CurationMatchExtended) {
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     results = nlohmann::json::parse(json_res);
-    ASSERT_EQ(4, results["found"].get<uint32_t>());
-    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ(5, results["found"].get<uint32_t>());
+    ASSERT_EQ(5, results["hits"].size());
     ASSERT_TRUE(results["hits"][0]["curated"]);
-    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
-    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("Not available", results["hits"][0]["document"]["description"]);
 
     //should not match
     req_params =  {
@@ -6554,8 +6554,8 @@ TEST_F(CollectionCurationTest, CurationMatchExtended) {
     ASSERT_EQ(2, results["found"].get<uint32_t>());
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_TRUE(results["hits"][0]["curated"]);
-    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
-    ASSERT_EQ("This should be promoted by curation", results["hits"][0]["document"]["description"]);
+    ASSERT_EQ("4", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("Not enabled", results["hits"][0]["document"]["description"]);
 
     //should not match any curation rule
     req_params =  {
