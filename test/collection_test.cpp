@@ -2464,7 +2464,7 @@ TEST_F(CollectionTest, UpdateDocument) {
     doc2["tags"] = {"SENTENCE"};
     add_op = coll1->add(doc2.dump(), UPDATE);
     ASSERT_FALSE(add_op.ok());
-    ASSERT_STREQ("For update, the `id` key must be provided.", add_op.error().c_str());
+    ASSERT_STREQ("For update/delete, the `id` key must be provided.", add_op.error().c_str());
 
     // now change tags with id
     doc2["id"] = "100";

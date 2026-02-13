@@ -3421,3 +3421,71 @@ TEST_F(CollectionSpecificTest, TruncationEdgeCasesTest) {
     ASSERT_EQ(1, result["hits"].size());
     ASSERT_EQ("3", result["hits"][0]["document"]["id"]);
 }
+
+TEST_F(CollectionSpecificTest, DeleteUpdateDocsInSameBatch) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "title0";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    std::vector<std::string> docs = {
+            R"({"id": "1", "title": "title1", "points": 100, "action": "create"})",
+            R"({"id": "2", "title": "title2", "points": 200, "action": "create"})",
+            R"({"id": "3", "title": "title3", "points": 200, "action": "create"})",
+            R"({"id": "2", "action": "delete"})",
+    };
+
+    nlohmann::json doc;
+    auto import_response = coll1->add_many(docs, doc, ALL);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(2, import_response["num_imported"].get<int>());
+    ASSERT_EQ(1, import_response["num_removed"].get<int>());
+    ASSERT_EQ(0, import_response["num_updated"].get<int>());
+
+    docs = {
+            R"({"id": "2", "title": "title2", "points": 100, "action": "create"})",
+            R"({"id": "4", "title": "title4", "points": 200, "action": "create"})",
+            R"({"id": "4", "points": 500, "action": "update"})",
+    };
+
+    doc.clear();
+    import_response = coll1->add_many(docs, doc, ALL);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(2, import_response["num_imported"].get<int>());
+    ASSERT_EQ(0, import_response["num_removed"].get<int>());
+    ASSERT_EQ(1, import_response["num_updated"].get<int>());
+
+    //verify the docs
+    ASSERT_EQ(5, coll1->get_num_documents());
+    ASSERT_EQ("title0", coll1->get("0").get()["title"]);
+    ASSERT_EQ(100, coll1->get("0").get()["points"].get<size_t>());
+    ASSERT_EQ("title1", coll1->get("1").get()["title"]);
+    ASSERT_EQ(100, coll1->get("1").get()["points"].get<size_t>());
+    ASSERT_EQ("title2", coll1->get("2").get()["title"]);
+    ASSERT_EQ(100, coll1->get("2").get()["points"].get<size_t>());
+    ASSERT_EQ("title3", coll1->get("3").get()["title"]);
+    ASSERT_EQ(200, coll1->get("3").get()["points"].get<size_t>());
+    ASSERT_EQ("title4", coll1->get("4").get()["title"]);
+    ASSERT_EQ(500, coll1->get("4").get()["points"].get<size_t>());
+
+    //invalid request
+    docs = {
+            R"({"id": "5", "title": "title5", "points": 100, "action": "create"})",
+            R"({"id": "6", "title": "title6", "points": 200, "action": "create"})",
+            R"({"id": "10", "points": 500, "action": "delete"})",
+    };
+
+    doc.clear();
+    import_response = coll1->add_many(docs, doc, ALL);
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(2, import_response["num_imported"].get<int>());
+    ASSERT_EQ(0, import_response["num_removed"].get<int>());
+    ASSERT_EQ(0, import_response["num_updated"].get<int>());
+}

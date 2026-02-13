@@ -296,6 +296,7 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
 Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::json& document,
                                         const index_operation_t& operation,
                                         const DIRTY_VALUES dirty_values,
+                                        const spp::sparse_hash_map<std::string, uint32_t>& batch_docs,
                                         const std::string& id) {
     try {
         document = nlohmann::json::parse(json_str);
@@ -321,15 +322,26 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
         return Option<doc_seq_id_t>(400, "The `id` should not be empty.");
     }
 
+    index_operation_t action = operation;
+
+    if(action == ALL) {
+        //we have to fetch individual doc action
+        if(document.count("action") == 0) {
+            return Option<doc_seq_id_t>(400, "The `action` should not be empty at doc level when using `all`");
+        }
+
+        action = get_index_operation(document["action"]);
+    }
+
     if(document.count("id") == 0) {
-        if(operation == UPDATE) {
-            return Option<doc_seq_id_t>(400, "For update, the `id` key must be provided.");
+        if(action == UPDATE || action == DELETE) {
+            return Option<doc_seq_id_t>(400, "For update/delete, the `id` key must be provided.");
         }
         // for UPSERT, EMPLACE or CREATE, if a document does not have an ID, we will treat it as a new doc
         uint32_t seq_id = get_next_seq_id();
         document["id"] = std::to_string(seq_id);
 
-        return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true});
+        return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true, action});
     } else {
         if(!document["id"].is_string()) {
             return Option<doc_seq_id_t>(400, "Document's `id` field should be a string.");
@@ -346,26 +358,28 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
         }
 
         if(seq_id_status == StoreStatus::FOUND) {
-            if(operation == CREATE) {
+            if(action == CREATE) {
                 return Option<doc_seq_id_t>(409, std::string("A document with id ") + doc_id + " already exists.");
             }
-            
 
-
-            // UPSERT, EMPLACE or UPDATE
+            // UPSERT, EMPLACE, UPDATE or DELETE
             uint32_t seq_id = (uint32_t) std::stoul(seq_id_str);
-
-            return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, false});
-
+            return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, false, action});
         } else {
-            if(operation == UPDATE) {
-                // for UPDATE, a document with given ID must be found
+            if(action == UPDATE || action == DELETE) {
+                //check if seq_id is already in current batch which is yet to be indexed
+                if(batch_docs.find(doc_id) != batch_docs.end()) {
+                    uint32_t seq_id = (uint32_t) std::stoul(doc_id);
+                    return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, false, action, true});
+                }
+
+                // else for UPDATE/DELETE, a document with given ID must be found
                 return Option<doc_seq_id_t>(404, "Could not find a document with id: " + doc_id);
             } else {
                 // for UPSERT, EMPLACE or CREATE, if a document with given ID is not found, we will treat it as a new doc
                 uint32_t seq_id = get_next_seq_id();
 
-                return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true});
+                return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true, action});
             }
         }
     }
@@ -575,108 +589,159 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
     const size_t index_batch_size = 1000;
     size_t num_indexed = 0;
+    size_t num_removed = 0;
+    size_t num_updated = 0;
     //bool exceeds_memory_limit = false;
 
     // ensures that document IDs are not repeated within the same batch
-    std::set<std::string> batch_doc_ids;
+    spp::sparse_hash_map<std::string, uint32_t> batch_docs_map;
     bool found_batch_new_field = false;
+    bool repeated_doc = false;
 
     for(size_t i=0; i < json_lines.size(); i++) {
-        const std::string & json_line = json_lines[i];
-        Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_line, document, operation, dirty_values, id);
+        const std::string& json_line = json_lines[i];
+        Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_line, document, operation, dirty_values, batch_docs_map, id);
 
         const uint32_t seq_id = doc_seq_id_op.ok() ? doc_seq_id_op.get().seq_id : 0;
-        index_record record(i, seq_id, document, operation, dirty_values);
+        const auto& updated_operation = doc_seq_id_op.ok() ? doc_seq_id_op.get().operation : operation;
 
-        // NOTE: we overwrite the input json_lines with result to avoid memory pressure
+        if(updated_operation == DELETE) {
+            if(!doc_seq_id_op.get().is_same_batch) {
+                //doc is already indexed, so we have to remove from memory and disk
+                Option<std::string> deleted_id_op = remove(document["id"]);
+                if(deleted_id_op.ok()) {
+                    num_removed++;
+                } else {
+                    nlohmann::json res;
+                    res["code"] = deleted_id_op.code();
+                    res["error"] = deleted_id_op.error();
+                    res["success"] = false;
 
-        record.is_update = false;
-        bool repeated_doc = false;
-
-        std::vector<field> new_fields;
-        if(!doc_seq_id_op.ok()) {
-            record.index_failure(doc_seq_id_op.code(), doc_seq_id_op.error());
-        } else {
-            const std::string& doc_id = record.doc["id"].get<std::string>();
-            repeated_doc = (batch_doc_ids.find(doc_id) != batch_doc_ids.end());
-
-            if(repeated_doc) {
-                // when a document repeats, we send the batch until this document so that we can deal with conflicts
-                i--;
-                goto do_batched_index;
-            }
-
-            record.is_update = !doc_seq_id_op.get().is_new;
-
-            if(record.is_update) {
-                get_document_from_store(get_seq_id_key(seq_id), record.old_doc);
-            }
-
-            batch_doc_ids.insert(doc_id);
-
-            std::string fallback_field_type_copy;
-            std::unordered_map<std::string, field> dynamic_fields_copy;
-            tsl::htrie_map<char, field> nested_fields_copy;
-            spp::sparse_hash_map<std::string, reference_info_t> reference_fields_copy;
-            spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins_copy;
-            tsl::htrie_map<char, field> search_schema_copy;
-            tsl::htrie_set<char> object_reference_fields_copy;
-            {
-                std::shared_lock lock(mutex);
-                fallback_field_type_copy = fallback_field_type;
-                dynamic_fields_copy = dynamic_fields;
-                nested_fields_copy = nested_fields;
-                reference_fields_copy = reference_fields;
-                async_referenced_ins_copy = async_referenced_ins;
-                search_schema_copy = search_schema;
-                object_reference_fields_copy = object_reference_fields;
-            }
-
-            // if `fallback_field_type` or `dynamic_fields` is enabled, update schema first before indexing
-            if(!fallback_field_type_copy.empty() || !dynamic_fields_copy.empty() || !nested_fields_copy.empty() ||
-                !reference_fields_copy.empty() || !async_referenced_ins_copy.empty()) {
-
-                Option<bool> new_fields_op = detect_new_fields(record.doc, dirty_values,
-                                                               search_schema_copy, dynamic_fields_copy,
-                                                               nested_fields_copy,
-                                                               fallback_field_type_copy,
-                                                               record.is_update,
-                                                               new_fields,
-                                                               enable_nested_fields,
-                                                               reference_fields_copy, object_reference_fields_copy);
-                if(!new_fields_op.ok()) {
-                    record.index_failure(new_fields_op.code(), new_fields_op.error());
+                    json_lines[i] = res.dump();
                 }
+            } else {
+                //doc is in same batch and not indexed yet, remove from index record batch
+                auto ind = batch_docs_map[document["id"]];
+                //swap with last element
+                std::swap(index_records.back(), index_records.at(ind));
+
+                //update the moved record index in map
+                const auto& swapped_rec = index_records.at(ind);
+                batch_docs_map[swapped_rec.doc["id"]] = ind;
+
+                //erase key from map and index batch
+                index_records.pop_back();
+                batch_docs_map.erase(document["id"]);
+                num_removed++;
             }
-        }
+        } else if (updated_operation == UPDATE && doc_seq_id_op.get().is_same_batch) {
+            //we've to handle only same batch case as indexed doc case is already taken care
+            auto ind = batch_docs_map[document["id"]];
+            auto& current_doc = index_records.at(ind).doc;
 
-        if(!new_fields.empty()) {
-            std::unique_lock lock(mutex);
+            for(const auto& kv : document.items()) {
+                current_doc[kv.key()] = kv.value();
+            }
+            num_updated++;
+        } else if (updated_operation == ALL) {
+            //it is top level action type and has not been updated while parsing, mostly due to some error
+            nlohmann::json res;
+            res["code"] = doc_seq_id_op.code();
+            res["error"] = doc_seq_id_op.error();
+            res["success"] = false;
 
-            bool found_new_field = false;
-            for(auto& new_field: new_fields) {
-                if(search_schema.find(new_field.name) == search_schema.end()) {
-                    found_new_field = true;
-                    found_batch_new_field = true;
-                    search_schema.emplace(new_field.name, new_field);
-                    fields.emplace_back(new_field);
-                    if(new_field.nested) {
-                        check_and_add_nested_field(nested_fields, new_field);
+            json_lines[i] = res.dump();
+        } else {
+            index_record record(i, seq_id, document, updated_operation, dirty_values);
+
+            // NOTE: we overwrite the input json_lines with result to avoid memory pressure
+            record.is_update = false;
+
+            std::vector<field> new_fields;
+            if(!doc_seq_id_op.ok()) {
+                record.index_failure(doc_seq_id_op.code(), doc_seq_id_op.error());
+            } else {
+                const std::string& doc_id = record.doc["id"].get<std::string>();
+                repeated_doc = (batch_docs_map.find(doc_id) != batch_docs_map.end());
+
+                if(repeated_doc) {
+                    // when a document repeats, we send the batch until this document so that we can deal with conflicts
+                    i--;
+                    goto do_batched_index;
+                }
+
+                batch_docs_map[doc_id] = index_records.size();
+
+                record.is_update = !doc_seq_id_op.get().is_new;
+
+                if(record.is_update) {
+                    get_document_from_store(get_seq_id_key(seq_id), record.old_doc);
+                }
+
+                std::string fallback_field_type_copy;
+                std::unordered_map<std::string, field> dynamic_fields_copy;
+                tsl::htrie_map<char, field> nested_fields_copy;
+                spp::sparse_hash_map<std::string, reference_info_t> reference_fields_copy;
+                spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins_copy;
+                tsl::htrie_map<char, field> search_schema_copy;
+                tsl::htrie_set<char> object_reference_fields_copy;
+                {
+                    std::shared_lock lock(mutex);
+                    fallback_field_type_copy = fallback_field_type;
+                    dynamic_fields_copy = dynamic_fields;
+                    nested_fields_copy = nested_fields;
+                    reference_fields_copy = reference_fields;
+                    async_referenced_ins_copy = async_referenced_ins;
+                    search_schema_copy = search_schema;
+                    object_reference_fields_copy = object_reference_fields;
+                }
+
+                // if `fallback_field_type` or `dynamic_fields` is enabled, update schema first before indexing
+                if(!fallback_field_type_copy.empty() || !dynamic_fields_copy.empty() || !nested_fields_copy.empty() ||
+                   !reference_fields_copy.empty() || !async_referenced_ins_copy.empty()) {
+
+                    Option<bool> new_fields_op = detect_new_fields(record.doc, dirty_values,
+                                                                   search_schema_copy, dynamic_fields_copy,
+                                                                   nested_fields_copy,
+                                                                   fallback_field_type_copy,
+                                                                   record.is_update,
+                                                                   new_fields,
+                                                                   enable_nested_fields,
+                                                                   reference_fields_copy, object_reference_fields_copy);
+                    if(!new_fields_op.ok()) {
+                        record.index_failure(new_fields_op.code(), new_fields_op.error());
                     }
                 }
             }
 
-            if(found_new_field) {
-                index->refresh_schemas(new_fields, {});
+            if(!new_fields.empty()) {
+                std::unique_lock lock(mutex);
+
+                bool found_new_field = false;
+                for(auto& new_field: new_fields) {
+                    if(search_schema.find(new_field.name) == search_schema.end()) {
+                        found_new_field = true;
+                        found_batch_new_field = true;
+                        search_schema.emplace(new_field.name, new_field);
+                        fields.emplace_back(new_field);
+                        if(new_field.nested) {
+                            check_and_add_nested_field(nested_fields, new_field);
+                        }
+                    }
+                }
+
+                if(found_new_field) {
+                    index->refresh_schemas(new_fields, {});
+                }
             }
+
+            index_records.emplace_back(std::move(record));
         }
 
-        index_records.emplace_back(std::move(record));
-
         do_batched_index:
-
-        if((i+1) % index_batch_size == 0 || i == json_lines.size()-1 || repeated_doc) {
-            batch_index(index_records, json_lines, num_indexed, return_doc, return_id, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries);
+        if((i+1) % index_batch_size == 0 || i == json_lines.size() - 1 || repeated_doc) {
+            batch_index(index_records, json_lines, num_indexed, return_doc, return_id, remote_embedding_batch_size,
+                        remote_embedding_timeout_ms, remote_embedding_num_tries);
 
             if(found_batch_new_field) {
                 persist_collection_meta();
@@ -691,13 +756,18 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             }
 
             index_records.clear();
-            batch_doc_ids.clear();
+            batch_docs_map.clear();
         }
+
     }
+
+    auto lines_processed = num_indexed + num_updated + (num_removed * 2);
 
     nlohmann::json resp_summary;
     resp_summary["num_imported"] = num_indexed;
-    resp_summary["success"] = (num_indexed == json_lines.size());
+    resp_summary["num_removed"] = num_removed;
+    resp_summary["num_updated"] = num_updated;
+    resp_summary["success"] = (lines_processed == json_lines.size());
 
     return resp_summary;
 }
