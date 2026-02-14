@@ -127,6 +127,11 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
             infix_index.emplace(a_field.name, infix_sets);
         }
 
+        if(a_field.optional_index) {
+            field_exists_index.emplace(a_field.name, new id_list_t(ids_t::MAX_BLOCK_ELEMENTS));
+            field_missing_index.emplace(a_field.name, new id_list_t(ids_t::MAX_BLOCK_ELEMENTS));
+        }
+
         if (a_field.is_reference_helper && a_field.is_array()) {
             auto num_tree = new num_tree_t;
             reference_index.emplace(a_field.name, num_tree);
@@ -215,6 +220,16 @@ Index::~Index() {
 
     delete facet_index_v4;
     
+    for(auto& kv : field_exists_index) {
+        delete kv.second;
+    }
+    field_exists_index.clear();
+
+    for(auto& kv : field_missing_index) {
+        delete kv.second;
+    }
+    field_missing_index.clear();
+
     delete seq_ids;
 
     for(auto& vec_index_kv: vector_index) {
@@ -708,6 +723,27 @@ size_t Index::batch_memory_index(Index *index,
         cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
     }
 
+    // Handle optional_index fields that no document in the batch has
+    for(auto it = indexable_schema.begin(); it != indexable_schema.end(); ++it) {
+        const auto& schema_field = it.value();
+        if(schema_field.optional_index && found_fields.count(schema_field.name) == 0
+           && index->field_missing_index.count(schema_field.name) != 0) {
+            auto* missing_list = index->field_missing_index[schema_field.name];
+            for(const auto& record : iter_batch) {
+                if(!record.indexed.ok()) continue;
+                if(!record.is_update) {
+                    // New insert: field is truly absent
+                    missing_list->upsert(record.seq_id);
+                } else if(record.operation == UPSERT) {
+                    // Full replace: check the final merged document
+                    if(record.new_doc.count(schema_field.name) == 0 || record.new_doc[schema_field.name].is_null()) {
+                        missing_list->upsert(record.seq_id);
+                    }
+                }
+            }
+        }
+    }
+
     return num_indexed;
 }
 
@@ -732,6 +768,21 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
 
     if(!afield.index) {
         return;
+    }
+
+    if(afield.optional_index && field_exists_index.count(afield.name) != 0) {
+        auto* exists_list = field_exists_index.at(afield.name);
+        auto* missing_list = field_missing_index.at(afield.name);
+        for(const auto& record : iter_batch) {
+            if(!record.indexed.ok()) continue;
+            if(record.doc.count(afield.name) == 0 || record.doc[afield.name].is_null()) {
+                missing_list->upsert(record.seq_id);
+                exists_list->erase(record.seq_id);
+            } else {
+                exists_list->upsert(record.seq_id);
+                missing_list->erase(record.seq_id);
+            }
+        }
     }
 
     // We have to handle both these edge cases:
@@ -7279,6 +7330,13 @@ void Index::remove_field(uint32_t seq_id, nlohmann::json& document, const std::s
         return;
     }
 
+    if(search_field.optional_index) {
+        if(field_exists_index.count(field_name) != 0)
+            field_exists_index[field_name]->erase(seq_id);
+        if(field_missing_index.count(field_name) != 0)
+            field_missing_index[field_name]->erase(seq_id);
+    }
+
     if(search_field.optional && document[field_name].is_null()) {
         return ;
     }
@@ -7502,6 +7560,12 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document,
     }
 
     if(!is_update) {
+        for(auto& [fname, exists_list] : field_exists_index) {
+            exists_list->erase(seq_id);
+        }
+        for(auto& [fname, missing_list] : field_missing_index) {
+            missing_list->erase(seq_id);
+        }
         seq_ids->erase(seq_id);
     }
 
@@ -7628,6 +7692,22 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
 
             infix_index.emplace(new_field.name, infix_sets);
         }
+
+        if(new_field.optional_index) {
+            if(field_exists_index.count(new_field.name) == 0) {
+                field_exists_index.emplace(new_field.name, new id_list_t(ids_t::MAX_BLOCK_ELEMENTS));
+            }
+            if(field_missing_index.count(new_field.name) == 0) {
+                auto* missing_list = new id_list_t(ids_t::MAX_BLOCK_ELEMENTS);
+                // Backfill: all existing docs are missing this new field
+                auto iter = seq_ids->new_iterator();
+                while(iter.valid()) {
+                    missing_list->upsert(iter.id());
+                    iter.next();
+                }
+                field_missing_index.emplace(new_field.name, missing_list);
+            }
+        }
     }
 
     for(const auto & del_field: del_fields) {
@@ -7701,6 +7781,15 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
             auto hnsw_index = vector_index[del_field.name];
             delete hnsw_index;
             vector_index.erase(del_field.name);
+        }
+
+        if(field_exists_index.count(del_field.name) != 0) {
+            delete field_exists_index[del_field.name];
+            field_exists_index.erase(del_field.name);
+        }
+        if(field_missing_index.count(del_field.name) != 0) {
+            delete field_missing_index[del_field.name];
+            field_missing_index.erase(del_field.name);
         }
     }
 }

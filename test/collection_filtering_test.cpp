@@ -4259,3 +4259,444 @@ TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
     ASSERT_EQ("Pizza", result["hits"][0]["document"]["root"]["main"]["name"]);
     ASSERT_EQ("Pasta", result["hits"][1]["document"]["root"]["main"]["name"]);
 }
+
+TEST_F(CollectionFilteringTest, ExistsFilterSchemaValidation) {
+    // optional_index on non-optional field should fail
+    auto schema = R"({
+        "name": "bad_coll",
+        "fields": [
+            {"name": "title", "type": "string", "optional_index": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("The `optional_index` property can only be set on optional fields.", op.error());
+
+    // optional_index on optional field should succeed and appear in summary
+    schema = R"({
+        "name": "good_coll",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "optional_index": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    auto coll = op.get();
+    auto summary = coll->get_summary_json();
+    bool found = false;
+    for (auto& f : summary["fields"]) {
+        if (f["name"] == "color") {
+            LOG(INFO) << "Field summary: " << f.dump();
+            ASSERT_TRUE(f["optional_index"].get<bool>());
+            found = true;
+        }
+    }
+    ASSERT_TRUE(found);
+
+    collectionManager.drop_collection("good_coll");
+}
+
+TEST_F(CollectionFilteringTest, ExistsFilterBasic) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "optional_index": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "Shirt", "color": "red", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Hat", "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "Pants", "color": "blue", "points": 30})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "3", "title": "Scarf", "points": 40})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "4", "title": "Shoes", "color": "green", "points": 50})"_json.dump()).ok());
+
+    // _exists: docs with color
+    auto results = coll->search("*", {}, "color: _exists",
+                                {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    std::vector<std::string> expected_ids = {"4", "2", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    // !_exists: docs without color
+    results = coll->search("*", {}, "color: !_exists",
+                           {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    expected_ids = {"3", "1"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, ExistsFilterWithoutOptionalIndex) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "Shirt", "color": "red", "points": 10})"_json.dump()).ok());
+
+    auto search_op = coll->search("*", {}, "color: _exists", {}, sort_fields, {0});
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_NE(std::string::npos, search_op.error().find("optional_index"));
+
+    search_op = coll->search("*", {}, "color: !_exists", {}, sort_fields, {0});
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_NE(std::string::npos, search_op.error().find("optional_index"));
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, ExistsFilterCombinedWithOtherFilters) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "optional_index": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "Shirt", "color": "red", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Hat", "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "Pants", "color": "blue", "points": 30})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "3", "title": "Scarf", "points": 5})"_json.dump()).ok());
+
+    // AND with numeric
+    auto results = coll->search("*", {}, "color: _exists && points: >15",
+                                {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "color: !_exists && points: >10",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // OR
+    results = coll->search("*", {}, "color: _exists || points: >15",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    // text search + exists
+    results = coll->search("shirt", {"title"}, "color: _exists",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, ExistsFilterMultipleOptionalFields) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "optional_index": true},
+            {"name": "size", "type": "string", "optional": true, "optional_index": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "A", "color": "red", "size": "M", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "B", "color": "blue", "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "size": "L", "points": 30})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "3", "title": "D", "points": 40})"_json.dump()).ok());
+
+    // both exist
+    auto results = coll->search("*", {}, "color: _exists && size: _exists",
+                                {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // color exists, size missing
+    results = coll->search("*", {}, "color: _exists && size: !_exists",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // both missing
+    results = coll->search("*", {}, "color: !_exists && size: !_exists",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // either exists (OR)
+    results = coll->search("*", {}, "color: _exists || size: _exists",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, ExistsFilterNumericAndBoolFields) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "rating", "type": "float", "optional": true, "optional_index": true},
+            {"name": "stock", "type": "int32", "optional": true, "optional_index": true},
+            {"name": "in_stock", "type": "bool", "optional": true, "optional_index": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "A", "rating": 4.5, "stock": 100, "in_stock": true, "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "B", "rating": 3.2, "in_stock": false, "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "stock": 50, "points": 30})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "3", "title": "D", "points": 40})"_json.dump()).ok());
+
+    // float exists
+    auto results = coll->search("*", {}, "rating: _exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // float not exists
+    results = coll->search("*", {}, "rating: !_exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // int exists
+    results = coll->search("*", {}, "stock: _exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // bool exists: docs 0 and 1 (both true and false count)
+    results = coll->search("*", {}, "in_stock: _exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // bool not exists
+    results = coll->search("*", {}, "in_stock: !_exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // cross-field: rating exists AND stock missing
+    results = coll->search("*", {}, "rating: _exists && stock: !_exists",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, ExistsFilterAfterDeletion) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "optional_index": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "Shirt", "color": "red", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Hat", "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "Pants", "color": "blue", "points": 30})"_json.dump()).ok());
+
+    auto results = coll->search("*", {}, "color: _exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // delete doc with color
+    coll->remove("0");
+    results = coll->search("*", {}, "color: _exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // delete doc without color
+    coll->remove("1");
+    results = coll->search("*", {}, "color: !_exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, ExistsFilterAfterUpdate) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "optional_index": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "Shirt", "color": "red", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Hat", "points": 20})"_json.dump()).ok());
+
+    auto results = coll->search("*", {}, "color: _exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // upsert doc 1 with color
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Hat", "color": "green", "points": 20})"_json.dump(), UPSERT).ok());
+    results = coll->search("*", {}, "color: _exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "color: !_exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // upsert doc 2 without color
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "Pants", "points": 30})"_json.dump(), UPSERT).ok());
+    results = coll->search("*", {}, "color: _exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "color: !_exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, ExistsFilterOnArrayFields) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "tags", "type": "string[]", "optional": true, "optional_index": true},
+            {"name": "scores", "type": "int32[]", "optional": true, "optional_index": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "A", "tags": ["sport", "outdoor"], "scores": [10, 20], "points": 1})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "B", "tags": ["indoor"], "points": 2})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "points": 3})"_json.dump()).ok());
+
+    auto results = coll->search("*", {}, "tags: _exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "scores: _exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "scores: !_exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, ExistsFilterSchemaAlter) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "A", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "B", "points": 20})"_json.dump()).ok());
+
+    // add optional field with optional_index
+    auto alter_payload = R"({
+        "fields": [
+            {"name": "color", "type": "string", "optional": true, "optional_index": true}
+        ]
+    })"_json;
+    ASSERT_TRUE(coll->alter(alter_payload).ok());
+
+    // all existing docs should be missing
+    auto results = coll->search("*", {}, "color: !_exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    results = coll->search("*", {}, "color: _exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // add new doc with color
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "color": "red", "points": 30})"_json.dump()).ok());
+    results = coll->search("*", {}, "color: _exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // drop the field
+    alter_payload = R"({"fields": [{"name": "color", "drop": true}]})"_json;
+    ASSERT_TRUE(coll->alter(alter_payload).ok());
+
+    // filter on dropped field should fail
+    auto search_op = coll->search("*", {}, "color: _exists", {}, sort_fields, {0});
+    ASSERT_FALSE(search_op.ok());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, ExistsFilterLargerDataset) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "optional_index": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    for (int i = 0; i < 100; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Product " + std::to_string(i);
+        doc["points"] = i;
+        if (i % 2 == 0) {
+            doc["color"] = "color_" + std::to_string(i);
+        }
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    auto results = coll->search("*", {}, "color: _exists", {}, sort_fields, {0}, 200).get();
+    ASSERT_EQ(50, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "color: !_exists", {}, sort_fields, {0}, 200).get();
+    ASSERT_EQ(50, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "color: _exists && points: >=50", {}, sort_fields, {0}, 200).get();
+    ASSERT_EQ(25, results["found"].get<size_t>());
+
+    collectionManager.drop_collection("products");
+}

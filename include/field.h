@@ -89,6 +89,7 @@ namespace fields {
     static const std::string truncate_len = "truncate_len";
     
     static const std::string hnsw_params = "hnsw_params";
+    static const std::string optional_index = "optional_index";
 }
 
 enum vector_distance_type_t {
@@ -143,6 +144,8 @@ struct field {
 
     bool range_index;
 
+    bool optional_index = false;
+
     bool is_reference_helper = false;
     bool cascade_delete = true;
 
@@ -163,10 +166,11 @@ struct field {
           std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false,
           const bool store = true, const bool stem = false, const std::string& stem_dictionary = "", const nlohmann::json hnsw_params = nlohmann::json(),
           const bool async_reference = false, const nlohmann::json& token_separators = {}, const nlohmann::json& symbols_to_index = {},
-          const bool cascade_delete = true, const uint32_t truncate_len = 100) :
+          const bool cascade_delete = true, const uint32_t truncate_len = 100,
+          const bool optional_index = false) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
-            embed(embed), range_index(range_index), store(store), truncate_len(truncate_len), stem(stem), stem_dictionary(stem_dictionary),
+            embed(embed), range_index(range_index), optional_index(optional_index), store(store), truncate_len(truncate_len), stem(stem), stem_dictionary(stem_dictionary),
             hnsw_params(hnsw_params), is_async_reference(async_reference), cascade_delete(cascade_delete) {
 
         set_computed_defaults(sort, infix);

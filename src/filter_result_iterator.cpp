@@ -874,7 +874,7 @@ void filter_result_iterator_t::next() {
 
     const filter a_filter = filter_node->filter_exp;
 
-    if (a_filter.field_name == "id") {
+    if (a_filter.field_name == "id" || is_existence_filter) {
         all_seq_ids_iterator.next();
         if (!all_seq_ids_iterator.valid()) {
             validity = invalid;
@@ -1143,6 +1143,34 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
         seq_id = filter_result.docs[result_index];
         approx_filter_ids_length = filter_result.count;
+        return;
+    }
+
+    if(!a_filter.comparators.empty() && a_filter.comparators[0] == EXISTS) {
+        auto& target_map = a_filter.apply_not_equals
+                           ? index->field_missing_index
+                           : index->field_exists_index;
+        auto map_it = target_map.find(a_filter.field_name);
+        
+
+
+        if(map_it == target_map.end() || map_it->second == nullptr || map_it->second->num_ids() == 0) {
+            is_filter_result_initialized = true;
+            validity = invalid;
+            return;
+        }
+
+        id_list_t* list = map_it->second;
+        all_seq_ids_iterator = list->new_iterator();
+        if(all_seq_ids_iterator.valid()) {
+            is_existence_filter = true;
+            existence_list_ptr = list;
+            seq_id = all_seq_ids_iterator.id();
+            approx_filter_ids_length = list->num_ids();
+        } else {
+            is_filter_result_initialized = true;
+            validity = invalid;
+        }
         return;
     }
 
@@ -1939,7 +1967,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 
     const filter a_filter = filter_node->filter_exp;
 
-    if (a_filter.field_name == "id") {
+    if (a_filter.field_name == "id" || is_existence_filter) {
         all_seq_ids_iterator.skip_to(id);
         if (!all_seq_ids_iterator.valid()) {
             validity = invalid;
@@ -2338,6 +2366,42 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
     return false;
 }
 
+void filter_result_iterator_t::reset_from_id_list(id_list_t* source) {
+    all_seq_ids_iterator = source->new_iterator();
+    if (all_seq_ids_iterator.valid()) {
+        seq_id = all_seq_ids_iterator.id();
+        approx_filter_ids_length = source->num_ids();
+        validity = valid;
+    } else {
+        validity = invalid;
+    }
+}
+
+void filter_result_iterator_t::compute_result_from_id_list(id_list_t* source) {
+    if (source->num_ids() == 0) {
+        validity = invalid;
+        return;
+    }
+
+    filter_result.docs = source->uncompress();
+    filter_result.count = source->num_ids();
+
+    if (timeout_info != nullptr) {
+        is_timed_out(true);
+    }
+
+    is_filter_result_initialized = true;
+
+    if (validity != timed_out && filter_result.count == 0) {
+        validity = invalid;
+        return;
+    }
+
+    result_index = 0;
+    seq_id = filter_result.docs[result_index];
+    approx_filter_ids_length = filter_result.count;
+}
+
 void filter_result_iterator_t::reset(const bool& curation_timeout) {
     if (filter_node == nullptr) {
         return;
@@ -2384,16 +2448,9 @@ void filter_result_iterator_t::reset(const bool& curation_timeout) {
 
     const filter a_filter = filter_node->filter_exp;
 
-    if (a_filter.field_name == "id") {
-        all_seq_ids_iterator = index->seq_ids->new_iterator();
-        if (all_seq_ids_iterator.valid()) {
-            seq_id = all_seq_ids_iterator.id();
-            approx_filter_ids_length = index->seq_ids->num_ids();
-            validity = valid;
-        } else {
-            validity = invalid;
-        }
-
+    if (a_filter.field_name == "id" || is_existence_filter) {
+        id_list_t* source = is_existence_filter ? existence_list_ptr : index->seq_ids;
+        reset_from_id_list(source);
         return;
     }
 
@@ -2846,29 +2903,9 @@ void filter_result_iterator_t::compute_iterators() {
 
     const filter a_filter = filter_node->filter_exp;
 
-    if (a_filter.field_name == "id") {
-        if (index->seq_ids->num_ids() == 0) {
-            validity = invalid;
-            return;
-        }
-
-        filter_result.docs = index->seq_ids->uncompress();
-        filter_result.count = index->seq_ids->num_ids();
-
-        if (timeout_info != nullptr) {
-            is_timed_out(true);
-        }
-
-        is_filter_result_initialized = true;
-
-        if (validity != timed_out && filter_result.count == 0) {
-            validity = invalid;
-            return;
-        }
-
-        result_index = 0;
-        seq_id = filter_result.docs[result_index];
-        approx_filter_ids_length = filter_result.count;
+    if (a_filter.field_name == "id" || is_existence_filter) {
+        id_list_t* source = is_existence_filter ? existence_list_ptr : index->seq_ids;
+        compute_result_from_id_list(source);
         return;
     }
 

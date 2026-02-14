@@ -458,6 +458,10 @@ private:
     id_list_t* seq_ids;
     mutable std::shared_mutex seq_ids_mutex;
 
+    // optional field existence indexes (only for fields with optional_index=true)
+    spp::sparse_hash_map<std::string, id_list_t*> field_exists_index;
+    spp::sparse_hash_map<std::string, id_list_t*> field_missing_index;
+
     std::vector<char> symbols_to_index;
 
     std::vector<char> token_separators;

@@ -320,6 +320,15 @@ private:
 
     bool delete_filter_node = false;
 
+    bool is_existence_filter = false;
+    id_list_t* existence_list_ptr = nullptr;
+
+    /// Resets the iterator state from the given id list.
+    void reset_from_id_list(id_list_t* source);
+
+    /// Computes the full result from the given id list.
+    void compute_result_from_id_list(id_list_t* source);
+
     std::unique_ptr<filter_result_iterator_timeout_info> timeout_info;
 
     /// Initializes the state of iterator node after it's creation.
