@@ -5383,6 +5383,20 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
     size_t text_len = Tokenizer::is_ascii_char(text[0]) ? text.size() : StringUtils::get_num_chars(text);
 
     std::unordered_set<size_t> phrase_matched_token_indices;
+    std::unordered_set<std::string> single_token_phrase_tokens;
+    if(is_phrase_query) {
+        for(const auto& offset : match.offsets) {
+            phrase_matched_token_indices.insert(offset.offset);
+        }
+
+        for(const auto& phrase : q_phrases) {
+            if(phrase.size() == 1) {
+                std::string phrase_token = phrase[0];
+                StringUtils::tolowercase(phrase_token);
+                single_token_phrase_tokens.insert(std::move(phrase_token));
+            }
+        }
+    }
 
     while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
         if(use_word_tokenizer) {
@@ -5418,21 +5432,25 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
         if (is_phrase_query && match_offset_found) {
             bool is_consecutive_phrase_match = false;
 
-            std::unordered_set<size_t> offset_indices;
-            for (const auto& offset : match.offsets) {
-                offset_indices.insert(offset.offset);
-            }
-            if (offset_indices.count(raw_token_index) > 0) {
+            if (phrase_matched_token_indices.count(raw_token_index) > 0) {
+                if(!single_token_phrase_tokens.empty()) {
+                    std::string raw_token_lower = raw_token;
+                    StringUtils::tolowercase(raw_token_lower);
+                    if(single_token_phrase_tokens.count(raw_token_lower) > 0) {
+                        is_consecutive_phrase_match = true;
+                    }
+                }
+
                 // check if the next token in the phrase is also in the match offsets
                 size_t next_token_index = raw_token_index + 1;
-                if (offset_indices.count(next_token_index) > 0) {
+                if (phrase_matched_token_indices.count(next_token_index) > 0) {
                     is_consecutive_phrase_match = true;
                 }
 
                 if (!is_consecutive_phrase_match && raw_token_index > 0) {
                     // the next token is not in the match offsets, check if the previous token is in the phrase
                     size_t prev_token_index = raw_token_index - 1;
-                    if (offset_indices.count(prev_token_index) > 0) {
+                    if (phrase_matched_token_indices.count(prev_token_index) > 0) {
                         is_consecutive_phrase_match = true;
                     }
                 }

@@ -3817,6 +3817,30 @@ TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightingShouldNotHighlightPart
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificMoreTest, SingleTokenPhraseQueryShouldHighlightExactMatch) {
+    std::vector<field> fields = {field("speechText", field_types::STRING, false)};
+    Collection* coll1 = collectionManager.create_collection("single_token_phrase_highlight", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["speechText"] = "AddLife";
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("\"addlife\"", {"speechText"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "speechText", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback, 1000).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("speechText", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>AddLife</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    collectionManager.drop_collection("single_token_phrase_highlight");
+}
+
 TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightingInNestedFields) {
     nlohmann::json schema = R"({
         "name": "coll1",
