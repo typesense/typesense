@@ -3436,10 +3436,10 @@ TEST_F(CollectionSpecificTest, DeleteUpdateDocsInSameBatch) {
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
 
     std::vector<std::string> docs = {
-            R"({"id": "1", "title": "title1", "points": 100, "action": "create"})",
-            R"({"id": "2", "title": "title2", "points": 200, "action": "create"})",
-            R"({"id": "3", "title": "title3", "points": 200, "action": "create"})",
-            R"({"id": "2", "action": "delete"})",
+            R"({"id": "1", "title": "title1", "points": 100, "_action": "create"})",
+            R"({"id": "2", "title": "title2", "points": 200, "_action": "create"})",
+            R"({"id": "3", "title": "title3", "points": 200, "_action": "create"})",
+            R"({"id": "2", "_action": "delete"})",
     };
 
     nlohmann::json doc;
@@ -3450,9 +3450,9 @@ TEST_F(CollectionSpecificTest, DeleteUpdateDocsInSameBatch) {
     ASSERT_EQ(0, import_response["num_updated"].get<int>());
 
     docs = {
-            R"({"id": "2", "title": "title2", "points": 100, "action": "create"})",
-            R"({"id": "4", "title": "title4", "points": 200, "action": "create"})",
-            R"({"id": "4", "points": 500, "action": "update"})",
+            R"({"id": "2", "title": "title2", "points": 100, "_action": "create"})",
+            R"({"id": "4", "title": "title4", "points": 200, "_action": "create"})",
+            R"({"id": "4", "points": 500, "_action": "update"})",
     };
 
     doc.clear();
@@ -3477,9 +3477,9 @@ TEST_F(CollectionSpecificTest, DeleteUpdateDocsInSameBatch) {
 
     //invalid request
     docs = {
-            R"({"id": "5", "title": "title5", "points": 100, "action": "create"})",
-            R"({"id": "6", "title": "title6", "points": 200, "action": "create"})",
-            R"({"id": "10", "points": 500, "action": "delete"})",
+            R"({"id": "5", "title": "title5", "points": 100, "_action": "create"})",
+            R"({"id": "6", "title": "title6", "points": 200, "_action": "create"})",
+            R"({"id": "10", "points": 500, "_action": "delete"})",
     };
 
     doc.clear();
