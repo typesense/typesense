@@ -326,14 +326,14 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
 
     if(action == ALL) {
         //we have to fetch individual doc action
-        if(document.count("_action") != 1) {
-            return Option<doc_seq_id_t>(400, "The `_action` should not be empty at doc level when using `all`");
+        if(document.count("$action") != 1) {
+            return Option<doc_seq_id_t>(400, "The `$action` should not be empty at doc level when using `all`");
         }
 
-        action = get_index_operation(document["_action"]);
+        action = get_index_operation(document["$action"]);
 
         //remove _action field from doc which will be later indexed
-        document.erase("_action");
+        document.erase("$action");
     }
 
     if(document.count("id") == 0) {
