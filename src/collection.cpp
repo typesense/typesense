@@ -5382,8 +5382,45 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
 
     size_t text_len = Tokenizer::is_ascii_char(text[0]) ? text.size() : StringUtils::get_num_chars(text);
 
-    std::unordered_set<size_t> phrase_matched_token_indices;
+    std::vector<std::pair<size_t, size_t>> valid_phrase_ranges;
+    if(is_phrase_query) {
+        size_t min_phrase_len = 0;
+        for(const auto& phrase : q_phrases) {
+            if(!phrase.empty()) {
+                min_phrase_len = (min_phrase_len == 0) ? phrase.size() : std::min(min_phrase_len, phrase.size());
+            }
+        }
 
+        if(min_phrase_len > 0) {
+            std::vector<size_t> matched_offsets;
+            matched_offsets.reserve(match.offsets.size());
+            for(const auto& offset : match.offsets) {
+                matched_offsets.push_back(offset.offset);
+            }
+
+            std::sort(matched_offsets.begin(), matched_offsets.end());
+            matched_offsets.erase(std::unique(matched_offsets.begin(), matched_offsets.end()), matched_offsets.end());
+
+            size_t run_start = 0;
+            for(size_t i = 1; i <= matched_offsets.size(); i++) {
+                const bool is_run_break = (i == matched_offsets.size()) ||
+                                          (matched_offsets[i] != matched_offsets[i - 1] + 1);
+                if(!is_run_break) {
+                    continue;
+                }
+
+                const size_t run_end = i - 1;
+                const size_t run_len = run_end - run_start + 1;
+                if(run_len >= min_phrase_len) {
+                    valid_phrase_ranges.emplace_back(matched_offsets[run_start], matched_offsets[run_end]);
+                }
+
+                run_start = i;
+            }
+        }
+    }
+
+    size_t valid_phrase_range_idx = 0;
     while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
         if(use_word_tokenizer) {
             bool found_token = word_tokenizer.tokenize(raw_token);
@@ -5418,24 +5455,15 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
         if (is_phrase_query && match_offset_found) {
             bool is_consecutive_phrase_match = false;
 
-            std::unordered_set<size_t> offset_indices;
-            for (const auto& offset : match.offsets) {
-                offset_indices.insert(offset.offset);
+            while(valid_phrase_range_idx < valid_phrase_ranges.size() &&
+                  raw_token_index > valid_phrase_ranges[valid_phrase_range_idx].second) {
+                valid_phrase_range_idx++;
             }
-            if (offset_indices.count(raw_token_index) > 0) {
-                // check if the next token in the phrase is also in the match offsets
-                size_t next_token_index = raw_token_index + 1;
-                if (offset_indices.count(next_token_index) > 0) {
-                    is_consecutive_phrase_match = true;
-                }
 
-                if (!is_consecutive_phrase_match && raw_token_index > 0) {
-                    // the next token is not in the match offsets, check if the previous token is in the phrase
-                    size_t prev_token_index = raw_token_index - 1;
-                    if (offset_indices.count(prev_token_index) > 0) {
-                        is_consecutive_phrase_match = true;
-                    }
-                }
+            if(valid_phrase_range_idx < valid_phrase_ranges.size()) {
+                const auto& current_range = valid_phrase_ranges[valid_phrase_range_idx];
+                is_consecutive_phrase_match = (raw_token_index >= current_range.first &&
+                                               raw_token_index <= current_range.second);
             }
 
             // this is not part of a consecutive phrase match, don't highlight it
