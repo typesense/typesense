@@ -71,6 +71,30 @@ TEST_F(StopwordsManagerTest, UpsertGetStopwords) {
     ASSERT_TRUE(stopword_config["countries"].stopwords.find("states") != stopword_config["countries"].stopwords.end());
     ASSERT_TRUE(stopword_config["countries"].stopwords.find("china") != stopword_config["countries"].stopwords.end());
     ASSERT_TRUE(stopword_config["countries"].stopwords.find("japan") != stopword_config["countries"].stopwords.end());
+
+    //dont transliterate stopwords
+    auto stopwords4 = R"(
+                {"stopwords": ["българия", "германия", "франция", "италия", "испания", "гърция", "турция"], "locale": "bg"}
+            )"_json;
+
+    upsert_op = stopwordsManager.upsert_stopword("bulgarian-countries", stopwords4);
+    ASSERT_TRUE(upsert_op.ok());
+
+    stopword_config = stopwordsManager.get_stopwords();
+    ASSERT_EQ(4, stopword_config.size()); //total stopwords set
+    ASSERT_TRUE(stopword_config.find("countries") != stopword_config.end());
+    ASSERT_TRUE(stopword_config.find("articles") != stopword_config.end());
+    ASSERT_TRUE(stopword_config.find("continents") != stopword_config.end());
+    ASSERT_TRUE(stopword_config.find("bulgarian-countries") != stopword_config.end());
+
+    ASSERT_EQ(7, stopword_config["bulgarian-countries"].stopwords.size());
+    ASSERT_TRUE(stopword_config["bulgarian-countries"].stopwords.find("българия") != stopword_config["bulgarian-countries"].stopwords.end());
+    ASSERT_TRUE(stopword_config["bulgarian-countries"].stopwords.find("германия") != stopword_config["bulgarian-countries"].stopwords.end());
+    ASSERT_TRUE(stopword_config["bulgarian-countries"].stopwords.find("франция") != stopword_config["bulgarian-countries"].stopwords.end());
+    ASSERT_TRUE(stopword_config["bulgarian-countries"].stopwords.find("италия") != stopword_config["bulgarian-countries"].stopwords.end());
+    ASSERT_TRUE(stopword_config["bulgarian-countries"].stopwords.find("испания") != stopword_config["bulgarian-countries"].stopwords.end());
+    ASSERT_TRUE(stopword_config["bulgarian-countries"].stopwords.find("гърция") != stopword_config["bulgarian-countries"].stopwords.end());
+    ASSERT_TRUE(stopword_config["bulgarian-countries"].stopwords.find("турция") != stopword_config["bulgarian-countries"].stopwords.end());
 }
 
 TEST_F(StopwordsManagerTest, GetStopword) {
