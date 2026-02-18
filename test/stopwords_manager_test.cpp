@@ -293,7 +293,7 @@ TEST_F(StopwordsManagerTest, StopwordsBasics) {
 
     result = del_stopword(req, res);
     ASSERT_EQ(404, res->status_code);
-    ASSERT_STREQ("{\"message\": \"Stopword `state` not found.\"}", res->body.c_str());
+    ASSERT_STREQ("{\"message\":\"Stopword `state` not found.\"}", res->body.c_str());
 
     req->params.clear();
     json_results.clear();
@@ -360,7 +360,7 @@ TEST_F(StopwordsManagerTest, StopwordsValidation) {
 
     auto result = put_upsert_stopword(req, res);
     ASSERT_EQ(400, res->status_code);
-    ASSERT_STREQ("{\"message\": \"Parameter `stopwords` is required\"}", res->body.c_str());
+    ASSERT_STREQ("{\"message\":\"Parameter `stopwords` is required\"}", res->body.c_str());
 
     //check for value types
     stopword_value = R"(
@@ -373,7 +373,7 @@ TEST_F(StopwordsManagerTest, StopwordsValidation) {
 
     result = put_upsert_stopword(req, res);
     ASSERT_EQ(400, res->status_code);
-    ASSERT_STREQ("{\"message\": \"Parameter `locale` is required as string value\"}", res->body.c_str());
+    ASSERT_STREQ("{\"message\":\"Parameter `locale` is required as string value\"}", res->body.c_str());
 
     stopword_value = R"(
             {"stopwords": [1, 5, 2], "locale": "ko"}
@@ -385,7 +385,7 @@ TEST_F(StopwordsManagerTest, StopwordsValidation) {
 
     result = put_upsert_stopword(req, res);
     ASSERT_EQ(400, res->status_code);
-    ASSERT_STREQ("{\"message\": \"Parameter `stopwords` is required as string array value\"}", res->body.c_str());
+    ASSERT_STREQ("{\"message\":\"Parameter `stopwords` is required as string array value\"}", res->body.c_str());
 
     collectionManager.drop_collection("coll1");
 }

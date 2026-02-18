@@ -284,7 +284,7 @@ TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
     // try setting max search limit
     req->embedded_params_vec[0]["limit_multi_searches"] = 0;
     ASSERT_FALSE(post_multi_search(req, res));
-    ASSERT_EQ("{\"message\": \"Number of multi searches exceeds `limit_multi_searches` parameter.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Number of multi searches exceeds `limit_multi_searches` parameter.\"}", res->body);
 
     req->embedded_params_vec[0]["limit_multi_searches"] = 1;
     ASSERT_TRUE(post_multi_search(req, res));
@@ -293,7 +293,7 @@ TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
     req->embedded_params_vec[0]["limit_multi_searches"] = 0;
     req->params["limit_multi_searches"] = "100";
     ASSERT_FALSE(post_multi_search(req, res));
-    ASSERT_EQ("{\"message\": \"Number of multi searches exceeds `limit_multi_searches` parameter.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Number of multi searches exceeds `limit_multi_searches` parameter.\"}", res->body);
 
     // use req params if embedded param not present
     req->embedded_params_vec[0].erase("limit_multi_searches");
@@ -2021,14 +2021,14 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
     get_collections(req, resp);
 
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("{\"message\": \"Offset param should be unsigned integer.\"}", resp->body);
+    ASSERT_EQ("{\"message\":\"Offset param should be unsigned integer.\"}", resp->body);
 
     //invalid limit string
     req->params["offset"] = "0";
     req->params["limit"] = "-1";
     get_collections(req, resp);
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("{\"message\": \"Limit param should be unsigned integer.\"}", resp->body);
+    ASSERT_EQ("{\"message\":\"Limit param should be unsigned integer.\"}", resp->body);
 }
 
 TEST_F(CoreAPIUtilsTest, OverridesPagination) {
@@ -2096,14 +2096,14 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
     get_collections(req, resp);
 
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("{\"message\": \"Offset param should be unsigned integer.\"}", resp->body);
+    ASSERT_EQ("{\"message\":\"Offset param should be unsigned integer.\"}", resp->body);
 
     //invalid limit string
     req->params["offset"] = "0";
     req->params["limit"] = "-1";
     get_collections(req, resp);
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("{\"message\": \"Limit param should be unsigned integer.\"}", resp->body);
+    ASSERT_EQ("{\"message\":\"Limit param should be unsigned integer.\"}", resp->body);
 }
 
 TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
@@ -2147,14 +2147,14 @@ TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
     get_collections(req, resp);
 
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("{\"message\": \"Offset param should be unsigned integer.\"}", resp->body);
+    ASSERT_EQ("{\"message\":\"Offset param should be unsigned integer.\"}", resp->body);
 
     //invalid limit string
     req->params["offset"] = "0";
     req->params["limit"] = "-1";
     get_collections(req, resp);
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("{\"message\": \"Limit param should be unsigned integer.\"}", resp->body);
+    ASSERT_EQ("{\"message\":\"Limit param should be unsigned integer.\"}", resp->body);
 }
 
 
@@ -2430,7 +2430,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
         "symbols_to_index":[]
@@ -2438,7 +2438,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
         "name": "collection_meta2",
@@ -2450,14 +2450,14 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
     })"_json;
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Alter payload is empty.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Alter payload is empty.\"}", res->body);
 }
 
 TEST_F(CoreAPIUtilsTest, DocumentGetIncludeExcludeFields) {
