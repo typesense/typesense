@@ -1163,6 +1163,21 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         if (f.range_index) {
             auto const& trie = index->range_index.at(a_filter.field_name);
 
+            if (enable_lazy_evaluation) {
+                // Defer range_index materialization. The trie search can be very expensive
+                // for broad filters (e.g. price:<=10000 matching 100M+ docs) as it
+                // allocates and populates a massive ID array. By deferring, we allow
+                // compute_iterators() to bypass this entirely when the asymmetric AND
+                // probe optimization applies. trie->size() is used as an approximation
+                // for approx_filter_ids_length (it returns total indexed values, which
+                // may overestimate the actual match count — this is safe since the value
+                // is only used for optimization heuristics, not correctness).
+                approx_filter_ids_length = trie->size();
+                range_index_deferred = true;
+                validity = valid;
+                return;
+            }
+
             for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
                 const std::string& filter_value = a_filter.values[fi];
                 auto const& value = (int64_t)std::stol(filter_value);
@@ -2568,7 +2583,21 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
 
     // Generate the iterator tree and then initialize each node.
     if (filter_node->isOperator) {
-        left_it = new filter_result_iterator_t(collection_name, index, filter_node->left, enable_lazy_evaluation,
+        // For AND operators, defer range_index materialization on both children so that
+        // the asymmetric AND optimization in compute_iterators() can bypass the expensive
+        // trie search entirely. We only force lazy eval when the child is a leaf node
+        // with a range_index field; other field types are unaffected.
+        auto should_defer_child = [&](const filter_node_t* child) -> bool {
+            if (filter_node->filter_operator != AND || child == nullptr || child->isOperator) {
+                return false;
+            }
+            const auto& fname = child->filter_exp.field_name;
+            if (index->search_schema.count(fname) == 0) return false;
+            return index->search_schema.at(fname).range_index;
+        };
+
+        bool left_lazy = enable_lazy_evaluation || should_defer_child(filter_node->left);
+        left_it = new filter_result_iterator_t(collection_name, index, filter_node->left, left_lazy,
                                                max_candidates, validate_field_names);
         // If left subtree of && operator is invalid, we don't have to evaluate its right subtree.
         if (filter_node->filter_operator == AND && left_it->validity == invalid) {
@@ -2579,7 +2608,8 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
             return;
         }
 
-        right_it = new filter_result_iterator_t(collection_name, index, filter_node->right, enable_lazy_evaluation,
+        bool right_lazy = enable_lazy_evaluation || should_defer_child(filter_node->right);
+        right_it = new filter_result_iterator_t(collection_name, index, filter_node->right, right_lazy,
                                                 max_candidates, validate_field_names);
     }
 
@@ -2794,19 +2824,158 @@ void filter_result_iterator_t::compute_iterators() {
         return;
     }
 
+    // Deferred range_index materialization: init() skipped the expensive trie search
+    // when lazy evaluation was enabled. Materialize now since this node's full result
+    // is needed (e.g., it's a standalone filter or the asymmetric probe didn't apply).
+    if (range_index_deferred) {
+        range_index_deferred = false;
+        init(false, false);
+        return;
+    }
+
     if (filter_node->isOperator) {
         if (timeout_info != nullptr) {
             // Passing timeout_info into subtree so individual nodes can check for timeout.
             left_it->timeout_info = std::make_unique<filter_result_iterator_timeout_info>(*timeout_info);
             right_it->timeout_info = std::make_unique<filter_result_iterator_timeout_info>(*timeout_info);
         }
-        left_it->compute_iterators();
-        right_it->compute_iterators();
 
-        if (filter_node->filter_operator == AND) {
-            filter_result_t::and_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
-        } else {
-            filter_result_t::or_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
+        // Optimization for AND with highly asymmetric children: compute the smaller side
+        // eagerly and evaluate the larger side per-document via sort_index lookup. This
+        // avoids materializing hundreds of millions of IDs from a broad range filter
+        // (e.g. price:<=10000 matching 200M docs) when ANDed with a selective equality
+        // filter (e.g. category:=X matching ~1000 docs).
+        //
+        // The sort_index stores numeric values per document as a hash map, enabling O(1)
+        // lookups. For each document in the small result set, we look up its value and
+        // evaluate the filter condition directly — much faster than traversing the range
+        // index. If the field isn't in sort_index, we fall back to is_valid() probing.
+        bool used_probe_optimization = false;
+        if (filter_node->filter_operator == AND && !filter_node->is_object_filter_root) {
+
+            // Identify the smaller and larger side, regardless of filter order in the query.
+            auto* small_it = left_it;
+            auto* large_it = right_it;
+            if (left_it->approx_filter_ids_length > right_it->approx_filter_ids_length) {
+                std::swap(small_it, large_it);
+            }
+
+            if (small_it->approx_filter_ids_length > 0 &&
+                large_it->approx_filter_ids_length > small_it->approx_filter_ids_length * ASYMMETRIC_AND_RATIO_THRESHOLD) {
+
+                // Compute the small side eagerly to get its full result set.
+                small_it->compute_iterators();
+
+                if (small_it->filter_result.count > 0 && small_it->filter_result.count < ASYMMETRIC_AND_MAX_PROBE_COUNT) {
+                    auto small_count = small_it->filter_result.count;
+                    auto* small_docs = small_it->filter_result.docs;
+
+                    filter_result.docs = new uint32_t[small_count];
+                    if (small_it->filter_result.coll_to_references != nullptr) {
+                        filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[small_count] {};
+                    }
+
+                    // Check if the large side is a simple numeric leaf filter with a sort_index.
+                    bool use_sort_index = false;
+                    const spp::sparse_hash_map<uint32_t, int64_t, Hasher32>* sort_field_map = nullptr;
+                    std::vector<std::pair<int64_t, NUM_COMPARATOR>> parsed_filters;
+                    bool negate_result = false;
+
+                    if (large_it->filter_node != nullptr &&
+                        !large_it->filter_node->isOperator &&
+                        large_it->index != nullptr) {
+                        const auto& f = large_it->filter_node->filter_exp;
+                        auto si_it = large_it->index->sort_index.find(f.field_name);
+                        if (si_it != large_it->index->sort_index.end() && si_it->second != nullptr) {
+                            sort_field_map = si_it->second;
+                            negate_result = f.apply_not_equals;
+                            bool all_parsed = true;
+                            for (size_t fi = 0; fi < f.values.size(); fi++) {
+                                try {
+                                    int64_t val = std::stol(f.values[fi]);
+                                    parsed_filters.emplace_back(val, f.comparators[fi]);
+                                } catch (...) {
+                                    all_parsed = false;
+                                    break;
+                                }
+                            }
+                            use_sort_index = all_parsed && !parsed_filters.empty();
+                        }
+                    }
+
+                    uint32_t out_count = 0;
+                    for (uint32_t i = 0; i < small_count; i++) {
+                        auto id = small_docs[i];
+                        bool matches = false;
+
+                        if (use_sort_index) {
+                            auto val_it = sort_field_map->find(id);
+                            if (val_it != sort_field_map->end()) {
+                                int64_t doc_val = val_it->second;
+                                for (size_t fi = 0; fi < parsed_filters.size(); fi++) {
+                                    int64_t fval = parsed_filters[fi].first;
+                                    NUM_COMPARATOR cmp = parsed_filters[fi].second;
+                                    bool cond = false;
+                                    switch (cmp) {
+                                        case LESS_THAN:            cond = (doc_val < fval); break;
+                                        case LESS_THAN_EQUALS:     cond = (doc_val <= fval); break;
+                                        case EQUALS:               cond = (doc_val == fval); break;
+                                        case NOT_EQUALS:           cond = (doc_val != fval); break;
+                                        case GREATER_THAN:         cond = (doc_val > fval); break;
+                                        case GREATER_THAN_EQUALS:  cond = (doc_val >= fval); break;
+                                        case RANGE_INCLUSIVE:
+                                            if (fi + 1 < parsed_filters.size()) {
+                                                int64_t fval_hi = parsed_filters[fi + 1].first;
+                                                cond = (doc_val >= fval && doc_val <= fval_hi);
+                                                fi++;
+                                            }
+                                            break;
+                                        default: break;
+                                    }
+                                    if (cond) { matches = true; break; }
+                                }
+                                if (negate_result) matches = !matches;
+                            }
+                        } else {
+                            auto probe_result = large_it->is_valid(id);
+                            if (probe_result == 1) {
+                                matches = true;
+                            } else if (probe_result == -1) {
+                                break;
+                            }
+                        }
+
+                        if (matches) {
+                            filter_result.docs[out_count] = id;
+                            if (filter_result.coll_to_references != nullptr) {
+                                if (small_it->filter_result.coll_to_references != nullptr) {
+                                    filter_result.coll_to_references[out_count] = small_it->filter_result.coll_to_references[i];
+                                }
+                                if (!use_sort_index) {
+                                    for (const auto& ref: large_it->reference) {
+                                        filter_result.coll_to_references[out_count][ref.first] = ref.second;
+                                    }
+                                }
+                            }
+                            out_count++;
+                        }
+                    }
+
+                    filter_result.count = out_count;
+                    used_probe_optimization = true;
+                }
+            }
+        }
+
+        if (!used_probe_optimization) {
+            left_it->compute_iterators();
+            right_it->compute_iterators();
+
+            if (filter_node->filter_operator == AND) {
+                filter_result_t::and_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
+            } else {
+                filter_result_t::or_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
+            }
         }
 
         if (left_it->validity == timed_out || right_it->validity == timed_out ||

@@ -320,6 +320,10 @@ private:
 
     bool delete_filter_node = false;
 
+    /// Set when init() deferred range_index materialization for lazy evaluation.
+    /// compute_iterators() will materialize via init(false, false) if needed.
+    bool range_index_deferred = false;
+
     std::unique_ptr<filter_result_iterator_timeout_info> timeout_info;
 
     /// Initializes the state of iterator node after it's creation.
