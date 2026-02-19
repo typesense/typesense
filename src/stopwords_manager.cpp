@@ -62,7 +62,7 @@ Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name,
 
     for (const auto &stopword: stopwords.items()) {
         const auto& val = stopword.value().get<std::string>();
-        Tokenizer(val, true, false, locale, {}, {}).tokenize(tokens);
+        Tokenizer(val, true, false, locale, {}, {}, nullptr, false, false).tokenize(tokens);
 
         for(const auto& tok : tokens) {
             stopwords_set.emplace(tok);
