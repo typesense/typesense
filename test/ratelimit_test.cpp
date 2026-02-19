@@ -579,7 +579,7 @@ TEST_F(RateLimitManagerTest, TestMultiSearchRateLimiting) {
 
     EXPECT_FALSE(post_multi_search(req, res));
     EXPECT_EQ(res->status_code, 429);
-    EXPECT_EQ(res->body, "{\"message\": \"Rate limit exceeded or blocked\"}");
+    EXPECT_EQ(res->body, "{\"message\":\"Rate limit exceeded or blocked\"}");
 
     body.erase("searches");
     body["searches"] = nlohmann::json::array();
