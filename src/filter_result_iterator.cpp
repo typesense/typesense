@@ -1169,7 +1169,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 validity = invalid;
             }
         } else {
-            // _exists: all docs minus the missing list (NOT_EQUALS logic)
+            // _exists: all docs minus the missing list
+            // Get the complement of missing ids to get the existing ids.
             uint32_t* missing_ids = nullptr;
             uint32_t missing_ids_len = 0;
 
