@@ -4360,11 +4360,11 @@ TEST_F(CollectionFilteringTest, ExistsFilterWithoutOptionalIndex) {
 
     auto search_op = coll->search("*", {}, "color: _exists", {}, sort_fields, {0});
     ASSERT_FALSE(search_op.ok());
-    ASSERT_NE(std::string::npos, search_op.error().find("optional_index"));
+    ASSERT_EQ("Existence filter can only be applied to optional fields with `optional_index` enabled in the schema.", search_op.error());
 
     search_op = coll->search("*", {}, "color: !_exists", {}, sort_fields, {0});
     ASSERT_FALSE(search_op.ok());
-    ASSERT_NE(std::string::npos, search_op.error().find("optional_index"));
+    ASSERT_EQ("Existence filter can only be applied to optional fields with `optional_index` enabled in the schema.", search_op.error());
 
     collectionManager.drop_collection("products");
 }
@@ -4403,9 +4403,13 @@ TEST_F(CollectionFilteringTest, ExistsFilterCombinedWithOtherFilters) {
     results = coll->search("*", {}, "color: _exists || points: >15",
                            {}, sort_fields, {0}).get();
     ASSERT_EQ(3, results["found"].get<size_t>());
+    std::vector<std::string> expected_ids = {"2", "1", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
 
     // text search + exists
-    results = coll->search("shirt", {"title"}, "color: _exists",
+    results = coll->search("s", {"title"}, "color: _exists",
                            {}, sort_fields, {0}).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -4455,6 +4459,10 @@ TEST_F(CollectionFilteringTest, ExistsFilterMultipleOptionalFields) {
     results = coll->search("*", {}, "color: _exists || size: _exists",
                            {}, sort_fields, {0}).get();
     ASSERT_EQ(3, results["found"].get<size_t>());
+    std::vector<std::string> expected_ids = {"2", "1", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
 
     collectionManager.drop_collection("products");
 }
@@ -4483,22 +4491,42 @@ TEST_F(CollectionFilteringTest, ExistsFilterNumericAndBoolFields) {
     // float exists
     auto results = coll->search("*", {}, "rating: _exists", {}, sort_fields, {0}).get();
     ASSERT_EQ(2, results["found"].get<size_t>());
+    std::vector<std::string> expected_ids = {"1", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
 
     // float not exists
     results = coll->search("*", {}, "rating: !_exists", {}, sort_fields, {0}).get();
     ASSERT_EQ(2, results["found"].get<size_t>());
+    expected_ids = {"3", "2"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
 
     // int exists
     results = coll->search("*", {}, "stock: _exists", {}, sort_fields, {0}).get();
     ASSERT_EQ(2, results["found"].get<size_t>());
+    expected_ids = {"2", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
 
     // bool exists: docs 0 and 1 (both true and false count)
     results = coll->search("*", {}, "in_stock: _exists", {}, sort_fields, {0}).get();
     ASSERT_EQ(2, results["found"].get<size_t>());
+    expected_ids = {"1", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
 
     // bool not exists
     results = coll->search("*", {}, "in_stock: !_exists", {}, sort_fields, {0}).get();
     ASSERT_EQ(2, results["found"].get<size_t>());
+    expected_ids = {"3", "2"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
 
     // cross-field: rating exists AND stock missing
     results = coll->search("*", {}, "rating: _exists && stock: !_exists",
@@ -4632,6 +4660,7 @@ TEST_F(CollectionFilteringTest, ExistsFilterSchemaAlter) {
 
     ASSERT_TRUE(coll->add(R"({"id": "0", "title": "A", "points": 10})"_json.dump()).ok());
     ASSERT_TRUE(coll->add(R"({"id": "1", "title": "B", "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "color": "green", "points": 30})"_json.dump()).ok());
 
     // add optional field with optional_index
     auto alter_payload = R"({
@@ -4641,17 +4670,17 @@ TEST_F(CollectionFilteringTest, ExistsFilterSchemaAlter) {
     })"_json;
     ASSERT_TRUE(coll->alter(alter_payload).ok());
 
-    // all existing docs should be missing
+    // docs 0 and 1 should be missing; doc 2 had color and gets re-indexed during alter
     auto results = coll->search("*", {}, "color: !_exists", {}, sort_fields, {0}).get();
     ASSERT_EQ(2, results["found"].get<size_t>());
     results = coll->search("*", {}, "color: _exists", {}, sort_fields, {0}).get();
-    ASSERT_EQ(0, results["found"].get<size_t>());
-
-    // add new doc with color
-    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "color": "red", "points": 30})"_json.dump()).ok());
-    results = coll->search("*", {}, "color: _exists", {}, sort_fields, {0}).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // add new doc with color
+    ASSERT_TRUE(coll->add(R"({"id": "3", "title": "D", "color": "red", "points": 40})"_json.dump()).ok());
+    results = coll->search("*", {}, "color: _exists", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
 
     // drop the field
     alter_payload = R"({"fields": [{"name": "color", "drop": true}]})"_json;

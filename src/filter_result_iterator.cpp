@@ -1147,29 +1147,58 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
     }
 
     if(!a_filter.comparators.empty() && a_filter.comparators[0] == EXISTS) {
-        auto& target_map = a_filter.apply_not_equals
-                           ? index->field_missing_index
-                           : index->field_exists_index;
-        auto map_it = target_map.find(a_filter.field_name);
-        
+        auto map_it = index->field_missing_index.find(a_filter.field_name);
 
+        if(a_filter.apply_not_equals) {
+            // !_exists: directly iterate over the missing list
+            if(map_it == index->field_missing_index.end() || map_it->second == nullptr || map_it->second->num_ids() == 0) {
+                is_filter_result_initialized = true;
+                validity = invalid;
+                return;
+            }
 
-        if(map_it == target_map.end() || map_it->second == nullptr || map_it->second->num_ids() == 0) {
-            is_filter_result_initialized = true;
-            validity = invalid;
-            return;
-        }
-
-        id_list_t* list = map_it->second;
-        all_seq_ids_iterator = list->new_iterator();
-        if(all_seq_ids_iterator.valid()) {
-            is_existence_filter = true;
-            existence_list_ptr = list;
-            seq_id = all_seq_ids_iterator.id();
-            approx_filter_ids_length = list->num_ids();
+            id_list_t* list = map_it->second;
+            all_seq_ids_iterator = list->new_iterator();
+            if(all_seq_ids_iterator.valid()) {
+                is_existence_filter = true;
+                existence_list_ptr = list;
+                seq_id = all_seq_ids_iterator.id();
+                approx_filter_ids_length = list->num_ids();
+            } else {
+                is_filter_result_initialized = true;
+                validity = invalid;
+            }
         } else {
+            // _exists: all docs minus the missing list (NOT_EQUALS logic)
+            uint32_t* missing_ids = nullptr;
+            uint32_t missing_ids_len = 0;
+
+            if(map_it != index->field_missing_index.end() && map_it->second != nullptr && map_it->second->num_ids() > 0) {
+                missing_ids = map_it->second->uncompress();
+                missing_ids_len = map_it->second->num_ids();
+            }
+
+            filter_result.docs = index->seq_ids->uncompress();
+            filter_result.count = index->seq_ids->num_ids();
+
+            if(missing_ids_len > 0) {
+                uint32_t* exists_ids = nullptr;
+                size_t exists_ids_len = ArrayUtils::exclude_scalar(filter_result.docs, filter_result.count,
+                                                                    missing_ids, missing_ids_len, &exists_ids);
+                delete[] filter_result.docs;
+                delete[] missing_ids;
+                filter_result.docs = exists_ids;
+                filter_result.count = exists_ids_len;
+            }
+
             is_filter_result_initialized = true;
-            validity = invalid;
+
+            if(filter_result.count == 0) {
+                validity = invalid;
+            } else {
+                seq_id = filter_result.docs[result_index];
+                approx_filter_ids_length = filter_result.count;
+            }
         }
         return;
     }

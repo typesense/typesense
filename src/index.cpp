@@ -128,7 +128,6 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         }
 
         if(a_field.optional_index) {
-            field_exists_index.emplace(a_field.name, new id_list_t(ids_t::MAX_BLOCK_ELEMENTS));
             field_missing_index.emplace(a_field.name, new id_list_t(ids_t::MAX_BLOCK_ELEMENTS));
         }
 
@@ -220,11 +219,6 @@ Index::~Index() {
 
     delete facet_index_v4;
     
-    for(auto& kv : field_exists_index) {
-        delete kv.second;
-    }
-    field_exists_index.clear();
-
     for(auto& kv : field_missing_index) {
         delete kv.second;
     }
@@ -770,16 +764,13 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
         return;
     }
 
-    if(afield.optional_index && field_exists_index.count(afield.name) != 0) {
-        auto* exists_list = field_exists_index.at(afield.name);
+    if(afield.optional_index && field_missing_index.count(afield.name) != 0) {
         auto* missing_list = field_missing_index.at(afield.name);
         for(const auto& record : iter_batch) {
             if(!record.indexed.ok()) continue;
             if(record.doc.count(afield.name) == 0 || record.doc[afield.name].is_null()) {
                 missing_list->upsert(record.seq_id);
-                exists_list->erase(record.seq_id);
             } else {
-                exists_list->upsert(record.seq_id);
                 missing_list->erase(record.seq_id);
             }
         }
@@ -7331,8 +7322,6 @@ void Index::remove_field(uint32_t seq_id, nlohmann::json& document, const std::s
     }
 
     if(search_field.optional_index) {
-        if(field_exists_index.count(field_name) != 0)
-            field_exists_index[field_name]->erase(seq_id);
         if(field_missing_index.count(field_name) != 0)
             field_missing_index[field_name]->erase(seq_id);
     }
@@ -7560,9 +7549,6 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document,
     }
 
     if(!is_update) {
-        for(auto& [fname, exists_list] : field_exists_index) {
-            exists_list->erase(seq_id);
-        }
         for(auto& [fname, missing_list] : field_missing_index) {
             missing_list->erase(seq_id);
         }
@@ -7694,9 +7680,6 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
         }
 
         if(new_field.optional_index) {
-            if(field_exists_index.count(new_field.name) == 0) {
-                field_exists_index.emplace(new_field.name, new id_list_t(ids_t::MAX_BLOCK_ELEMENTS));
-            }
             if(field_missing_index.count(new_field.name) == 0) {
                 auto* missing_list = new id_list_t(ids_t::MAX_BLOCK_ELEMENTS);
                 // Backfill: all existing docs are missing this new field
@@ -7783,10 +7766,6 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
             vector_index.erase(del_field.name);
         }
 
-        if(field_exists_index.count(del_field.name) != 0) {
-            delete field_exists_index[del_field.name];
-            field_exists_index.erase(del_field.name);
-        }
         if(field_missing_index.count(del_field.name) != 0) {
             delete field_missing_index[del_field.name];
             field_missing_index.erase(del_field.name);
