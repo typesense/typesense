@@ -2360,15 +2360,38 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     return Option<Collection*>(new_coll);
 }
 
-void CollectionManager::add_referenced_ins(const std::string& collection_name, reference_info_t&& ref_info) {
+Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
+                                                   std::set<update_reference_info_t>& update_ref_infos) {
     std::unique_lock lock(mutex);
-    auto it = referenced_ins.find(collection_name);
-    if (it == referenced_ins.end()) {
-        referenced_ins[collection_name] = {{ref_info.collection, ref_info}};
-        return;
+
+    auto ref_coll = get_collection_unsafe(referenced_collection_name);
+    std::set<update_reference_info_t> _update_ref_infos{};
+    if (ref_coll != nullptr) {
+        referenced_collection_name = ref_coll->get_name(); // resolves alias
+
+        // If the collections are created in parallel, we can have a TOCTOU race condition where the referencing collection
+        // is yet to call CollectionManager::add_referenced_ins() and the referenced collection checks
+        // `CollectionManager::referenced_ins` in `CollectionManager::create_collection` and doesn't find reference. So its
+        // `referenced_in` isn't updated. To avoid this scenario we're going to call add_referenced_ins() on referenced collection.
+        _update_ref_infos = ref_coll->add_referenced_in(ref_info.collection, ref_info.field, ref_info.is_async,
+                                                        ref_info.referenced_field_name, ref_info.referenced_field);
+        if (!_update_ref_infos.empty() && _update_ref_infos.begin()->is_mutual_reference) {
+            auto info = is_referenced_in(ref_info.collection, referenced_collection_name);
+            return Option<bool>(400, "Collections having reference to each other are not allowed. `" + ref_info.collection +
+                                     "` collection is referenced by `" += referenced_collection_name + "` collection's `" +=
+                                                                                  info.get().field + "` field.");
+        }
     }
 
-    referenced_ins[collection_name].insert({ref_info.collection, ref_info});
+    auto it = referenced_ins.find(referenced_collection_name);
+    if (it == referenced_ins.end()) {
+        referenced_ins[referenced_collection_name] = {{ref_info.collection, ref_info}};
+    } else {
+        referenced_ins[referenced_collection_name].insert({ref_info.collection, ref_info});
+    }
+
+    update_ref_infos.insert(_update_ref_infos.begin(), _update_ref_infos.end());
+    return Option<bool>(true);
 }
 
 void CollectionManager::remove_referenced_ins(const std::string& referenced_coll_name,
@@ -2612,7 +2635,6 @@ Option<bool> CollectionManager::get_filter_ids(const std::string collection_name
 
 Option<reference_info_t> CollectionManager::is_referenced_in(const std::string& referenced_coll_name,
                                                              const std::string& referring_coll_name) const {
-    std::unique_lock lock(mutex);
     auto it = referenced_ins.find(referenced_coll_name);
     if (it == referenced_ins.end()) {
         return Option<reference_info_t>(400, "referenced_coll_name: `" + referenced_coll_name + "` not found.");
@@ -2625,6 +2647,12 @@ Option<reference_info_t> CollectionManager::is_referenced_in(const std::string& 
     }
 
     return Option<reference_info_t>(inner_it->second);
+}
+
+Option<reference_info_t> CollectionManager::is_referenced_in_with_lock(const std::string& referenced_coll_name,
+                                                                       const std::string& referring_coll_name) const {
+    std::unique_lock lock(mutex);
+    return is_referenced_in(referenced_coll_name, referring_coll_name);
 }
 
 Option<bool> CollectionManager::populate_include_exclude_fields(const std::string& collection_name,

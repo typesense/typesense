@@ -6976,28 +6976,15 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     auto dot_index = field.reference.find('.');
                     auto ref_coll_name = field.reference.substr(0, dot_index);
                     auto ref_field_name = field.reference.substr(dot_index + 1);
-                    struct field ref_field;
-
-                    std::set<update_reference_info_t> update_ref_infos{};
-
-                    auto& collectionManager = CollectionManager::get_instance();
-                    auto ref_coll = collectionManager.get_collection(ref_coll_name); // resolves alias
-                    if (ref_coll != nullptr) {
-                        ref_coll_name = ref_coll->name;
-                        update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
-                                                                       ref_field_name, ref_field);
-                    }
-                    if (!update_ref_infos.empty() && update_ref_infos.begin()->is_mutual_reference) {
-                        auto info = collectionManager.is_referenced_in(name, ref_coll_name);
-                        return Option<bool>(400, "Collections having reference to each other are not allowed. `" +
-                                                 name + "` collection is referenced by `" += ref_coll_name +
-                                                 "` collection's `" += info.get().field + "` field.");
-                    }
-
                     auto ref_info = reference_info_t{name, field.name, field.is_async_reference, field.is_array(),
                                                      ref_field_name};
-                    ref_info.referenced_field = ref_field;
-                    collectionManager.add_referenced_ins(ref_coll_name, std::move(ref_info));
+
+                    std::set<update_reference_info_t> update_ref_infos{};
+                    auto op = CollectionManager::get_instance().add_referenced_ins(ref_coll_name, std::move(ref_info),
+                                                                                   update_ref_infos);
+                    if (!op.ok()) {
+                        return op;
+                    }
 
                     reference_fields.emplace(field.name,
                                              reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference,
@@ -7460,43 +7447,28 @@ Option<Index*> Collection::init_index(const bool& is_live_request, const std::st
             auto dot_index = field.reference.find('.');
             auto ref_coll_name = field.reference.substr(0, dot_index);
             auto ref_field_name = field.reference.substr(dot_index + 1);
-            struct field ref_field;
-            std::set<update_reference_info_t> _update_ref_infos{};
+            auto ref_info = reference_info_t{name, field.name, field.is_async_reference, field.is_array(), ref_field_name};
 
-            auto& collectionManager = CollectionManager::get_instance();
-            auto ref_coll = collectionManager.get_collection(ref_coll_name); // resolves alias
-            if (ref_coll != nullptr) {
-                ref_coll_name = ref_coll->name;
-                _update_ref_infos = ref_coll->add_referenced_in(name, field.name, field.is_async_reference,
-                                                               ref_field_name, ref_field);
-            }
-            if (!_update_ref_infos.empty() && _update_ref_infos.begin()->is_mutual_reference) {
-                auto info = collectionManager.is_referenced_in(name, ref_coll_name);
-                const auto error = "Collections having reference to each other are not allowed. `" + name +
-                                   "` collection is referenced by `" += ref_coll_name + "` collection's `" +=
-                                   info.get().field + "` field.";
+            auto op = CollectionManager::get_instance().add_referenced_ins(ref_coll_name, std::move(ref_info),
+                                                                           update_ref_infos);
+            if (!op.ok()) {
+                // Return an error in case the collection is not being loaded from disk.
                 if (is_live_request) {
-                    // Return an error in case the collection is not being loaded from disk.
-                    return Option<Index*>(400, error);
+                    return Option<Index*>(op.code(), op.error());
                 }
-                LOG(ERROR) << error + " `" + field.name + "` field is not indexed.";
+
+                LOG(ERROR) << op.error() + " `" + field.name + "` field is not indexed.";
                 search_schema.erase(field.name);
                 nested_fields.erase(field.name);
                 skipped_reference_helper_fields.insert(field.name + fields::REFERENCE_HELPER_FIELD_SUFFIX);
                 continue;
             }
 
-            auto ref_info = reference_info_t{name, field.name, field.is_async_reference, field.is_array(), ref_field_name};
-            ref_info.referenced_field = ref_field;
-            collectionManager.add_referenced_ins(ref_coll_name, std::move(ref_info));
-
             reference_fields.emplace(field.name, reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference,
                                                                   field.is_array()));
             if (field.nested) {
                 object_reference_fields.insert(field.name);
             }
-
-            update_ref_infos.insert(_update_ref_infos.begin(), _update_ref_infos.end());
         }
 
         if (field.is_reference_helper && skipped_reference_helper_fields.count(field.name) != 0) {
