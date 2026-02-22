@@ -172,7 +172,9 @@ struct filter_result_t {
 
     filter_result_t() = default;
 
-    filter_result_t(uint32_t count, uint32_t* docs) : count(count), docs(docs) {}
+    filter_result_t(uint32_t count, uint32_t* docs,
+                    std::map<std::string, reference_filter_result_t>* coll_to_references = nullptr) :
+                    count(count), docs(docs), coll_to_references(coll_to_references) {}
 
     filter_result_t(const filter_result_t& obj) {
         if (&obj == this) {
@@ -382,7 +384,8 @@ public:
 
     explicit filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count,
                                       const size_t& max_candidates = DEFAULT_FILTER_BY_CANDIDATES,
-                                      uint64_t search_begin_us = 0, uint64_t search_stop_us = UINT64_MAX);
+                                      uint64_t search_begin_us = 0, uint64_t search_stop_us = UINT64_MAX,
+                                      std::map<std::string, reference_filter_result_t>* coll_to_references = nullptr);
 
     explicit filter_result_iterator_t(const std::string& collection_name,
                                       Index const* const index, filter_node_t const* const filter_node,

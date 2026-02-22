@@ -270,11 +270,11 @@ void filter_result_iterator_t::and_filter_iterators() {
                 seq_id = right_it->seq_id;
 
                 reference.clear();
-                for (const auto& item: left_it->reference) {
-                    reference[item.first] = item.second;
-                }
-                for (const auto& item: right_it->reference) {
-                    reference[item.first] = item.second;
+                if (!reference_filter_result_t::and_references(left_it->reference, right_it->reference, reference)) {
+                    // No common references found, move the right sub-nodes to the next seq_id.
+                    right_it->next();
+
+                    continue;
                 }
 
                 return;
@@ -293,11 +293,11 @@ void filter_result_iterator_t::and_filter_iterators() {
                 seq_id = left_it->seq_id;
 
                 reference.clear();
-                for (const auto& item: left_it->reference) {
-                    reference[item.first] = item.second;
-                }
-                for (const auto& item: right_it->reference) {
-                    reference[item.first] = item.second;
+                if (!reference_filter_result_t::and_references(left_it->reference, right_it->reference, reference)) {
+                    // No common references found, move the left sub-nodes to the next seq_id.
+                    left_it->next();
+
+                    continue;
                 }
 
                 return;
@@ -460,25 +460,7 @@ void filter_result_iterator_t::or_filter_iterators() {
 
         seq_id = left_it->seq_id;
         reference.clear();
-
-        for (const auto& item: left_it->reference) {
-            reference[item.first] = item.second;
-        }
-        for (const auto& item: right_it->reference) {
-            auto ref_it = reference.find(item.first);
-            if (ref_it == reference.end()) {
-                reference[item.first] = item.second;
-                continue;
-            }
-
-            // Both the docs of A and B have references to a particular collection.
-            uint32_t* or_result = nullptr;
-            auto& ref_result = ref_it->second;
-            ref_result.count = ArrayUtils::or_scalar(ref_result.docs, ref_result.count,
-                                                     item.second.docs, item.second.count, &or_result);
-            delete [] ref_result.docs;
-            ref_result.docs = or_result;
-        }
+        reference_filter_result_t::or_references(left_it->reference, right_it->reference, reference);
 
         return;
     }
@@ -2747,14 +2729,21 @@ filter_result_iterator_t::filter_result_iterator_t(uint32_t approx_filter_ids_le
 }
 
 filter_result_iterator_t::filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count, const size_t& max_candidates,
-                                                   uint64_t search_begin, uint64_t search_stop) {
-    filter_result.count = approx_filter_ids_length = ids_count;
-    filter_result.docs = ids;
+                                                   uint64_t search_begin, uint64_t search_stop,
+                                                   std::map<std::string, reference_filter_result_t>* coll_to_references) {
+    filter_result = filter_result_t(ids_count, ids, coll_to_references);
+    approx_filter_ids_length = ids_count;
     validity = ids_count > 0 ? valid : invalid;
 
     if (validity) {
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
+        reference.clear();
+        if (filter_result.coll_to_references != nullptr) {
+            auto& ref = filter_result.coll_to_references[result_index];
+            reference.insert(ref.begin(), ref.end());
+        }
+
         filter_node = new filter_node_t(filter{"dummy", {}, {}});
         delete_filter_node = true;
 
