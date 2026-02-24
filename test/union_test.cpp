@@ -4,6 +4,7 @@
 #include <fstream>
 #include <algorithm>
 #include <collection_manager.h>
+#include "curation_index_manager.h"
 
 class UnionTest : public ::testing::Test {
 protected:
@@ -1238,6 +1239,64 @@ TEST_F(UnionTest, PinnedHits) {
     ASSERT_EQ("W2", json_res["hits"][3]["document"]["id"]);
     ASSERT_EQ("W1", json_res["hits"][4]["document"]["id"]);
     ASSERT_EQ("W0", json_res["hits"][5]["document"]["id"]);
+}
+
+TEST_F(UnionTest, CurationIncludesShouldNotCollapseInUnion) {
+    auto schema_json =
+            R"({
+                "name": "Events",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll = collection_create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id":"0","title":"2026 NCAA Tournament Winner"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"2026 Women's NCAA Tournament Winner"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"2","title":"March Madness Sweet 16"})").ok());
+
+    auto& curation_manager = CurationIndexManager::get_instance();
+    curation_manager.init_store(store);
+    auto upsert_set = nlohmann::json::array({
+        nlohmann::json{
+            {"id", "march-madness"},
+            {"rule", {{"query", "march madness"}, {"match", curation_t::MATCH_CONTAINS}}},
+            {"includes", nlohmann::json::array({
+                nlohmann::json{{"id", "0"}, {"position", 1}},
+                nlohmann::json{{"id", "1"}, {"position", 2}}
+            })}
+        }
+    });
+    ASSERT_TRUE(curation_manager.upsert_curation_set("events_curations", upsert_set).ok());
+    ASSERT_TRUE(coll->set_curation_sets({"events_curations"}).ok());
+
+    req_params = {};
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "Events",
+                        "q": "march madness",
+                        "query_by": "title"
+                    },
+                    {
+                        "collection": "Events",
+                        "q": "march madness",
+                        "query_by": "title"
+                    }
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    ASSERT_EQ(3, json_res["found"].get<size_t>());
+    ASSERT_EQ(3, json_res["hits"].size());
+    ASSERT_TRUE(json_res["hits"][0]["curated"].get<bool>());
+    ASSERT_TRUE(json_res["hits"][1]["curated"].get<bool>());
+    ASSERT_EQ("0", json_res["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", json_res["hits"][1]["document"]["id"]);
 }
 
 TEST_F(UnionTest, HybridSearchHasVectorDistance) {
