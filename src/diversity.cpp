@@ -104,8 +104,16 @@ Option<double> similarity_t::calculate(uint32_t seq_id_i, uint32_t seq_id_j, con
                 if (!facet_it.valid()) {
                     continue;
                 }
-                facet_it.skip_to(seq_id_i);
-                if (!facet_it.valid() || facet_it.id() != seq_id_i) {
+
+                // The posting list iterator is forward-only: skip_to() can only
+                // advance, never reverse. Read the lower seq_id first to ensure
+                // the second skip_to always moves forward. Jaccard/equality are
+                // symmetric so the order doesn't affect the result.
+                uint32_t first_id = std::min(seq_id_i, seq_id_j);
+                uint32_t second_id = std::max(seq_id_i, seq_id_j);
+
+                facet_it.skip_to(first_id);
+                if (!facet_it.valid() || facet_it.id() != first_id) {
                     continue;
                 }
 
@@ -118,8 +126,8 @@ Option<double> similarity_t::calculate(uint32_t seq_id_i, uint32_t seq_id_j, con
                     i_facet_hashes.insert(facet_it.offset());
                 }
 
-                facet_it.skip_to(seq_id_j);
-                if (!facet_it.valid() || facet_it.id() != seq_id_j) {
+                facet_it.skip_to(second_id);
+                if (!facet_it.valid() || facet_it.id() != second_id) {
                     continue;
                 }
 

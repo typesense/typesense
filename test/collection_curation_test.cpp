@@ -5714,10 +5714,10 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
     ASSERT_EQ(6, res_obj["hits"].size());
     ASSERT_EQ("5", res_obj["hits"][0]["document"]["id"]);
     ASSERT_EQ("2", res_obj["hits"][1]["document"]["id"]);
-    ASSERT_EQ("4", res_obj["hits"][2]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][2]["document"]["id"]);
     ASSERT_EQ("3", res_obj["hits"][3]["document"]["id"]);
     ASSERT_EQ("1", res_obj["hits"][4]["document"]["id"]);
-    ASSERT_EQ("0", res_obj["hits"][5]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][5]["document"]["id"]);
 
     req_params = {
             {"collection", "tags"},
@@ -5761,7 +5761,7 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(6, res_obj["found"].get<size_t>());
     ASSERT_EQ(2, res_obj["hits"].size());
-    ASSERT_EQ("4", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][0]["document"]["id"]);
     ASSERT_EQ("3", res_obj["hits"][1]["document"]["id"]);
 
     req_params = {
@@ -5777,7 +5777,7 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
     ASSERT_EQ(6, res_obj["found"].get<size_t>());
     ASSERT_EQ(2, res_obj["hits"].size());
     ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
-    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][1]["document"]["id"]);
 
     req_params = {
             {"collection", "tags"},
@@ -5818,8 +5818,8 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ("5", res_obj["hits"][0]["document"]["id"]);
     ASSERT_EQ("2", res_obj["hits"][1]["document"]["id"]);
-    ASSERT_EQ("4", res_obj["hits"][2]["document"]["id"]);
-    ASSERT_EQ("3", res_obj["hits"][3]["document"]["id"]);
+    ASSERT_EQ("3", res_obj["hits"][2]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][3]["document"]["id"]);
     ASSERT_EQ("1", res_obj["hits"][4]["document"]["id"]);
     ASSERT_EQ("0", res_obj["hits"][5]["document"]["id"]);
 
