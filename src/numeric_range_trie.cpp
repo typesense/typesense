@@ -966,7 +966,8 @@ void NumericTrie::Node::get_all_ids(std::vector<uint32_t>& result) {
 
 void NumericTrie::iterator_t::reset() {
     for (auto& match: matches) {
-        match->index = 0;
+        match->iter.reset_cache();
+        match->iter = match->id_list->new_iterator();
     }
 
     is_valid = true;
@@ -975,17 +976,18 @@ void NumericTrie::iterator_t::reset() {
 
 void NumericTrie::iterator_t::skip_to(uint32_t id) {
     for (auto& match: matches) {
-        ArrayUtils::skip_index_to_id(match->index, match->ids, match->ids_length, id);
+        if (match->iter.valid()) {
+            match->iter.skip_to(id);
+        }
     }
 
     set_seq_id();
 }
 
 void NumericTrie::iterator_t::next() {
-    // Advance all the matches at seq_id.
     for (auto& match: matches) {
-        if (match->index < match->ids_length && match->ids[match->index] == seq_id) {
-            match->index++;
+        if (match->iter.valid() && match->iter.id() == seq_id) {
+            match->iter.next();
         }
     }
 
@@ -994,11 +996,19 @@ void NumericTrie::iterator_t::next() {
 
 NumericTrie::iterator_t::iterator_t(std::vector<Node*>& node_matches) {
     for (auto const& node_match: node_matches) {
-        uint32_t* ids = nullptr;
-        uint32_t ids_length;
-        node_match->get_all_ids(ids, ids_length);
-        if (ids_length > 0) {
-            matches.emplace_back(new match_state(ids, ids_length));
+        void* raw = node_match->get_seq_ids();
+        if (ids_t::num_ids(raw) == 0) {
+            continue;
+        }
+
+        if (IS_COMPACT_IDS(raw)) {
+            auto* compact = COMPACT_IDS_PTR(raw);
+            id_list_t* full_list = compact->to_full_ids_list();
+            expanded_id_lists.push_back(full_list);
+            matches.emplace_back(new match_state(full_list));
+        } else {
+            auto* full_list = (id_list_t*)(raw);
+            matches.emplace_back(new match_state(full_list));
         }
     }
 
@@ -1006,16 +1016,15 @@ NumericTrie::iterator_t::iterator_t(std::vector<Node*>& node_matches) {
 }
 
 void NumericTrie::iterator_t::set_seq_id() {
-    // Find the lowest id of all the matches and update the seq_id.
     bool one_is_valid = false;
     uint32_t lowest_id = UINT32_MAX;
 
     for (auto& match: matches) {
-        if (match->index < match->ids_length) {
+        if (match->iter.valid()) {
             one_is_valid = true;
 
-            if (match->ids[match->index] < lowest_id) {
-                lowest_id = match->ids[match->index];
+            if (match->iter.id() < lowest_id) {
+                lowest_id = match->iter.id();
             }
         }
     }
@@ -1036,7 +1045,13 @@ NumericTrie::iterator_t& NumericTrie::iterator_t::operator=(NumericTrie::iterato
     }
     matches.clear();
 
+    for (auto& list: expanded_id_lists) {
+        delete list;
+    }
+    expanded_id_lists.clear();
+
     matches = std::move(obj.matches);
+    expanded_id_lists = std::move(obj.expanded_id_lists);
     seq_id = obj.seq_id;
     is_valid = obj.is_valid;
 

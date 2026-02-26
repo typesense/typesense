@@ -897,6 +897,15 @@ void filter_result_iterator_t::next() {
     }
 
     if (f.is_integer() || f.is_float()) {
+        if (trie_iterator) {
+            trie_iterator->next();
+            if (!trie_iterator->is_valid) {
+                validity = invalid;
+                return;
+            }
+            seq_id = trie_iterator->seq_id;
+            return;
+        }
         advance_numeric_filter_iterators();
         get_numeric_filter_match();
         return;
@@ -1164,20 +1173,49 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             auto const& trie = index->range_index.at(a_filter.field_name);
 
             if (enable_lazy_evaluation) {
-                // Defer range_index materialization. The trie search can be very expensive
-                // for broad filters (e.g. price:<=10000 matching 100M+ docs) as it
-                // allocates and populates a massive ID array. By deferring, we allow
-                // compute_iterators() to bypass this entirely when the asymmetric AND
-                // probe optimization applies. trie->size() is used as an approximation
-                // for approx_filter_ids_length (it returns total indexed values, which
-                // may overestimate the actual match count - this is safe since the value
-                // is only used for optimization heuristics, not correctness).
-                approx_filter_ids_length = trie->size();
-                range_index_deferred = true;
-                validity = valid;
-                return;
-            }
+                // Perform the trie search to get matching Node* list (cheap trie walk).
+                // Then create a lazy iterator that avoids decompressing IDs upfront.
+                NumericTrie::iterator_t iter = [&]() {
+                    for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
+                        const std::string& filter_value = a_filter.values[fi];
+                        auto const& value = (int64_t)std::stol(filter_value);
 
+                        if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
+                            const std::string& next_filter_value = a_filter.values[fi + 1];
+                            auto const& range_end_value = (int64_t)std::stol(next_filter_value);
+                            return trie->search_range(value, true, range_end_value, true);
+                        } else if (a_filter.comparators[fi] == EQUALS) {
+                            return trie->search_equal_to(value);
+                        } else if (a_filter.comparators[fi] == NOT_EQUALS) {
+                            // NOT_EQUALS on range_index: fall through to eager materialization
+                            break;
+                        } else if (a_filter.comparators[fi] == GREATER_THAN || a_filter.comparators[fi] == GREATER_THAN_EQUALS) {
+                            return trie->search_greater_than(value, a_filter.comparators[fi] == GREATER_THAN_EQUALS);
+                        } else if (a_filter.comparators[fi] == LESS_THAN || a_filter.comparators[fi] == LESS_THAN_EQUALS) {
+                            return trie->search_less_than(value, a_filter.comparators[fi] == LESS_THAN_EQUALS);
+                        }
+                    }
+                    return NumericTrie::iterator_t();  // default invalid iterator
+                }();
+
+                if (!iter.is_valid && a_filter.values.size() > 0 &&
+                    a_filter.comparators[0] != NOT_EQUALS) {
+                    // No matches found
+                    validity = invalid;
+                    approx_filter_ids_length = 0;
+                    return;
+                }
+
+                if (iter.is_valid) {
+                    approx_filter_ids_length = trie->size();
+                    trie_iterator = std::make_unique<NumericTrie::iterator_t>(std::move(iter));
+                    seq_id = trie_iterator->seq_id;
+                    validity = valid;
+                    return;
+                }
+
+                // Fall through to eager path for NOT_EQUALS or other unhandled cases
+            }
 
             for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
                 const std::string& filter_value = a_filter.values[fi];
@@ -1334,6 +1372,46 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
     } else if (f.is_float()) {
         if (f.range_index) {
             auto const& trie = index->range_index.at(a_filter.field_name);
+
+            if (enable_lazy_evaluation) {
+                NumericTrie::iterator_t iter = [&]() {
+                    for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
+                        const std::string& filter_value = a_filter.values[fi];
+                        float value = (float)std::atof(filter_value.c_str());
+                        int64_t float_int64 = Index::float_to_int64_t(value);
+
+                        if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
+                            const std::string& next_filter_value = a_filter.values[fi + 1];
+                            int64_t range_end_value = Index::float_to_int64_t((float) std::atof(next_filter_value.c_str()));
+                            return trie->search_range(float_int64, true, range_end_value, true);
+                        } else if (a_filter.comparators[fi] == EQUALS) {
+                            return trie->search_equal_to(float_int64);
+                        } else if (a_filter.comparators[fi] == NOT_EQUALS) {
+                            break;
+                        } else if (a_filter.comparators[fi] == GREATER_THAN || a_filter.comparators[fi] == GREATER_THAN_EQUALS) {
+                            return trie->search_greater_than(float_int64, a_filter.comparators[fi] == GREATER_THAN_EQUALS);
+                        } else if (a_filter.comparators[fi] == LESS_THAN || a_filter.comparators[fi] == LESS_THAN_EQUALS) {
+                            return trie->search_less_than(float_int64, a_filter.comparators[fi] == LESS_THAN_EQUALS);
+                        }
+                    }
+                    return NumericTrie::iterator_t();
+                }();
+
+                if (!iter.is_valid && a_filter.values.size() > 0 &&
+                    a_filter.comparators[0] != NOT_EQUALS) {
+                    validity = invalid;
+                    approx_filter_ids_length = 0;
+                    return;
+                }
+
+                if (iter.is_valid) {
+                    approx_filter_ids_length = trie->size();
+                    trie_iterator = std::make_unique<NumericTrie::iterator_t>(std::move(iter));
+                    seq_id = trie_iterator->seq_id;
+                    validity = valid;
+                    return;
+                }
+            }
 
             for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
                 const std::string& filter_value = a_filter.values[fi];
@@ -1974,6 +2052,15 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
     field f = index->search_schema.at(a_filter.field_name);
 
     if (f.is_integer() || f.is_float()) {
+        if (trie_iterator) {
+            trie_iterator->skip_to(id);
+            if (!trie_iterator->is_valid) {
+                validity = invalid;
+                return;
+            }
+            seq_id = trie_iterator->seq_id;
+            return;
+        }
         // Skip all the iterators and find a new match.
         auto one_is_valid = false;
         for (uint32_t i = 0; i < id_list_iterators.size(); i++) {
@@ -2271,6 +2358,11 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
         return 1;
     }
 
+    // For trie_iterator leaves, skip_to sets seq_id; check that instead of equals_iterator_id.
+    if (trie_iterator) {
+        return validity ? (seq_id == id ? 1 : 0) : -1;
+    }
+
     return validity ? (id == equals_iterator_id ? 1 : 0) : -1;
 }
 
@@ -2420,6 +2512,16 @@ void filter_result_iterator_t::reset(const bool& curation_timeout) {
     field f = index->search_schema.at(a_filter.field_name);
 
     if (f.is_integer() || f.is_float()) {
+        if (trie_iterator) {
+            trie_iterator->reset();
+            if (!trie_iterator->is_valid) {
+                validity = invalid;
+                return;
+            }
+            seq_id = trie_iterator->seq_id;
+            validity = valid;
+            return;
+        }
         for (uint32_t i = 0; i < id_lists.size(); i++) {
             auto const& lists = id_lists[i];
 
@@ -2584,10 +2686,10 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
 
     // Generate the iterator tree and then initialize each node.
     if (filter_node->isOperator) {
-        // For AND operators, defer range_index materialization on both children so that
-        // the asymmetric AND optimization in compute_iterators() can bypass the expensive
-        // trie search entirely. We only force lazy eval when the child is a leaf node
-        // with a range_index field; other field types are unaffected.
+        // For AND operators, defer range_index materialization on leaf children so that
+        // the asymmetric AND optimization in compute_iterators() can use the lazy trie
+        // iterator. Only force lazy eval when the child is a leaf node with a range_index
+        // field; other field types (strings, booleans, etc.) are unaffected.
         auto should_defer_child = [&](const filter_node_t* child) -> bool {
             if (filter_node->filter_operator != AND || child == nullptr || child->isOperator) {
                 return false;
@@ -2600,7 +2702,6 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
         bool left_lazy = enable_lazy_evaluation || should_defer_child(filter_node->left);
         left_it = new filter_result_iterator_t(collection_name, index, filter_node->left, left_lazy,
                                                max_candidates, validate_field_names);
-        // If left subtree of && operator is invalid, we don't have to evaluate its right subtree.
         if (filter_node->filter_operator == AND && left_it->validity == invalid) {
             validity = invalid;
             is_filter_result_initialized = true;
@@ -2679,6 +2780,7 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
     is_filter_result_initialized = obj.is_filter_result_initialized;
 
     approx_filter_ids_length = obj.approx_filter_ids_length;
+    trie_iterator = std::move(obj.trie_iterator);
 
     return *this;
 }
@@ -2825,12 +2927,34 @@ void filter_result_iterator_t::compute_iterators() {
         return;
     }
 
-    // Deferred range_index materialization: init() skipped the expensive trie search
-    // when lazy evaluation was enabled. Materialize now since this node's full result
-    // is needed (e.g., it's a standalone filter or the asymmetric probe didn't apply).
-    if (range_index_deferred) {
-        range_index_deferred = false;
-        init(false, false);
+    // If this leaf node has a lazy trie iterator, materialize it fully.
+    // This happens when compute_iterators() is called on a standalone range filter
+    // or when the asymmetric AND optimization didn't apply.
+    if (trie_iterator) {
+        std::vector<uint32_t> ids;
+        ids.reserve(std::min(approx_filter_ids_length, (uint32_t)1000000));
+        while (trie_iterator->is_valid) {
+            ids.push_back(trie_iterator->seq_id);
+            trie_iterator->next();
+        }
+
+        filter_result.count = ids.size();
+        if (filter_result.count > 0) {
+            filter_result.docs = new uint32_t[filter_result.count];
+            memcpy(filter_result.docs, ids.data(), filter_result.count * sizeof(uint32_t));
+        }
+
+        trie_iterator.reset();
+        is_filter_result_initialized = true;
+
+        if (filter_result.count == 0) {
+            validity = invalid;
+        } else {
+            seq_id = filter_result.docs[0];
+            result_index = 0;
+            approx_filter_ids_length = filter_result.count;
+        }
+
         return;
     }
 
@@ -2842,19 +2966,11 @@ void filter_result_iterator_t::compute_iterators() {
         }
 
         // Optimization for AND with highly asymmetric children: compute the smaller side
-        // eagerly and evaluate the larger side per-document via sort_index lookup. This
-        // avoids materializing hundreds of millions of IDs from a broad range filter
-        // (e.g. price:<=10000 matching 200M docs) when ANDed with a selective equality
-        // filter (e.g. category:=X matching ~1000 docs).
-        //
-        // The sort_index stores numeric values per document as a hash map, enabling O(1)
-        // lookups. For each document in the small result set, we look up its value and
-        // evaluate the filter condition directly -- much faster than traversing the range
-        // index. If the field isn't in sort_index, we fall back to is_valid() probing.
+        // eagerly and probe each document against the larger side's lazy trie iterator
+        // via is_valid(). This avoids materializing hundreds of millions of IDs from a
+        // broad range filter (e.g. price:<=10000) when ANDed with a selective filter.
         bool used_probe_optimization = false;
         if (filter_node->filter_operator == AND && !filter_node->is_object_filter_root) {
-
-            // Identify the smaller and larger side, regardless of filter order in the query.
             auto* small_it = left_it;
             auto* large_it = right_it;
             if (left_it->approx_filter_ids_length > right_it->approx_filter_ids_length) {
@@ -2864,22 +2980,22 @@ void filter_result_iterator_t::compute_iterators() {
             if (small_it->approx_filter_ids_length > 0 &&
                 large_it->approx_filter_ids_length > small_it->approx_filter_ids_length * ASYMMETRIC_AND_RATIO_THRESHOLD) {
 
-                // Compute the small side eagerly to get its full result set.
                 small_it->compute_iterators();
 
-                if (small_it->filter_result.count > 0 && small_it->filter_result.count < ASYMMETRIC_AND_MAX_PROBE_COUNT) {
+                if (small_it->filter_result.count > 0 &&
+                    small_it->filter_result.count < ASYMMETRIC_AND_MAX_PROBE_COUNT) {
+
                     auto small_count = small_it->filter_result.count;
                     auto* small_docs = small_it->filter_result.docs;
 
                     filter_result.docs = new uint32_t[small_count];
-
-                    // Always allocate coll_to_references: either side may contribute
-                    // reference data (small side from filter_result, large side from
-                    // is_valid() probing). Without this, JOIN data is lost when the
-                    // JOIN happens to be on the larger side of the AND.
-                    filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[small_count] {};
+                    if (small_it->filter_result.coll_to_references != nullptr) {
+                        filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[small_count] {};
+                    }
 
                     // Check if the large side is a simple numeric leaf filter with a sort_index.
+                    // sort_index provides O(1) hash-map lookup per document, much faster than
+                    // probing the trie iterator which is O(M * log B) where M = matching leaf nodes.
                     bool use_sort_index = false;
                     const spp::sparse_hash_map<uint32_t, int64_t, Hasher32>* sort_field_map = nullptr;
                     std::vector<std::pair<int64_t, NUM_COMPARATOR>> parsed_filters;
@@ -2911,8 +3027,7 @@ void filter_result_iterator_t::compute_iterators() {
                     // sort_index shortcut because it bypasses is_valid() which is responsible
                     // for populating the reference data. Fall back to the is_valid() probe
                     // path which still benefits from the asymmetric AND optimization.
-                    if (use_sort_index && (small_it->filter_result.coll_to_references != nullptr ||
-                                           large_it->filter_result.coll_to_references != nullptr)) {
+                    if (use_sort_index && small_it->filter_result.coll_to_references != nullptr) {
                         use_sort_index = false;
                     }
 
@@ -2950,12 +3065,6 @@ void filter_result_iterator_t::compute_iterators() {
                                 if (negate_result) matches = !matches;
                             }
                         } else {
-                            // If the large side has a deferred range_index, materialize it
-                            // before probing -- is_valid() needs the populated result array.
-                            if (large_it->range_index_deferred) {
-                                large_it->range_index_deferred = false;
-                                large_it->init(false, false);
-                            }
                             auto probe_result = large_it->is_valid(id);
                             if (probe_result == 1) {
                                 matches = true;
