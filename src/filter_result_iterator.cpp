@@ -13,6 +13,7 @@
 #include "index.h"
 #include "posting.h"
 #include "collection_manager.h"
+#include "field.h"
 #include <variant>
 
 void copy_references_helper(const std::map<std::string, reference_filter_result_t>* from,
@@ -2784,6 +2785,7 @@ void filter_result_iterator_t::compute_iterators() {
     }
 
     if (filter_node->isOperator) {
+
         if (timeout_info != nullptr) {
             // Passing timeout_info into subtree so individual nodes can check for timeout.
             left_it->timeout_info = std::make_unique<filter_result_iterator_timeout_info>(*timeout_info);
@@ -3124,19 +3126,133 @@ filter_result_iterator_timeout_info::filter_result_iterator_timeout_info(uint64_
                                                                          search_begin_us(search_begin),
                                                                          search_stop_us(search_stop) {}
 
+static void add_matching_object_indexes_from_helper_field(const nlohmann::json& helper_field,
+                                                          const std::unordered_set<uint32_t>& matched_ref_ids,
+                                                          std::unordered_set<uint32_t>& matching_object_indexes) {
+    if (helper_field.is_number_unsigned() || helper_field.is_number_integer()) {
+        if (matched_ref_ids.count(helper_field.get<uint32_t>()) != 0) {
+            matching_object_indexes.insert(0);
+        }
+        return;
+    }
 
-bool filter_result_iterator_t::validate_object_filter_helper(Index const* const index, const nlohmann::json& doc,
-                                                             const filter_node_t* filter_node) {
+    if (!helper_field.is_array()) {
+        return;
+    }
+
+    for (const auto& item: helper_field) {
+        if (item.is_array() && item.size() == 2 &&
+            (item[0].is_number_unsigned() || item[0].is_number_integer()) &&
+            (item[1].is_number_unsigned() || item[1].is_number_integer())) {
+            auto item_object_index = item[0].get<uint32_t>();
+            auto item_ref_seq_id = item[1].get<uint32_t>();
+            if (matched_ref_ids.count(item_ref_seq_id) != 0) {
+                matching_object_indexes.insert(item_object_index);
+            }
+        } else if (item.is_number_unsigned() || item.is_number_integer()) {
+            if (matched_ref_ids.count(item.get<uint32_t>()) != 0) {
+                matching_object_indexes.insert(0);
+            }
+        }
+    }
+}
+
+static std::unordered_map<std::string, std::unordered_set<uint32_t>> build_object_join_matches(
+        const std::string& collection_name, const std::string& object_field_name,
+        const nlohmann::json& document,
+        const std::map<std::string, reference_filter_result_t>* references) {
+    std::unordered_map<std::string, std::unordered_set<uint32_t>> object_join_matches;
+    if (references == nullptr) {
+        return object_join_matches;
+    }
+
+    auto& cm = CollectionManager::get_instance();
+    const auto expected_prefix = object_field_name + ".";
+
+    for (const auto& reference_pair: *references) {
+        const auto& ref_collection_name = reference_pair.first;
+        const auto& matched_refs = reference_pair.second;
+        if (matched_refs.count == 0) {
+            continue;
+        }
+
+        std::unordered_set<uint32_t> matched_ref_ids;
+        matched_ref_ids.reserve(matched_refs.count);
+        for (uint32_t i = 0; i < matched_refs.count; i++) {
+            matched_ref_ids.insert(matched_refs.docs[i]);
+        }
+
+        auto ref_collection = cm.get_collection(ref_collection_name);
+        if (ref_collection == nullptr) {
+            continue;
+        }
+
+        auto reference_field_op = ref_collection->get_referenced_in_field_with_lock(collection_name);
+        if (!reference_field_op.ok()) {
+            continue;
+        }
+        const auto& reference_field_name = reference_field_op.get();
+        if (reference_field_name.rfind(expected_prefix, 0) != 0) {
+            continue;
+        }
+
+        auto helper_field_name = reference_field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+        if (document.count(helper_field_name) == 0) {
+            continue;
+        }
+
+        std::unordered_set<uint32_t> matching_object_indexes;
+        add_matching_object_indexes_from_helper_field(document[helper_field_name], matched_ref_ids, matching_object_indexes);
+        if (!matching_object_indexes.empty()) {
+            object_join_matches[ref_collection_name] = std::move(matching_object_indexes);
+        }
+    }
+
+    return object_join_matches;
+}
+
+
+bool filter_result_iterator_t::validate_object_filter_helper(
+        Index const* const index, const nlohmann::json& doc, const filter_node_t* filter_node,
+        const std::string& collection_name, const std::string& object_field_name,
+        const std::unordered_map<std::string, std::unordered_set<uint32_t>>* object_join_matches,
+        uint32_t object_index) {
     if(filter_node->isOperator) {
         if(filter_node->filter_operator == AND) {
-            return validate_object_filter_helper(index, doc, filter_node->left) &&
-                   validate_object_filter_helper(index, doc, filter_node->right);
+            return validate_object_filter_helper(index, doc, filter_node->left,
+                                                 collection_name, object_field_name, object_join_matches,
+                                                 object_index) &&
+                   validate_object_filter_helper(index, doc, filter_node->right,
+                                                 collection_name, object_field_name, object_join_matches,
+                                                 object_index);
         } else {
-            return validate_object_filter_helper(index, doc, filter_node->left) ||
-                   validate_object_filter_helper(index, doc, filter_node->right);
+            return validate_object_filter_helper(index, doc, filter_node->left,
+                                                 collection_name, object_field_name, object_join_matches,
+                                                 object_index) ||
+                   validate_object_filter_helper(index, doc, filter_node->right,
+                                                 collection_name, object_field_name, object_join_matches,
+                                                 object_index);
         }
     } else {
         const auto& filter_exp = filter_node->filter_exp;
+
+        if (!filter_exp.referenced_collection_name.empty()) {
+            if (object_join_matches == nullptr) {
+                return false;
+            }
+
+            auto& cm = CollectionManager::get_instance();
+            auto ref_collection = cm.get_collection(filter_exp.referenced_collection_name);
+            if (ref_collection == nullptr) {
+                return false;
+            }
+            const auto& ref_collection_name = ref_collection->name;
+
+            auto match_it = object_join_matches->find(ref_collection_name);
+            return match_it != object_join_matches->end() &&
+                   match_it->second.count(object_index) != 0;
+        }
+
         auto pos = filter_exp.field_name.rfind(".");
 
         const auto& nested_field = filter_exp.field_name.substr(pos+1, filter_exp.field_name.size() - (pos+1));
@@ -3267,9 +3383,17 @@ bool filter_result_iterator_t::validate_object_filter() {
                 continue;
             }
 
+            const std::map<std::string, reference_filter_result_t>* references =
+                    filter_result.coll_to_references == nullptr ? nullptr : &filter_result.coll_to_references[i];
+            auto object_join_matches = build_object_join_matches(collection_name, filter_node->object_field_name,
+                                                                 document, references);
+
             const auto& doc = get_nested_field_doc(filter_node->object_field_name, document);
-            for (const auto& nested_object: doc) {
-                if (validate_object_filter_helper(index, nested_object, filter_node)) {
+            for (uint32_t object_index = 0; object_index < doc.size(); object_index++) {
+                const auto& nested_object = doc[object_index];
+                if (validate_object_filter_helper(index, nested_object, filter_node,
+                                                  collection_name, filter_node->object_field_name,
+                                                  &object_join_matches, object_index)) {
                     filter_result.docs[result_count++] = id;
                     break;
                 }
@@ -3289,9 +3413,13 @@ bool filter_result_iterator_t::validate_object_filter() {
         LOG(ERROR) << "Document fetch error. " << document_op.error();
         return false;
     }
-
-    for (const auto& nested_object: document[filter_node->object_field_name]) {
-        if (validate_object_filter_helper(index, nested_object, filter_node)) {
+    auto object_join_matches = build_object_join_matches(collection_name, filter_node->object_field_name,
+                                                         document, &reference);
+    for (uint32_t object_index = 0; object_index < document[filter_node->object_field_name].size(); object_index++) {
+        const auto& nested_object = document[filter_node->object_field_name][object_index];
+        if (validate_object_filter_helper(index, nested_object, filter_node,
+                                          collection_name, filter_node->object_field_name,
+                                          &object_join_matches, object_index)) {
             return true;
         }
     }

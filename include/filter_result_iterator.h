@@ -5,6 +5,8 @@
 #include <utility>
 #include <vector>
 #include <memory>
+#include <unordered_map>
+#include <unordered_set>
 #include "num_tree.h"
 #include "option.h"
 #include "posting_list.h"
@@ -360,7 +362,11 @@ private:
     void skip_to(uint32_t id);
 
     static bool validate_object_filter_helper(Index const* const index, const nlohmann::json& doc,
-                                              const filter_node_t* filter_node);
+                                              const filter_node_t* filter_node,
+                                              const std::string& collection_name,
+                                              const std::string& object_field_name,
+                                              const std::unordered_map<std::string, std::unordered_set<uint32_t>>* object_join_matches,
+                                              uint32_t object_index);
 
     bool validate_object_filter();
 
