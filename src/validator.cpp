@@ -31,7 +31,7 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
                 if(a_field.optional && (dirty_values == DIRTY_VALUES::DROP || dirty_values == DIRTY_VALUES::COERCE_OR_DROP)) {
                     document.erase(field_name);
                 } else {
-                    return Option<>(400, "Field `" + field_name  + "` exceeds maximum value of int32.");
+                    return Option<>(400, "Field `" + field_name  + "` is outside the range of int32.");
                 }
             }
         }
@@ -147,7 +147,7 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
                         it = document[field_name].erase(it);
                         array_ele_erased = true;
                     } else {
-                        return Option<>(400, "Field `" + field_name  + "` exceeds maximum value of int32.");
+                        return Option<>(400, "Field `" + field_name  + "` is outside the range of int32.");
                     }
                 }
             } else if (a_field.type == field_types::INT64_ARRAY && !item.is_number_integer()) {
@@ -341,12 +341,13 @@ Option<uint32_t> validator_t::coerce_int32_t(const DIRTY_VALUES& dirty_values, c
         }
     }
 
-    if(document.contains(field_name) &&
-       (document[field_name].get<int64_t>() > INT32_MAX || document[field_name].get<int64_t>() < INT32_MIN)) {
-        if(a_field.optional && (dirty_values == DIRTY_VALUES::DROP || dirty_values == DIRTY_VALUES::COERCE_OR_REJECT)) {
-            document.erase(field_name);
+    auto it_field = document.find(field_name);
+    if(it_field != document.end() &&
+       (it_field.value().get<int64_t>() > INT32_MAX || it_field.value().get<int64_t>() < INT32_MIN)) {
+        if(a_field.optional && (dirty_values == DIRTY_VALUES::DROP || dirty_values == DIRTY_VALUES::COERCE_OR_DROP)) {
+            document.erase(it_field);
         } else {
-            return Option<>(400, "Field `" + field_name  + "` exceeds maximum value of int32.");
+            return Option<>(400, "Field `" + field_name  + "` is outside the range of int32.");
         }
     }
 

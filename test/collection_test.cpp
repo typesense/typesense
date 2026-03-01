@@ -5649,7 +5649,7 @@ TEST_F(CollectionTest, Int32FieldRejectsOverflowOnWrite) {
     add_op = coll->add(doc.dump(), CREATE);
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ(400, add_op.code());
-    ASSERT_EQ("Field `value` exceeds maximum value of int32.", add_op.error());
+    ASSERT_EQ("Field `value` is outside the range of int32.", add_op.error());
 
     // Large positive value (millisecond timestamp) should be rejected
     doc["title"] = "millisecond timestamp";
@@ -5657,7 +5657,7 @@ TEST_F(CollectionTest, Int32FieldRejectsOverflowOnWrite) {
     add_op = coll->add(doc.dump(), CREATE);
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ(400, add_op.code());
-    ASSERT_EQ("Field `value` exceeds maximum value of int32.", add_op.error());
+    ASSERT_EQ("Field `value` is outside the range of int32.", add_op.error());
 
     // Value below INT32_MIN should be rejected
     doc["title"] = "overflow negative";
@@ -5665,7 +5665,7 @@ TEST_F(CollectionTest, Int32FieldRejectsOverflowOnWrite) {
     add_op = coll->add(doc.dump(), CREATE);
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ(400, add_op.code());
-    ASSERT_EQ("Field `value` exceeds maximum value of int32.", add_op.error());
+    ASSERT_EQ("Field `value` is outside the range of int32.", add_op.error());
 
     collectionManager.drop_collection("int32_overflow_test");
 }
@@ -5695,7 +5695,7 @@ TEST_F(CollectionTest, Int32ArrayFieldRejectsOverflowOnWrite) {
     add_op = coll->add(doc.dump(), CREATE);
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ(400, add_op.code());
-    ASSERT_EQ("Field `values` exceeds maximum value of int32.", add_op.error());
+    ASSERT_EQ("Field `values` is outside the range of int32.", add_op.error());
 
     // Array with negative overflow should be rejected
     doc["title"] = "negative overflow in array";
@@ -5703,7 +5703,7 @@ TEST_F(CollectionTest, Int32ArrayFieldRejectsOverflowOnWrite) {
     add_op = coll->add(doc.dump(), CREATE);
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ(400, add_op.code());
-    ASSERT_EQ("Field `values` exceeds maximum value of int32.", add_op.error());
+    ASSERT_EQ("Field `values` is outside the range of int32.", add_op.error());
 
     collectionManager.drop_collection("int32_arr_overflow_test");
 }
