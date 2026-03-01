@@ -24,6 +24,16 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
             if(!coerce_op.ok()) {
                 return coerce_op;
             }
+        } else {
+            // Bug #2798: JSON integers exceeding int32 range bypass coercion but must still be range-checked
+            int64_t val = doc_ele.get<int64_t>();
+            if(val > INT32_MAX || val < INT32_MIN) {
+                if(a_field.optional && (dirty_values == DIRTY_VALUES::DROP || dirty_values == DIRTY_VALUES::COERCE_OR_DROP)) {
+                    document.erase(field_name);
+                } else {
+                    return Option<>(400, "Field `" + field_name  + "` exceeds maximum value of int32.");
+                }
+            }
         }
     } else if(a_field.type == field_types::INT64) {
         if(!doc_ele.is_number_integer()) {
@@ -128,6 +138,17 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
                 Option<uint32_t> coerce_op = coerce_int32_t(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
                 if (!coerce_op.ok()) {
                     return coerce_op;
+                }
+            } else if (a_field.type == field_types::INT32_ARRAY && item.is_number_integer()) {
+                // Bug #2798: range-check integer array elements that bypass coercion
+                int64_t val = item.get<int64_t>();
+                if(val > INT32_MAX || val < INT32_MIN) {
+                    if(a_field.optional && (dirty_values == DIRTY_VALUES::DROP || dirty_values == DIRTY_VALUES::COERCE_OR_DROP)) {
+                        it = document[field_name].erase(it);
+                        array_ele_erased = true;
+                    } else {
+                        return Option<>(400, "Field `" + field_name  + "` exceeds maximum value of int32.");
+                    }
                 }
             } else if (a_field.type == field_types::INT64_ARRAY && !item.is_number_integer()) {
                 Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
@@ -320,7 +341,8 @@ Option<uint32_t> validator_t::coerce_int32_t(const DIRTY_VALUES& dirty_values, c
         }
     }
 
-    if(document.contains(field_name) && document[field_name].get<int64_t>() > INT32_MAX) {
+    if(document.contains(field_name) &&
+       (document[field_name].get<int64_t>() > INT32_MAX || document[field_name].get<int64_t>() < INT32_MIN)) {
         if(a_field.optional && (dirty_values == DIRTY_VALUES::DROP || dirty_values == DIRTY_VALUES::COERCE_OR_REJECT)) {
             document.erase(field_name);
         } else {

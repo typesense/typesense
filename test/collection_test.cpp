@@ -5611,3 +5611,141 @@ TEST_F(CollectionTest, PerFieldTokenSeparatorsAndSymbolsToIndex) {
     collectionManager.drop_collection("users_1");
     collectionManager.drop_collection("users_2");
 }
+
+// Bug #2798: int32 fields accept values exceeding INT32_MAX on write but reject them on search/filter.
+// The fix validates int32 range at write time, rejecting values outside [-2147483648, 2147483647].
+TEST_F(CollectionTest, Int32FieldRejectsOverflowOnWrite) {
+    Collection* coll;
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("value", field_types::INT32, false)
+    };
+
+    coll = collectionManager.get_collection("int32_overflow_test").get();
+    if (coll == nullptr) {
+        coll = collectionManager.create_collection("int32_overflow_test", 1, fields).get();
+    }
+
+    // Valid int32 values should be accepted
+    nlohmann::json doc;
+    doc["title"] = "valid max";
+    doc["value"] = INT32_MAX;
+    auto add_op = coll->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["title"] = "valid min";
+    doc["value"] = INT32_MIN;
+    add_op = coll->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["title"] = "valid zero";
+    doc["value"] = 0;
+    add_op = coll->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // Value exceeding INT32_MAX should be rejected
+    doc["title"] = "overflow positive";
+    doc["value"] = (int64_t)INT32_MAX + 1;
+    add_op = coll->add(doc.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ(400, add_op.code());
+    ASSERT_EQ("Field `value` exceeds maximum value of int32.", add_op.error());
+
+    // Large positive value (millisecond timestamp) should be rejected
+    doc["title"] = "millisecond timestamp";
+    doc["value"] = 1740000000000LL;
+    add_op = coll->add(doc.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ(400, add_op.code());
+    ASSERT_EQ("Field `value` exceeds maximum value of int32.", add_op.error());
+
+    // Value below INT32_MIN should be rejected
+    doc["title"] = "overflow negative";
+    doc["value"] = (int64_t)INT32_MIN - 1;
+    add_op = coll->add(doc.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ(400, add_op.code());
+    ASSERT_EQ("Field `value` exceeds maximum value of int32.", add_op.error());
+
+    collectionManager.drop_collection("int32_overflow_test");
+}
+
+TEST_F(CollectionTest, Int32ArrayFieldRejectsOverflowOnWrite) {
+    Collection* coll;
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("values", field_types::INT32_ARRAY, false)
+    };
+
+    coll = collectionManager.get_collection("int32_arr_overflow_test").get();
+    if (coll == nullptr) {
+        coll = collectionManager.create_collection("int32_arr_overflow_test", 1, fields).get();
+    }
+
+    // Valid int32 array should be accepted
+    nlohmann::json doc;
+    doc["title"] = "valid array";
+    doc["values"] = {0, INT32_MAX, INT32_MIN, 100, -100};
+    auto add_op = coll->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // Array with one overflowed element should be rejected
+    doc["title"] = "overflow in array";
+    doc["values"] = {100, (int64_t)INT32_MAX + 1, 200};
+    add_op = coll->add(doc.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ(400, add_op.code());
+    ASSERT_EQ("Field `values` exceeds maximum value of int32.", add_op.error());
+
+    // Array with negative overflow should be rejected
+    doc["title"] = "negative overflow in array";
+    doc["values"] = {100, (int64_t)INT32_MIN - 1};
+    add_op = coll->add(doc.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ(400, add_op.code());
+    ASSERT_EQ("Field `values` exceeds maximum value of int32.", add_op.error());
+
+    collectionManager.drop_collection("int32_arr_overflow_test");
+}
+
+TEST_F(CollectionTest, Int32OverflowWithDirtyValuesDropOptional) {
+    Collection* coll;
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("value", field_types::INT32, false, true)  // facet=false, optional=true
+    };
+
+    coll = collectionManager.get_collection("int32_drop_test").get();
+    if (coll == nullptr) {
+        coll = collectionManager.create_collection("int32_drop_test", 1, fields).get();
+    }
+
+    // Optional field with DROP should silently drop overflowed value
+    nlohmann::json doc;
+    doc["title"] = "dropped overflow";
+    doc["value"] = 1740000000000LL;
+    auto add_op = coll->add(doc.dump(), CREATE, "", DIRTY_VALUES::DROP);
+    ASSERT_TRUE(add_op.ok());
+
+    // Verify the document was indexed but without the overflowed field
+    std::vector<sort_by> test_sort = { sort_by(sort_field_const::text_match, "DESC") };
+    auto results = coll->search("dropped overflow", {"title"}, "", {}, test_sort, {0}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_FALSE(results["hits"][0]["document"].contains("value"));
+
+    // Non-optional field with DROP should still reject
+    collectionManager.drop_collection("int32_drop_test");
+
+    std::vector<field> fields2 = {
+        field("title", field_types::STRING, false),
+        field("value", field_types::INT32, false)  // non-optional
+    };
+    coll = collectionManager.create_collection("int32_drop_test", 1, fields2).get();
+
+    doc["title"] = "rejected overflow";
+    doc["value"] = 1740000000000LL;
+    add_op = coll->add(doc.dump(), CREATE, "", DIRTY_VALUES::DROP);
+    ASSERT_FALSE(add_op.ok());
+
+    collectionManager.drop_collection("int32_drop_test");
+}
