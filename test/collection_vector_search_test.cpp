@@ -2133,15 +2133,22 @@ TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExistsOnUpsert) {
     ASSERT_TRUE(op.ok());
     Collection* coll = op.get();
 
-    // Step 1: Create a document with a pre-computed embedding
+    // Get num_dim from the collection's embedding field
+    size_t num_dim = 0;
+    for(const auto& f : coll->get_fields()) {
+        if(f.name == "embedding") {
+            num_dim = f.num_dim;
+            break;
+        }
+    }
+    ASSERT_GT(num_dim, 0);
+
+    // Create a document with a pre-computed embedding
     nlohmann::json doc;
     doc["id"] = "0";
     doc["name"] = "butter";
 
-    std::vector<float> original_vec;
-    for(size_t i = 0; i < 384; i++) {
-        original_vec.push_back(0.345);
-    }
+    std::vector<float> original_vec(num_dim, 0.345f);
     doc["embedding"] = original_vec;
 
     auto add_op = coll->add(doc.dump(), CREATE);
@@ -2150,12 +2157,9 @@ TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExistsOnUpsert) {
     auto res = coll->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
     ASSERT_NEAR(0.345, res["hits"][0]["document"]["embedding"][0].get<float>(), 0.01);
 
-    //Upsert with BOTH changed source field AND new pre-computed embedding, the pre-computed 
-    // embedding should be used, not auto-computed from the new name.
-    std::vector<float> new_vec;
-    for(size_t i = 0; i < 384; i++) {
-        new_vec.push_back(0.500);
-    }
+    // Upsert with BOTH changed source field AND new pre-computed embedding.
+    // The pre-computed embedding should be used, not auto-computed from the new name.
+    std::vector<float> new_vec(num_dim, 0.500f);
 
     nlohmann::json upsert_doc;
     upsert_doc["id"] = "0";
@@ -2169,10 +2173,7 @@ TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExistsOnUpsert) {
     ASSERT_NEAR(0.500, res["hits"][0]["document"]["embedding"][0].get<float>(), 0.01);
 
     // Update (PATCH) with BOTH changed source field AND new pre-computed embedding
-    std::vector<float> update_vec;
-    for(size_t i = 0; i < 384; i++) {
-        update_vec.push_back(0.700);
-    }
+    std::vector<float> update_vec(num_dim, 0.700f);
 
     nlohmann::json update_doc;
     update_doc["id"] = "0";
@@ -2186,10 +2187,7 @@ TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExistsOnUpsert) {
     ASSERT_NEAR(0.700, res["hits"][0]["document"]["embedding"][0].get<float>(), 0.01);
 
     // Emplace with BOTH changed source field AND new pre-computed embedding
-    std::vector<float> emplace_vec;
-    for(size_t i = 0; i < 384; i++) {
-        emplace_vec.push_back(0.900);
-    }
+    std::vector<float> emplace_vec(num_dim, 0.900f);
 
     nlohmann::json emplace_doc;
     emplace_doc["id"] = "0";
