@@ -874,7 +874,11 @@ void filter_result_iterator_t::next() {
 
     const filter a_filter = filter_node->filter_exp;
 
-    if (a_filter.field_name == "id" || is_existence_filter) {
+    if (is_existence_filter) {
+        return;
+    }
+
+    if (a_filter.field_name == "id") {
         all_seq_ids_iterator.next();
         if (!all_seq_ids_iterator.valid()) {
             validity = invalid;
@@ -1150,7 +1154,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         auto map_it = index->field_missing_index.find(a_filter.field_name);
 
         if(a_filter.apply_not_equals) {
-            // !_exists: directly iterate over the missing list
             if(map_it == index->field_missing_index.end() || map_it->second == nullptr || map_it->second->num_ids() == 0) {
                 is_filter_result_initialized = true;
                 validity = invalid;
@@ -1158,47 +1161,69 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             }
 
             id_list_t* list = map_it->second;
-            all_seq_ids_iterator = list->new_iterator();
-            if(all_seq_ids_iterator.valid()) {
+            approx_filter_ids_length = list->num_ids();
+
+            if (enable_lazy_evaluation && approx_filter_ids_length >= numeric_filter_ids_threshold) {
                 is_existence_filter = true;
                 existence_list_ptr = list;
-                seq_id = all_seq_ids_iterator.id();
-                approx_filter_ids_length = list->num_ids();
+                seq_id = 0;
+                last_valid_id = index->seq_ids->last_id();
             } else {
+                filter_result.docs = list->uncompress();
+                filter_result.count = list->num_ids();
                 is_filter_result_initialized = true;
-                validity = invalid;
+
+                if(filter_result.count == 0) {
+                    validity = invalid;
+                } else {
+                    seq_id = filter_result.docs[result_index];
+                    approx_filter_ids_length = filter_result.count;
+                }
             }
         } else {
-            // _exists: all docs minus the missing list
-            // Get the complement of missing ids to get the existing ids.
-            uint32_t* missing_ids = nullptr;
-            uint32_t missing_ids_len = 0;
+            auto const& num_ids = index->seq_ids->num_ids();
+            uint32_t missing_count = (map_it != index->field_missing_index.end() && map_it->second != nullptr)
+                                      ? map_it->second->num_ids()
+                                      : 0;
+            approx_filter_ids_length = num_ids - missing_count;
 
-            if(map_it != index->field_missing_index.end() && map_it->second != nullptr && map_it->second->num_ids() > 0) {
-                missing_ids = map_it->second->uncompress();
-                missing_ids_len = map_it->second->num_ids();
-            }
-
-            filter_result.docs = index->seq_ids->uncompress();
-            filter_result.count = index->seq_ids->num_ids();
-
-            if(missing_ids_len > 0) {
-                uint32_t* exists_ids = nullptr;
-                size_t exists_ids_len = ArrayUtils::exclude_scalar(filter_result.docs, filter_result.count,
-                                                                    missing_ids, missing_ids_len, &exists_ids);
-                delete[] filter_result.docs;
-                delete[] missing_ids;
-                filter_result.docs = exists_ids;
-                filter_result.count = exists_ids_len;
-            }
-
-            is_filter_result_initialized = true;
-
-            if(filter_result.count == 0) {
-                validity = invalid;
+            if (enable_lazy_evaluation && approx_filter_ids_length >= numeric_filter_ids_threshold) {
+                is_existence_filter = true;
+                if(map_it != index->field_missing_index.end() && map_it->second != nullptr) {
+                    existence_list_ptr = map_it->second;
+                }
+                seq_id = 0;
+                last_valid_id = index->seq_ids->last_id();
             } else {
-                seq_id = filter_result.docs[result_index];
-                approx_filter_ids_length = filter_result.count;
+                uint32_t* missing_ids = nullptr;
+                uint32_t missing_ids_len = 0;
+
+                if(map_it != index->field_missing_index.end() && map_it->second != nullptr && map_it->second->num_ids() > 0) {
+                    missing_ids = map_it->second->uncompress();
+                    missing_ids_len = map_it->second->num_ids();
+                }
+
+                filter_result.docs = index->seq_ids->uncompress();
+                filter_result.count = index->seq_ids->num_ids();
+
+                if(missing_ids_len > 0) {
+                    uint32_t* exists_ids = nullptr;
+                    size_t exists_ids_len = ArrayUtils::exclude_scalar(filter_result.docs, filter_result.count,
+                                                                        missing_ids, missing_ids_len, &exists_ids);
+                    delete[] filter_result.docs;
+                    delete[] missing_ids;
+                    filter_result.docs = exists_ids;
+                    filter_result.count = exists_ids_len;
+                }
+
+                is_filter_result_initialized = true;
+
+                if(filter_result.count == 0) {
+                    validity = invalid;
+                } else {
+                    seq_id = filter_result.docs[result_index];
+                    approx_filter_ids_length = filter_result.count;
+                }
             }
         }
         return;
@@ -1997,7 +2022,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 
     const filter a_filter = filter_node->filter_exp;
 
-    if (a_filter.field_name == "id" || is_existence_filter) {
+    if (a_filter.field_name == "id") {
         all_seq_ids_iterator.skip_to(id);
         if (!all_seq_ids_iterator.valid()) {
             validity = invalid;
@@ -2299,6 +2324,22 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
         } else if (id == equals_iterator_id) {
             return 0;
         }
+    }
+
+    if (is_existence_filter) {
+        if (id > last_valid_id) {
+            validity = invalid;
+            return -1;
+        }
+
+        validity = valid;
+        seq_id = id + 1;
+
+        bool is_match = filter_node->filter_exp.apply_not_equals
+            ? (existence_list_ptr->contains(id))
+            : (existence_list_ptr == nullptr || !existence_list_ptr->contains(id));
+
+        return is_match ? 1 : 0;
     }
 
     skip_to(id);

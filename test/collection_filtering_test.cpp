@@ -4729,3 +4729,132 @@ TEST_F(CollectionFilteringTest, ExistsFilterLargerDataset) {
 
     collectionManager.drop_collection("products");
 }
+
+TEST_F(CollectionFilteringTest, ExistsFilterLazyEvaluation) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "optional_index": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    std::set<int> has_color = {0, 1, 5};
+    for (int i = 0; i < 6; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Product " + std::to_string(i);
+        if (has_color.count(i)) {
+            doc["color"] = "color_" + std::to_string(i);
+        }
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    auto const enable_lazy_evaluation = true;
+    auto const disable_lazy_evaluation = false;
+
+    Option<bool> filter_op = filter::parse_filter_query("color: _exists", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_exists = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                               enable_lazy_evaluation);
+    ASSERT_TRUE(iter_exists.init_status().ok());
+    ASSERT_FALSE(iter_exists._get_is_filter_result_initialized());
+
+    std::vector<uint32_t> validate_ids = {0, 1, 2, 3, 4, 5, 6};
+    std::vector<uint32_t> seq_ids = {1, 2, 3, 4, 5, 6, 6};
+    std::vector<int> expected = {1, 1, 0, 0, 0, 1, -1};
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_exists.validity);
+        ASSERT_EQ(expected[i], iter_exists.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_exists.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_exists.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_exists.validity);
+
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_exists_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                             disable_lazy_evaluation);
+        ASSERT_TRUE(iter_exists_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_exists_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5, 6};
+        seq_ids = {1, 5, 5, 5, 5, 5, 5};
+        expected = {1, 1, 0, 0, 0, 1, -1};
+
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_exists_non_lazy.validity);
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i], iter_exists_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_exists_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_exists_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_exists_non_lazy.validity);
+    }
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("color: !_exists", coll->get_schema(), store, doc_id_prefix,
+                                          filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_not_exists = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                    enable_lazy_evaluation);
+    ASSERT_TRUE(iter_not_exists.init_status().ok());
+    ASSERT_FALSE(iter_not_exists._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5, 6};
+    seq_ids = {1, 2, 3, 4, 5, 6, 6};
+    expected = {0, 0, 1, 1, 1, 0, -1};
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_exists.validity);
+        ASSERT_EQ(expected[i], iter_not_exists.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_not_exists.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_not_exists.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_exists.validity);
+
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_not_exists_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                 disable_lazy_evaluation);
+        ASSERT_TRUE(iter_not_exists_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_not_exists_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5, 6};
+        seq_ids = {2, 2, 3, 4, 4, 4, 4};
+        expected = {0, 0, 1, 1, 1, -1, -1};
+
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_exists_non_lazy.validity);
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i], iter_not_exists_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_not_exists_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_not_exists_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_exists_non_lazy.validity);
+    }
+
+    delete filter_tree_root;
+    collectionManager.drop_collection("products");
+}
