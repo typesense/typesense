@@ -25,6 +25,8 @@
 struct doc_seq_id_t {
     uint32_t seq_id;
     bool is_new;
+    index_operation_t operation;
+    bool is_same_batch = false;
 };
 
 struct highlight_field_t {
@@ -859,6 +861,7 @@ public:
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation,
                                 const DIRTY_VALUES dirty_values,
+                                const spp::sparse_hash_map<std::string, uint32_t>& batch_docs,
                                 const std::string& id="");
 
 

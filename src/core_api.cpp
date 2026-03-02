@@ -209,20 +209,6 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params,
     }
 }
 
-index_operation_t get_index_operation(const std::string& action) {
-    if(action == "create") {
-        return CREATE;
-    } else if(action == "update") {
-        return UPDATE;
-    } else if(action == "upsert") {
-        return UPSERT;
-    } else if(action == "emplace") {
-        return EMPLACE;
-    }
-
-    return CREATE;
-}
-
 bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
@@ -1563,9 +1549,9 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     }
 
     if(req->params[ACTION] != "create" && req->params[ACTION] != "update" && req->params[ACTION] != "upsert" &&
-       req->params[ACTION] != "emplace") {
+       req->params[ACTION] != "emplace" && req->params[ACTION] != "all") {
         res->final = true;
-        res->set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert.");
+        res->set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert|all.");
         stream_response(req, res);
         return false;
     }
