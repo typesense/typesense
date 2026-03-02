@@ -6130,3 +6130,57 @@ TEST_F(CollectionVectorTest, ConversationWithUnion) {
     ASSERT_TRUE(results["conversation"]["conversation_history"].is_object());
     ASSERT_TRUE(results["conversation"].contains("answer"));
 }
+
+TEST_F(CollectionVectorTest, UpdateAPIKeyInSchema) {
+    auto schema_json = R"({
+                                        "name": "apitest",
+                                        "fields": [
+                                          {"name": "title", "type": "string"},
+                                          {"name": "description", "type": "string"},
+                                          {
+                                            "name": "embedding",
+                                            "type": "float[]",
+                                            "embed": {
+                                              "from": ["title", "description"],
+                                              "model_config": {
+                                                "model_name": "openai/text-embedding-3-small",
+                                                "api_key": "abcd"
+                                              }
+                                            }
+                                          }
+                                        ]
+                                    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto search_schema = coll->get_schema();
+    ASSERT_EQ("abcd", search_schema.at("embedding").embed[fields::model_config][fields::api_key]);
+
+    auto embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ("abcd", embedding_fields["embedding"].embed[fields::model_config][fields::api_key]);
+
+    auto alter_payload = R"({
+                            "fields": [{
+                                        "name": "embedding",
+                                        "embed": {
+                                            "from": ["title", "description"],
+                                            "model_config": {
+                                                "model_name": "openai/text-embedding-3-small",
+                                                "api_key": "xyzw"
+                                            }
+                                        }
+                                    }]
+                            })"_json;
+
+    ASSERT_TRUE(coll->alter(alter_payload).ok());
+    search_schema = coll->get_schema();
+    ASSERT_EQ("xyzw", search_schema.at("embedding").embed[fields::model_config][fields::api_key]);
+
+    embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ("xyzw", embedding_fields["embedding"].embed[fields::model_config][fields::api_key]);
+}
