@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <memory>
 #include <queue>
 #include <id_list.h>
@@ -1723,7 +1724,25 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
         for (uint32_t i = 0; i < a_filter.values.size(); i++) {
             auto filter_value = a_filter.values[i];
-            auto is_prefix_match = filter_value.size() > 1 && filter_value[filter_value.size() - 1] == '*';
+
+            // Detect infix (*value*) before prefix (value*) to avoid misdetection
+            auto is_infix_match = filter_value.size() > 2
+                && filter_value[0] == '*'
+                && filter_value[filter_value.size() - 1] == '*';
+            auto is_prefix_match = !is_infix_match
+                && filter_value.size() > 1
+                && filter_value[filter_value.size() - 1] == '*';
+
+            if (is_infix_match) {
+                if (!f.infix) {
+                    status = Option<bool>(400, "Error with filter field `" + f.name +
+                        "`: Infix filtering requires the field to have `infix: true` in the schema.");
+                    validity = invalid;
+                    return;
+                }
+                filter_value.erase(0, 1);
+                filter_value.erase(filter_value.size() - 1);
+            }
             if (is_prefix_match) {
                 filter_value.erase(filter_value.size() - 1);
             }
@@ -1748,7 +1767,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 }
                 str_tokens.push_back(str_token);
 
-                if (is_prefix_match) {
+                if (is_prefix_match || is_infix_match) {
                     continue;
                 }
 
@@ -1767,6 +1786,47 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 status = Option<bool>(400, "Error with filter field `" + f.name + "`: Filter value cannot be empty.");
                 validity = invalid;
                 return;
+            }
+
+            if (is_infix_match) {
+                // Use existing search_infix() per token, intersect for multi-token, OR across values
+                std::vector<uint32_t> infix_ids;
+                bool first_token = true;
+
+                for (const auto& token : str_tokens) {
+                    std::vector<uint32_t> token_ids;
+                    auto infix_op = index->search_infix(token, a_filter.field_name,
+                                                         token_ids, INT16_MAX, INT16_MAX);
+                    if (!infix_op.ok()) {
+                        status = Option<bool>(infix_op.code(), infix_op.error());
+                        validity = invalid;
+                        return;
+                    }
+
+                    if (first_token) {
+                        infix_ids = std::move(token_ids);
+                        first_token = false;
+                    } else {
+                        std::vector<uint32_t> intersected;
+                        std::set_intersection(infix_ids.begin(), infix_ids.end(),
+                                              token_ids.begin(), token_ids.end(),
+                                              std::back_inserter(intersected));
+                        infix_ids = std::move(intersected);
+                    }
+
+                    if (infix_ids.empty()) break;
+                }
+
+                if (!infix_ids.empty()) {
+                    uint32_t* out = nullptr;
+                    filter_result.count = ArrayUtils::or_scalar(
+                        &infix_ids[0], infix_ids.size(),
+                        filter_result.docs, filter_result.count, &out);
+                    delete[] filter_result.docs;
+                    filter_result.docs = out;
+                }
+
+                continue;
             }
 
             if (is_prefix_match) {
@@ -1872,6 +1932,50 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             // Multiple filter values get OR.
             approx_filter_ids_length += approx_filter_value_match;
+        }
+
+        // If infix filter values populated filter_result, finalize as flat ID result
+        bool has_infix_results = (filter_result.count > 0);
+        if (has_infix_results) {
+            if (!posting_lists.empty()) {
+                // Mixed infix + exact/prefix: flatten posting lists, then OR with infix results
+                uint32_t* infix_docs = filter_result.docs;
+                uint32_t infix_count = filter_result.count;
+                filter_result.docs = nullptr;
+                filter_result.count = 0;
+
+                compute_iterators();  // flattens posting_lists -> filter_result
+
+                uint32_t* out = nullptr;
+                filter_result.count = ArrayUtils::or_scalar(
+                    infix_docs, infix_count,
+                    filter_result.docs, filter_result.count, &out);
+                delete[] infix_docs;
+                delete[] filter_result.docs;
+                filter_result.docs = out;
+            }
+
+            if (a_filter.apply_not_equals) {
+                auto all_ids = index->seq_ids->uncompress();
+                auto all_ids_len = index->seq_ids->num_ids();
+                uint32_t* excluded = nullptr;
+                auto excluded_len = ArrayUtils::exclude_scalar(
+                    all_ids, all_ids_len,
+                    filter_result.docs, filter_result.count, &excluded);
+                delete[] all_ids;
+                delete[] filter_result.docs;
+                filter_result.docs = excluded;
+                filter_result.count = excluded_len;
+            }
+
+            is_filter_result_initialized = true;
+            if (filter_result.count == 0) {
+                validity = invalid;
+                return;
+            }
+            seq_id = filter_result.docs[result_index];
+            approx_filter_ids_length = filter_result.count;
+            return;
         }
 
         if (a_filter.apply_not_equals) {
@@ -3157,7 +3261,11 @@ bool filter_result_iterator_t::validate_object_filter_helper(Index const* const 
                                 filter_exp.comparators[0] : filter_exp.comparators[i];
 
             if (f.is_string()) {
-                if(val.at(val.size() - 1) == '*' && comparator == CONTAINS) {//prefix match
+                bool is_infix = val.size() > 2 && val.front() == '*' && val.back() == '*' && comparator == CONTAINS;
+                if (is_infix) {
+                    val.erase(0, 1)
+                    val.pop_back();
+                } else if(val.at(val.size() - 1) == '*' && comparator == CONTAINS) {//prefix match
                     val.pop_back();
                 }
 
