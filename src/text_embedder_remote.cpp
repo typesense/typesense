@@ -134,11 +134,14 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     
     auto res_code = call_remote_api("POST", OpenAIEmbedder::get_embedding_url_for_config(openai_url, openai_path), req_body.dump(), embedding_res, res_headers, headers);
 
-#ifndef TEST_BUILD
     if(res_code == 408) {
         return Option<bool>(408, "OpenAI API timeout.");
     }
-
+#ifdef TEST_BUILD
+    if(res_code == 401) { //apikey error, we skip for test purpose
+        return Option<bool>(true);
+    }
+#endif
     if (res_code != 200) {
         nlohmann::json json_res;
         try {
@@ -158,7 +161,6 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
         return Option<bool>(400, "Got malformed response from OpenAI API.");
     }
     num_dims = embedding.size();
-#endif
     return Option<bool>(true);
 }
 
