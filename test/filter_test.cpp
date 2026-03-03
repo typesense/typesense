@@ -925,7 +925,7 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
                                                                       enable_lazy_evaluation);
     ASSERT_TRUE(iter_string_array_not_equals_test.init_status().ok());
     ASSERT_FALSE(iter_string_array_not_equals_test._get_is_filter_result_initialized());
-    ASSERT_EQ(5, iter_string_array_not_equals_test.approx_filter_ids_length);
+    ASSERT_EQ(2, iter_string_array_not_equals_test.approx_filter_ids_length);
 
     validate_ids = {0, 1, 2, 3, 4, 5};
     seq_ids = {1, 2, 3, 4, 5, 5};

@@ -4259,3 +4259,110 @@ TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
     ASSERT_EQ("Pizza", result["hits"][0]["document"]["root"]["main"]["name"]);
     ASSERT_EQ("Pasta", result["hits"][1]["document"]["root"]["main"]["name"]);
 }
+
+// Bug: deep pagination with --enable-lazy-filter returns empty hits when a NOT-IN
+// array filter's approx_filter_ids_length underestimates, causing the topster to
+// be sized too small for pages beyond the (incorrect) approximation.
+TEST_F(CollectionFilteringTest, LazyFilterNotInArrayDeepPagination) {
+    nlohmann::json schema = R"({
+        "name": "lazy_not_in_test",
+        "fields": [
+            {"name": "app_id", "type": "string", "facet": true},
+            {"name": "tags", "type": "string[]", "facet": true},
+            {"name": "is_active", "type": "bool", "facet": true},
+            {"name": "score", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    // 100 docs: 70 good (active, safe tags), 20 excluded (active, bad tags), 10 inactive.
+    const std::vector<std::string> good_tags = {"safe", "clean", "general", "family", "fun"};
+    const std::vector<std::string> bad_tags = {"tag_a", "tag_b", "tag_c", "tag_d", "tag_e"};
+
+    for (int i = 0; i < 100; i++) {
+        nlohmann::json doc;
+        doc["app_id"] = "myapp";
+        doc["score"] = 100 - i; // deterministic descending scores
+
+        int mod = i % 10;
+        if (mod < 7) {
+            doc["tags"] = {good_tags[i % good_tags.size()], good_tags[(i + 2) % good_tags.size()]};
+            doc["is_active"] = true;
+        } else if (mod < 9) {
+            doc["tags"] = {bad_tags[i % bad_tags.size()], bad_tags[(i + 1) % bad_tags.size()]};
+            doc["is_active"] = true;
+        } else {
+            doc["tags"] = {good_tags[i % good_tags.size()]};
+            doc["is_active"] = false;
+        }
+
+        auto add_op = coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    const std::string filter = "app_id:myapp && tags:!=[tag_a,tag_b,tag_c,tag_d,tag_e] && is_active:true";
+
+    // First page: get total found count.
+    auto req_params = new std::map<std::string, std::string>();
+    (*req_params)["collection"] = "lazy_not_in_test";
+    (*req_params)["q"] = "*";
+    (*req_params)["filter_by"] = filter;
+    (*req_params)["sort_by"] = "score:desc";
+    (*req_params)["per_page"] = "10";
+    (*req_params)["page"] = "1";
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+
+    size_t found = result["found"].get<size_t>();
+    ASSERT_EQ(70, found);
+
+    // Paginate through ALL pages, collecting every hit.
+    size_t total_retrieved = 0;
+    size_t per_page = 10;
+    size_t max_pages = (found / per_page) + 1;
+
+    for (size_t page = 1; page <= max_pages; page++) {
+        delete req_params;
+        req_params = new std::map<std::string, std::string>();
+        (*req_params)["collection"] = "lazy_not_in_test";
+        (*req_params)["q"] = "*";
+        (*req_params)["filter_by"] = filter;
+        (*req_params)["sort_by"] = "score:desc";
+        (*req_params)["per_page"] = std::to_string(per_page);
+        (*req_params)["page"] = std::to_string(page);
+
+        json_res.clear();
+        now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+        result = nlohmann::json::parse(json_res);
+
+        size_t hits = result["hits"].size();
+        total_retrieved += hits;
+
+        // Every page up to the last full page must have per_page results.
+        if (page < max_pages) {
+            ASSERT_EQ(per_page, hits) << "Page " << page << " returned " << hits
+                                      << " hits, expected " << per_page;
+        }
+    }
+
+    delete req_params;
+
+    // All 70 matching docs must be retrievable through pagination.
+    ASSERT_EQ(found, total_retrieved)
+        << "Only " << total_retrieved << " of " << found
+        << " results were retrievable through deep pagination";
+}

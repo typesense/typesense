@@ -1266,9 +1266,11 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                 if (a_filter.apply_not_equals) {
                     auto const& num_ids = index->seq_ids->num_ids();
-                    approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+                    auto const not_equals_filter_ids_hint = approx_filter_ids_length >= num_ids ?
+                                                            num_ids : (num_ids - approx_filter_ids_length);
+                    approx_filter_ids_length = num_ids;
 
-                    if (approx_filter_ids_length < numeric_filter_ids_threshold) {
+                    if (not_equals_filter_ids_hint < numeric_filter_ids_threshold) {
                         // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
                         compute_iterators();
                         return;
@@ -1426,9 +1428,11 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                 if (a_filter.apply_not_equals) {
                     auto const& num_ids = index->seq_ids->num_ids();
-                    approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+                    auto const not_equals_filter_ids_hint = approx_filter_ids_length >= num_ids ?
+                                                            num_ids : (num_ids - approx_filter_ids_length);
+                    approx_filter_ids_length = num_ids;
 
-                    if (approx_filter_ids_length < numeric_filter_ids_threshold) {
+                    if (not_equals_filter_ids_hint < numeric_filter_ids_threshold) {
                         // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
                         compute_iterators();
                         return;
@@ -1731,6 +1735,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
     } else if (f.is_string()) {
         art_tree* t = index->search_index.at(a_filter.field_name);
 
+        uint32_t max_filter_value_match = 0;
+
         for (uint32_t i = 0; i < a_filter.values.size(); i++) {
             auto filter_value = a_filter.values[i];
             auto is_prefix_match = filter_value.size() > 1 && filter_value[filter_value.size() - 1] == '*';
@@ -1860,6 +1866,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                     // Multiple filter values get OR.
                     approx_filter_ids_length += approx_filter_value_match;
+                    max_filter_value_match = std::max(max_filter_value_match, approx_filter_value_match);
                 }
                 continue;
             }
@@ -1882,13 +1889,29 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             // Multiple filter values get OR.
             approx_filter_ids_length += approx_filter_value_match;
+            max_filter_value_match = std::max(max_filter_value_match, approx_filter_value_match);
         }
 
         if (a_filter.apply_not_equals) {
             auto const& num_ids = index->seq_ids->num_ids();
-            approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+            // Preserve OR-sum-based hint for eager-materialization threshold.
+            auto const not_equals_filter_ids_hint = approx_filter_ids_length >= num_ids ?
+                                                    num_ids : (num_ids - approx_filter_ids_length);
 
-            if (approx_filter_ids_length < string_filter_ids_threshold) {
+            if (approx_filter_ids_length >= num_ids) {
+                // OR-sum overflows num_ids (overlapping posting lists).
+                // Use tighter upper bound: union >= max(Si),
+                // so NOT result <= num_ids - max(Si). Falls back to num_ids
+                // when no excluded values were found.
+                approx_filter_ids_length = (max_filter_value_match > 0 && max_filter_value_match <= num_ids) ?
+                                            (num_ids - max_filter_value_match) : num_ids;
+            } else {
+                // OR-sum hasn't overflowed, so num_ids - sum is a valid
+                // (and tighter) approximation.
+                approx_filter_ids_length = num_ids - approx_filter_ids_length;
+            }
+
+            if (not_equals_filter_ids_hint < string_filter_ids_threshold) {
                 // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
                 compute_iterators();
                 return;
