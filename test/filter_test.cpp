@@ -695,7 +695,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                                                     enable_lazy_evaluation);
     ASSERT_TRUE(iter_string_prefix_value_test_2.init_status().ok());
     ASSERT_FALSE(iter_string_prefix_value_test_2._get_is_filter_result_initialized());
-    ASSERT_EQ(4, iter_string_prefix_value_test_2.approx_filter_ids_length); // 7 total docs, 3 approx count for equals.
+    ASSERT_EQ(7, iter_string_prefix_value_test_2.approx_filter_ids_length); // Safe upper bound for NOT approximation.
 
     validate_ids = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
     seq_ids = {1, 2, 3, 4, 5, 6, 7, 8, 9, 9};

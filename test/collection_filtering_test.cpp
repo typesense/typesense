@@ -4259,3 +4259,132 @@ TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
     ASSERT_EQ("Pizza", result["hits"][0]["document"]["root"]["main"]["name"]);
     ASSERT_EQ("Pasta", result["hits"][1]["document"]["root"]["main"]["name"]);
 }
+TEST_F(CollectionFilteringTest, LazyFilterNotInArrayDeepPagination) {
+    // Bug #2806: Deep pagination returns empty hits when using NOT-IN array
+    // filters with --enable-lazy-filter. The OR-sum of excluded-value posting
+    // lists overcounts documents that appear in multiple posting lists (common
+    // with array fields), causing the NOT inversion to underestimate the match
+    // count. The topster buffer is then sized too small for deep pagination.
+    Collection *coll;
+    std::vector<field> fields = {
+            field("app_id", field_types::STRING, true),
+            field("tags", field_types::STRING_ARRAY, true),
+            field("is_active", field_types::BOOL, true),
+            field("score", field_types::INT32, false)
+    };
+    coll = collectionManager.create_collection("coll_lazy_not_in_pagination", 1, fields, "score").get();
+
+    // Insert documents with overlapping tag values to trigger OR-sum overcounting.
+    // 70 docs: good tags, is_active=true  -> PASS all filters (expected in results)
+    // 20 docs: 2 excluded tags each, is_active=true -> FAIL tag filter
+    // 10 docs: good tags, is_active=false -> FAIL is_active filter
+    //
+    // With 5 excluded tags and 20 docs having 2 each:
+    //   Each excluded tag appears in ~8 docs
+    //   OR-sum approximation: 5 * 8 = ~40 (overcounts actual 20)
+    //   NOT approximation (old): 100 - 40 = 60 (undercounts actual 80)
+    //   AND approximation: min(100, 60, 90) = 60
+    //   Actual matching: 70
+
+    std::string excluded_tags[] = {"tag_a", "tag_b", "tag_c", "tag_d", "tag_e"};
+    std::string good_tags[] = {"safe", "clean", "general", "family", "fun"};
+
+    int doc_id = 0;
+    // 70 docs with good tags, is_active=true
+    for (int i = 0; i < 70; i++) {
+        auto t1 = good_tags[i % 5];
+        auto t2 = good_tags[(i + 2) % 5];
+        nlohmann::json doc;
+        doc["id"] = std::to_string(doc_id++);
+        doc["app_id"] = "myapp";
+        doc["tags"] = {t1, t2};
+        doc["is_active"] = true;
+        doc["score"] = 10000 - i;  // descending scores for stable sort
+        auto add_op = coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // 20 docs with excluded tags (2 per doc), is_active=true
+    for (int i = 0; i < 20; i++) {
+        auto t1 = excluded_tags[i % 5];
+        auto t2 = excluded_tags[(i + 3) % 5];
+        nlohmann::json doc;
+        doc["id"] = std::to_string(doc_id++);
+        doc["app_id"] = "myapp";
+        doc["tags"] = {t1, t2};
+        doc["is_active"] = true;
+        doc["score"] = 5000 - i;
+        auto add_op = coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // 10 docs with good tags, is_active=false
+    for (int i = 0; i < 10; i++) {
+        auto t1 = good_tags[i % 5];
+        auto t2 = good_tags[(i + 1) % 5];
+        nlohmann::json doc;
+        doc["id"] = std::to_string(doc_id++);
+        doc["app_id"] = "myapp";
+        doc["tags"] = {t1, t2};
+        doc["is_active"] = false;
+        doc["score"] = 1000 - i;
+        auto add_op = coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // Search with compound NOT-IN filter on string array field
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll_lazy_not_in_pagination"},
+            {"q", "*"},
+            {"filter_by", "app_id:myapp && tags:!=[tag_a,tag_b,tag_c,tag_d,tag_e] && is_active:true"},
+            {"sort_by", "score:desc"},
+            {"per_page", "10"},
+            {"page", "1"},
+            {"enable_lazy_filter", "true"}
+    };
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(70, result["found"].get<size_t>());
+    ASSERT_EQ(10, result["hits"].size());
+
+    // Paginate to the last page — this is where the bug manifested.
+    // With per_page=10 and 70 results, page 7 should have 10 hits.
+    req_params["page"] = "7";
+    json_res.clear();
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(70, result["found"].get<size_t>());
+    ASSERT_EQ(10, result["hits"].size());
+
+    // Collect ALL results across all pages to verify none are missing
+    std::set<std::string> all_ids;
+    for (int page = 1; page <= 7; page++) {
+        req_params["page"] = std::to_string(page);
+        json_res.clear();
+        now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+        result = nlohmann::json::parse(json_res);
+        ASSERT_EQ(70, result["found"].get<size_t>());
+
+        for (const auto& hit : result["hits"]) {
+            all_ids.insert(hit["document"]["id"].get<std::string>());
+        }
+    }
+
+    // All 70 matching documents must be retrievable through pagination
+    ASSERT_EQ(70, all_ids.size());
+}

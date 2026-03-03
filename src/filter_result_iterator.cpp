@@ -1266,9 +1266,13 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                 if (a_filter.apply_not_equals) {
                     auto const& num_ids = index->seq_ids->num_ids();
-                    approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+                    auto const not_equals_filter_ids_hint = approx_filter_ids_length >= num_ids ?
+                                                            num_ids : (num_ids - approx_filter_ids_length);
+                    // Keep total docs as the topster sizing bound to avoid under-counting overlaps.
+                    // Use num_ids as a safe upper bound (see string NOT-IN fix for details).
+                    approx_filter_ids_length = num_ids;
 
-                    if (approx_filter_ids_length < numeric_filter_ids_threshold) {
+                    if (not_equals_filter_ids_hint < numeric_filter_ids_threshold) {
                         // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
                         compute_iterators();
                         return;
@@ -1426,9 +1430,13 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                 if (a_filter.apply_not_equals) {
                     auto const& num_ids = index->seq_ids->num_ids();
-                    approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+                    auto const not_equals_filter_ids_hint = approx_filter_ids_length >= num_ids ?
+                                                            num_ids : (num_ids - approx_filter_ids_length);
+                    // Keep total docs as the topster sizing bound to avoid under-counting overlaps.
+                    // Use num_ids as a safe upper bound (see string NOT-IN fix for details).
+                    approx_filter_ids_length = num_ids;
 
-                    if (approx_filter_ids_length < numeric_filter_ids_threshold) {
+                    if (not_equals_filter_ids_hint < numeric_filter_ids_threshold) {
                         // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
                         compute_iterators();
                         return;
@@ -1886,9 +1894,13 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
         if (a_filter.apply_not_equals) {
             auto const& num_ids = index->seq_ids->num_ids();
-            approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+            auto const not_equals_filter_ids_hint = approx_filter_ids_length >= num_ids ?
+                                                            num_ids : (num_ids - approx_filter_ids_length);
+            // Keep total docs as the topster sizing bound to avoid under-counting overlaps.
+            // Use num_ids as a safe upper bound (see string NOT-IN fix for details).
+            approx_filter_ids_length = num_ids;
 
-            if (approx_filter_ids_length < string_filter_ids_threshold) {
+            if (not_equals_filter_ids_hint < string_filter_ids_threshold) {
                 // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
                 compute_iterators();
                 return;
