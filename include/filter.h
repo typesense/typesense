@@ -33,6 +33,10 @@ enum FILTER_OPERATOR {
 
 struct filter_node_t;
 struct field;
+struct AtomicCondition;
+
+using Conjunction = std::vector<AtomicCondition>;
+using DNF = std::vector<Conjunction>;
 
 struct filter {
     std::string field_name{};
@@ -86,6 +90,12 @@ struct filter {
     static Option<bool> tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens);
 
     static Option<bool> parse_filter_string(const std::string& filter_query, std::string& token, size_t& index);
+
+    static DNF to_dnf(const filter_node_t* node);
+
+    static bool clause_implies(const Conjunction& query_clause, const Conjunction& rule_clause, bool& is_second_pass_required);
+
+    static bool query_satisfies_rule(const DNF& rule_dnf, const DNF& query_dnf);
 };
 
 struct filter_node_t {
@@ -143,4 +153,17 @@ struct filter_node_t {
     bool is_match_all_ids_filter() const {
         return !isOperator && filter_exp.field_name == "id" && !filter_exp.values.empty() &&  filter_exp.values[0] == "*";
     }
+};
+
+struct AtomicCondition {
+    std::string field_name;
+    std::set<std::string> equality_values;
+    bool negated = false;
+
+    // Numeric range
+    bool has_range = false;
+    double min_val = -std::numeric_limits<double>::infinity();
+    double max_val = std::numeric_limits<double>::infinity();
+    bool min_inclusive = true;
+    bool max_inclusive = true;
 };
