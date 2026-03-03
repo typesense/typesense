@@ -3263,7 +3263,7 @@ bool filter_result_iterator_t::validate_object_filter_helper(Index const* const 
             if (f.is_string()) {
                 bool is_infix = val.size() > 2 && val.front() == '*' && val.back() == '*' && comparator == CONTAINS;
                 if (is_infix) {
-                    val.erase(0, 1)
+                    val.erase(0, 1);
                     val.pop_back();
                 } else if(val.at(val.size() - 1) == '*' && comparator == CONTAINS) {//prefix match
                     val.pop_back();
