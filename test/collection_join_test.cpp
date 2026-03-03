@@ -10709,6 +10709,54 @@ TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][2]["count"]);
     ASSERT_EQ("87", res_obj["facet_counts"][0]["counts"][2]["value"].get<std::string>());
     ASSERT_EQ("$Subjects(electives.grade: 87)", res_obj["facet_counts"][0]["counts"][2]["facet_filter"].get<std::string>());
+
+    //reference faceting on string[]
+    schema_json = R"({
+                        "name": "test_authors",
+                        "fields": [{"name": "name", "type": "string", "facet": true}]
+                    })"_json;
+
+    documents = {R"({"id": "author1", "name": "Author One"})"_json};
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json = R"({
+                        "name": "test_books",
+                        "fields": [
+                            {"name": "genres", "type": "string[]", "facet": true},
+                            {"name": "authorIds", "type": "string[]", "reference": "test_authors.id", "facet": true}
+                        ]})"_json;
+
+    documents = {R"({"id": "book1", "authorIds": ["author1"], "genres": ["fiction"]})"_json};
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "test_books"},
+            {"q", "*"},
+            {"filter_by", "genres:fiction"},
+            {"facet_by", "$test_authors(name)"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
 }
 
 TEST_F(CollectionJoinTest, AlterReferenceField) {

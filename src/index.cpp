@@ -8429,7 +8429,9 @@ Option<bool> Index::get_related_ids(const std::string& field_name, const std::ve
 
 Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_t& seq_id,
                                     std::vector<uint32_t>& result) const {
-    return get_related_ids(field_name, {seq_id}, result);
+
+    std::vector<uint32_t> seq_id_vec{seq_id};
+    return get_related_ids(field_name, seq_id_vec, result);
 }
 
 Option<bool> Index::get_object_array_related_id(const std::string& collection_name,
