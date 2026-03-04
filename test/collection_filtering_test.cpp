@@ -4260,10 +4260,10 @@ TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
     ASSERT_EQ("Pasta", result["hits"][1]["document"]["root"]["main"]["name"]);
 }
 
-// Bug: deep pagination with --enable-lazy-filter returns empty hits when a NOT-IN
-// array filter's approx_filter_ids_length underestimates, causing the topster to
-// be sized too small for pages beyond the (incorrect) approximation.
 TEST_F(CollectionFilteringTest, LazyFilterNotInArrayDeepPagination) {
+    // Bug: deep pagination with --enable-lazy-filter returns empty hits when a NOT-IN
+    // array filter's approx_filter_ids_length underestimates, causing the topster to
+    // be sized too small for pages beyond the (incorrect) approximation.
     nlohmann::json schema = R"({
         "name": "lazy_not_in_test",
         "fields": [
@@ -4354,15 +4354,12 @@ TEST_F(CollectionFilteringTest, LazyFilterNotInArrayDeepPagination) {
 
         // Every page up to the last full page must have per_page results.
         if (page < max_pages) {
-            ASSERT_EQ(per_page, hits) << "Page " << page << " returned " << hits
-                                      << " hits, expected " << per_page;
+            ASSERT_EQ(per_page, hits);
         }
     }
 
     delete req_params;
 
     // All 70 matching docs must be retrievable through pagination.
-    ASSERT_EQ(found, total_retrieved)
-        << "Only " << total_retrieved << " of " << found
-        << " results were retrievable through deep pagination";
+    ASSERT_EQ(found, total_retrieved);
 }
