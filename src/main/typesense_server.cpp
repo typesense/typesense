@@ -230,6 +230,7 @@ int main(int argc, char **argv) {
     // we can install new signal handlers only after overriding above
     signal(SIGINT, catch_interrupt);
     signal(SIGTERM, catch_interrupt);
+    signal(SIGHUP, catch_interrupt);
 
     init_api(config.get_cache_num_entries());
 

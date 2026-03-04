@@ -1091,7 +1091,7 @@ ReplicationState* HttpServer::get_replication_state() const {
 }
 
 bool HttpServer::is_alive() const {
-    return replication_state->is_alive();
+    return !is_shutdown_triggered && replication_state->is_alive();
 }
 
 bool HttpServer::get_route(uint64_t hash, route_path** found_rpath) {
@@ -1258,4 +1258,8 @@ ThreadPool* HttpServer::get_meta_thread_pool() const {
 
 void HttpServer::decr_pending_writes() {
     return replication_state->decr_pending_writes();
+}
+
+void HttpServer::set_shutdown_triggered() {
+    is_shutdown_triggered = true;
 }

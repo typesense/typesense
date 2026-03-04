@@ -440,6 +440,30 @@ void posting_t::to_expanded_plists(const std::vector<void*>& raw_posting_lists, 
     }
 }
 
+posting_list_t* posting_t::to_owned_posting_list(const void* raw_posting_list) {
+    if(raw_posting_list == nullptr) {
+        return nullptr;
+    }
+
+    if(IS_COMPACT_POSTING(raw_posting_list)) {
+        auto compact_posting_list = COMPACT_POSTING_PTR(raw_posting_list);
+        return compact_posting_list->to_full_posting_list();
+    }
+
+    auto source_posting_list = (posting_list_t*)(raw_posting_list);
+    auto owned_posting_list = new posting_list_t(posting_t::MAX_BLOCK_ELEMENTS);
+    auto source_iterator = source_posting_list->new_iterator();
+
+    while(source_iterator.valid()) {
+        std::vector<uint32_t> offsets;
+        posting_list_t::get_offsets(source_iterator, offsets);
+        owned_posting_list->upsert(source_iterator.id(), offsets);
+        source_iterator.next();
+    }
+
+    return owned_posting_list;
+}
+
 void posting_t::destroy_list(void*& obj) {
     if(obj == nullptr) {
         return;
