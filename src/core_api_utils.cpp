@@ -1,59 +1,61 @@
 #include "core_api_utils.h"
 #include "auth_manager.h"
+#include <algorithm>
 
 Option<bool> stateful_remove_docs(deletion_state_t* deletion_state, size_t batch_size, bool& done) {
-    bool removed = true;
-    size_t batch_count = 0;
+    static constexpr size_t INTERNAL_REMOVE_BATCH_MAX = 1000;
+    const size_t effective_batch_size = std::min(batch_size, INTERNAL_REMOVE_BATCH_MAX);
 
-    for(size_t i=0; i<deletion_state->index_ids.size(); i++) {
+    bool removed = false;
+    size_t batch_count = 0;
+    std::vector<uint32_t> batch_seq_ids;
+    batch_seq_ids.reserve(effective_batch_size);
+
+    for(size_t i = 0; i < deletion_state->index_ids.size(); i++) {
         std::pair<size_t, uint32_t*>& size_ids = deletion_state->index_ids[i];
         size_t ids_len = size_ids.first;
         uint32_t* ids = size_ids.second;
 
         size_t start_index = deletion_state->offsets[i];
-        size_t batched_len = std::min(ids_len, (start_index+batch_size));
-
-        for(size_t j=start_index; j<batched_len; j++) {
-            uint32_t seq_id = ids[j];
-
-            nlohmann::json doc;
-            bool doc_found = false;
-
-            if (deletion_state->return_doc || deletion_state->return_id) {
-                Option<bool> get_op = deletion_state->collection->get_document_from_store(seq_id, doc);
-                doc_found = get_op.ok();
-            }
-
-            Option<bool> remove_op = deletion_state->collection->remove_if_found(seq_id, true);
-            if (!remove_op.ok()) {
-                return remove_op;
-            }
-
-            removed = remove_op.get();
-            if (removed) {
-                deletion_state->num_removed++;
-                if (doc_found) {
-                    if (deletion_state->return_doc) {
-                        Collection::remove_flat_fields(doc);
-                        deletion_state->removed_docs.push_back(doc);
-                    }
-
-                    if (deletion_state->return_id) {
-                        deletion_state->removed_ids.push_back(doc["id"]);
-                    }
-                }
-            }
-
-            deletion_state->offsets[i]++;
+        while(start_index < ids_len && batch_count < effective_batch_size) {
+            batch_seq_ids.emplace_back(ids[start_index]);
+            start_index++;
             batch_count++;
+        }
 
-            if(batch_count == batch_size) {
-                goto END;
-            }
+        deletion_state->offsets[i] = start_index;
+        if(batch_count == effective_batch_size) {
+            break;
         }
     }
 
-    END:
+    std::vector<nlohmann::json> removed_docs_batch;
+    std::vector<nlohmann::json>* removed_docs_ptr = nullptr;
+    if(deletion_state->return_doc || deletion_state->return_id) {
+        removed_docs_ptr = &removed_docs_batch;
+    }
+
+    auto remove_op = deletion_state->collection->remove_if_found_many(batch_seq_ids, true, removed_docs_ptr);
+    if(!remove_op.ok()) {
+        return Option<bool>(remove_op.code(), remove_op.error());
+    }
+
+    auto removed_count = remove_op.get();
+    removed = removed_count > 0;
+    deletion_state->num_removed += removed_count;
+
+    if(removed_docs_ptr != nullptr) {
+        for(auto& doc: removed_docs_batch) {
+            if(deletion_state->return_doc) {
+                Collection::remove_flat_fields(doc);
+                deletion_state->removed_docs.push_back(doc);
+            }
+
+            if(deletion_state->return_id) {
+                deletion_state->removed_ids.push_back(doc["id"]);
+            }
+        }
+    }
 
     done = true;
     for(size_t i=0; i<deletion_state->index_ids.size(); i++) {
