@@ -1,7 +1,7 @@
 #include "image_embedder.h"
 #include "text_embedder_remote.h"
 
-CLIPImageEmbedder::CLIPImageEmbedder(const std::shared_ptr<Ort::Session>& session, const std::shared_ptr<Ort::Env>& env, const std::string& model_path) : image_processor_(model_path), session_(session), env_(env) {
+CLIPImageEmbedder::CLIPImageEmbedder(const std::shared_ptr<Ort::Session>& session, const std::shared_ptr<Ort::Env>& env, const std::string& model_path, const std::string& processor_filename) : image_processor_(model_path, processor_filename), session_(session), env_(env) {
 }
 
 embedding_res_t CLIPImageEmbedder::embed(const std::string& encoded_image) {
@@ -17,22 +17,40 @@ embedding_res_t CLIPImageEmbedder::embed(const std::string& encoded_image) {
 
     auto processed_image = processed_image_op.get();
 
-    // create input tensor
+    // create input tensors
     std::vector<int64_t> input_shape = {1, 3, 224, 224};
-    std::vector<const char*> input_names = {"pixel_values"};
     Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
 
+    std::vector<const char*> input_names;
+    std::vector<Ort::Value> input_tensors;
 
+    // Check if model requires input_ids (e.g. SigLIP has input_ids + pixel_values, no attention_mask)
+    std::vector<int64_t> dummy_input_ids = {0};
+    std::vector<int64_t> dummy_input_ids_shape = {1, 1};
+    bool has_input_ids = false;
+    auto input_count = session_->GetInputCount();
+    for(size_t i = 0; i < input_count; i++) {
+        auto name = session_->GetInputNameAllocated(i, Ort::AllocatorWithDefaultOptions());
+        if(std::strcmp(name.get(), "input_ids") == 0) {
+            has_input_ids = true;
+            break;
+        }
+    }
 
-    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(memory_info, (float*) processed_image.data(), processed_image.size(), input_shape.data(), input_shape.size());
+    if(has_input_ids) {
+        input_names.push_back("input_ids");
+        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, dummy_input_ids.data(), dummy_input_ids.size(), dummy_input_ids_shape.data(), dummy_input_ids_shape.size()));
+    }
+
+    input_names.push_back("pixel_values");
+    input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, (float*) processed_image.data(), processed_image.size(), input_shape.data(), input_shape.size()));
 
     // create output tensor
     std::vector<const char*> output_names = {"image_embeds"};
 
     // run inference
-    // LOG(INFO) << "Running image embedder";
     lock.lock();
-    auto output_tensors = session_->Run(Ort::RunOptions{nullptr}, input_names.data(), &input_tensor, 1, output_names.data(), output_names.size());
+    auto output_tensors = session_->Run(Ort::RunOptions{nullptr}, input_names.data(), input_tensors.data(), input_tensors.size(), output_names.data(), output_names.size());
     lock.unlock();
 
     // get output tensor
@@ -88,7 +106,7 @@ std::vector<embedding_res_t> CLIPImageEmbedder::embed_documents(const std::vecto
 
     // create input tensor
     std::vector<int64_t> input_shape = {static_cast<int64_t>(processed_images.size()), 3, 224, 224};
-    std::vector<const char*> input_names = {"input_ids", "pixel_values", "attention_mask"};
+    std::vector<const char*> input_names;
     std::vector<int64_t> dummy_input_ids_shape = {1,1};
     std::vector<int64_t> dummy_input_ids = {0};
     std::vector<int64_t> dummy_attention_mask_shape = {1,1};
@@ -102,10 +120,27 @@ std::vector<embedding_res_t> CLIPImageEmbedder::embed_documents(const std::vecto
         std::move(image.begin(), image.end(), std::back_inserter(input_vector));
         image.clear();
     }
+
+    // Build inputs dynamically based on what the model expects
+    bool has_attention_mask = false;
+    auto input_count = session_->GetInputCount();
+    for(size_t idx = 0; idx < input_count; idx++) {
+        auto name = session_->GetInputNameAllocated(idx, Ort::AllocatorWithDefaultOptions());
+        if(std::strcmp(name.get(), "attention_mask") == 0) {
+            has_attention_mask = true;
+            break;
+        }
+    }
+
     std::vector<Ort::Value> input_tensors;
+    input_names.push_back("input_ids");
     input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, (int64_t*) dummy_input_ids.data(), dummy_input_ids.size(), dummy_input_ids_shape.data(), dummy_input_ids_shape.size()));
+    input_names.push_back("pixel_values");
     input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, (float*) input_vector.data(), input_vector.size(), input_shape.data(), input_shape.size()));
-    input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, (int64_t*) dummy_attention_mask.data(), dummy_attention_mask.size(), dummy_attention_mask_shape.data(), dummy_attention_mask_shape.size()));
+    if(has_attention_mask) {
+        input_names.push_back("attention_mask");
+        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, (int64_t*) dummy_attention_mask.data(), dummy_attention_mask.size(), dummy_attention_mask_shape.data(), dummy_attention_mask_shape.size()));
+    }
 
 
     std::vector<const char*> output_names = {"image_embeds"};

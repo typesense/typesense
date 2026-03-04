@@ -13,7 +13,8 @@ enum class TokenizerType {
     bert,
     distilbert,
     xlm_roberta,
-    clip
+    clip,
+    siglip
 };
 
 struct encoded_input_t {
@@ -75,6 +76,19 @@ class XLMRobertaTokenizer : public TextEmbeddingTokenizer {
         encoded_input_t Encode(const std::string& text) override;
         virtual TokenizerType get_tokenizer_type() override {
             return TokenizerType::xlm_roberta;
+        }
+};
+
+class SigLIPTokenizer : public TextEmbeddingTokenizer {
+    private:
+        std::unique_ptr<sentencepiece::SentencePieceProcessor> sentencepiece_tokenizer_;
+        static constexpr size_t max_length_ = 64;
+        static constexpr int64_t eos_token_id_ = 1;
+    public:
+        SigLIPTokenizer(const std::string& model_path);
+        encoded_input_t Encode(const std::string& text) override;
+        virtual TokenizerType get_tokenizer_type() override {
+            return TokenizerType::siglip;
         }
 };
 

@@ -1,6 +1,6 @@
 # Typesense API Tests
 
-A fully‑featured api test harness that spins up Typesense in both single‑ and multi‑node modes, executes phase‑scoped test suites, and tears everything down again. Each logical phase of testing (fresh start, restart, snapshot restore, etc.) is completely isolated and reproducible.
+A fully‑featured API test harness that spins up Typesense in both single‑ and multi‑node modes, executes phase‑scoped test suites, and tears everything down again. Each logical phase of testing (fresh start, restart, snapshot restore, etc.) is completely isolated and reproducible.
 
 ## Phase Matrix
 
