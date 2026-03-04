@@ -60,7 +60,7 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
     }
 
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
-    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config) : model_name;
+    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config, num_dims) : model_name;
     auto text_embedder_it = text_embedders.find(model_key);
     if(text_embedder_it == text_embedders.end()) {
         text_embedders.emplace(model_key, std::make_shared<TextEmbedder>(model_config, num_dims, has_custom_dims));
@@ -69,9 +69,9 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
     return Option<bool>(true);
 }
 
-Option<bool> EmbedderManager::update_remote_model_apikey(const nlohmann::json &model_config, const std::string& new_apikey) {
+Option<bool> EmbedderManager::update_remote_model_apikey(const nlohmann::json &model_config, const std::string& new_apikey, size_t num_dims) {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
-    const auto& model_key = RemoteEmbedder::get_model_key(model_config);
+    const auto& model_key = RemoteEmbedder::get_model_key(model_config, num_dims);
 
     if(text_embedders.find(model_key) == text_embedders.end()) {
         return Option<bool>(404, "Text embedder was not found.");
@@ -88,7 +88,7 @@ Option<bool> EmbedderManager::update_remote_model_apikey(const nlohmann::json &m
     //update text embedder with new api_key and remove old entry
     auto updated_model_config = model_config;
     updated_model_config["api_key"] = new_apikey;
-    const auto& updated_model_key = RemoteEmbedder::get_model_key(updated_model_config);
+    const auto& updated_model_key = RemoteEmbedder::get_model_key(updated_model_config, num_dims);
     text_embedders[updated_model_key] = text_embedders[model_key];
     text_embedders.erase(model_key);
 
@@ -135,7 +135,7 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
             return Option<bool>(400, "Vocab file not found");
         }
 
-        if(config["model_type"].get<std::string>() != "bert" && config["model_type"].get<std::string>() != "xlm_roberta" && config["model_type"].get<std::string>() != "distilbert" && config["model_type"].get<std::string>() != "clip") {
+        if(config["model_type"].get<std::string>() != "bert" && config["model_type"].get<std::string>() != "xlm_roberta" && config["model_type"].get<std::string>() != "distilbert" && config["model_type"].get<std::string>() != "clip" && config["model_type"].get<std::string>() != "siglip") {
             LOG(ERROR) << "Invalid model type: " << config["model_type"].get<std::string>();
             return Option<bool>(400, "Invalid model type");
         }
@@ -173,18 +173,30 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
     num_dims = embedder->get_num_dim();
     text_embedders.emplace(model_name, embedder);
 
-    // if model is clip, generate image embedder
-    if(embedder->get_tokenizer_type() == TokenizerType::clip) {
-        auto image_embedder = std::make_shared<CLIPImageEmbedder>(embedder->get_session(), embedder->get_env(), get_model_subdir(model_name_without_namespace, is_public_model));
+    // if model has image embedding capability, generate image embedder
+    if(embedder->is_image_embedding()) {
+        LOG(INFO) << "IMAGE";
+        std::string processor_filename = "clip_image_processor.onnx";
+        auto config_path = get_absolute_config_path(model_name_without_namespace, is_public_model);
+        if(std::filesystem::exists(config_path)) {
+            std::ifstream cfg_file(config_path);
+            nlohmann::json cfg;
+            cfg_file >> cfg;
+            if(cfg.count("image_processor_file_name") > 0) {
+                processor_filename = cfg["image_processor_file_name"].get<std::string>();
+            }
+        }
+        auto image_embedder = std::make_shared<CLIPImageEmbedder>(embedder->get_session(), embedder->get_env(), get_model_subdir(model_name_without_namespace, is_public_model), processor_filename);
+        LOG(INFO) << "Image embedder: " << model_name;
         image_embedders.emplace(model_name, image_embedder);
     }
     return Option<bool>(true);
 }
 
-Option<TextEmbedder*> EmbedderManager::get_text_embedder(const nlohmann::json& model_config) {
+Option<TextEmbedder*> EmbedderManager::get_text_embedder(const nlohmann::json& model_config, size_t num_dims) {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
     const std::string& model_name = model_config.at("model_name");
-    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config) : model_name;
+    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config, num_dims) : model_name;
     auto text_embedder_it = text_embedders.find(model_key);
 
     if(text_embedder_it == text_embedders.end()) {
@@ -240,6 +252,8 @@ const TokenizerType EmbedderManager::get_tokenizer_type(const nlohmann::json& mo
             return TokenizerType::xlm_roberta;
         } else if(tokenizer_type == "clip") {
             return TokenizerType::clip;
+        } else if(tokenizer_type == "siglip") {
+            return TokenizerType::siglip;
         } else {
             return TokenizerType::bert;
         }

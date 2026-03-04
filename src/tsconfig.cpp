@@ -3,6 +3,8 @@
 #include "tsconfig.h"
 #include "file_utils.h"
 #include <fstream>
+#include <thread>
+#include <mutex>
 
 Option<bool> Config::update_config(const nlohmann::json& req_json) {
     bool found_config = false;
@@ -313,6 +315,22 @@ void Config::load_config_env() {
     if(!get_env("TYPESENSE_MAX_INDEXING_CONCURRENCY").empty()) {
         this->max_indexing_concurrency = std::stoi(get_env("TYPESENSE_MAX_INDEXING_CONCURRENCY"));
     }
+
+    if(!get_env("TYPESENSE_PROXY_RATE_LIMIT").empty()) {
+        this->proxy_rate_limit = std::stoi(get_env("TYPESENSE_PROXY_RATE_LIMIT"));
+    }
+
+    if(!get_env("TYPESENSE_PROXY_DISALLOWED_DEST_CIDRS").empty()) {
+        this->proxy_disallowed_dest_cidrs = std::stoi(get_env("TYPESENSE_PROXY_DISALLOWED_DEST_CIDRS"));
+    }
+
+    if(!get_env("TYPESENSE_PROXY_ALLOW_ONLY_PEER_SRC_IPS").empty()) {
+      this->proxy_allow_only_peer_src_ips = std::stoi(get_env("TYPESENSE_PROXY_ALLOW_ONLY_PEER_SRC_IPS"));
+    }
+
+    if(!get_env("TYPESENSE_SHUTDOWN_DELAY_SECONDS").empty()) {
+        this->shutdown_delay_seconds = std::stoi(get_env("TYPESENSE_SHUTDOWN_DELAY_SECONDS"));
+    }
 }
 
 void Config::load_config_file(cmdline::parser& options) {
@@ -542,19 +560,36 @@ void Config::load_config_file(cmdline::parser& options) {
     }
 
     if(reader.Exists("server", "db-max-write-buffer-number")) {
-        this->db_write_buffer_size = (size_t) reader.GetInteger("server", "db-max-write-buffer-number", 2);
+        this->db_max_write_buffer_number = (size_t) reader.GetInteger("server", "db-max-write-buffer-number", 2);
     }
 
     if(reader.Exists("server", "db-max-log-file-size")) {
-        this->db_write_buffer_size = (size_t) reader.GetInteger("server", "db-max-log-file-size", 4*1048576);
+        this->db_max_log_file_size = (size_t) reader.GetInteger("server", "db-max-log-file-size", 4*1048576);
     }
 
     if(reader.Exists("server", "db-keep-log-file-num")) {
-        this->db_write_buffer_size = (size_t) reader.GetInteger("server", "db-keep-log-file-num", 5);
+        this->db_keep_log_file_num = (size_t) reader.GetInteger("server", "db-keep-log-file-num", 5);
     }
 
     if(reader.Exists("server", "max-indexing-concurrency")) {
         this->max_indexing_concurrency = reader.GetInteger("server", "max-indexing-concurrency", 4);
+    }
+
+    if(reader.Exists("server", "proxy-rate-limit")) {
+      this->proxy_rate_limit = reader.GetInteger("server", "proxy-rate-limit", 100);
+    }
+
+    if(reader.Exists("server", "proxy-disallowed-dest-cidrs")) {
+      this->proxy_disallowed_dest_cidrs = reader.Get("server", "proxy-disallowed-dest-cidrs", "");
+    }
+
+    if(reader.Exists("server", "proxy-allow-only-peer-src-ips")) {
+      auto proxy_allow_src_ips_str = reader.Get("server", "proxy-allow-only-peer-src-ips", "false");
+      this->proxy_allow_only_peer_src_ips = (proxy_allow_src_ips_str == "true");
+    }
+
+    if(reader.Exists("server", "shutdown-delay-seconds")) {
+        this->shutdown_delay_seconds = reader.GetInteger("server", "shutdown-delay-seconds", 0);
     }
 }
 
@@ -758,19 +793,52 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
     }
 
     if(options.exist("db-max-write-buffer-number")) {
-        this->db_write_buffer_size = options.get<uint32_t>("db-max-write-buffer-number");
+        this->db_max_write_buffer_number = options.get<uint32_t>("db-max-write-buffer-number");
     }
 
     if(options.exist("db-max-log-file-size")) {
-        this->db_write_buffer_size = options.get<uint32_t>("db-max-log-file-size");
+        this->db_max_log_file_size = options.get<uint32_t>("db-max-log-file-size");
     }
 
     if(options.exist("db-keep-log-file-num")) {
-        this->db_write_buffer_size = options.get<uint32_t>("db-keep-log-file-num");
+        this->db_keep_log_file_num = options.get<uint32_t>("db-keep-log-file-num");
     }
 
     if(options.exist("max-indexing-concurrency")) {
         this->max_indexing_concurrency = options.get<uint32_t>("max-indexing-concurrency");
     }
+
+    if(options.exist("proxy-rate-limit")) {
+        this->proxy_rate_limit = options.get<uint32_t>("proxy-rate-limit");
+    }
+
+    if(options.exist("proxy-disallowed-dest-cidrs")) {
+      this->proxy_disallowed_dest_cidrs = options.get<std::string>("proxy-disallowed-dest-cidrs");
+    }
+
+    if(options.exist("proxy-allow-only-peer-src-ips")) {
+      this->proxy_allow_only_peer_src_ips = options.get<bool>("proxy-allow-only-peer-src-ips");
+    }
+
+    if(options.exist("shutdown-delay-seconds")) {
+        this->shutdown_delay_seconds = options.get<uint32_t>("shutdown-delay-seconds");
+    }
 }
 
+void Config::update_proxy_src_ips(const std::string& nodes_config) {
+    std::vector<std::string> node_strings;
+    StringUtils::split(nodes_config, node_strings, ",");
+
+    std::vector<std::string> node_ips;
+
+    for(const auto& node_string: node_strings) {
+        std::vector<std::string> node_parts;
+        StringUtils::split(node_string, node_parts, ":");
+        if(node_parts.size() == 3) {
+          node_ips.push_back(node_parts[0]);
+        }
+    }
+
+    std::unique_lock lock(m);
+    proxy_allowed_src_ips = std::move(node_ips);
+}

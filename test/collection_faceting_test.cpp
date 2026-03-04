@@ -4042,3 +4042,79 @@ TEST_F(CollectionFacetingTest, FacetSearchWithFieldLevelSymbolsToIndex) {
     collectionManager.drop_collection("test2");
 
 }
+
+TEST_F(CollectionFacetingTest, FacetByReferenceWithJoinFilter) {
+    auto clients_schema = R"({
+        "name": "clients",
+        "fields": [
+            {"name": "name", "type": "string", "facet": true}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(clients_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(R"({
+        "id": "client_1",
+        "name": "Acme Corp"
+    })").ok());
+
+    auto reports_schema = R"({
+        "name": "reports",
+        "fields": [
+            {"name": "organization_uid", "type": "string", "facet": true},
+            {"name": "client_id", "type": "string", "reference": "clients.id"}
+        ]
+    })"_json;
+
+    create_op = collectionManager.create_collection(reports_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(R"({
+        "id": "report_1",
+        "organization_uid": "org_1",
+        "client_id": "client_1"
+    })").ok());
+
+    auto versions_schema = R"({
+        "name": "versions",
+        "fields": [
+            {"name": "report_id", "type": "string", "reference": "reports.id"},
+            {"name": "is_latest", "type": "bool", "facet": true}
+        ]
+    })"_json;
+
+    create_op = collectionManager.create_collection(versions_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(R"({
+        "id": "version_1",
+        "report_id": "report_1",
+        "is_latest": true
+    })").ok());
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", "reports"},
+        {"q", "*"},
+        {"filter_by", "organization_uid:=org_1 && $versions(is_latest:=true)"},
+        {"facet_by", "$clients(name)"},
+        {"max_facet_values", "1000"},
+        {"per_page", "0"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"]);
+    ASSERT_EQ(1, result["facet_counts"].size());
+    ASSERT_EQ("$clients(name)", result["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, result["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Acme Corp", result["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, static_cast<int>(result["facet_counts"][0]["counts"][0]["count"]));
+
+    collectionManager.drop_collection("versions");
+    collectionManager.drop_collection("reports");
+    collectionManager.drop_collection("clients");
+}

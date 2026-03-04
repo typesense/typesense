@@ -2036,6 +2036,106 @@ TEST_F(CollectionSchemaChangeTest, AlterAddSameFieldTwice) {
     ASSERT_TRUE(schema_change_op.ok());
 }
 
+TEST_F(CollectionSchemaChangeTest, AlterUnsortableFieldWithSortEnabled) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json schema_change = R"({
+            "fields": [
+                {"name": "test", "type": "auto", "sort": true}
+            ]
+        })"_json;
+    auto schema_change_op = coll->alter(schema_change);
+    ASSERT_FALSE(schema_change_op.ok());
+    ASSERT_EQ("The type `auto` is not sortable.", schema_change_op.error());
+
+    // Get fields to verify no update happened
+    auto fields =  coll->get_fields();
+    ASSERT_EQ(1, fields.size());
+    ASSERT_EQ("title", fields[0].name);
+    ASSERT_EQ("string", fields[0].type);
+}
+
+TEST_F(CollectionSchemaChangeTest, DropObjectFieldWithSimilarPrefix) {
+    // dropping an object field like "attributes" only removes nested children
+    // (like "attributes.filter") and NOT top-level fields with similar prefix (like "attributes_filter")
+    nlohmann::json schema = R"({
+        "name": "companies",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "attributes", "type": "object"},
+            {"name": "attributes.filter", "type": "int64"},
+            {"name": "attributes.nested_string", "type": "string"},
+            {"name": "attributes_filter", "type": "int64"},
+            {"name": "attributes_nested_string", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll != nullptr);
+
+    auto fields = coll->get_fields();
+    auto schema_map = coll->get_schema();
+    
+    ASSERT_EQ(6, fields.size());
+    ASSERT_EQ(6, schema_map.size());
+    ASSERT_EQ(1, coll->get_nested_fields().size());
+    
+    ASSERT_EQ(1, schema_map.count("title"));
+    ASSERT_EQ(1, schema_map.count("attributes"));
+
+    ASSERT_EQ(1, schema_map.count("attributes.filter"));
+    ASSERT_EQ(1, schema_map.count("attributes.nested_string"));
+    ASSERT_EQ(1, schema_map.count("attributes_filter"));
+    ASSERT_EQ(1, schema_map.count("attributes_nested_string"));
+
+    nlohmann::json doc;
+    doc["title"] = "Test Company";
+    doc["attributes"] = nlohmann::json::object();
+    doc["attributes"]["filter"] = 100;
+    doc["attributes"]["nested_string"] = "gianno";
+    doc["attributes_filter"] = 100;
+    doc["attributes_nested_string"] = "gianno";
+    
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "attributes", "drop": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    fields = coll->get_fields();
+    schema_map = coll->get_schema();
+    
+    // 3 fields left: title, attributes_filter, attributes_nested_string
+    ASSERT_EQ(3, fields.size());
+    ASSERT_EQ(3, schema_map.size());
+    ASSERT_EQ(0, coll->get_nested_fields().size());
+    
+    ASSERT_EQ(0, schema_map.count("attributes"));
+    ASSERT_EQ(0, schema_map.count("attributes.filter"));
+    ASSERT_EQ(0, schema_map.count("attributes.nested_string"));
+    
+    ASSERT_EQ(1, schema_map.count("title"));
+    ASSERT_EQ(1, schema_map.count("attributes_filter"));
+    ASSERT_EQ(1, schema_map.count("attributes_nested_string"));
+}
+
+
 TEST_F(CollectionSchemaChangeTest, NotEnoughMemoryForEmbeddings) {
     nlohmann::json schema = R"({
             "name": "objects",

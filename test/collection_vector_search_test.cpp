@@ -11,6 +11,7 @@
 #include "core_api.h"
 #include "vq_model_manager.h"
 #include "conversation_model.h"
+#include "text_embedder_remote.h"
 
 class CollectionVectorTest : public ::testing::Test {
 protected:
@@ -5866,4 +5867,320 @@ nlohmann::json schema = R"({
     })"_json;
     add_op = coll1->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
+}
+
+TEST_F(CollectionVectorTest, TestEmbedderCacheKeyIncludesDimensions) {
+    // Test that embedder cache keys include num_dims for matryoshka models
+    nlohmann::json model_config = R"({
+        "model_name": "openai/text-embedding-3-large",
+        "api_key": "test-api-key"
+    })"_json;
+
+    // Same model with different dimensions should have different cache keys
+    std::string key_512 = OpenAIEmbedder::get_model_key(model_config, 512);
+    std::string key_1024 = OpenAIEmbedder::get_model_key(model_config, 1024);
+    std::string key_default = OpenAIEmbedder::get_model_key(model_config, 0);
+
+    ASSERT_NE(key_512, key_1024);
+    ASSERT_NE(key_512, key_default);
+    ASSERT_NE(key_1024, key_default);
+
+    // Verify key format includes dimensions
+    ASSERT_TRUE(key_512.find(":512") != std::string::npos);
+    ASSERT_TRUE(key_1024.find(":1024") != std::string::npos);
+
+    // Key with 0 dims should not have a dimension suffix (backward compatible)
+    ASSERT_TRUE(key_default.find(":0") == std::string::npos);
+
+    // Test Azure embedder as well
+    nlohmann::json azure_config = R"({
+        "model_name": "azure/text-embedding-3-large",
+        "api_key": "test-api-key"
+    })"_json;
+
+    std::string azure_key_512 = AzureEmbedder::get_model_key(azure_config, 512);
+    std::string azure_key_1024 = AzureEmbedder::get_model_key(azure_config, 1024);
+    ASSERT_NE(azure_key_512, azure_key_1024);
+}
+
+TEST_F(CollectionVectorTest, DISABLED_TestImageEmbeddingMultilingual) {
+        auto schema_json =
+        R"({
+        "name": "Images",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "image", "type": "image", "store": false},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["image"], "model_config": {"model_name": "ts/clip-ViT-B-32-multilingual-v1"}}}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+
+    auto add_op = coll->add(R"({
+        "name": "dog",
+        "image": "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"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "teddy bear",
+        "image": "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"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+
+    auto results = coll->search("dog", {"embedding"},
+                                    "", {}, {}, {2}, 10,
+                                    1, FREQUENCY, {true},
+                                    0, spp::sparse_hash_set<std::string>()).get();
+    
+    ASSERT_EQ(results["hits"].size(), 2);
+    ASSERT_EQ(results["hits"][0]["document"]["id"], "0");
+    ASSERT_EQ(results["hits"][1]["document"]["id"], "1");
+
+
+    auto results2 = coll->search("teddy bear", {"embedding"},
+                                    "", {}, {}, {2}, 10,
+                                    1, FREQUENCY, {false},
+                                    0, spp::sparse_hash_set<std::string>()).get();
+    
+    ASSERT_EQ(results2["hits"].size(), 2);
+    ASSERT_EQ(results2["hits"][0]["document"]["id"], "1");
+    ASSERT_EQ(results2["hits"][1]["document"]["id"], "0");
+
+    // Search in french
+    auto results3 = coll->search("chien", {"embedding"},
+                                    "", {}, {}, {2}, 10,
+                                    1, FREQUENCY, {true},
+                                    0, spp::sparse_hash_set<std::string>()).get();
+    ASSERT_EQ(results3["hits"].size(), 2);
+    ASSERT_EQ(results3["hits"][0]["document"]["id"], "0");
+
+    auto results4 = coll->search("ours en peluche", {"embedding"},
+                                    "", {}, {}, {2}, 10,
+                                    1, FREQUENCY, {false},
+                                    0, spp::sparse_hash_set<std::string>()).get();
+    ASSERT_EQ(results4["hits"].size(), 2);
+    ASSERT_EQ(results4["hits"][0]["document"]["id"], "1");
+}
+
+TEST_F(CollectionVectorTest, ConversationWithUnion) {
+    auto schema_json = R"({
+                            "name": "conversation_history",
+                            "fields": [
+                                        {"name": "conversation_id", "type": "string"},
+                                        {"name": "model_id", "type": "string"},
+                                        {"name": "role", "type": "string"},
+                                        {"name": "message", "type": "string"},
+                                        {"name": "timestamp", "type": "int32"}
+                            ]
+                            })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+
+    auto conversation_model_config = R"({
+        "id": "conv-model",
+        "model_name": "openai/gpt-3.5-turbo",
+        "max_bytes": 16000,
+        "history_collection": "conversation_history",
+        "system_prompt": "You are a helpful travel assistant."
+    })"_json;
+
+    conversation_model_config["api_key"] = api_key;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto model_add_op = ConversationModelManager::add_model(conversation_model_config, "conv-model", true);
+    ASSERT_TRUE(model_add_op.ok());
+
+    auto schema2 = R"({
+        "name": "destinations",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "content", "type": "string"},
+            {"name": "embedding", "type": "float[]",
+                "embed": {
+                    "from": ["title", "content"],
+                    "model_config": {"model_name": "ts/all-MiniLM-L12-v2"}
+                }
+            }
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema2);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll_dest = collection_create_op.get();
+
+    auto add_op = coll_dest->add(R"({
+                                        "id": "1",
+                                        "title": "Amalfi Coast",
+                                        "content": "Beautiful coastal region in Italy with stunning views and colorful villages."
+                                })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll_dest->add(R"({
+                                     "id": "2",
+                                     "title": "Positano",
+                                     "content": "A cliffside village on the Amalfi Coast known for pebble beaches."
+                                })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto schema3 = R"({
+        "name": "attractions",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "content", "type": "string"},
+            {"name": "embedding", "type": "float[]", "embed": {
+                "from": ["title", "content"],
+                "model_config": {"model_name": "ts/all-MiniLM-L12-v2"}
+            }}
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema3);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll_att = collection_create_op.get();
+
+    add_op = coll_att->add(R"({
+                                "id": "1",
+                                "title": "Path of the Gods",
+                                "content": "Famous hiking trail along the Amalfi Coast."
+                            })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll_att->add(R"({
+                                "id": "2",
+                                "title": "Ravello Gardens",
+                                 "content": "Beautiful gardens overlooking the Amalfi Coast"
+                            })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json search_body;
+    search_body["searches"] = nlohmann::json::array();
+
+    nlohmann::json search1;
+    search1["collection"] = "destinations";
+    search1["exclude_fields"] = "embedding";
+    search1["query_by"] = "title,content";
+    search1["prefix"] = false;
+
+    nlohmann::json search2;
+    search2["collection"] = "attractions";
+    search2["exclude_fields"] = "embedding";
+    search2["query_by"] = "title,content";
+    search2["prefix"] = false;
+
+    search_body["searches"].push_back(search1);
+    search_body["searches"].push_back(search2);
+
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["conversation"] = "true";
+    req->params["conversation_model_id"] = "conv-model";
+    req->params["q"] = "What are the highlights of the AmalfiCoast";
+
+    req->body = search_body.dump();
+    nlohmann::json embedded_params;
+    req->embedded_params_vec.push_back(embedded_params);
+    req->embedded_params_vec.push_back(embedded_params);
+
+    post_multi_search(req, res);
+    auto results = nlohmann::json::parse(res->body);
+
+    ASSERT_TRUE(results.contains("conversation"));
+    ASSERT_TRUE(results["conversation"].is_object());
+    ASSERT_TRUE(results["conversation"].contains("conversation_history"));
+    ASSERT_TRUE(results["conversation"]["conversation_history"].is_object());
+    ASSERT_TRUE(results["conversation"].contains("answer"));
+
+    //enable union
+    search_body["union"] = true;
+    req->params["conversation"] = "true";
+    req->params["conversation_model_id"] = "conv-model";
+    req->params["q"] = "What are the highlights of the AmalfiCoast";
+
+    req->body = search_body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body);
+
+    ASSERT_TRUE(results.contains("conversation"));
+    ASSERT_TRUE(results["conversation"].is_object());
+    ASSERT_TRUE(results["conversation"].contains("conversation_history"));
+    ASSERT_TRUE(results["conversation"]["conversation_history"].is_object());
+    ASSERT_TRUE(results["conversation"].contains("answer"));
+}
+
+TEST_F(CollectionVectorTest, UpdateAPIKeyInSchema) {
+    auto schema_json = R"({
+                                        "name": "apitest",
+                                        "fields": [
+                                          {"name": "title", "type": "string"},
+                                          {"name": "description", "type": "string"},
+                                          {
+                                            "name": "embedding",
+                                            "type": "float[]",
+                                            "embed": {
+                                              "from": ["title", "description"],
+                                              "model_config": {
+                                                "model_name": "openai/text-embedding-3-small",
+                                                "api_key": "abcd"
+                                              }
+                                            }
+                                          }
+                                        ]
+                                    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto search_schema = coll->get_schema();
+    ASSERT_EQ("abcd", search_schema.at("embedding").embed[fields::model_config][fields::api_key]);
+
+    auto embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ("abcd", embedding_fields["embedding"].embed[fields::model_config][fields::api_key]);
+
+    auto alter_payload = R"({
+                            "fields": [{
+                                        "name": "embedding",
+                                        "embed": {
+                                            "from": ["title", "description"],
+                                            "model_config": {
+                                                "model_name": "openai/text-embedding-3-small",
+                                                "api_key": "xyzw"
+                                            }
+                                        }
+                                    }]
+                            })"_json;
+
+    ASSERT_TRUE(coll->alter(alter_payload).ok());
+    search_schema = coll->get_schema();
+    ASSERT_EQ("xyzw", search_schema.at("embedding").embed[fields::model_config][fields::api_key]);
+
+    embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ("xyzw", embedding_fields["embedding"].embed[fields::model_config][fields::api_key]);
 }
