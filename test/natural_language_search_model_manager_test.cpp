@@ -1249,3 +1249,210 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GCPModelValidationFailures) {
     ASSERT_EQ(result.error(), "Property `max_output_tokens` must be a positive integer.");
     ASSERT_FALSE(result.ok());
 }
+
+TEST_F(NaturalLanguageSearchModelManagerTest, GetNLQueryParamsFromPreset) {
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Hello! How can I help you today?"
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  })", 200, {});
+
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"q\": \"test\",\n  \"filter_by\": \"make:[Honda,BMW] && engine_hp:>=200 && driven_wheels:`rear wheel drive` && msrp:[20000..50000] && year:>2014\",\n  \"sort_by\": \"msrp:desc\"\n}",
+          "refusal": null,
+          "annotations": []
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 920,
+      "completion_tokens": 58,
+      "total_tokens": 978,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    }
+  })", 200, {});
+  
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "YOUR_OPENAI_API_KEY",
+    "max_bytes": 1024,
+    "temperature": 0.0
+  })"_json;
+  std::string model_id = "test_model_id";
+  auto add_model_op = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+  ASSERT_TRUE(add_model_op.ok());
+
+  nlohmann::json collection_schema = R"({
+    "name": "companies",
+    "fields": [
+      {"name": "name", "type": "string"},
+      {"name": "industry", "type": "string", "facet": true},
+      {"name": "location", "type": "string", "facet": true},
+      {"name": "employee_count", "type": "int32"}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(collection_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+
+  nlohmann::json preset_config = R"({
+    "name": "companies-search-preset",
+    "value": {
+        "nl_model_id": "test_model_id",
+        "nl_query": true
+    }
+  })"_json;
+
+  auto preset_op = CollectionManager::get_instance().upsert_preset(preset_config["name"], preset_config);
+  ASSERT_TRUE(preset_op.ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["preset"] = "companies-search-preset";
+  req_params["q"] = "test query";
+  req_params["collection"] = "companies";
+
+  auto process_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(process_op.ok());
+
+  ASSERT_EQ(req_params["nl_query"], "true");
+  ASSERT_EQ(req_params["q"], "test");
+  ASSERT_EQ(req_params["nl_model_id"], model_id);
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, HighlightOriginalQuery) {
+    // Mock successful validation for model creation
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Hello!"
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  })", 200, {});
+  
+  // Mock response for the actual NL query processing
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"q\": \"bar\",\n  \"filter_by\": \"points:>100\",\n  \"sort_by\": \"points:desc\"\n}",
+          "refusal": null,
+          "annotations": []
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 920,
+      "completion_tokens": 58,
+      "total_tokens": 978,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    }
+  })", 200, {});
+
+  nlohmann::json titles_schema = R"({
+    "name": "titles",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "points", "type": "int32"}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(titles_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  nlohmann::json doc;
+  doc["title"] = "Foo";
+  doc["points"] = 150;
+  auto insert_op = coll->add(doc.dump());
+  ASSERT_TRUE(insert_op.ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "true";
+  req_params["q"] = "Foo over 100 points";
+  req_params["collection"] = "titles";
+  req_params["query_by"] = "title";
+
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "YOUR_OPENAI_API_KEY",
+    "max_bytes": 1024,
+    "temperature": 0.0
+  })"_json;
+  std::string model_id = "default";
+  auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+  ASSERT_TRUE(result.ok());
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(nl_search_op.ok());
+  ASSERT_EQ(req_params["filter_by"], "points:>100");
+  ASSERT_EQ(req_params["sort_by"], "points:desc");
+  ASSERT_EQ(req_params["q"], "bar");
+  ASSERT_EQ(req_params["processed_by_nl_model"], "true");
+  ASSERT_EQ(req_params["_llm_generated_params"], R"(["filter_by","q","sort_by"])");
+  ASSERT_EQ(req_params["_original_llm_filter_by"], "points:>100");
+  ASSERT_EQ(req_params["llm_generated_filter_by"], "points:>100");
+  ASSERT_EQ(req_params["_original_nl_query"], "Foo over 100 points");
+  ASSERT_EQ(req_params["raw_query"], "Foo over 100 points");
+
+  std::string results_str;
+  nlohmann::json embedded_params;
+  auto search_op = collectionManager.do_search(req_params, embedded_params, results_str, 0);
+  ASSERT_TRUE(search_op.ok());
+
+  nlohmann::json results_json = nlohmann::json::parse(results_str);
+
+  ASSERT_EQ(results_json["found"], 1);
+  ASSERT_EQ(results_json["hits"][0]["document"]["title"], "Foo");
+  ASSERT_EQ(results_json["hits"][0]["document"]["points"], 150);
+  ASSERT_EQ(results_json["hits"][0]["highlight"]["title"]["snippet"].get<std::string>(), "<mark>Foo</mark>");
+}

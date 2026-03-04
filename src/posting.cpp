@@ -53,7 +53,7 @@ int64_t compact_posting_list_t::upsert(const uint32_t id, const uint32_t* offset
                     // [num_offsets][0][2][4][id]
                     // [num_offsets][0][id]
                     size_t offset_diff = (num_existing_offsets - num_offsets);
-                    size_t start_index = i + 1 + offset_diff;
+                    size_t start_index = i + 1 + num_offsets;
                     while(start_index < length - offset_diff) {
                        id_offsets[start_index] = id_offsets[start_index + offset_diff];
                        start_index++;
@@ -438,6 +438,30 @@ void posting_t::to_expanded_plists(const std::vector<void*>& raw_posting_lists, 
             plists.emplace_back(full_posting_list);
         }
     }
+}
+
+posting_list_t* posting_t::to_owned_posting_list(const void* raw_posting_list) {
+    if(raw_posting_list == nullptr) {
+        return nullptr;
+    }
+
+    if(IS_COMPACT_POSTING(raw_posting_list)) {
+        auto compact_posting_list = COMPACT_POSTING_PTR(raw_posting_list);
+        return compact_posting_list->to_full_posting_list();
+    }
+
+    auto source_posting_list = (posting_list_t*)(raw_posting_list);
+    auto owned_posting_list = new posting_list_t(posting_t::MAX_BLOCK_ELEMENTS);
+    auto source_iterator = source_posting_list->new_iterator();
+
+    while(source_iterator.valid()) {
+        std::vector<uint32_t> offsets;
+        posting_list_t::get_offsets(source_iterator, offsets);
+        owned_posting_list->upsert(source_iterator.id(), offsets);
+        source_iterator.next();
+    }
+
+    return owned_posting_list;
 }
 
 void posting_t::destroy_list(void*& obj) {

@@ -270,11 +270,11 @@ void filter_result_iterator_t::and_filter_iterators() {
                 seq_id = right_it->seq_id;
 
                 reference.clear();
-                for (const auto& item: left_it->reference) {
-                    reference[item.first] = item.second;
-                }
-                for (const auto& item: right_it->reference) {
-                    reference[item.first] = item.second;
+                if (!reference_filter_result_t::and_references(left_it->reference, right_it->reference, reference)) {
+                    // No common references found, move the right sub-nodes to the next seq_id.
+                    right_it->next();
+
+                    continue;
                 }
 
                 return;
@@ -293,11 +293,11 @@ void filter_result_iterator_t::and_filter_iterators() {
                 seq_id = left_it->seq_id;
 
                 reference.clear();
-                for (const auto& item: left_it->reference) {
-                    reference[item.first] = item.second;
-                }
-                for (const auto& item: right_it->reference) {
-                    reference[item.first] = item.second;
+                if (!reference_filter_result_t::and_references(left_it->reference, right_it->reference, reference)) {
+                    // No common references found, move the left sub-nodes to the next seq_id.
+                    left_it->next();
+
+                    continue;
                 }
 
                 return;
@@ -460,25 +460,7 @@ void filter_result_iterator_t::or_filter_iterators() {
 
         seq_id = left_it->seq_id;
         reference.clear();
-
-        for (const auto& item: left_it->reference) {
-            reference[item.first] = item.second;
-        }
-        for (const auto& item: right_it->reference) {
-            auto ref_it = reference.find(item.first);
-            if (ref_it == reference.end()) {
-                reference[item.first] = item.second;
-                continue;
-            }
-
-            // Both the docs of A and B have references to a particular collection.
-            uint32_t* or_result = nullptr;
-            auto& ref_result = ref_it->second;
-            ref_result.count = ArrayUtils::or_scalar(ref_result.docs, ref_result.count,
-                                                     item.second.docs, item.second.count, &or_result);
-            delete [] ref_result.docs;
-            ref_result.docs = or_result;
-        }
+        reference_filter_result_t::or_references(left_it->reference, right_it->reference, reference);
 
         return;
     }
@@ -927,7 +909,11 @@ void numeric_not_equals_filter(num_tree_t* const num_tree,
 
     num_tree->search(EQUALS, value, &to_exclude_ids, to_exclude_ids_len);
 
-    result_ids_len = ArrayUtils::exclude_scalar(all_ids, all_ids_length, to_exclude_ids, to_exclude_ids_len, &result_ids);
+    uint32_t* out_ids = nullptr;
+    result_ids_len = ArrayUtils::exclude_scalar(all_ids, all_ids_length, to_exclude_ids, to_exclude_ids_len, &out_ids);
+
+    delete[] result_ids;
+    result_ids = out_ids;
 
     delete[] all_ids;
     delete[] to_exclude_ids;
@@ -1179,6 +1165,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                     uint32_t to_exclude_ids_len = 0;
                     trie->search_equal_to(value, to_exclude_ids, to_exclude_ids_len);
 
+                    delete[] filter_result.docs;
+                    filter_result.docs = nullptr;
                     auto all_ids = index->seq_ids->uncompress();
                     filter_result.count = ArrayUtils::exclude_scalar(all_ids, index->seq_ids->num_ids(),
                                                                      to_exclude_ids, to_exclude_ids_len, &filter_result.docs);
@@ -1336,6 +1324,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                     uint32_t to_exclude_ids_len = 0;
                     trie->search_equal_to(float_int64, to_exclude_ids, to_exclude_ids_len);
 
+                    delete[] filter_result.docs;
+                    filter_result.docs = nullptr;
                     auto all_ids = index->seq_ids->uncompress();
                     filter_result.count = ArrayUtils::exclude_scalar(all_ids, index->seq_ids->num_ids(),
                                                                      to_exclude_ids, to_exclude_ids_len, &filter_result.docs);
@@ -1488,6 +1478,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                     uint32_t to_exclude_ids_len = 0;
                     trie->search_equal_to(bool_int64, to_exclude_ids, to_exclude_ids_len);
 
+                    delete[] filter_result.docs;
+                    filter_result.docs = nullptr;
                     auto all_ids = index->seq_ids->uncompress();
                     filter_result.count = ArrayUtils::exclude_scalar(all_ids, index->seq_ids->num_ids(),
                                                                      to_exclude_ids, to_exclude_ids_len, &filter_result.docs);
@@ -2747,14 +2739,21 @@ filter_result_iterator_t::filter_result_iterator_t(uint32_t approx_filter_ids_le
 }
 
 filter_result_iterator_t::filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count, const size_t& max_candidates,
-                                                   uint64_t search_begin, uint64_t search_stop) {
-    filter_result.count = approx_filter_ids_length = ids_count;
-    filter_result.docs = ids;
+                                                   uint64_t search_begin, uint64_t search_stop,
+                                                   std::map<std::string, reference_filter_result_t>* coll_to_references) {
+    filter_result = filter_result_t(ids_count, ids, coll_to_references);
+    approx_filter_ids_length = ids_count;
     validity = ids_count > 0 ? valid : invalid;
 
     if (validity) {
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
+        reference.clear();
+        if (filter_result.coll_to_references != nullptr) {
+            auto& ref = filter_result.coll_to_references[result_index];
+            reference.insert(ref.begin(), ref.end());
+        }
+
         filter_node = new filter_node_t(filter{"dummy", {}, {}});
         delete_filter_node = true;
 
@@ -2899,15 +2898,13 @@ void filter_result_iterator_t::compute_iterators() {
 
             for (const auto& list: lists) {
                 if (is_not_equals_comparator) {
-                    std::vector<uint32_t> equals_ids;
-                    list->uncompress(equals_ids);
-
-                    uint32_t* not_equals_ids = nullptr;
-                    auto const not_equals_ids_len = ArrayUtils::exclude_scalar(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
-                                                                               &equals_ids[0], equals_ids.size(),
-                                                                               &not_equals_ids);
+                    auto* not_equals_ids = list->uncompress();
+                    auto not_equals_ids_len = static_cast<uint32_t>(list->num_ids());
+                    apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
+                                     not_equals_ids, not_equals_ids_len);
 
                     std::copy(not_equals_ids, not_equals_ids + not_equals_ids_len, std::back_inserter(f_id_buff));
+                    delete[] not_equals_ids;
                 } else {
                     list->uncompress(f_id_buff);
                 }
@@ -3172,9 +3169,20 @@ bool filter_result_iterator_t::validate_object_filter_helper(Index const* const 
                     val.pop_back();
                 }
 
-                filter_val = val;
-                doc_val = doc[nested_field].get<std::string>();
-
+                const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
+                const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
+                Tokenizer tokenizer(val, true, false, f.locale, symbols, separators, f.get_stemmer());
+                
+                std::string tokenized_filter_val;
+                size_t token_index = 0;
+                filter_val = tokenizer.next(tokenized_filter_val, token_index) ? tokenized_filter_val : val;
+                
+                std::string doc_str = doc[nested_field].get<std::string>();
+                Tokenizer doc_tokenizer(doc_str, true, false, f.locale, symbols, separators, f.get_stemmer());
+                
+                std::string tokenized_doc_val;
+                size_t doc_token_index = 0;
+                doc_val = doc_tokenizer.next(tokenized_doc_val, doc_token_index) ? tokenized_doc_val : doc_str;
             } else if (f.is_float()) {
                 filter_val = std::stof(val);
                 doc_val = doc[nested_field].get<float>();

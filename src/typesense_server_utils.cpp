@@ -31,6 +31,7 @@
 #include "conversation_model.h"
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
+#include "api_acl.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -61,8 +62,20 @@ bool using_jemalloc() {
 
 void catch_interrupt(int sig) {
     LOG(INFO) << "Stopping Typesense server...";
+    if(sig == SIGHUP) {
+        LOG(INFO) << "shutdown is triggered.";
+        server->set_shutdown_triggered(); //inform http server
+        auto secs = Config::get_instance().get_shutdown_delay_seconds();
+        std::thread shutdown_thread([&]() {
+            std::this_thread::sleep_for(std::chrono::seconds(secs));
+            quit_raft_service.store(true);
+        });
+        shutdown_thread.detach();
+    } else {
+        quit_raft_service.store(true);
+    }
+
     signal(sig, SIG_IGN);  // ignore for now as we want to shut down elegantly
-    quit_raft_service = true;
 }
 
 void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
@@ -75,7 +88,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("analytics-dir", '\0', "Directory where Analytics will be stored.", false);
     options.add<uint32_t>("analytics-db-ttl", '\0', "TTL in seconds for events stored in analytics db", false);
     options.add<uint32_t>("analytics-minute-rate-limit", '\0', "per minute rate limit for /events endpoint", false);
-
+    options.add<uint32_t>("shutdown-delay-seconds", '\0', "delay in seconds after which server will shutdown on receiving signal");
 
     options.add<std::string>("api-address", '\0', "Address to which Typesense API service binds.", false, "0.0.0.0");
     options.add<uint32_t>("api-port", '\0', "Port on which Typesense API service listens.", false, 8108);
@@ -127,13 +140,17 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<int>("max-per-page", '\0', "Max number of hits per page", false, 250);
     options.add<uint32_t>("max-group-limit", '\0', "Max number of results to be returned per group", false, 99);
+    options.add<uint32_t>("max-indexing-concurrency", '\0', "maximum concurrency for batch indexing docs.", false);
+
+    options.add<uint32_t>("proxy-rate-limit", '\0', "proxy rate limit.", false);
+    options.add<std::string>("proxy-disallowed-dest-cidrs", '\0', "Disallowed dest CIDRs for proxy.", false, "");
+    options.add<bool>("proxy-allow-only-peer-src-ips", '\0', "Allow only peers as src IPs for proxy.", false, false);
 
     //rocksdb options
     options.add<uint32_t>("db-write-buffer-size", '\0', "rocksdb write buffer size.", false);
     options.add<uint32_t>("db-max-write-buffer-number", '\0', "rocksdb max write buffer number.", false);
     options.add<uint32_t>("db-max-log-file-size", '\0', "rocksdb max logfile size.", false);
     options.add<uint32_t>("db-keep-log-file-num", '\0', "rocksdb number of log files to keep.", false);
-    options.add<uint32_t>("max-indexing-concurrency", '\0', "maximum concurrency for batch indexing docs.", false);
 
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
@@ -422,7 +439,7 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
 
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
     size_t raft_counter = 0;
-    while (!brpc::IsAskedToQuit() && !quit_raft_service.load()) {
+    while (!quit_raft_service.load()) {
         if(raft_counter % 10 == 0) {
             // reset peer configuration periodically to identify change in cluster membership
             const Option<std::string> & refreshed_nodes_op = Config::fetch_nodes_config(path_to_nodes);
@@ -434,6 +451,9 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
                 if(nodes_config.empty()) {
                     LOG(WARNING) << "No nodes resolved from peer configuration.";
                 } else {
+                    if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
+                        Config::get_instance().update_proxy_src_ips(nodes_config);
+                    }
                     replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
                     if(raft_counter % 60 == 0) {
                         replication_state.do_snapshot(nodes_config);
@@ -598,6 +618,11 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     bool ssl_enabled = (!config.get_ssl_cert().empty() && !config.get_ssl_cert_key().empty());
 
+    APIAcl::instance().set_disallowed_dest_cidrs(
+        Config::get_instance().get_proxy_disallowed_dest_cidrs());
+
+    APIAcl::instance().set_rate_limit_10s(Config::get_instance().get_proxy_rate_limit());
+
     BatchedIndexer* batch_indexer = new BatchedIndexer(server, &store, &meta_store, num_threads,
                                                        config, config.get_skip_writes());
 
@@ -760,4 +785,3 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     return ret_code;
 }
-

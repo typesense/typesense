@@ -107,13 +107,15 @@ void HouseKeeper::log_running_queries() {
 void HouseKeeper::log_bad_queries() {
     std::unique_lock ifq_lock(ifq_mutex);
 
-    auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(
+    auto now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto memory_req_min_age = memory_req_min_age_s.load();
+    const auto long_req_log = long_req_log_s.load();
 
     for(auto& kv: in_flight_queries) {
         auto req_ts = kv.first;
-
-        if(now_ts_seconds - req_ts < memory_req_min_age_s) {
+        uint64_t query_time_elapsed_s = now_ts_us >= req_ts ? (now_ts_us - req_ts) / 1000000 : 0;
+        if(query_time_elapsed_s < memory_req_min_age) {
             // since we use a map it's already ordered ascending on timestamp
             break;
         }
@@ -122,16 +124,23 @@ void HouseKeeper::log_bad_queries() {
             continue;
         }
 
-        // query that's atleast 10 seconds old: check if memory difference exceeds 1 GB
+        // either long running query or exceeding 1 GB of memory
         int64_t memory_req_start = kv.second.active_memory;
         int64_t curr_memory = active_memory_used;
         int64_t memory_diff = curr_memory - memory_req_start;
         const int64_t one_gb = 1073741824;
+        const bool high_memory = memory_diff > one_gb;
+        const bool long_running = query_time_elapsed_s > long_req_log;
 
-        if(memory_diff > one_gb) {
+        if(high_memory || long_running) {
             LOG(INFO) << "Detected bad query, start_ts: " << req_ts << ", memory_diff: " << memory_diff
                       << ", " << get_query_log(kv.second.req);
             kv.second.already_logged = true;
         }
     }
+}
+
+size_t HouseKeeper::get_num_inflight_queries() {
+  std::unique_lock ifq_lock(ifq_mutex);
+  return in_flight_queries.size();
 }

@@ -279,6 +279,10 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                                      "setting` enable_nested_fields` to true.");
         }
     }
+    // Auto fields are not sortable
+    if(field_json[fields::sort].get<bool>() && field_json[fields::type] == field_types::AUTO) {
+        return Option<bool>(400, std::string("The type `auto` is not sortable."));
+    }
 
     if(!field_json[fields::embed].empty()) {
         if(field_json[fields::type] != field_types::FLOAT_ARRAY) {

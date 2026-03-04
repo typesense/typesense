@@ -10,6 +10,8 @@
 #include "threadpool.h"
 #include "batched_indexer.h"
 
+const std::string ERROR_could_not_locate_document_in_store = "Could not locate the JSON document for sequence ID: ";
+
 // Singleton, for managing meta information of all collections and house keeping
 class CollectionManager {
 private:
@@ -58,6 +60,8 @@ private:
         return "";
     }
 
+    static Option<bool> validate_facet_params(const std::vector<collection_search_args_t>& coll_searches);
+
 public:
     static constexpr const size_t DEFAULT_NUM_MEMORY_SHARDS = 4;
 
@@ -88,7 +92,7 @@ public:
                                         const std::atomic<bool>& quit,
                                         const std::map<std::string, std::map<std::string, reference_info_t>>& referenced_infos);
 
-    Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json, 
+    Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json,
                                          const bool copy_documents = false);
 
     void add_to_collections(Collection* collection);
@@ -185,7 +189,8 @@ public:
 
     Option<bool> delete_preset(const std::string & preset_name);
 
-    void add_referenced_ins(const std::string& collection_name, reference_info_t&& ref_info);
+    Option<bool> add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
+                                    std::set<update_reference_info_t>& update_ref_infos);
 
     void remove_referenced_ins(const std::string& referenced_coll_name, const std::string& referring_coll_name = "");
 
@@ -202,9 +207,9 @@ public:
 
     Option<bool> update_collection_metadata(const std::string& collection, const nlohmann::json& metadata);
 
-    Option<bool> update_collection_synonym_sets(const std::string& collection, const std::vector<std::string>& synonym_sets);
+    Option<bool> update_collection_synonym_sets(const std::string& collection, const std::vector<std::string>& synonym_sets, bool is_live_req = true);
 
-    Option<bool> update_collection_curation_sets(const std::string& collection, const std::vector<std::string>& curation_sets);
+    Option<bool> update_collection_curation_sets(const std::string& collection, const std::vector<std::string>& curation_sets, bool is_live_req = true);
 
     Option<nlohmann::json> get_collection_alter_status() const;
 
@@ -221,6 +226,9 @@ public:
 
     Option<reference_info_t> is_referenced_in(const std::string& referenced_coll_name,
                                               const std::string& referring_coll_name) const;
+
+    Option<reference_info_t> is_referenced_in_with_lock(const std::string& referenced_coll_name,
+                                                        const std::string& referring_coll_name) const;
 
     static Option<bool> populate_include_exclude_fields(const std::string& collection_name,
                                                         const std::string& ref_include,

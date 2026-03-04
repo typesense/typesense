@@ -86,6 +86,12 @@ struct http_res {
         cv.notify_all();
     }
 
+    static std::string serialize_response_message(const std::string& message) {
+        nlohmann::json j;
+        j["message"] = message;
+        return j.dump();
+    }
+
     static const char* get_status_reason(uint32_t status_code) {
         switch(status_code) {
             case 200: return "OK";
@@ -115,12 +121,12 @@ struct http_res {
 
     void set_400(const std::string & message) {
         status_code = 400;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_401(const std::string & message) {
         status_code = 400;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_403() {
@@ -130,38 +136,38 @@ struct http_res {
 
     void set_404(const std::string & message = "Not Found") {
         status_code = 404;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
 
     void set_405(const std::string & message) {
         status_code = 405;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_409(const std::string & message) {
         status_code = 409;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_422(const std::string & message) {
         status_code = 422;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_500(const std::string & message) {
         status_code = 500;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_503(const std::string & message) {
         status_code = 503;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set(uint32_t code, const std::string & message) {
         status_code = code;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_body(uint32_t code, const std::string & message) {
