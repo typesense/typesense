@@ -963,7 +963,8 @@ public:
     nlohmann::json get_summary_json() const;
 
     size_t batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
-                                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings);
+                                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings,
+                                 std::unordered_set<std::string>& found_fields);
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",

@@ -814,11 +814,26 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
     resp_summary["num_updated"] = docs_updated_count;
     return Option(resp_summary);
 }
+
 void Collection::batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out,
                              size_t &num_indexed, const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size,
                              const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
+    std::unordered_set<std::string> found_fields;
+    batch_index_in_memory(index_records, remote_embedding_batch_size, remote_embedding_timeout_ms,
+                          remote_embedding_num_tries, true, found_fields);
 
-    batch_index_in_memory(index_records, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries, true);
+    // Only update the referencing collections for the documents that have successfully been indexed in-memory and on disk.
+    spp::sparse_hash_map<std::string, std::set<reference_pair_t>> found_async_referenced_ins;
+    {
+        std::shared_lock lock(mutex);
+        for (const auto& field_name: found_fields) {
+            // We will update all the referencing collections that have referenced `field_name`.
+            auto it = async_referenced_ins.find(field_name);
+            if (it != async_referenced_ins.end()) {
+                found_async_referenced_ins.insert(std::make_pair(it->first, it->second));
+            }
+        }
+    }
 
     // store only documents that were indexed in-memory successfully
     for(auto& index_record: index_records) {
@@ -842,9 +857,6 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                     remove_document(index_record.new_doc, index_record.seq_id, false);
                     index_in_memory(index_record.old_doc, index_record.seq_id, index_record.operation, index_record.dirty_values);
                     index_record.index_failure(500, "Could not write to on-disk storage.");
-                } else {
-                    num_indexed++;
-                    index_record.index_success();
                 }
 
             } else {
@@ -866,36 +878,50 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
 
                 if(!write_ok) {
                     // remove from in-memory store to keep the state synced
-                    LOG(ERROR) << "Write to disk failed. Will restore old document";
+                    LOG(ERROR) << "Write to disk failed, removing the document from in-memory index.";
                     remove_document(index_record.doc, index_record.seq_id, false);
                     index_record.index_failure(500, "Could not write to on-disk storage.");
-                } else {
-                    num_indexed++;
-                    index_record.index_success();
+                }
+
+                if (!found_async_referenced_ins.empty() && index_record.indexed.ok()) {
+                    auto async_update_op = Index::update_async_references(name, return_doc, return_id,
+                                                                          found_async_referenced_ins,  index_record,
+                                                                          json_out);
+                    if (!async_update_op.ok()) {
+                        // remove from in-memory store to keep the state synced
+                        LOG(ERROR) << "Updating references failed, removing the document from in-memory index.";
+                        remove_document(index_record.doc, index_record.seq_id, false);
+                    }
                 }
             }
 
             res["success"] = index_record.indexed.ok();
 
-            if (return_doc & index_record.indexed.ok()) {
-                res["document"] = index_record.is_update ? index_record.new_doc : index_record.doc;
-            }
+            if (index_record.indexed.ok()) {
+                num_indexed++;
+                index_record.index_success();
 
-            if (return_id & index_record.indexed.ok()) {
-                res["id"] = index_record.is_update ? index_record.new_doc["id"] : index_record.doc["id"];
-            }
+                if (return_doc) {
+                    res["document"] = index_record.is_update ? index_record.new_doc : index_record.doc;
+                }
+                if (return_id) {
+                    res["id"] = index_record.is_update ? index_record.new_doc["id"] : index_record.doc["id"];
+                }
+            } else {
+                res["error"] = index_record.indexed.error();
+                res["code"] = index_record.indexed.code();
 
-          if(!index_record.indexed.ok()) {
                 if(return_doc) {
                     res["document"] = json_out[index_record.position];
                 }
-                res["error"] = index_record.indexed.error();
+                if (return_id && index_record.doc.contains("id")) {
+                    res["id"] = index_record.doc["id"];
+                }
                 if (!index_record.embedding_res.empty()) {
                     res["embedding_error"] = nlohmann::json::object();
                     res["embedding_error"] = index_record.embedding_res;
                     res["error"] = index_record.embedding_res["error"];
                 }
-                res["code"] = index_record.indexed.code();
             }
         } else {
             res["success"] = false;
@@ -953,7 +979,8 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 }
 
 size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
-                                         const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings) {
+                                         const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
+                                         const bool generate_embeddings, std::unordered_set<std::string>& found_fields) {
     std::shared_lock alter_shlock(alter_mutex);
     std::shared_lock shlock(mutex);
     Index::batch_validate_and_preprocess(index, index_records, default_sorting_field, search_schema, embedding_fields,
@@ -962,25 +989,13 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
     shlock.unlock();
     std::unique_lock lock(mutex);
     const auto collection_name = name;
-    std::unordered_set<std::string> found_fields;
+
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
                                                    search_schema, embedding_fields, fallback_field_type,
                                                    token_separators, symbols_to_index, found_fields,
                                                    false, tsl::htrie_map<char, field>(), collection_name);
     num_documents += num_indexed;
 
-    spp::sparse_hash_map<std::string, std::set<reference_pair_t>> found_async_referenced_ins;
-    for (const auto& field_name: found_fields) {
-        // We will update all the referencing collections that have referenced `field_name`.
-        auto it = async_referenced_ins.find(field_name);
-        if (it != async_referenced_ins.end()) {
-            found_async_referenced_ins.insert(std::make_pair(it->first, it->second));
-        }
-    }
-
-    lock.unlock();
-
-    Index::update_async_references(collection_name, index_records, found_async_referenced_ins);
     return num_indexed;
 }
 
@@ -8292,6 +8307,7 @@ void Collection::hide_credential(nlohmann::json& json, const std::string& creden
     }
 }
 
+// todo
 Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k) {
     std::shared_lock slock(mutex);
 
@@ -8721,6 +8737,7 @@ Option<nlohmann::json> Collection::get_alter_schema_status() const {
     return Option<nlohmann::json>(status_json);
 }
 
+// todo
 Option<size_t> Collection::remove_all_docs() {
     size_t num_docs_removed = 0;
 

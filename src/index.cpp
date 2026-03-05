@@ -1207,59 +1207,41 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
     }
 }
 
-void Index::update_async_references(const std::string& collection_name, std::vector<index_record>& iter_batch,
-                                    const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
-    for (auto& record: iter_batch) {
-        if (!record.indexed.ok() || record.is_update) {
+Option<bool> Index::update_async_references(const std::string& collection_name, const bool& return_doc, const bool& return_id,
+                                            const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins,
+                                            index_record& record, std::vector<std::string>& json_out) {
+    auto const& document = record.doc;
+    auto const& seq_id = record.seq_id;
+
+    for (const auto& pair: async_referenced_ins) {
+        if (!record.indexed.ok()) {
+            break;
+        }
+        const auto& referenced_field = pair.first;
+        if (document.count(referenced_field) != 1) {
             continue;
         }
-        auto const& document = record.doc;
-        auto const& is_update = record.is_update;
-        auto const& seq_id = record.seq_id;
+        for (const auto& ref_info: pair.second) {
+            auto const& referencing_collection_name = ref_info.collection;
+            auto const& referencing_field_name = ref_info.field;
 
-        for (const auto& pair: async_referenced_ins) {
-            const auto& referenced_field = pair.first;
-            if (document.count(referenced_field) != 1) {
+            auto& cm = CollectionManager::get_instance();
+            auto referencing_coll = cm.get_collection(referencing_collection_name);
+            if (referencing_coll == nullptr) {
+                // Since the collections get created and indexed in parallel on server restart, we might run into a
+                // scenario where the referencing collection hasn't yet been created. We can safely skip update of
+                // referencing collection as the references will be created normally.
                 continue;
             }
-            for (const auto& ref_info: pair.second) {
-                auto const& referencing_collection_name = ref_info.collection;
-                auto const& referencing_field_name = ref_info.field;
 
-                auto& cm = CollectionManager::get_instance();
-                auto referencing_coll = cm.get_collection(referencing_collection_name);
-                if (referencing_coll == nullptr) {
-                    // Since the collections get created and indexed in parallel on server restart, we might run into a
-                    // scenario where the referencing collection hasn't yet been created. We can safely skip update of
-                    // referencing collection as the references will be created normally.
-                    continue;
-                }
+            // After collecting the value(s) present in the field referenced by the other collection(ref_coll), we will add
+            // this document's seq_id as a reference where the value(s) match.
+            std::string ref_filter_value;
+            std::set<std::string> values;
+            if (document.at(referenced_field).is_array()) {
+                ref_filter_value = "[";
 
-                // After collecting the value(s) present in the field referenced by the other collection(ref_coll), we will add
-                // this document's seq_id as a reference where the value(s) match.
-                std::string ref_filter_value;
-                std::set<std::string> values;
-                if (document.at(referenced_field).is_array()) {
-                    ref_filter_value = "[";
-
-                    for (auto const& value: document[referenced_field]) {
-                        if (value.is_number_integer()) {
-                            auto const& v = std::to_string(value.get<int64_t>());
-                            ref_filter_value += v;
-                            values.insert(v);
-                        } else if (value.is_string()) {
-                            auto const& v = value.get<std::string>();
-                            ref_filter_value += v;
-                            values.insert(v);
-                        } else {
-                            record.index_failure(400, "Field `" + referenced_field + "` must only have string/int32/int64 values.");
-                            continue;
-                        }
-                        ref_filter_value += ",";
-                    }
-                    ref_filter_value[ref_filter_value.size() - 1] = ']';
-                } else {
-                    auto const& value = document[referenced_field];
+                for (auto const& value: document[referenced_field]) {
                     if (value.is_number_integer()) {
                         auto const& v = std::to_string(value.get<int64_t>());
                         ref_filter_value += v;
@@ -1269,40 +1251,57 @@ void Index::update_async_references(const std::string& collection_name, std::vec
                         ref_filter_value += v;
                         values.insert(v);
                     } else {
-                        record.index_failure(400, "Field `" + referenced_field + "` must only have string/int32/int64 values.");
+                        LOG(ERROR) << "Field `" + referenced_field + "` must only have string/int32/int64 values.";
                         continue;
                     }
+                    ref_filter_value += ",";
                 }
-
-                if (values.empty()) {
+                ref_filter_value[ref_filter_value.size() - 1] = ']';
+            } else {
+                auto const& value = document[referenced_field];
+                if (value.is_number_integer()) {
+                    auto const& v = std::to_string(value.get<int64_t>());
+                    ref_filter_value += v;
+                    values.insert(v);
+                } else if (value.is_string()) {
+                    auto const& v = value.get<std::string>();
+                    ref_filter_value += v;
+                    values.insert(v);
+                } else {
+                    LOG(ERROR) << "Field `" + referenced_field + "` must only have string/int32/int64 values.";
                     continue;
                 }
+            }
 
-                // The value must be unique in this collection.
-                filter_result_t filter_result;
-                auto op = CollectionManager::get_filter_ids(collection_name, referenced_field + ":=" += ref_filter_value,
-                                                            filter_result);
-                if (!op.ok()) {
-                    continue;
-                } else if (filter_result.count > 1) {
-                    record.index_failure(400, "Error while updating async reference field `" + referencing_field_name +
-                                              "` of collection `" += referencing_collection_name + "`: The value `" +=
-                                              ref_filter_value + "` of the field `" += referenced_field +
-                                              "` is not unique in `" += collection_name + "` collection.");
-                    break;
-                }
+            if (values.empty()) {
+                continue;
+            }
 
-                auto const ref_filter = referencing_field_name + ":= " += ref_filter_value;
-                auto update_op = referencing_coll->update_async_references_with_lock(collection_name, ref_filter, values, seq_id,
-                                                                                     referencing_field_name);
-                if (!update_op.ok()) {
-                    record.index_failure(400, "Error while updating async reference field `" + referencing_field_name +
-                                              "` of collection `" += referencing_collection_name + "`: " += update_op.error());
-                    break;
-                }
+            // The value must be unique in this collection.
+            filter_result_t filter_result;
+            auto op = CollectionManager::get_filter_ids(collection_name, referenced_field + ":=" += ref_filter_value,
+                                                        filter_result);
+            if (!op.ok()) {
+                continue;
+            } else if (filter_result.count > 1) {
+                record.index_failure(400, "Error while updating async reference field `" + referencing_field_name +
+                                          "` of collection `" += referencing_collection_name + "`: The value `" +=
+                                                                 ref_filter_value + "` of the field `" += referenced_field +
+                                                                                                          "` is not unique in `" += collection_name + "` collection.");
+                return Option<bool>(400, "");
+            }
+
+            auto const ref_filter = referencing_field_name + ":= " += ref_filter_value;
+            auto update_op = referencing_coll->update_async_references_with_lock(collection_name, ref_filter, values, seq_id,
+                                                                                 referencing_field_name);
+            if (!update_op.ok()) {
+                record.index_failure(400, "Error while updating async reference field `" + referencing_field_name +
+                                          "` of collection `" += referencing_collection_name + "`: " += update_op.error());
+                return update_op;
             }
         }
     }
+    return Option<bool>(true);
 }
 
 void Index::tokenize_string(const std::string& text, const field& a_field,
