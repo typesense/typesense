@@ -2825,7 +2825,8 @@ void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
             uint32_t inner_pos = index_seq_id.first;
             uint32_t seq_id = index_seq_id.second;
 
-            uint64_t distinct_id = 1;
+            // not grouped curated hits should deduped in a per-document basis in union mode
+            uint64_t distinct_id = (group_limit == 0) ? seq_id : 1;
             if (group_limit != 0) {
                 group_by_field_it_vec = get_group_by_field_iterators(group_by_fields, true);
             }
@@ -8120,8 +8121,10 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 continue;
             }
 
-            if(document->contains(field.name) && !record->is_update) {
-                // embedding already exists (could be a restore from export)
+            if((document->contains(field.name) && !record->is_update) ||
+               (record->is_update && record->doc.contains(field.name))) {
+                // skip embedding if vector already exists (create/restore) or
+                // pre-computed vector was provided in update/upsert request
                 continue;
             }
 
@@ -8428,7 +8431,8 @@ Option<bool> Index::get_related_ids(const std::string& field_name, const std::ve
 
 Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_t& seq_id,
                                     std::vector<uint32_t>& result) const {
-    return get_related_ids(field_name, {seq_id}, result);
+    const std::vector<uint32_t> seq_ids_vec{seq_id};
+    return get_related_ids(field_name, seq_ids_vec, result);
 }
 
 Option<bool> Index::get_object_array_related_id(const std::string& collection_name,

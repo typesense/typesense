@@ -583,7 +583,8 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
 
         // Reference include_by without join, check if doc itself contains the reference.
         if (!joined_on_ref_collection && !collection_name.empty()) {
-            auto op = CollectionManager::get_instance().is_referenced_in(ref_collection_name, collection_name);
+            auto op = CollectionManager::get_instance().is_referenced_in_with_lock(ref_collection_name,
+                                                                                   collection_name);
             if (op.ok()) {
                 doc_has_reference = true;
                 ref_info = op.get();
@@ -594,7 +595,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
         // Check if the joined collection has a reference.
         if (!joined_on_ref_collection && !doc_has_reference) {
             for (const auto &reference_filter_result: reference_filter_results) {
-                auto op = CollectionManager::get_instance().is_referenced_in(ref_collection_name,
+                auto op = CollectionManager::get_instance().is_referenced_in_with_lock(ref_collection_name,
                                                                              reference_filter_result.first);
                 if (op.ok()) {
                     joined_coll_has_reference = true;

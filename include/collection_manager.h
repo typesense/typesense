@@ -189,7 +189,8 @@ public:
 
     Option<bool> delete_preset(const std::string & preset_name);
 
-    void add_referenced_ins(const std::string& collection_name, reference_info_t&& ref_info);
+    Option<bool> add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
+                                    std::set<update_reference_info_t>& update_ref_infos);
 
     void remove_referenced_ins(const std::string& referenced_coll_name, const std::string& referring_coll_name = "");
 
@@ -225,6 +226,9 @@ public:
 
     Option<reference_info_t> is_referenced_in(const std::string& referenced_coll_name,
                                               const std::string& referring_coll_name) const;
+
+    Option<reference_info_t> is_referenced_in_with_lock(const std::string& referenced_coll_name,
+                                                        const std::string& referring_coll_name) const;
 
     static Option<bool> populate_include_exclude_fields(const std::string& collection_name,
                                                         const std::string& ref_include,

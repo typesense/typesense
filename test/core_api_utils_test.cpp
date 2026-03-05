@@ -284,7 +284,7 @@ TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
     // try setting max search limit
     req->embedded_params_vec[0]["limit_multi_searches"] = 0;
     ASSERT_FALSE(post_multi_search(req, res));
-    ASSERT_EQ("{\"message\": \"Number of multi searches exceeds `limit_multi_searches` parameter.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Number of multi searches exceeds `limit_multi_searches` parameter.\"}", res->body);
 
     req->embedded_params_vec[0]["limit_multi_searches"] = 1;
     ASSERT_TRUE(post_multi_search(req, res));
@@ -293,7 +293,7 @@ TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
     req->embedded_params_vec[0]["limit_multi_searches"] = 0;
     req->params["limit_multi_searches"] = "100";
     ASSERT_FALSE(post_multi_search(req, res));
-    ASSERT_EQ("{\"message\": \"Number of multi searches exceeds `limit_multi_searches` parameter.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Number of multi searches exceeds `limit_multi_searches` parameter.\"}", res->body);
 
     // use req params if embedded param not present
     req->embedded_params_vec[0].erase("limit_multi_searches");
@@ -2021,14 +2021,14 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
     get_collections(req, resp);
 
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("{\"message\": \"Offset param should be unsigned integer.\"}", resp->body);
+    ASSERT_EQ("{\"message\":\"Offset param should be unsigned integer.\"}", resp->body);
 
     //invalid limit string
     req->params["offset"] = "0";
     req->params["limit"] = "-1";
     get_collections(req, resp);
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("{\"message\": \"Limit param should be unsigned integer.\"}", resp->body);
+    ASSERT_EQ("{\"message\":\"Limit param should be unsigned integer.\"}", resp->body);
 }
 
 TEST_F(CoreAPIUtilsTest, OverridesPagination) {
@@ -2096,14 +2096,14 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
     get_collections(req, resp);
 
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("{\"message\": \"Offset param should be unsigned integer.\"}", resp->body);
+    ASSERT_EQ("{\"message\":\"Offset param should be unsigned integer.\"}", resp->body);
 
     //invalid limit string
     req->params["offset"] = "0";
     req->params["limit"] = "-1";
     get_collections(req, resp);
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("{\"message\": \"Limit param should be unsigned integer.\"}", resp->body);
+    ASSERT_EQ("{\"message\":\"Limit param should be unsigned integer.\"}", resp->body);
 }
 
 TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
@@ -2147,14 +2147,14 @@ TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
     get_collections(req, resp);
 
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("{\"message\": \"Offset param should be unsigned integer.\"}", resp->body);
+    ASSERT_EQ("{\"message\":\"Offset param should be unsigned integer.\"}", resp->body);
 
     //invalid limit string
     req->params["offset"] = "0";
     req->params["limit"] = "-1";
     get_collections(req, resp);
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("{\"message\": \"Limit param should be unsigned integer.\"}", resp->body);
+    ASSERT_EQ("{\"message\":\"Limit param should be unsigned integer.\"}", resp->body);
 }
 
 
@@ -2430,7 +2430,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
         "symbols_to_index":[]
@@ -2438,7 +2438,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
         "name": "collection_meta2",
@@ -2450,14 +2450,14 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
     })"_json;
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\": \"Alter payload is empty.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Alter payload is empty.\"}", res->body);
 }
 
 TEST_F(CoreAPIUtilsTest, DocumentGetIncludeExcludeFields) {
@@ -2879,6 +2879,159 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
     ASSERT_EQ(0, deletion_state.removed_docs.size());
     ASSERT_EQ(1, deletion_state.removed_ids.size());
     ASSERT_EQ("4", deletion_state.removed_ids[0]);
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CoreAPIUtilsTest, RemoveIfFoundManyBasicBehavior) {
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 2, fields, "points").get();
+    }
+
+    for(size_t i = 0; i < 10; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = i;
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto seq_1_op = coll1->doc_id_to_seq_id("1");
+    auto seq_2_op = coll1->doc_id_to_seq_id("2");
+    ASSERT_TRUE(seq_1_op.ok());
+    ASSERT_TRUE(seq_2_op.ok());
+
+    std::vector<uint32_t> seq_ids = {
+        seq_1_op.get(),
+        seq_2_op.get(),
+        static_cast<uint32_t>(seq_2_op.get() + 10000)
+    };
+
+    std::vector<nlohmann::json> removed_docs;
+    auto remove_op = coll1->remove_if_found_many(seq_ids, true, &removed_docs);
+    ASSERT_TRUE(remove_op.ok());
+    ASSERT_EQ(2, remove_op.get());
+    ASSERT_EQ(2, removed_docs.size());
+    ASSERT_EQ(8, coll1->get_num_documents());
+
+    bool found_1 = false;
+    bool found_2 = false;
+    for(const auto& removed_doc: removed_docs) {
+        if(removed_doc["id"] == "1") {
+            found_1 = true;
+        }
+
+        if(removed_doc["id"] == "2") {
+            found_2 = true;
+        }
+    }
+    ASSERT_TRUE(found_1);
+    ASSERT_TRUE(found_2);
+
+    auto get_1_op = coll1->get("1");
+    auto get_2_op = coll1->get("2");
+    auto get_3_op = coll1->get("3");
+    ASSERT_FALSE(get_1_op.ok());
+    ASSERT_FALSE(get_2_op.ok());
+    ASSERT_EQ(404, get_1_op.code());
+    ASSERT_EQ(404, get_2_op.code());
+    ASSERT_TRUE(get_3_op.ok());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CoreAPIUtilsTest, RemoveIfFoundManyWithCascadeReference) {
+    auto products_schema = R"({
+        "name": "Products",
+        "fields": [
+            {"name": "product_id", "type": "string"},
+            {"name": "name", "type": "string"}
+        ]
+    })"_json;
+
+    auto orders_schema = R"({
+        "name": "Orders",
+        "fields": [
+            {"name": "order_id", "type": "string"},
+            {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+        ]
+    })"_json;
+
+    auto products_op = collectionManager.create_collection(products_schema);
+    ASSERT_TRUE(products_op.ok());
+
+    auto orders_op = collectionManager.create_collection(orders_schema);
+    ASSERT_TRUE(orders_op.ok());
+
+    auto products = products_op.get();
+    auto orders = orders_op.get();
+
+    ASSERT_TRUE(products->add(R"({"id":"p1","product_id":"p1","name":"shampoo"})").ok());
+    ASSERT_TRUE(orders->add(R"({"id":"o1","order_id":"o1","product_id":"p1"})").ok());
+
+    auto product_seq_op = products->doc_id_to_seq_id("p1");
+    ASSERT_TRUE(product_seq_op.ok());
+
+    auto remove_op = products->remove_if_found_many({product_seq_op.get()}, true);
+    ASSERT_TRUE(remove_op.ok());
+    ASSERT_EQ(1, remove_op.get());
+
+    auto product_get_op = products->get("p1");
+    auto order_get_op = orders->get("o1");
+    ASSERT_FALSE(product_get_op.ok());
+    ASSERT_FALSE(order_get_op.ok());
+    ASSERT_EQ(404, product_get_op.code());
+    ASSERT_EQ(404, order_get_op.code());
+
+    collectionManager.drop_collection("Orders");
+    collectionManager.drop_collection("Products");
+}
+
+TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsUsesBoundedInternalBatch) {
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 2, fields, "points").get();
+    }
+
+    for(size_t i = 0; i < 1205; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = i;
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    deletion_state_t deletion_state;
+    deletion_state.collection = coll1;
+    deletion_state.num_removed = 0;
+
+    filter_result_t filter_results;
+    auto filter_op = coll1->get_filter_ids("points:>= 0", filter_results);
+    ASSERT_TRUE(filter_op.ok());
+    deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
+    filter_results.docs = nullptr;
+    deletion_state.offsets.push_back(0);
+
+    bool done = false;
+    auto remove_op = stateful_remove_docs(&deletion_state, 1000000000, done);
+    ASSERT_TRUE(remove_op.ok());
+    ASSERT_EQ(1000, deletion_state.num_removed);
+    ASSERT_FALSE(done);
+
+    remove_op = stateful_remove_docs(&deletion_state, 1000000000, done);
+    ASSERT_TRUE(remove_op.ok());
+    ASSERT_EQ(1205, deletion_state.num_removed);
+    ASSERT_TRUE(done);
+    ASSERT_EQ(0, coll1->get_num_documents());
 
     collectionManager.drop_collection("coll1");
 }

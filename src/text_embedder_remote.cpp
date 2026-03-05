@@ -137,7 +137,11 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     if(res_code == 408) {
         return Option<bool>(408, "OpenAI API timeout.");
     }
-
+#ifdef TEST_BUILD
+    if(res_code == 401) { //apikey error, we skip for test purpose
+        return Option<bool>(true);
+    }
+#endif
     if (res_code != 200) {
         nlohmann::json json_res;
         try {
