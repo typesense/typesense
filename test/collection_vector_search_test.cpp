@@ -3108,6 +3108,67 @@ TEST_F(CollectionVectorTest, TestHybridSearchAlphaParam) {
     ASSERT_FLOAT_EQ(0.16666667, hybrid_results["hits"][2]["hybrid_search_info"]["rank_fusion_score"].get<float>());
 }   
 
+TEST_F(CollectionVectorTest, TestHybridPhraseQueryFallbacksToVectorSearch) {
+    nlohmann::json schema = R"({
+        "name": "test",
+        "fields": [
+            {
+                "name": "title",
+                "type": "string"
+            },
+            {
+                "name": "vec",
+                "type": "float[]",
+                "num_dim": 4
+            }
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "title": "Introduction to Data Structures",
+        "vec": [0.851758, 0.909671, 0.823431, 0.372063]
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "title": "Machine Learning Basics",
+        "vec": [0.97826, 0.933157, 0.39557, 0.306488]
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "title": "Database Design Patterns",
+        "vec": [0.230606, 0.634397, 0.514009, 0.399594]
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // Issue #2816: phrase queries with zero keyword matches must still execute vector search.
+    auto results = coll->search("\"data dod\"", {"title"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true},
+                                Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false,
+                                true, "", false, 6000 * 1000, 4, 7, fallback, 4, {off}, 32767, 32767,
+                                2, false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488], alpha:0.5)").get();
+
+    ASSERT_GT(results["found"].get<size_t>(), 0);
+    ASSERT_GT(results["hits"].size(), 0);
+
+    results = coll->search("\"nonexistent phrase xyz\"", {"title"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true},
+                           Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false,
+                           true, "", false, 6000 * 1000, 4, 7, fallback, 4, {off}, 32767, 32767,
+                           2, false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488], alpha:0.0)").get();
+
+    ASSERT_GT(results["found"].get<size_t>(), 0);
+    ASSERT_GT(results["hits"].size(), 0);
+}
+
 TEST_F(CollectionVectorTest, TestHybridSearchInvalidAlpha) {
         nlohmann::json schema = R"({
                         "name": "test",
