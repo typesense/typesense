@@ -2117,6 +2117,90 @@ TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExists) {
     ASSERT_EQ("Field `embedding` contains invalid float values.", add_op.error());
 }
 
+TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExistsOnUpsert) {
+    // Pre-computed embedding vectors should be honored on upsert/update of existing documents
+    nlohmann::json schema = R"({
+        "name": "objects",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    // Get num_dim from the collection's embedding field
+    size_t num_dim = 0;
+    for(const auto& f : coll->get_fields()) {
+        if(f.name == "embedding") {
+            num_dim = f.num_dim;
+            break;
+        }
+    }
+    ASSERT_GT(num_dim, 0);
+
+    // Create a document with a pre-computed embedding
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "butter";
+
+    std::vector<float> original_vec(num_dim, 0.345f);
+    doc["embedding"] = original_vec;
+
+    auto add_op = coll->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto res = coll->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_NEAR(0.345, res["hits"][0]["document"]["embedding"][0].get<float>(), 0.01);
+
+    // Upsert with BOTH changed source field AND new pre-computed embedding.
+    // The pre-computed embedding should be used, not auto-computed from the new name.
+    std::vector<float> new_vec(num_dim, 0.500f);
+
+    nlohmann::json upsert_doc;
+    upsert_doc["id"] = "0";
+    upsert_doc["name"] = "ghee";
+    upsert_doc["embedding"] = new_vec;
+
+    auto upsert_op = coll->add(upsert_doc.dump(), UPSERT);
+    ASSERT_TRUE(upsert_op.ok());
+
+    res = coll->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_NEAR(0.500, res["hits"][0]["document"]["embedding"][0].get<float>(), 0.01);
+
+    // Update (PATCH) with BOTH changed source field AND new pre-computed embedding
+    std::vector<float> update_vec(num_dim, 0.700f);
+
+    nlohmann::json update_doc;
+    update_doc["id"] = "0";
+    update_doc["name"] = "milk";
+    update_doc["embedding"] = update_vec;
+
+    auto update_op = coll->add(update_doc.dump(), UPDATE);
+    ASSERT_TRUE(update_op.ok());
+
+    res = coll->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_NEAR(0.700, res["hits"][0]["document"]["embedding"][0].get<float>(), 0.01);
+
+    // Emplace with BOTH changed source field AND new pre-computed embedding
+    std::vector<float> emplace_vec(num_dim, 0.900f);
+
+    nlohmann::json emplace_doc;
+    emplace_doc["id"] = "0";
+    emplace_doc["name"] = "cheese";
+    emplace_doc["embedding"] = emplace_vec;
+
+    auto emplace_op = coll->add(emplace_doc.dump(), EMPLACE);
+    ASSERT_TRUE(emplace_op.ok());
+
+    res = coll->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_NEAR(0.900, res["hits"][0]["document"]["embedding"][0].get<float>(), 0.01);
+}
+
 TEST_F(CollectionVectorTest, SemanticSearchReturnOnlyVectorDistance) {
     auto schema_json =
         R"({
