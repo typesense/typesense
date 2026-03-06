@@ -2696,7 +2696,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     std::vector<query_tokens_t> field_query_tokens;
     std::vector<std::string> q_include_tokens;
     std::vector<std::string> q_unstemmed_tokens;
-    
+
     if(weighted_search_fields.size() == 0) {
         if(!ignored_missing_fields) {
             // has to be a wildcard query
