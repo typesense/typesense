@@ -475,6 +475,25 @@ TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBody) {
     ASSERT_EQ(1, collections.size());
     ASSERT_EQ("", collections[0].collection);
     ASSERT_EQ("bar", collections[0].api_key);
+
+    // when preset type is bad, should not throw during auth collection extraction
+    collections.clear();
+    embedded_params_vec.clear();
+    body = R"(
+        {"searches":[
+              {
+                "query_by": "concat",
+                "q": "battery",
+                "preset": 123
+              }
+          ]
+        }
+    )";
+
+    EXPECT_NO_THROW(get_collections_for_auth(req_params, body, rpath, "foo", collections, embedded_params_vec));
+    ASSERT_EQ(1, collections.size());
+    ASSERT_EQ("", collections[0].collection);
+    ASSERT_EQ("foo", collections[0].api_key);
 }
 
 TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBodyExtended) {
