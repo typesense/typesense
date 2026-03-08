@@ -840,11 +840,9 @@ public:
                                      const std::vector<char>& symbols_to_index,
                                      std::unordered_set<std::string>& found_fields,
                                      const bool use_addition_fields = false,
-                                     const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>(),
-                                     const std::string& collection_name = "");
+                                     const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>());
 
-    void index_field_in_memory(const std::string& collection_name, const field& afield,
-                               std::vector<index_record>& iter_batch);
+    void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
 
     template<class T>
     void iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func);

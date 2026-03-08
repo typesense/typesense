@@ -1097,6 +1097,9 @@ public:
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result,
                                 const bool& should_timeout = true, const bool& validate_field_names = true) const;
 
+    Option<bool> get_filter_ids_with_lock(const std::string & filter_query, filter_result_t& filter_result,
+                                          const bool& should_timeout = true, const bool& validate_field_names = true) const;
+
     Option<bool> get_reference_filter_ids(const std::string& filter_query,
                                           filter_result_t& filter_result,
                                           const std::string& reference_field_name,
@@ -1105,8 +1108,13 @@ public:
 
     Option<nlohmann::json> get(const std::string & id) const;
 
-    void cascade_remove_docs(const std::string& field_name, const uint32_t& ref_seq_id,
-                             const nlohmann::json& ref_doc, bool remove_from_store = true);
+    void cascade_remove_doc_with_lock(const std::string& field_name, const uint32_t& ref_seq_id,
+                                      const nlohmann::json& ref_doc, bool remove_from_store = true);
+
+    void reset_referencing_documents(const std::string& field_name, const std::vector<index_record>& docs);
+
+    static void reset_referencing_documents(const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& found_async_referenced_ins,
+                                            const std::vector<index_record>& docs);
 
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
 
@@ -1306,6 +1314,10 @@ public:
                                       const tsl::htrie_set<char>& ref_exclude_fields_full,
                                       const nlohmann::json& original_doc,
                                       const ref_include_exclude_fields& ref_include_exclude) const;
+
+    std::shared_mutex& get_mutex() const {
+        return mutex;
+    }
 };
 
 template<class T>

@@ -2604,9 +2604,9 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     auto customers_coll = collectionManager.get_collection_unsafe("Customers");
     customers_coll->remove("0");
     customers_coll->remove("2");
-    // product_a has no references now. `get_filter_ids` should still include reference of product_b in the result.
+    // product_a has no references now. `get_filter_ids_with_lock` should still include reference of product_b in the result.
     filter_result_t filter_result;
-    collectionManager.get_collection_unsafe("Products")->get_filter_ids("id:* || $Customers(id:*)", filter_result);
+    collectionManager.get_collection_unsafe("Products")->get_filter_ids_with_lock("id:* || $Customers(id:*)", filter_result);
     ASSERT_NE(nullptr, filter_result.coll_to_references);
     ASSERT_EQ(2, filter_result.count);
     ASSERT_EQ(0, filter_result.docs[0]);

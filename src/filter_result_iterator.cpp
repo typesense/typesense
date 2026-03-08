@@ -1035,8 +1035,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             // Get the doc ids of reference collection matching the filter then apply filter on the current collection's
             // reference helper field.
             filter_result_t result;
-            auto reference_filter_op = ref_collection->get_filter_ids(a_filter.field_name, result, true,
-                                                                      validate_field_names);
+            auto reference_filter_op = ref_collection->get_filter_ids_with_lock(a_filter.field_name, result, true,
+                                                                                validate_field_names);
             if (!reference_filter_op.ok()) {
                 status = Option<bool>(400, "Failed to join on `" + a_filter.referenced_collection_name
                                            + "` collection: " + reference_filter_op.error());

@@ -103,7 +103,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     // single document match
 
     filter_result_t filter_results;
-    coll1->get_filter_ids("points: 99", filter_results);
+    coll1->get_filter_ids_with_lock("points: 99", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -122,7 +122,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("points:< 11", filter_results);
+    coll1->get_filter_ids_with_lock("points:< 11", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -149,7 +149,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("points:< 20", filter_results);
+    coll1->get_filter_ids_with_lock("points:< 20", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -182,7 +182,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("id:[0, 1, 2]", filter_results);
+    coll1->get_filter_ids_with_lock("id:[0, 1, 2]", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -202,7 +202,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("id :10", filter_results);
+    coll1->get_filter_ids_with_lock("id :10", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -222,18 +222,18 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
 
     filter_results = filter_result_t(0, nullptr);
     // bad filter query
-    auto op = coll1->get_filter_ids("bad filter", filter_results);
+    auto op = coll1->get_filter_ids_with_lock("bad filter", filter_results);
     ASSERT_FALSE(op.ok());
     ASSERT_STREQ("Could not parse the filter query.", op.error().c_str());
 
     bool should_timeout = true;
     bool validate_field_names = true;
-    op = coll1->get_filter_ids("foo: 99", filter_results, should_timeout, validate_field_names);
+    op = coll1->get_filter_ids_with_lock("foo: 99", filter_results, should_timeout, validate_field_names);
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("Could not find a filter field named `foo` in the schema.", op.error());
 
     validate_field_names = false;
-    op = coll1->get_filter_ids("foo: 99", filter_results, should_timeout, validate_field_names);
+    op = coll1->get_filter_ids_with_lock("foo: 99", filter_results, should_timeout, validate_field_names);
     ASSERT_TRUE(op.ok());
     ASSERT_EQ(0, filter_results.count);
     ASSERT_EQ(nullptr, filter_results.docs);
@@ -1372,7 +1372,7 @@ TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
 
     export_state_t export_state;
     filter_result_t filter_result;
-    coll1->get_filter_ids("points:>=0", export_state.filter_result);
+    coll1->get_filter_ids_with_lock("points:>=0", export_state.filter_result);
 
     export_state.collection = coll1;
     export_state.res_body = &res_body;
@@ -1483,7 +1483,7 @@ TEST_F(CoreAPIUtilsTest, ExportWithJoin) {
 
     export_state_t export_state;
     auto coll1 = collectionManager.get_collection_unsafe("Products");
-    coll1->get_filter_ids("$Customers(customer_id:customer_a)", export_state.filter_result);
+    coll1->get_filter_ids_with_lock("$Customers(customer_id:customer_a)", export_state.filter_result);
     export_state.collection = coll1.get();
     export_state.res_body = &res_body;
     export_state.include_fields.insert("product_name");
@@ -3177,7 +3177,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
 
     // Single document match with return values
     filter_result_t filter_results;
-    coll1->get_filter_ids("points: 5", filter_results);
+    coll1->get_filter_ids_with_lock("points: 5", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -3205,7 +3205,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
     deletion_state.removed_docs.clear();
     deletion_state.removed_ids.clear();
 
-    coll1->get_filter_ids("points:>= 6", filter_results);
+    coll1->get_filter_ids_with_lock("points:>= 6", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -3247,7 +3247,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
         coll1->add(doc.dump());
     }
 
-    coll1->get_filter_ids("points: 3", filter_results);
+    coll1->get_filter_ids_with_lock("points: 3", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -3284,7 +3284,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
         coll1->add(doc.dump());
     }
 
-    coll1->get_filter_ids("points: 4", filter_results);
+    coll1->get_filter_ids_with_lock("points: 4", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -3433,7 +3433,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsUsesBoundedInternalBatch) {
     deletion_state.num_removed = 0;
 
     filter_result_t filter_results;
-    auto filter_op = coll1->get_filter_ids("points:>= 0", filter_results);
+    auto filter_op = coll1->get_filter_ids_with_lock("points:>= 0", filter_results);
     ASSERT_TRUE(filter_op.ok());
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;

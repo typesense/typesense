@@ -1467,8 +1467,8 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 validate_field_names = false;
             }
 
-            auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result, false,
-                                                            validate_field_names);
+            auto filter_ids_op = collection->get_filter_ids_with_lock(filter_query, export_state->filter_result, false,
+                                                                      validate_field_names);
 
             if(!filter_ids_op.ok()) {
                 res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -2138,8 +2138,8 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         }
 
         filter_result_t filter_result;
-        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false,
-                                                        validate_field_names);
+        auto filter_ids_op = collection->get_filter_ids_with_lock(simple_filter_query, filter_result, false,
+                                                                  validate_field_names);
 
         if (!filter_ids_op.ok()) {
             res->set(filter_ids_op.code(), filter_ids_op.error());
