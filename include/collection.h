@@ -805,6 +805,12 @@ private:
     static Option<bool> filter_dynamic_facets_by_occurrence(nlohmann::json& facet_counts, size_t found_docs,
                                                             float facet_min_occurrence_ratio);
 
+    void reset_referencing_documents(const std::string& field_name, const std::vector<index_record>& docs);
+
+    // Called to reset the reference helper fields to sentinel value when a referenced document fails to index.
+    static void reset_referencing_documents(const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& found_async_referenced_ins,
+                                            const std::vector<index_record>& docs);
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
@@ -1110,11 +1116,6 @@ public:
 
     void cascade_remove_doc_with_lock(const std::string& field_name, const uint32_t& ref_seq_id,
                                       const nlohmann::json& ref_doc, bool remove_from_store = true);
-
-    void reset_referencing_documents(const std::string& field_name, const std::vector<index_record>& docs);
-
-    static void reset_referencing_documents(const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& found_async_referenced_ins,
-                                            const std::vector<index_record>& docs);
 
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
 

@@ -5915,6 +5915,7 @@ void Collection::reset_referencing_documents(const spp::sparse_hash_map<std::str
 
     // Lock all collections which reference the document that failed to index.
     std::vector<std::unique_lock<std::shared_mutex>> collection_locks;
+    std::vector<std::pair<std::shared_ptr<Collection>, reference_pair_t>> collections;
     for (const auto& pair: async_referenced_ins) {
         for (const auto& ref_info: pair.second) {
             auto const& referencing_collection_name = ref_info.collection;
@@ -5925,27 +5926,16 @@ void Collection::reset_referencing_documents(const spp::sparse_hash_map<std::str
                 continue;
             }
             collection_locks.emplace_back(referencing_coll->mutex);
+            collections.emplace_back(referencing_coll, ref_info);
         }
     }
 
-    if (collection_locks.empty()) {
+    if (collections.empty()) {
         return;
     }
 
-    for (const auto& pair: async_referenced_ins) {
-        const auto& referenced_field = pair.first;
-
-        for (const auto& ref_info: pair.second) {
-            auto const& referencing_collection_name = ref_info.collection;
-            auto const& referencing_field_name = ref_info.field;
-
-            auto& cm = CollectionManager::get_instance();
-            auto referencing_coll = cm.get_collection(referencing_collection_name);
-            if (referencing_coll == nullptr) {
-                continue;
-            }
-            referencing_coll->reset_referencing_documents(referencing_field_name, docs);
-        }
+    for (const auto& [coll_ptr, ref_info]: collections) {
+        coll_ptr->reset_referencing_documents(ref_info.field, docs);
     }
 }
 
