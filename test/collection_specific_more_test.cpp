@@ -3,6 +3,7 @@
 #include <vector>
 #include <fstream>
 #include <algorithm>
+#include <chrono>
 #include <collection_manager.h>
 #include "collection.h"
 #include "synonym_index.h"
@@ -4202,4 +4203,287 @@ TEST_F(CollectionSpecificMoreTest, NestedFieldSingleTokenSnippetTruncation) {
         << " chars. This indicates the bug where full text is included.";
     
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificMoreTest, WildcardAndKeywordLazyNumericNotEqualsShouldMatchFilteredResults) {
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("product_site", field_types::INT32, false),
+        field("product_store", field_types::INT32, false),
+        field("product_publish_date_timestamp", field_types::INT64, false)
+    };
+    const std::string collection_name = "coll_lazy_numeric_not_equals_combined";
+    Collection* coll = collectionManager.create_collection(collection_name, 1, fields).get();
+
+    for (size_t i = 0; i < 4000; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "item " + std::to_string(i);
+        doc["product_site"] = 2;
+        doc["product_store"] = i;
+        doc["product_publish_date_timestamp"] = 1770866200;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    const std::string filter_query =
+        "product_site:2"
+        " && product_store:!=1"
+        " && product_store:!=2"
+        " && product_store:!=3"
+        " && product_store:!=4"
+        " && product_store:!=5"
+        " && product_store:!=6"
+        " && product_store:!=7"
+        " && product_store:!=8"
+        " && product_store:!=9"
+        " && product_store:!=10"
+        " && product_store:!=11"
+        " && product_publish_date_timestamp:<=1770866269";
+
+    auto run_query = [&](const std::string& query, size_t repeats, bool add_sort_by) {
+        std::map<std::string, std::string> req_params = {
+            {"collection", collection_name},
+            {"q", query},
+            {"query_by", "title"},
+            {"filter_by", filter_query},
+            {"enable_lazy_filter", "true"}
+        };
+        if (add_sort_by) {
+            req_params["sort_by"] = "product_publish_date_timestamp:desc";
+        }
+
+        for (size_t i = 0; i < repeats; i++) {
+            nlohmann::json embedded_params;
+            std::string json_res;
+            auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+            auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+            ASSERT_TRUE(search_op.ok());
+
+            auto res_obj = nlohmann::json::parse(json_res);
+            ASSERT_EQ(3989, res_obj["found"].get<size_t>());
+        }
+    };
+
+    run_query("*", 1, true);
+    run_query("item", 10, false);
+
+    collectionManager.drop_collection(collection_name);
+}
+
+TEST_F(CollectionSpecificMoreTest, ConjunctiveNumericNotEqualsShouldMatchExpectedResults) {
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("product_site", field_types::INT32, false),
+        field("product_store", field_types::INT32, false),
+        field("product_publish_date_timestamp", field_types::INT64, false)
+    };
+    const std::string collection_name = "coll_conjunctive_numeric_not_equals";
+    Collection* coll = collectionManager.create_collection(collection_name, 1, fields).get();
+
+    const std::vector<uint32_t> excluded_values = {
+        34672, 864, 25189, 15209, 25063, 33856, 35174, 34832, 38054, 5088, 33816
+    };
+
+    size_t doc_id = 0;
+    for (size_t i = 0; i < 4000; i++, doc_id++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(doc_id);
+        doc["title"] = "item " + std::to_string(doc_id);
+        doc["product_site"] = 2;
+        doc["product_store"] = i;
+        doc["product_publish_date_timestamp"] = 1770866200;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    for (auto value : excluded_values) {
+        if (value < 4000) {
+            continue;
+        }
+        nlohmann::json doc;
+        doc["id"] = std::to_string(doc_id++);
+        doc["title"] = "item " + std::to_string(doc_id);
+        doc["product_site"] = 2;
+        doc["product_store"] = value;
+        doc["product_publish_date_timestamp"] = 1770866200;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    const std::string filter_query =
+        "product_site : 2"
+        " && product_store :!= 34672"
+        " && product_store :!= 864"
+        " && product_store :!= 25189"
+        " && product_store :!= 15209"
+        " && product_store :!= 25063"
+        " && product_store :!= 33856"
+        " && product_store :!= 35174"
+        " && product_store :!= 34832"
+        " && product_store :!= 38054"
+        " && product_store :!= 5088"
+        " && product_store :!= 33816"
+        " && product_publish_date_timestamp :<= 1770866269";
+
+    const size_t expected_found = (doc_id - excluded_values.size());
+
+    auto run_query = [&](const std::string& query, size_t repeats, bool add_sort_by) {
+        std::map<std::string, std::string> req_params = {
+            {"collection", collection_name},
+            {"q", query},
+            {"query_by", "title"},
+            {"filter_by", filter_query},
+            {"enable_lazy_filter", "true"}
+        };
+        if (add_sort_by) {
+            req_params["sort_by"] = "product_publish_date_timestamp:desc";
+        }
+
+        for (size_t i = 0; i < repeats; i++) {
+            nlohmann::json embedded_params;
+            std::string json_res;
+            auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+            auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+            ASSERT_TRUE(search_op.ok());
+
+            auto res_obj = nlohmann::json::parse(json_res);
+            ASSERT_EQ(expected_found, res_obj["found"].get<size_t>());
+        }
+    };
+
+    run_query("*", 1, true);
+    run_query("item", 10, false);
+
+    collectionManager.drop_collection(collection_name);
+}
+
+TEST_F(CollectionSpecificMoreTest, ExplicitNotEqualsListOnNonRangeIntegerShouldMatchAllDocs) {
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("price", field_types::INT32, false)
+    };
+    const std::string collection_name = "coll_non_range_int_not_equals_list";
+    Collection* coll = collectionManager.create_collection(collection_name, 1, fields).get();
+
+    const size_t num_docs = 3000;
+    for (size_t i = 0; i < num_docs; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "item " + std::to_string(i);
+        doc["price"] = i;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    const std::string filter_query = "price:[!=100000, !=100001, !=100002, !=100003, !=100004]";
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", collection_name},
+        {"q", "*"},
+        {"query_by", "title"},
+        {"filter_by", filter_query},
+        {"enable_lazy_filter", "false"}
+    };
+
+    for (size_t i = 0; i < 10; i++) {
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+
+        auto res_obj = nlohmann::json::parse(json_res);
+        ASSERT_EQ(num_docs, res_obj["found"].get<size_t>());
+    }
+
+    collectionManager.drop_collection(collection_name);
+}
+
+TEST_F(CollectionSpecificMoreTest, ExplicitNotEqualsListOnRangeIndexedIntegerShouldMatchAllDocs) {
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("price", field_types::INT32, false, true)
+    };
+    const std::string collection_name = "coll_range_int_not_equals_list";
+    Collection* coll = collectionManager.create_collection(collection_name, 1, fields).get();
+
+    const size_t num_docs = 3000;
+    for (size_t i = 0; i < num_docs; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "item " + std::to_string(i);
+        doc["price"] = i;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    const std::string filter_query = "price:[!=100000, !=100001, !=100002, !=100003, !=100004]";
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", collection_name},
+        {"q", "*"},
+        {"query_by", "title"},
+        {"filter_by", filter_query},
+        {"enable_lazy_filter", "false"}
+    };
+
+    for (size_t i = 0; i < 10; i++) {
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+
+        auto res_obj = nlohmann::json::parse(json_res);
+        ASSERT_EQ(num_docs, res_obj["found"].get<size_t>());
+    }
+
+    collectionManager.drop_collection(collection_name);
+}
+
+TEST_F(CollectionSpecificMoreTest, ExplicitNotEqualsListOnRangeIndexedFloatShouldMatchAllDocs) {
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("rating", field_types::FLOAT, false, true)
+    };
+    const std::string collection_name = "coll_range_float_not_equals_list";
+    Collection* coll = collectionManager.create_collection(collection_name, 1, fields).get();
+
+    const size_t num_docs = 3000;
+    for (size_t i = 0; i < num_docs; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "item " + std::to_string(i);
+        doc["rating"] = static_cast<float>(i) + 0.25f;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    const std::string filter_query = "rating:[!=100000.1, !=100001.1, !=100002.1, !=100003.1, !=100004.1]";
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", collection_name},
+        {"q", "*"},
+        {"query_by", "title"},
+        {"filter_by", filter_query},
+        {"enable_lazy_filter", "false"}
+    };
+
+    for (size_t i = 0; i < 10; i++) {
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+
+        auto res_obj = nlohmann::json::parse(json_res);
+        ASSERT_EQ(num_docs, res_obj["found"].get<size_t>());
+    }
+
+    collectionManager.drop_collection(collection_name);
 }

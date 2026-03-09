@@ -3,6 +3,11 @@
 #include <vector>
 #include <fstream>
 #include <algorithm>
+#include <cstdlib>
+#include <atomic>
+#include <chrono>
+#include <thread>
+#include <sstream>
 #include <collection_manager.h>
 #include "curation_index_manager.h"
 
@@ -2160,4 +2165,199 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(1, json_res.count("code"));
     ASSERT_EQ(1, json_res.count("error"));
+}
+
+TEST_F(UnionTest, UnionHighlightingUAFRaceASAN) {
+  nlohmann::json schema = R"({
+        "name": "union_uaf_race",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "rank", "type": "int32"}
+        ]
+    })"_json;
+
+  auto create_op = collectionManager.create_collection(schema);
+  ASSERT_TRUE(create_op.ok());
+  auto coll = create_op.get();
+
+  constexpr size_t hot_docs = 8;
+  constexpr size_t iterations = 80;
+
+  const std::string volatile_token = "uafsentinelzzzz";
+  std::stringstream dense_ss;
+  for(size_t i = 0; i < 64; i++) {
+    if(i != 0) {
+      dense_ss << " ";
+    }
+    dense_ss << volatile_token;
+  }
+  const std::string dense_token_phrase = dense_ss.str();
+
+  auto build_hot_doc = [&](size_t i, bool dense_doc0) {
+    nlohmann::json doc;
+    doc["id"] = "hot_" + std::to_string(i);
+    doc["title"] = (dense_doc0 && i == 0) ? dense_token_phrase : volatile_token;
+    doc["rank"] = int32_t(i + 1);
+    return doc;
+  };
+
+  for (size_t i = 0; i < hot_docs; i++) {
+    ASSERT_TRUE(coll->add(build_hot_doc(i, true).dump(), UPSERT).ok());
+  }
+
+  std::atomic<size_t> union_calls = 0;
+  std::atomic<size_t> mutation_batches = 0;
+  std::atomic<size_t> total_mutations = 0;
+  std::atomic<size_t> total_mutations_during_search = 0;
+  std::atomic<size_t> union_hit_count = 0;
+  std::atomic<size_t> union_nonempty_highlight_count = 0;
+  std::atomic<size_t> union_title_highlight_count = 0;
+
+  for (size_t i = 0; i < iterations; i++) {
+    // Start each round from low token-offset density.
+    for (size_t j = 0; j < hot_docs; j++) {
+      ASSERT_TRUE(coll->add(build_hot_doc(j, false).dump(), UPSERT).ok());
+    }
+
+    std::map<std::string, std::string> local_req_params = {
+        {"page", "1"},
+        {"per_page", std::to_string(hot_docs)}
+    };
+    std::vector<nlohmann::json> local_embedded_params(2, nlohmann::json::object());
+    nlohmann::json local_searches = R"([
+            {
+                "collection": "union_uaf_race",
+                "q": "uafsentinelzzzz",
+                "query_by": "title",
+                "highlight_fields": "title",
+                "sort_by": "rank:desc"
+            },
+            {
+                "collection": "union_uaf_race",
+                "q": "missing_token_never_indexed",
+                "query_by": "title",
+                "highlight_fields": "title",
+                "sort_by": "rank:desc"
+            }
+        ])"_json;
+    auto req_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                      std::chrono::system_clock::now().time_since_epoch()).count();
+
+    std::atomic<bool> search_done = false;
+    std::atomic<bool> search_ok = false;
+    auto thread_req_params = local_req_params;
+    auto thread_embedded_params = local_embedded_params;
+    auto thread_searches = local_searches;
+    auto search_thread = std::thread([&, thread_req_params, thread_embedded_params, thread_searches, req_ts]() mutable {
+      nlohmann::json thread_res;
+      auto op = collectionManager.do_union(thread_req_params, thread_embedded_params, thread_searches, thread_res, req_ts);
+      if(op.ok() && thread_res.contains("hits") && thread_res["hits"].is_array()) {
+        size_t local_hit_count = thread_res["hits"].size();
+        size_t local_nonempty_highlight_count = 0;
+        size_t local_title_highlight_count = 0;
+
+        for(const auto& hit: thread_res["hits"]) {
+          if(!hit.contains("highlight") || !hit["highlight"].is_object()) {
+            continue;
+          }
+
+          const auto& highlight_obj = hit["highlight"];
+          if(!highlight_obj.empty()) {
+            local_nonempty_highlight_count++;
+          }
+
+          auto title_it = highlight_obj.find("title");
+          if(title_it == highlight_obj.end()) {
+            continue;
+          }
+
+          if(title_it->is_object()) {
+            bool has_snippet = title_it->contains("snippet") && (*title_it)["snippet"].is_string() &&
+                               !(*title_it)["snippet"].get<std::string>().empty();
+            bool has_matched_tokens = title_it->contains("matched_tokens") &&
+                                      (*title_it)["matched_tokens"].is_array() &&
+                                      !(*title_it)["matched_tokens"].empty();
+            if(has_snippet || has_matched_tokens) {
+              local_title_highlight_count++;
+            }
+          } else if(title_it->is_array() && !title_it->empty()) {
+            local_title_highlight_count++;
+          }
+        }
+
+        union_hit_count.fetch_add(local_hit_count, std::memory_order_relaxed);
+        union_nonempty_highlight_count.fetch_add(local_nonempty_highlight_count, std::memory_order_relaxed);
+        union_title_highlight_count.fetch_add(local_title_highlight_count, std::memory_order_relaxed);
+      }
+      search_ok.store(op.ok(), std::memory_order_relaxed);
+      search_done.store(true, std::memory_order_release);
+    });
+
+    // Give do_union a head-start to enter run_search/process_highlight_fields_with_lock.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+    size_t local_mutations = 0;
+    size_t local_mutations_during_search = 0;
+    bool dense_doc0 = false;
+    constexpr size_t max_mutations_while_searching = 512;
+    for(size_t mutation_attempt = 0; mutation_attempt < max_mutations_while_searching; mutation_attempt++) {
+      if(search_done.load(std::memory_order_acquire)) {
+        break;
+      }
+
+      dense_doc0 = !dense_doc0;
+      const bool search_running_before_add = !search_done.load(std::memory_order_acquire);
+      ASSERT_TRUE(coll->add(build_hot_doc(0, dense_doc0).dump(), UPSERT).ok());
+      local_mutations++;
+      const bool search_running_after_add = !search_done.load(std::memory_order_acquire);
+      if(search_running_before_add && search_running_after_add) {
+        local_mutations_during_search++;
+      }
+
+      if(mutation_attempt % 16 == 15) {
+        std::this_thread::sleep_for(std::chrono::microseconds(200));
+      } else {
+        std::this_thread::yield();
+      }
+    }
+
+    if(!search_done.load(std::memory_order_acquire)) {
+      const auto wait_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+      while(!search_done.load(std::memory_order_acquire) &&
+             std::chrono::steady_clock::now() < wait_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+
+    if(!search_done.load(std::memory_order_acquire)) {
+      search_thread.detach();
+      FAIL() << "Timed out waiting for union search to complete after pausing mutations. "
+             << "local_mutations=" << local_mutations
+             << ", local_mutations_during_search=" << local_mutations_during_search;
+    }
+
+    search_thread.join();
+    ASSERT_TRUE(search_ok.load(std::memory_order_relaxed));
+
+    // Restore compact low-offset form for next iteration.
+    ASSERT_TRUE(coll->add(build_hot_doc(0, false).dump(), UPSERT).ok());
+    local_mutations++;
+
+    if (local_mutations > 0) {
+      mutation_batches.fetch_add(1, std::memory_order_relaxed);
+      total_mutations.fetch_add(local_mutations, std::memory_order_relaxed);
+    }
+    if(local_mutations_during_search > 0) {
+      total_mutations_during_search.fetch_add(local_mutations_during_search, std::memory_order_relaxed);
+    }
+    union_calls.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  ASSERT_GT(union_calls.load(std::memory_order_relaxed), 0);
+  ASSERT_GT(mutation_batches.load(std::memory_order_relaxed), 0);
+  ASSERT_GT(total_mutations.load(std::memory_order_relaxed), 0);
+  ASSERT_GT(total_mutations_during_search.load(std::memory_order_relaxed), 0);
+  ASSERT_GT(union_hit_count.load(std::memory_order_relaxed), 0);
+  ASSERT_GT(union_nonempty_highlight_count.load(std::memory_order_relaxed), 0);
+  ASSERT_GT(union_title_highlight_count.load(std::memory_order_relaxed), 0);
 }

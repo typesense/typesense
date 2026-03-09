@@ -5792,10 +5792,10 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
     ASSERT_EQ(6, res_obj["hits"].size());
     ASSERT_EQ("5", res_obj["hits"][0]["document"]["id"]);
     ASSERT_EQ("2", res_obj["hits"][1]["document"]["id"]);
-    ASSERT_EQ("4", res_obj["hits"][2]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][2]["document"]["id"]);
     ASSERT_EQ("3", res_obj["hits"][3]["document"]["id"]);
     ASSERT_EQ("1", res_obj["hits"][4]["document"]["id"]);
-    ASSERT_EQ("0", res_obj["hits"][5]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][5]["document"]["id"]);
 
     req_params = {
             {"collection", "tags"},
@@ -5839,7 +5839,7 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(6, res_obj["found"].get<size_t>());
     ASSERT_EQ(2, res_obj["hits"].size());
-    ASSERT_EQ("4", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", res_obj["hits"][0]["document"]["id"]);
     ASSERT_EQ("3", res_obj["hits"][1]["document"]["id"]);
 
     req_params = {
@@ -5855,7 +5855,7 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
     ASSERT_EQ(6, res_obj["found"].get<size_t>());
     ASSERT_EQ(2, res_obj["hits"].size());
     ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
-    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][1]["document"]["id"]);
 
     req_params = {
             {"collection", "tags"},
@@ -5896,8 +5896,8 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ("5", res_obj["hits"][0]["document"]["id"]);
     ASSERT_EQ("2", res_obj["hits"][1]["document"]["id"]);
-    ASSERT_EQ("4", res_obj["hits"][2]["document"]["id"]);
-    ASSERT_EQ("3", res_obj["hits"][3]["document"]["id"]);
+    ASSERT_EQ("3", res_obj["hits"][2]["document"]["id"]);
+    ASSERT_EQ("4", res_obj["hits"][3]["document"]["id"]);
     ASSERT_EQ("1", res_obj["hits"][4]["document"]["id"]);
     ASSERT_EQ("0", res_obj["hits"][5]["document"]["id"]);
 
@@ -5958,6 +5958,115 @@ TEST_F(CollectionCurationTest, DiversityOverride) {
     ASSERT_EQ("5", res_obj["hits"][2]["document"]["id"]);
     ASSERT_EQ("0", res_obj["hits"][3]["document"]["id"]);
     ASSERT_EQ("3", res_obj["hits"][4]["document"]["id"]);
+}
+
+// Bug: forward-only facet iterator in similarity_t::calculate() silently returns 0
+// when seq_id_j < seq_id_i, defeating MMR diversity reranking.
+// With sort_by=sort_order:asc, position 0 has the lowest seq_id, so all candidates
+// have higher seq_ids and the iterator always advances forward for the first doc --
+// but when comparing against the selected doc (lower seq_id), it can't reverse.
+TEST_F(CollectionCurationTest, DiversityForwardOnlyIteratorBug) {
+    Collection* coll = nullptr;
+    auto schema_json =
+            R"({
+                "name": "diversity_iter",
+                "fields": [
+                    {"name": "sort_order", "type": "int32", "sort": true},
+                    {"name": "tag_groups", "type": "string[]", "facet": true}
+                ]
+            })"_json;
+
+    // Doc 0 & 1 share tags "a","b" => Jaccard(0,1) = |{a,b}|/|{a,b,c,d}| = 0.5
+    // Docs 2,3,4 share nothing with Doc 0 => Jaccard(0,N) = 0
+    std::vector<nlohmann::json> documents = {
+            R"({"sort_order": 1, "tag_groups": ["a", "b", "c"]})"_json,
+            R"({"sort_order": 2, "tag_groups": ["a", "b", "d"]})"_json,
+            R"({"sort_order": 3, "tag_groups": ["e", "f"]})"_json,
+            R"({"sort_order": 4, "tag_groups": ["g", "h"]})"_json,
+            R"({"sort_order": 5, "tag_groups": ["i", "j"]})"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    coll = collection_create_op.get();
+    coll->set_curation_sets({"index"});
+    for (auto const &json: documents) {
+        auto add_op = coll->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // Create curation rule with Jaccard diversity on tag_groups
+    auto curation_json =
+            R"({
+                "id": "diversity_iter_rule",
+                "rule": {
+                    "tags": ["diverse"]
+                },
+                "diversity": {
+                    "similarity_metric": [
+                        {
+                            "field": "tag_groups",
+                            "method": "jaccard"
+                        }
+                    ]
+                }
+            })"_json;
+    curation_t curation;
+    auto op = curation_t::parse(curation_json, "", curation, "", {}, {});
+    ASSERT_TRUE(op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    long now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // Baseline: sort_by ascending, NO diversity (lambda=1)
+    std::map<std::string, std::string> req_params = {
+            {"collection", "diversity_iter"},
+            {"q", "*"},
+            {"query_by", "tag_groups"},
+            {"sort_by", "sort_order:asc"},
+            {"curation_tags", "diverse"},
+            {"diversity_lambda", "1"},
+            {"diversity_limit", "10"}
+    };
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, res_obj["found"].get<size_t>());
+    ASSERT_EQ(5, res_obj["hits"].size());
+    // With no diversity, order follows sort_order:asc => 0, 1, 2, 3, 4
+    ASSERT_EQ("0", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
+
+    // MAX diversity (lambda=0): position 1 should NOT be doc "1" (Jaccard=0.5 with doc "0")
+    // It should be doc "2", "3", or "4" (Jaccard=0 with doc "0", maximally different)
+    req_params = {
+            {"collection", "diversity_iter"},
+            {"q", "*"},
+            {"query_by", "tag_groups"},
+            {"sort_by", "sort_order:asc"},
+            {"curation_tags", "diverse"},
+            {"diversity_lambda", "0"},
+            {"diversity_limit", "10"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, res_obj["found"].get<size_t>());
+    ASSERT_EQ(5, res_obj["hits"].size());
+    // Position 0 is still doc "0" (first in sort order, highest relevance with lambda=0)
+    ASSERT_EQ("0", res_obj["hits"][0]["document"]["id"]);
+    // Position 1 must NOT be doc "1" -- it has Jaccard=0.5 with doc "0" (most similar)
+    // With max diversity, any of docs "2","3","4" (Jaccard=0) should come first
+    ASSERT_NE("1", res_obj["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("diversity_iter");
 }
 
 TEST_F(CollectionCurationTest, TextSortBucketDiversification) {

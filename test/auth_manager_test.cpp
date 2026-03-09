@@ -301,6 +301,24 @@ TEST_F(AuthManagerTest, GenerationOfAPIAction) {
     ASSERT_STREQ("conversations/models:list", rpath_conv_models_list._get_action().c_str());
 }
 
+TEST_F(AuthManagerTest, HandleAuthenticationWithNonStringNestedMultiSearchPreset) {
+    std::map<std::string, std::string> params;
+    std::vector<nlohmann::json> embedded_params_vec;
+    route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
+
+    const std::string body = R"({
+        "searches": [
+            {
+                "preset": false
+            }
+        ]
+    })";
+
+    bool authenticated = false;
+    EXPECT_NO_THROW(authenticated = handle_authentication(params, embedded_params_vec, body, rpath_multi_search, "auth_key"));
+    EXPECT_TRUE(authenticated);
+}
+
 TEST_F(AuthManagerTest, ScopedAPIKeys) {
     std::map<std::string, std::string> params;
     params["filter_by"] = "country:USA";

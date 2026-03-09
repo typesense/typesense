@@ -158,7 +158,7 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params,
                         coll_name = req_params["collection"];
                     } else {
                         // if preset exists, that should be the lowest priority
-                        if(el.count("preset") != 0) {
+                        if(el.count("preset") != 0 && el["preset"].is_string()) {
                             nlohmann::json preset_obj;
                             auto preset_op = CollectionManager::get_instance().
                                     get_preset(el["preset"].get<std::string>(), preset_obj);

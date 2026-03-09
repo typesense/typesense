@@ -909,7 +909,11 @@ void numeric_not_equals_filter(num_tree_t* const num_tree,
 
     num_tree->search(EQUALS, value, &to_exclude_ids, to_exclude_ids_len);
 
-    result_ids_len = ArrayUtils::exclude_scalar(all_ids, all_ids_length, to_exclude_ids, to_exclude_ids_len, &result_ids);
+    uint32_t* out_ids = nullptr;
+    result_ids_len = ArrayUtils::exclude_scalar(all_ids, all_ids_length, to_exclude_ids, to_exclude_ids_len, &out_ids);
+
+    delete[] result_ids;
+    result_ids = out_ids;
 
     delete[] all_ids;
     delete[] to_exclude_ids;
@@ -1161,6 +1165,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                     uint32_t to_exclude_ids_len = 0;
                     trie->search_equal_to(value, to_exclude_ids, to_exclude_ids_len);
 
+                    delete[] filter_result.docs;
+                    filter_result.docs = nullptr;
                     auto all_ids = index->seq_ids->uncompress();
                     filter_result.count = ArrayUtils::exclude_scalar(all_ids, index->seq_ids->num_ids(),
                                                                      to_exclude_ids, to_exclude_ids_len, &filter_result.docs);
@@ -1318,6 +1324,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                     uint32_t to_exclude_ids_len = 0;
                     trie->search_equal_to(float_int64, to_exclude_ids, to_exclude_ids_len);
 
+                    delete[] filter_result.docs;
+                    filter_result.docs = nullptr;
                     auto all_ids = index->seq_ids->uncompress();
                     filter_result.count = ArrayUtils::exclude_scalar(all_ids, index->seq_ids->num_ids(),
                                                                      to_exclude_ids, to_exclude_ids_len, &filter_result.docs);
@@ -1470,6 +1478,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                     uint32_t to_exclude_ids_len = 0;
                     trie->search_equal_to(bool_int64, to_exclude_ids, to_exclude_ids_len);
 
+                    delete[] filter_result.docs;
+                    filter_result.docs = nullptr;
                     auto all_ids = index->seq_ids->uncompress();
                     filter_result.count = ArrayUtils::exclude_scalar(all_ids, index->seq_ids->num_ids(),
                                                                      to_exclude_ids, to_exclude_ids_len, &filter_result.docs);
@@ -2888,15 +2898,13 @@ void filter_result_iterator_t::compute_iterators() {
 
             for (const auto& list: lists) {
                 if (is_not_equals_comparator) {
-                    std::vector<uint32_t> equals_ids;
-                    list->uncompress(equals_ids);
-
-                    uint32_t* not_equals_ids = nullptr;
-                    auto const not_equals_ids_len = ArrayUtils::exclude_scalar(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
-                                                                               &equals_ids[0], equals_ids.size(),
-                                                                               &not_equals_ids);
+                    auto* not_equals_ids = list->uncompress();
+                    auto not_equals_ids_len = static_cast<uint32_t>(list->num_ids());
+                    apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
+                                     not_equals_ids, not_equals_ids_len);
 
                     std::copy(not_equals_ids, not_equals_ids + not_equals_ids_len, std::back_inserter(f_id_buff));
+                    delete[] not_equals_ids;
                 } else {
                     list->uncompress(f_id_buff);
                 }
