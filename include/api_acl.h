@@ -134,9 +134,25 @@ private:
   }
 
   // ---- IPv4 + CIDR helpers ----
+  static constexpr const char* IPV4_MAPPED_PREFIX = "::ffff:";
+  static constexpr std::size_t IPV4_MAPPED_PREFIX_LEN = 7;
+
+  // Strips the "::ffff:" prefix from IPv4-mapped IPv6 addresses so that
+  // the remaining dotted-quad can be parsed by inet_pton(AF_INET, ...).
+  // On dual-stack sockets (common on macOS), the HTTP server reports
+  // client IPs in this mapped form even for pure IPv4 connections.
+  static std::string normalize_ipv4(const std::string& ip) {
+    if (ip.size() > IPV4_MAPPED_PREFIX_LEN &&
+        ip.compare(0, IPV4_MAPPED_PREFIX_LEN, IPV4_MAPPED_PREFIX) == 0) {
+      return ip.substr(IPV4_MAPPED_PREFIX_LEN);
+    }
+    return ip;
+  }
+
   static bool parse_ipv4(const std::string& ip, uint32_t& out_host_order) {
+    const std::string normalized = normalize_ipv4(ip);
     in_addr a;
-    if (::inet_pton(AF_INET, ip.c_str(), &a) != 1) return false;
+    if (::inet_pton(AF_INET, normalized.c_str(), &a) != 1) return false;
     out_host_order = ntohl(a.s_addr);
     return true;
   }

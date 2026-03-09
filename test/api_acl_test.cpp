@@ -222,3 +222,36 @@ TEST_F(APIAclTest, DisablingRateLimitAllowsRequestsAgain) {
     acl.set_rate_limit_10s(0);
     EXPECT_TRUE(acl.is_allowed("8.8.1.1", "http://192.169.1.200", allowed_src_ips));
 }
+
+TEST_F(APIAclTest, AllowsIpv4MappedIpv6SourceAddress) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("");
+
+    // On dual-stack sockets (e.g. macOS), client IPs are reported as
+    // IPv4-mapped IPv6 addresses like "::ffff:192.168.1.28".
+    const std::vector<std::string> allowed_src_ips;
+    EXPECT_TRUE(acl.is_allowed("::ffff:192.168.1.28", "https://api.openai.com/v1/embeddings", allowed_src_ips));
+    EXPECT_TRUE(acl.is_allowed("::ffff:127.0.0.1", "https://example.com", allowed_src_ips));
+}
+
+TEST_F(APIAclTest, Ipv4MappedSrcMatchesAllowedList) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("");
+
+    // A mapped source should match its IPv4 equivalent in allowed_src_ips.
+    const std::vector<std::string> allowed_src_ips = {"192.168.1.28"};
+    EXPECT_TRUE(acl.is_allowed("::ffff:192.168.1.28", "https://example.com", allowed_src_ips));
+    EXPECT_FALSE(acl.is_allowed("::ffff:10.0.0.1", "https://example.com", allowed_src_ips));
+}
+
+TEST_F(APIAclTest, Ipv4MappedSrcStillBlockedByDisallowedDest) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("127.0.0.0/8");
+
+    const std::vector<std::string> allowed_src_ips = {"1.2.3.4"};
+    EXPECT_FALSE(acl.is_allowed("::ffff:1.2.3.4", "http://127.0.0.1:80", allowed_src_ips));
+    EXPECT_TRUE(acl.is_allowed("::ffff:1.2.3.4", "http://8.8.8.8:80", allowed_src_ips));
+}
