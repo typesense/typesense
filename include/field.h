@@ -808,6 +808,8 @@ struct facet {
 
     bool is_wildcard_match = false;
     
+    bool is_dynamic = false;
+    
     bool is_intersected = false;
 
     bool is_sort_by_alpha = false;

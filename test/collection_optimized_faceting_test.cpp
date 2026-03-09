@@ -3659,3 +3659,121 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetTestWithGroupBy) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionOptimizedFacetingTest, FacetMinOccurrenceRatioDynamicFacetBehavior) {
+    auto schema = R"({
+        "name": "dynamic_facet_ratio_coll_opt",
+        "fields": [
+            {"name": "name_facet", "type": "string", "facet": true},
+            {"name": "optional_facet", "type": "string", "facet": true, "optional": true}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id":"1","name_facet":"A","optional_facet":"rare"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"2","name_facet":"A"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"3","name_facet":"A"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"4","name_facet":"B"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"5","name_facet":"B"})").ok());
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", "dynamic_facet_ratio_coll_opt"},
+        {"q", "*"},
+        {"facet_by", "*"},
+        {"per_page", "0"},
+        {"max_facet_values", "10"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // Default ratio is 0.5. Only "name_facet:A" (3/5) should remain.
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["facet_counts"].size());
+    ASSERT_EQ("name_facet", result["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, result["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("A", result["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(3, result["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+
+    // Ratio 0.0 should keep all dynamic facets and values.
+    req_params["facet_min_occurrence_ratio"] = "0.0";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, result["facet_counts"].size());
+    std::set<std::string> facet_names;
+    for(const auto& facet_count: result["facet_counts"]) {
+        facet_names.insert(facet_count["field_name"].get<std::string>());
+    }
+    ASSERT_TRUE(facet_names.count("name_facet") != 0);
+    ASSERT_TRUE(facet_names.count("optional_facet") != 0);
+
+    // Ratio 0.9 should filter out all dynamic facets.
+    req_params["facet_min_occurrence_ratio"] = "0.9";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, result["facet_counts"].size());
+
+    // Prefix wildcard facets (e.g. optio*) are static for ratio filtering.
+    req_params["facet_by"] = "optio*";
+    req_params["facet_min_occurrence_ratio"] = "0.9";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["facet_counts"].size());
+    ASSERT_EQ("optional_facet", result["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, result["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("rare", result["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+
+    collectionManager.drop_collection("dynamic_facet_ratio_coll_opt");
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetMinOccurrenceRatioValidation) {
+    auto schema = R"({
+        "name": "dynamic_facet_ratio_validation_coll_opt",
+        "fields": [
+            {"name": "name_facet", "type": "string", "facet": true}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"1","name_facet":"A"})").ok());
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", "dynamic_facet_ratio_validation_coll_opt"},
+        {"q", "*"},
+        {"facet_by", "*"},
+        {"per_page", "0"},
+        {"max_facet_values", "10"},
+        {"facet_min_occurrence_ratio", "1.1"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Parameter `facet_min_occurrence_ratio` must be between 0.0 and 1.0.", search_op.error());
+
+    req_params["facet_min_occurrence_ratio"] = "-0.1";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Parameter `facet_min_occurrence_ratio` must be between 0.0 and 1.0.", search_op.error());
+
+    collectionManager.drop_collection("dynamic_facet_ratio_validation_coll_opt");
+}

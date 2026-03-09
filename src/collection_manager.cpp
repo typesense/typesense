@@ -1556,6 +1556,7 @@ Option<bool> CollectionManager::validate_facet_params(const std::vector<collecti
 
     const auto& facet_strategy = coll_searches[0].facet_strategy;
     const auto& simple_facet_query = coll_searches[0].simple_facet_query;
+    const auto& facet_min_occurrence_ratio = coll_searches[0].facet_min_occurrence_ratio;
     spp::sparse_hash_map<std::string, facet_field_parent> field_to_facet_field_map;
     std::string generic_error = " should be uniform across searches for faceting with union search.";
 
@@ -1570,6 +1571,10 @@ Option<bool> CollectionManager::validate_facet_params(const std::vector<collecti
 
         if(args.simple_facet_query != simple_facet_query) {
             return Option<bool>(400, "`facet_query`" + generic_error);
+        }
+
+        if(args.facet_min_occurrence_ratio != facet_min_occurrence_ratio) {
+            return Option<bool>(400, "`facet_min_occurrence_ratio`" + generic_error);
         }
 
         for(const auto& field : args.facet_fields) {
