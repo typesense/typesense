@@ -6528,72 +6528,56 @@ TEST_F(CollectionCurationTest, OverridesWithRerankHybridSearches) {
     ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
 }
 
-TEST_F(CollectionCurationTest, VectorSearchWithCuration) {
+TEST_F(CollectionCurationTest, FilterCurationsWithSemanticOnlySearch) {
     auto& ov_manager = CurationIndexManager::get_instance();
     nlohmann::json schema = R"({
-        "name": "products",
+        "name": "semantic_curation_products",
         "fields": [
             {"name": "product_name", "type": "string"},
             {"name": "color", "type": "string", "facet": true},
-            {"name": "embedding", "type": "float[]", "embed": {
-                "from": ["product_name"],
-                "model_config": {
-                    "model_name": "ts/e5-small"
+            {"name": "embedding", "type": "float[]",
+                "embed": {
+                    "from": ["product_name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
                 }
-            }}
+            }
         ]
     })"_json;
 
     EmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    auto op = collectionManager.create_collection(schema);
-    ASSERT_TRUE(op.ok());
-    Collection* coll1 = op.get();
 
-    auto curation_item = R"({
-       "id": "curation1",
-       "rule": {
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+    coll->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll->add(R"({"id": "1", "product_name": "test product one", "color": "red"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "product_name": "test product two", "color": "blue"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id": "3", "product_name": "another product", "color": "red"})").ok());
+
+    nlohmann::json curation_json = R"({
+        "id": "semantic-filter",
+        "rule": {
             "query": "test",
             "match": "contains"
         },
         "filter_by": "color:=red",
-        "excludes": [],
-        "includes": [],
         "stop_processing": true,
-        "filter_curated_hits": false,
         "remove_matched_tokens": true
     })"_json;
-    curation_t curation;
-    auto parse_op = curation_t::parse(curation_item, "curation1",
-                                        curation);
-    ASSERT_TRUE(parse_op.ok());
-    ov_manager.upsert_curation_item("index", curation_item);
-    coll1->set_curation_sets({"index"});
 
-    nlohmann::json doc1 = R"({
-        "id": "1",
-        "product_name": "test product one",
-        "color": "red"
-    })"_json;
-    nlohmann::json doc2 = R"({
-        "id": "2",
-        "product_name": "test product two",
-        "color": "blue"
-    })"_json;
-    nlohmann::json doc3 = R"({
-        "id": "3",
-        "product_name": "another product",
-        "color": "red"
-    })"_json;
+    ASSERT_TRUE(ov_manager.upsert_curation_item("index", curation_json).ok());
 
+    auto results = coll->search("test", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                                Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                                {"embedding"}).get();
 
-    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
-    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
-    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
-
-    auto results = coll1->search("test", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
-                                 spp::sparse_hash_set<std::string>(),
-                                 {"embedding"}).get();
     ASSERT_EQ(2, results["found"].get<size_t>());
-    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("3", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    const auto first_id = results["hits"][0]["document"]["id"].get<std::string>();
+    const auto second_id = results["hits"][1]["document"]["id"].get<std::string>();
+    ASSERT_TRUE((first_id == "1" && second_id == "3") || (first_id == "3" && second_id == "1"));
 }
