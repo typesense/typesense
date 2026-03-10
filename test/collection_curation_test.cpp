@@ -6186,12 +6186,15 @@ TEST_F(CollectionCurationTest, StemmingWithCuration) {
     ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Children Notebooks","categoryType":"Electronics","region":"act","popularity":90})").ok());
     ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Person Info","categoryType":"Office","region":"nsw","popularity":60})").ok());
     ASSERT_TRUE(coll1->add(R"({"id":"5","title":"People Info","categoryType":"Office","region":"nsw","popularity":60})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"6","title":"Diabetes","categoryType":"Office","region":"nsw","popularity":60})").ok());
 
     //check with stemming dictionary for irregular plurals
     std::vector<std::string> json_lines;
     std::string json_line = "{\"word\": \"people\", \"root\":\"person\"}";
     json_lines.push_back(json_line);
     json_line = "{\"word\": \"children\", \"root\":\"child\"}";
+    json_lines.push_back(json_line);
+    json_line = "{\"word\": \"diabetes\", \"root\":\"diabet\"}";
     json_lines.push_back(json_line);
 
     ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set1", json_lines).ok());
@@ -6265,6 +6268,34 @@ TEST_F(CollectionCurationTest, StemmingWithCuration) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
     ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+
+    //curations rule should match, if search field has stemming enabled and curation rule has disabled
+    curation_json = R"OVR(
+        {
+        "id": "stemmer3",
+        "rule": {
+            "query": "Diabetes",
+            "match": "contains",
+            "stem" : false,
+            "stemming_dictionary": "set1"
+          },
+          "includes": [
+                {"id": "1", "position": 1}
+         ]
+        }
+    )OVR"_json;
+
+    parse_op = curation_t::parse(curation_json, "stemming3", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    results.clear();
+    res_op = coll1->search("Diabetes", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ("6", results["hits"][1]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionCurationTest, SynonymsMatchWithCuration) {

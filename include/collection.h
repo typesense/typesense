@@ -690,7 +690,8 @@ private:
                                   std::string& sort_by_clause,
                                   bool enable_typos_for_numerical_tokens=true,
                                   bool enable_typos_for_alpha_numerical_tokens=true,
-                                  const bool& validate_field_names = true) const;
+                                  const bool& validate_field_names = true,
+                                  std::shared_ptr<Stemmer> stemmer = nullptr) const;
 
     static void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type,
                                          const size_t total_tokens);
