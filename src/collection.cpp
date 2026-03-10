@@ -2676,18 +2676,13 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         LOG(INFO) << "----";
     }
     */
-
-    // Set query to * if it is semantic search
-    if(!vector_query.field_name.empty() && processed_search_fields.empty()) {
-        query = "*";
-    }
+    const bool changed_to_wildcard = !vector_query.field_name.empty() && processed_search_fields.empty();
 
     // validate sort fields and standardize
 
     sort_fields_guard_t sort_fields_guard;
     std::vector<sort_by>& sort_fields_std = sort_fields_guard.sort_fields_std;
 
-    bool is_wildcard_query = (query == "*");
     bool is_group_by_query = group_by_fields.size() > 0;
     bool is_vector_query = !vector_query.field_name.empty();
 
@@ -2698,7 +2693,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     if(weighted_search_fields.size() == 0) {
         if(!ignored_missing_fields) {
-            // has to be a wildcard query
+            // Semantic-only search still needs the pre-wildcard tokens for curation matching.
             field_query_tokens.emplace_back(query_tokens_t{});
             parse_search_query(query, q_include_tokens, q_unstemmed_tokens,
                                field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
@@ -2707,6 +2702,14 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             process_filter_sort_curations(filter_sort_curations, q_include_tokens, token_order, filter_tree_root_guard,
                                      included_ids, excluded_ids, curation_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
                                      enable_typos_for_alpha_numerical_tokens, validate_field_names);
+
+            if(changed_to_wildcard) {
+                query = "*";
+                q_include_tokens = {"*"};
+                q_unstemmed_tokens.clear();
+                field_query_tokens[0].q_exclude_tokens.clear();
+                field_query_tokens[0].q_phrases.clear();
+            }
 
             for(size_t i = 0; i < q_include_tokens.size(); i++) {
                 auto& q_include_token = q_include_tokens[i];
@@ -2762,6 +2765,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             field_query_tokens[i] = field_query_tokens[0];
         }
     }
+
+    bool is_wildcard_query = (query == "*");
 
     if(curated_sort_by.empty()) {
         auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields,

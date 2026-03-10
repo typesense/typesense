@@ -2117,6 +2117,90 @@ TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExists) {
     ASSERT_EQ("Field `embedding` contains invalid float values.", add_op.error());
 }
 
+TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExistsOnUpsert) {
+    // Pre-computed embedding vectors should be honored on upsert/update of existing documents
+    nlohmann::json schema = R"({
+        "name": "objects",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    // Get num_dim from the collection's embedding field
+    size_t num_dim = 0;
+    for(const auto& f : coll->get_fields()) {
+        if(f.name == "embedding") {
+            num_dim = f.num_dim;
+            break;
+        }
+    }
+    ASSERT_GT(num_dim, 0);
+
+    // Create a document with a pre-computed embedding
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "butter";
+
+    std::vector<float> original_vec(num_dim, 0.345f);
+    doc["embedding"] = original_vec;
+
+    auto add_op = coll->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto res = coll->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_NEAR(0.345, res["hits"][0]["document"]["embedding"][0].get<float>(), 0.01);
+
+    // Upsert with BOTH changed source field AND new pre-computed embedding.
+    // The pre-computed embedding should be used, not auto-computed from the new name.
+    std::vector<float> new_vec(num_dim, 0.500f);
+
+    nlohmann::json upsert_doc;
+    upsert_doc["id"] = "0";
+    upsert_doc["name"] = "ghee";
+    upsert_doc["embedding"] = new_vec;
+
+    auto upsert_op = coll->add(upsert_doc.dump(), UPSERT);
+    ASSERT_TRUE(upsert_op.ok());
+
+    res = coll->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_NEAR(0.500, res["hits"][0]["document"]["embedding"][0].get<float>(), 0.01);
+
+    // Update (PATCH) with BOTH changed source field AND new pre-computed embedding
+    std::vector<float> update_vec(num_dim, 0.700f);
+
+    nlohmann::json update_doc;
+    update_doc["id"] = "0";
+    update_doc["name"] = "milk";
+    update_doc["embedding"] = update_vec;
+
+    auto update_op = coll->add(update_doc.dump(), UPDATE);
+    ASSERT_TRUE(update_op.ok());
+
+    res = coll->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_NEAR(0.700, res["hits"][0]["document"]["embedding"][0].get<float>(), 0.01);
+
+    // Emplace with BOTH changed source field AND new pre-computed embedding
+    std::vector<float> emplace_vec(num_dim, 0.900f);
+
+    nlohmann::json emplace_doc;
+    emplace_doc["id"] = "0";
+    emplace_doc["name"] = "cheese";
+    emplace_doc["embedding"] = emplace_vec;
+
+    auto emplace_op = coll->add(emplace_doc.dump(), EMPLACE);
+    ASSERT_TRUE(emplace_op.ok());
+
+    res = coll->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_NEAR(0.900, res["hits"][0]["document"]["embedding"][0].get<float>(), 0.01);
+}
+
 TEST_F(CollectionVectorTest, SemanticSearchReturnOnlyVectorDistance) {
     auto schema_json =
         R"({
@@ -3023,6 +3107,67 @@ TEST_F(CollectionVectorTest, TestHybridSearchAlphaParam) {
     ASSERT_FLOAT_EQ(0.25, hybrid_results["hits"][1]["hybrid_search_info"]["rank_fusion_score"].get<float>());
     ASSERT_FLOAT_EQ(0.16666667, hybrid_results["hits"][2]["hybrid_search_info"]["rank_fusion_score"].get<float>());
 }   
+
+TEST_F(CollectionVectorTest, TestHybridPhraseQueryFallbacksToVectorSearch) {
+    nlohmann::json schema = R"({
+        "name": "test",
+        "fields": [
+            {
+                "name": "title",
+                "type": "string"
+            },
+            {
+                "name": "vec",
+                "type": "float[]",
+                "num_dim": 4
+            }
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "title": "Introduction to Data Structures",
+        "vec": [0.851758, 0.909671, 0.823431, 0.372063]
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "title": "Machine Learning Basics",
+        "vec": [0.97826, 0.933157, 0.39557, 0.306488]
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "title": "Database Design Patterns",
+        "vec": [0.230606, 0.634397, 0.514009, 0.399594]
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // Issue #2816: phrase queries with zero keyword matches must still execute vector search.
+    auto results = coll->search("\"data dod\"", {"title"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true},
+                                Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false,
+                                true, "", false, 6000 * 1000, 4, 7, fallback, 4, {off}, 32767, 32767,
+                                2, false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488], alpha:0.5)").get();
+
+    ASSERT_GT(results["found"].get<size_t>(), 0);
+    ASSERT_GT(results["hits"].size(), 0);
+
+    results = coll->search("\"nonexistent phrase xyz\"", {"title"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true},
+                           Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false,
+                           true, "", false, 6000 * 1000, 4, 7, fallback, 4, {off}, 32767, 32767,
+                           2, false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488], alpha:0.0)").get();
+
+    ASSERT_GT(results["found"].get<size_t>(), 0);
+    ASSERT_GT(results["hits"].size(), 0);
+}
 
 TEST_F(CollectionVectorTest, TestHybridSearchInvalidAlpha) {
         nlohmann::json schema = R"({
@@ -6250,3 +6395,4 @@ TEST_F(CollectionVectorTest, HybridSearchWithGroupByNoKeywordMatches) {
         }
     }
 }
+

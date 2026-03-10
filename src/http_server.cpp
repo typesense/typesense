@@ -496,7 +496,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
              root_resource == "config" || root_resource == "status" || root_resource == "proxy_sse"
          );
 
-    bool use_meta_thread_pool = (root_resource == "status");
+    bool use_meta_thread_pool = (root_resource == "status" || root_resource == "health");
 
     if(needs_readiness_check) {
         bool write_op = is_write_request(root_resource, http_method, rpath->handler);

@@ -6527,3 +6527,57 @@ TEST_F(CollectionCurationTest, OverridesWithRerankHybridSearches) {
     ASSERT_EQ(4, res_obj["hits"].size());
     ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
 }
+
+TEST_F(CollectionCurationTest, FilterCurationsWithSemanticOnlySearch) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+    nlohmann::json schema = R"({
+        "name": "semantic_curation_products",
+        "fields": [
+            {"name": "product_name", "type": "string"},
+            {"name": "color", "type": "string", "facet": true},
+            {"name": "embedding", "type": "float[]",
+                "embed": {
+                    "from": ["product_name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                }
+            }
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+    coll->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll->add(R"({"id": "1", "product_name": "test product one", "color": "red"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "product_name": "test product two", "color": "blue"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id": "3", "product_name": "another product", "color": "red"})").ok());
+
+    nlohmann::json curation_json = R"({
+        "id": "semantic-filter",
+        "rule": {
+            "query": "test",
+            "match": "contains"
+        },
+        "filter_by": "color:=red",
+        "stop_processing": true,
+        "remove_matched_tokens": true
+    })"_json;
+
+    ASSERT_TRUE(ov_manager.upsert_curation_item("index", curation_json).ok());
+
+    auto results = coll->search("test", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                                Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                                {"embedding"}).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    const auto first_id = results["hits"][0]["document"]["id"].get<std::string>();
+    const auto second_id = results["hits"][1]["document"]["id"].get<std::string>();
+    ASSERT_TRUE((first_id == "1" && second_id == "3") || (first_id == "3" && second_id == "1"));
+}

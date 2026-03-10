@@ -3623,7 +3623,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             return do_phrase_search_op;
         }
 
-        if (filter_result_iterator->approx_filter_ids_length == 0) {
+        if (filter_result_iterator->approx_filter_ids_length == 0 && vector_query.field_name.empty()) {
             goto process_search_results;
         }
     }
@@ -8125,8 +8125,10 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 continue;
             }
 
-            if(document->contains(field.name) && !record->is_update) {
-                // embedding already exists (could be a restore from export)
+            if((document->contains(field.name) && !record->is_update) ||
+               (record->is_update && record->doc.contains(field.name))) {
+                // skip embedding if vector already exists (create/restore) or
+                // pre-computed vector was provided in update/upsert request
                 continue;
             }
 
