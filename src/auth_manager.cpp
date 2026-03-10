@@ -138,6 +138,34 @@ Option<api_key_t> AuthManager::remove_key(uint32_t id) {
     return Option<api_key_t>(key.truncate_value());
 }
 
+Option<api_key_t> AuthManager::update_key(uint32_t id, api_key_t&& api_key) {
+    Option<api_key_t> existing_key_op = get_key(id, false);
+    
+    if(!existing_key_op.ok()) {
+        return Option<api_key_t>(existing_key_op.code(), existing_key_op.error());
+    }
+
+    api_key_t existing_key = existing_key_op.get();
+
+    if(existing_key.value != api_key.value) {
+        return Option<api_key_t>(400, "API key value cannot be updated.");
+    }
+
+    std::string api_key_store_key = std::string(API_KEYS_PREFIX) + "_" + std::to_string(id);
+    const nlohmann::json & api_key_obj = api_key.to_json();
+
+    bool updated = store->insert(api_key_store_key, api_key_obj.dump());
+    if(!updated) {
+        return Option<api_key_t>(500, "Could not update API key.");
+    }
+
+    std::unique_lock lock(mutex);
+
+    api_keys[api_key.value] = api_key;
+
+    return Option<api_key_t>(api_key.truncate_value());
+}
+
 uint32_t AuthManager::get_next_api_key_id() {
     store->increment(std::string(API_KEY_NEXT_ID_KEY), 1);
     return next_api_key_id++;

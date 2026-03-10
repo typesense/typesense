@@ -120,6 +120,8 @@ bool get_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_re
 
 bool del_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool patch_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Health + Metrics
 
 bool get_debug(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

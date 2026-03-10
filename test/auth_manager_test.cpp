@@ -624,3 +624,266 @@ TEST_F(AuthManagerTest, CollectionsByScope) {
     ASSERT_EQ("collection2", result_json[0]["name"]);
     ASSERT_EQ("collection_1", result_json[1]["name"]);
 }
+
+TEST_F(AuthManagerTest, PatchKeyUpdateSingleField) {
+    // Create a key first
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    auto key_json = R"({
+        "description": "original description",
+        "actions": ["documents:search"],
+        "collections": ["collection1"],
+        "value": "patchtest1"
+    })"_json;
+
+    req->body = key_json.dump();
+    ASSERT_TRUE(post_create_key(req, res));
+    ASSERT_EQ(201, res->status_code);
+
+    auto created_key = nlohmann::json::parse(res->body);
+    std::string key_id = std::to_string(created_key["id"].get<uint32_t>());
+
+    // PATCH only description, other fields should remain unchanged
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = key_id;
+    req->body = R"({"description": "updated description"})";
+
+    ASSERT_TRUE(patch_key(req, res));
+    ASSERT_EQ(200, res->status_code);
+
+    auto updated_key = nlohmann::json::parse(res->body);
+    ASSERT_EQ("updated description", updated_key["description"]);
+    ASSERT_EQ(1, updated_key["actions"].size());
+    ASSERT_EQ("documents:search", updated_key["actions"][0]);
+    ASSERT_EQ(1, updated_key["collections"].size());
+    ASSERT_EQ("collection1", updated_key["collections"][0]);
+    // Response should have value_prefix, not value
+    ASSERT_TRUE(updated_key.count("value_prefix") != 0);
+    // id should be preserved
+    ASSERT_EQ(created_key["id"].get<uint32_t>(), updated_key["id"].get<uint32_t>());
+}
+
+TEST_F(AuthManagerTest, PatchKeyUpdateMultipleFields) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    auto key_json = R"({
+        "description": "original",
+        "actions": ["documents:search"],
+        "collections": ["collection1"],
+        "value": "patchtest2"
+    })"_json;
+
+    req->body = key_json.dump();
+    ASSERT_TRUE(post_create_key(req, res));
+    auto created_key = nlohmann::json::parse(res->body);
+    std::string key_id = std::to_string(created_key["id"].get<uint32_t>());
+
+    // PATCH actions and collections together
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = key_id;
+    req->body = R"({"actions": ["documents:get", "documents:search"], "collections": ["*"]})";
+
+    ASSERT_TRUE(patch_key(req, res));
+    ASSERT_EQ(200, res->status_code);
+
+    auto updated_key = nlohmann::json::parse(res->body);
+    ASSERT_EQ("original", updated_key["description"]);
+    ASSERT_EQ(2, updated_key["actions"].size());
+    ASSERT_EQ("documents:get", updated_key["actions"][0]);
+    ASSERT_EQ("documents:search", updated_key["actions"][1]);
+    ASSERT_EQ(1, updated_key["collections"].size());
+    ASSERT_EQ("*", updated_key["collections"][0]);
+    ASSERT_TRUE(updated_key.count("value_prefix") != 0);
+    ASSERT_EQ(created_key["id"].get<uint32_t>(), updated_key["id"].get<uint32_t>());
+}
+
+TEST_F(AuthManagerTest, PatchKeyEmptyBody) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    auto key_json = R"({
+        "description": "stays the same",
+        "actions": ["documents:search"],
+        "collections": ["collection1"],
+        "expires_at": 64723363199,
+        "autodelete": false,
+        "value": "patchtest3"
+    })"_json;
+
+    req->body = key_json.dump();
+    ASSERT_TRUE(post_create_key(req, res));
+    auto created_key = nlohmann::json::parse(res->body);
+    std::string key_id = std::to_string(created_key["id"].get<uint32_t>());
+
+    // PATCH with empty JSON object, all fields should remain unchanged
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = key_id;
+    req->body = "{}";
+
+    ASSERT_TRUE(patch_key(req, res));
+    ASSERT_EQ(200, res->status_code);
+
+    auto updated_key = nlohmann::json::parse(res->body);
+    ASSERT_EQ("stays the same", updated_key["description"]);
+    ASSERT_EQ(1, updated_key["actions"].size());
+    ASSERT_EQ("documents:search", updated_key["actions"][0]);
+    ASSERT_EQ(1, updated_key["collections"].size());
+    ASSERT_EQ("collection1", updated_key["collections"][0]);
+    ASSERT_EQ(64723363199, updated_key["expires_at"].get<uint64_t>());
+    ASSERT_EQ(false, updated_key["autodelete"].get<bool>());
+    ASSERT_TRUE(updated_key.count("value_prefix") != 0);
+    ASSERT_EQ(created_key["id"].get<uint32_t>(), updated_key["id"].get<uint32_t>());
+}
+
+TEST_F(AuthManagerTest, PatchKeyNonExistent) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["id"] = "9999";
+    req->body = R"({"description": "does not exist"})";
+
+    ASSERT_FALSE(patch_key(req, res));
+    ASSERT_EQ(404, res->status_code);
+    auto res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Not found.", res_json["message"].get<std::string>());
+}
+
+TEST_F(AuthManagerTest, PatchKeyInvalidFieldFormats) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    auto key_json = R"({
+        "description": "test key",
+        "actions": ["documents:search"],
+        "collections": ["collection1"],
+        "value": "patchtest4"
+    })"_json;
+
+    req->body = key_json.dump();
+    ASSERT_TRUE(post_create_key(req, res));
+    auto created_key = nlohmann::json::parse(res->body);
+    std::string key_id = std::to_string(created_key["id"].get<uint32_t>());
+
+    // Invalid description (not a string)
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = key_id;
+    req->body = R"({"description": 123})";
+    ASSERT_FALSE(patch_key(req, res));
+    ASSERT_EQ(400, res->status_code);
+    auto res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Key description must be a string.", res_json["message"].get<std::string>());
+
+    // Invalid actions (not an array)
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = key_id;
+    req->body = R"({"actions": "not_an_array"})";
+    ASSERT_FALSE(patch_key(req, res));
+    ASSERT_EQ(400, res->status_code);
+    res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Wrong format for `actions`. It should be an array of string.", res_json["message"].get<std::string>());
+
+    // Invalid actions (empty array)
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = key_id;
+    req->body = R"({"actions": []})";
+    ASSERT_FALSE(patch_key(req, res));
+    ASSERT_EQ(400, res->status_code);
+    res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Wrong format for `actions`. It should be an array of string.", res_json["message"].get<std::string>());
+
+    // Invalid actions (array with non-string element)
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = key_id;
+    req->body = R"({"actions": [123]})";
+    ASSERT_FALSE(patch_key(req, res));
+    ASSERT_EQ(400, res->status_code);
+    res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Wrong format for `actions`. It should be an array of string.", res_json["message"].get<std::string>());
+
+    // Invalid collections (empty array)
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = key_id;
+    req->body = R"({"collections": []})";
+    ASSERT_FALSE(patch_key(req, res));
+    ASSERT_EQ(400, res->status_code);
+    res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Wrong format for `collections`. It should be an array of string.", res_json["message"].get<std::string>());
+
+    // Invalid collections (array with non-string element)
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = key_id;
+    req->body = R"({"collections": [true]})";
+    ASSERT_FALSE(patch_key(req, res));
+    ASSERT_EQ(400, res->status_code);
+    res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Wrong format for `collections`. It should be an array of string.", res_json["message"].get<std::string>());
+
+    // Invalid expires_at (negative)
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = key_id;
+    req->body = R"({"expires_at": -1})";
+    ASSERT_FALSE(patch_key(req, res));
+    ASSERT_EQ(400, res->status_code);
+    res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Wrong format for `expires_at`. It should be an unsigned integer.", res_json["message"].get<std::string>());
+
+    // Invalid expires_at (string instead of int)
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = key_id;
+    req->body = R"({"expires_at": "not_a_number"})";
+    ASSERT_FALSE(patch_key(req, res));
+    ASSERT_EQ(400, res->status_code);
+    res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Wrong format for `expires_at`. It should be an unsigned integer.", res_json["message"].get<std::string>());
+}
+
+TEST_F(AuthManagerTest, PatchKeyExpiresAtAndAutodelete) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    auto key_json = R"({
+        "description": "test key",
+        "actions": ["documents:search"],
+        "collections": ["collection1"],
+        "expires_at": 64723363199,
+        "autodelete": false,
+        "value": "patchtest5"
+    })"_json;
+
+    req->body = key_json.dump();
+    ASSERT_TRUE(post_create_key(req, res));
+    auto created_key = nlohmann::json::parse(res->body);
+    std::string key_id = std::to_string(created_key["id"].get<uint32_t>());
+
+    // PATCH expires_at and autodelete only
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = key_id;
+    req->body = R"({"expires_at": 2222222222, "autodelete": true})";
+
+    ASSERT_TRUE(patch_key(req, res));
+    ASSERT_EQ(200, res->status_code);
+
+    auto updated_key = nlohmann::json::parse(res->body);
+    ASSERT_EQ("test key", updated_key["description"]);
+    ASSERT_EQ("documents:search", updated_key["actions"][0]);
+    ASSERT_EQ("collection1", updated_key["collections"][0]);
+    ASSERT_EQ(2222222222, updated_key["expires_at"].get<uint64_t>());
+    ASSERT_EQ(true, updated_key["autodelete"].get<bool>());
+    ASSERT_TRUE(updated_key.count("value_prefix") != 0);
+    ASSERT_TRUE(updated_key.count("value") == 0);
+    ASSERT_EQ(created_key["id"].get<uint32_t>(), updated_key["id"].get<uint32_t>());
+}

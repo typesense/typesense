@@ -2327,6 +2327,74 @@ bool post_create_key(const std::shared_ptr<http_req>& req, const std::shared_ptr
     return true;
 }
 
+bool patch_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    AuthManager &auth_manager = collectionManager.getAuthManager();
+
+    const std::string& key_id_str = req->params["id"];
+    uint32_t key_id = (uint32_t) std::stoul(key_id_str);
+
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto get_key_op = auth_manager.get_key(key_id, false);
+    if(!get_key_op.ok()) {
+        res->set(get_key_op.code(), get_key_op.error());
+        return false;
+    }
+
+    const api_key_t& existing_key = get_key_op.get();
+
+    // Merge: start from existing key's JSON representation, then overlay request fields
+    nlohmann::json merged_json = existing_key.to_json();
+    for(auto it = req_json.begin(); it != req_json.end(); ++it) {
+        merged_json[it.key()] = it.value();
+    }
+
+    const Option<uint32_t>& validate_op = api_key_t::validate(merged_json);
+    if(!validate_op.ok()) {
+        res->set(validate_op.code(), validate_op.error());
+        return false;
+    }
+
+    if(merged_json.count("expires_at") == 0) {
+        merged_json["expires_at"] = api_key_t::FAR_FUTURE_TIMESTAMP;
+    }
+
+    if(merged_json.count("autodelete") == 0) {
+        merged_json["autodelete"] = false;
+    }
+
+    api_key_t api_key(
+        existing_key.value,
+        merged_json["description"].get<std::string>(),
+        merged_json["actions"].get<std::vector<std::string>>(),
+        merged_json["collections"].get<std::vector<std::string>>(),
+        merged_json["expires_at"].get<uint64_t>(),
+        merged_json["autodelete"].get<bool>()
+    );
+    api_key.id = existing_key.id; // ensure the id remains the same
+
+    const Option<api_key_t>& update_op = auth_manager.update_key(key_id, std::move(api_key));
+    if(!update_op.ok()) {
+        res->set(update_op.code(), update_op.error());
+        return false;
+    }
+    auto updated_key_obj = update_op.get().to_json();
+    updated_key_obj["value_prefix"] = updated_key_obj["value"];
+    updated_key_obj.erase("value");
+
+    res->set_200(updated_key_obj.dump());
+    return true;
+}
+
 bool get_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     AuthManager &auth_manager = collectionManager.getAuthManager();

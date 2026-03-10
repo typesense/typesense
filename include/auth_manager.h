@@ -146,6 +146,8 @@ public:
 
     Option<api_key_t> remove_key(uint32_t id);
 
+    Option<api_key_t> update_key(uint32_t id, api_key_t&& api_key);
+
     bool authenticate(const std::string& action,
                       const std::vector<collection_key_t>& collection_keys,
                       std::map<std::string, std::string>& params,
