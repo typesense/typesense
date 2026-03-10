@@ -1,5 +1,7 @@
 #include <string>
 #include <vector>
+#include <queue>
+#include <set>
 #include <json.hpp>
 #include <app_metrics.h>
 #include <analytics_manager.h>
@@ -2643,7 +2645,7 @@ Option<bool> CollectionManager::get_filter_ids(const std::string collection_name
         return Option<bool>(400, "Collection `" + collection_name + "` not found.");
     }
 
-    return collection->get_filter_ids(filter_query, filter_result, should_timeout, validate_field_names);
+    return collection->get_filter_ids_with_lock(filter_query, filter_result, should_timeout, validate_field_names);
 }
 
 Option<reference_info_t> CollectionManager::is_referenced_in(const std::string& referenced_coll_name,
@@ -2733,4 +2735,55 @@ Option<bool> CollectionManager::process_ref_include_fields_sort(const std::strin
     }
 
     return collection->process_ref_include_fields_sort(sort_by_str, limit, doc_ids);
+}
+
+void CollectionManager::lock_nested_referencing_collections_helper(const std::string& coll_name,
+                                                                   cascade_remove_node_t* cascade_node,
+                                                                   std::set<std::string>& referencing_collections) {
+    if (cascade_node == nullptr) {
+        return;
+    }
+
+    auto it = referenced_ins.find(coll_name);
+    if (it == referenced_ins.end()) {
+        return;
+    }
+
+    for (const auto& [ref_coll_name, ref_info]: it->second) {
+        if (!referencing_collections.insert(ref_coll_name).second) {
+            continue;
+        }
+
+        auto red_coll_it = collections.find(ref_coll_name);
+        if (red_coll_it == collections.end()) {
+            continue;
+        }
+
+        cascade_node->ref_infos.emplace_back(ref_info);
+        cascade_node->nested_references.emplace_back(new cascade_remove_node_t({red_coll_it->second,
+                                                            std::unique_lock<std::shared_mutex>(red_coll_it->second->get_mutex())}));
+        lock_nested_referencing_collections_helper(ref_coll_name, cascade_node->nested_references.back(),
+                                                   referencing_collections);
+    }
+}
+
+void CollectionManager::lock_nested_referencing_collections(const std::string& coll_name,
+                                                            cascade_remove_node_t*& cascade_tree) {
+    std::shared_lock lock(mutex);
+
+    auto coll_it = collections.find(coll_name);
+    if (coll_it == collections.end()) {
+        return;
+    }
+
+    auto it = referenced_ins.find(coll_name);
+    if (it == referenced_ins.end()) {
+        return;
+    }
+
+    cascade_tree = new cascade_remove_node_t({coll_it->second,
+                                              std::unique_lock<std::shared_mutex>(coll_it->second->get_mutex())});
+
+    std::set<std::string> referencing_collections{coll_name};
+    lock_nested_referencing_collections_helper(coll_name, cascade_tree, referencing_collections);
 }

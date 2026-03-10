@@ -252,4 +252,11 @@ public:
     static Option<bool> process_ref_include_fields_sort(const std::string& collection_name,
                                                         const std::string& sort_by_str, size_t limit,
                                                         std::vector<uint32_t>& doc_ids);
+
+    void lock_nested_referencing_collections_helper(const std::string& coll_name,
+                                                    cascade_remove_node_t* cascade_node,
+                                                    std::set<std::string>& referencing_collections);
+
+    void lock_nested_referencing_collections(const std::string& coll_name,
+                                             cascade_remove_node_t*& cascade_tree);
 };

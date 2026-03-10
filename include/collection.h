@@ -571,7 +571,8 @@ private:
                          nlohmann::json& wrapper_doc,
                          const std::vector<std::vector<std::string>>& q_phrases = {}) const;
 
-    void remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
+    void remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store,
+                         const bool& cascade_remove = true);
 
     void process_remove_field_for_embedding_fields(const field& del_field, std::vector<field>& garbage_embed_fields);
 
@@ -810,6 +811,17 @@ private:
     // Called to reset the reference helper fields to sentinel value when a referenced document fails to index.
     static void reset_referencing_documents(const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& found_async_referenced_ins,
                                             const std::vector<index_record>& docs);
+
+    static void cascade_remove_helper(const std::vector<index_record>& records, cascade_remove_node_t* cascade_node,
+                                      const bool remove_from_store = true);
+
+    // Called to recursively deleted all the documents that directly or indirectly reference the documents.
+    static void cascade_remove(const std::string& coll_name, const std::vector<index_record>& records,
+                               const bool remove_from_store = true);
+
+    void cascade_remove(const std::vector<index_record>& records, const reference_info_t& ref_info,
+                        const std::string& ref_coll_name, std::vector<index_record>& removed_records,
+                        const bool remove_from_store = true);
 
 public:
 
@@ -1113,9 +1125,6 @@ public:
                                           const bool& validate_field_names = true) const;
 
     Option<nlohmann::json> get(const std::string & id) const;
-
-    void cascade_remove_doc_with_lock(const std::string& field_name, const uint32_t& ref_seq_id,
-                                      const nlohmann::json& ref_doc, bool remove_from_store = true);
 
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
 
