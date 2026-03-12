@@ -2361,3 +2361,74 @@ TEST_F(UnionTest, UnionHighlightingUAFRaceASAN) {
   ASSERT_GT(union_nonempty_highlight_count.load(std::memory_order_relaxed), 0);
   ASSERT_GT(union_title_highlight_count.load(std::memory_order_relaxed), 0);
 }
+
+TEST_F(UnionTest, DynamicFacetMinOccurrenceRatioShouldApplyAfterUnionMerge) {
+    auto schema_json =
+            R"({
+                "name": "UnionDynamicFacetsA",
+                "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "brand", "type": "string", "facet": true}
+                ]
+            })"_json;
+
+    auto schema_json2 =
+            R"({
+                "name": "UnionDynamicFacetsB",
+                "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "brand", "type": "string", "facet": true}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll = collection_create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id":"1","name":"A1","brand":"shared"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"2","name":"A2","brand":"shared"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"3","name":"A3","brand":"shared"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"4","name":"A4","brand":"left_only_1"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"5","name":"A5","brand":"left_only_2"})").ok());
+
+    collection_create_op = collectionManager.create_collection(schema_json2);
+    ASSERT_TRUE(collection_create_op.ok());
+    coll = collection_create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id":"1","name":"B1","brand":"shared"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"2","name":"B2","brand":"shared"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"3","name":"B3","brand":"shared"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"4","name":"B4","brand":"right_only_1"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"5","name":"B5","brand":"right_only_2"})").ok());
+
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    req_params.clear();
+    json_res.clear();
+
+    searches = R"OVR([
+                    {
+                        "collection": "UnionDynamicFacetsA",
+                        "q": "*",
+                        "facet_by": "*",
+                        "facet_min_occurrence_ratio": 0.5
+                    },
+                    {
+                        "collection": "UnionDynamicFacetsB",
+                        "q": "*",
+                        "facet_by": "*",
+                        "facet_min_occurrence_ratio": 0.5
+                    }
+                ])OVR"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(10, json_res["found"].get<size_t>());
+
+    // "shared" is 3/10 in each individual search and would be filtered too early by the buggy code,
+    // but it is 6/10 after union merge and should therefore be returned.
+    ASSERT_EQ(1, json_res["facet_counts"].size());
+    ASSERT_EQ("brand", json_res["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, json_res["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("shared", json_res["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(6, json_res["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+}
