@@ -57,5 +57,6 @@ class TextEmbedder {
         std::string output_tensor_name;
         size_t num_dim;
         bool is_image_embedding_model = false;
+        bool has_attention_mask_input = true;
         std::mutex mutex_;
 };

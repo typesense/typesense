@@ -11826,46 +11826,32 @@ TEST_F(CollectionJoinTest, MutualReferences) {
                     {"name": "books", "type": "string[]", "reference": "books.id"}
                 ]
             })"_json;
-    documents = {
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("Collections having reference to each other are not allowed. `authors` collection is referenced by `books`"
+              " collection's `author_id` field.", collection_create_op.error());
+
+    schema_json =
             R"({
-                "id": "0",
-                "first_name": "Enid",
-                "last_name": "Blyton"
-            })"_json,
-            R"({
-                "id": "1",
-                "first_name": "Richard",
-                "last_name": "Lupoff"
-            })"_json,
-            R"({
-                "id": "2",
-                "first_name": "William",
-                "last_name": "Shakespeare"
-            })"_json,
-    };
+                "name": "authors",
+                "fields": [
+                    {"name": "first_name", "type": "string"},
+                    {"name": "last_name", "type": "string"}
+                ]
+            })"_json;
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
-    for (auto const &json: documents) {
-        auto add_op = collection_create_op.get()->add(json.dump());
-        if (!add_op.ok()) {
-            LOG(INFO) << add_op.error();
-        }
-        ASSERT_TRUE(add_op.ok());
-    }
-
-    // Reference field shouldn't be indexed.
-    ASSERT_EQ(0, collection_create_op.get()->get_schema().count("books"));
 
     auto schema_changes = R"({
         "fields": [
             {"name": "reference_field", "type": "string", "reference": "books.id"}
         ]
     })"_json;
-    auto customers = collectionManager.get_collection_unsafe("authors");
-    auto alter_op = customers->alter(schema_changes);
+    auto coll = collectionManager.get_collection_unsafe("authors");
+    auto alter_op = coll->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
     ASSERT_EQ("Collections having reference to each other are not allowed. `authors` collection is referenced by `books`"
-              " collection's `author_id` field. `reference_field` field is not indexed.", alter_op.error());
+              " collection's `author_id` field.", alter_op.error());
 
     ASSERT_EQ(0, collection_create_op.get()->get_schema().count("reference_field"));
 }
@@ -12163,4 +12149,59 @@ TEST_F(CollectionJoinTest, FixReferencesAtQueryTime) {
     ASSERT_EQ("1", res_obj["hits"][3]["document"]["Products"]["id"]);
     ASSERT_EQ("0", res_obj["hits"][4]["document"]["id"]);
     ASSERT_EQ("0", res_obj["hits"][4]["document"]["Products"]["id"]);
+}
+
+TEST_F(CollectionJoinTest, MultipleJoinsSameCollection) {
+    auto products_schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string"}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(products_schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto products_collection = collection_create_op.get();
+
+    for (size_t i = 0; i < 5; i++) {
+        nlohmann::json product_doc;
+        product_doc["product_id"] = "product_" + std::to_string(i);
+        product_doc["product_name"] = "item " + std::to_string(i);
+        ASSERT_TRUE(products_collection->add(product_doc.dump()).ok());
+    }
+
+    auto customers_schema_json =
+            R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "customer_id", "type": "string"},
+                    {"name": "product_price", "type": "float"},
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+                ]
+            })"_json;
+
+    collection_create_op = collectionManager.create_collection(customers_schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto customers_collection = collection_create_op.get();
+
+    for (size_t i = 0; i < 5; i++) {
+        nlohmann::json customer_doc;
+        customer_doc["customer_id"] = "customer_" + std::to_string(i);
+        customer_doc["product_id"] = "product_" + std::to_string(i);
+        customer_doc["product_price"] = (i >= 2) ? 50.0 + i : 150.0 + i;
+        ASSERT_TRUE(customers_collection->add(customer_doc.dump()).ok());
+    }
+
+    const std::string filter_query = "$Customers(id:*) && $Customers(product_price:<100)";
+
+    auto result = products_collection->search("item", {"product_name"}, filter_query, {}, {}, {0},
+                                              10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD).get();
+
+    ASSERT_EQ(3, result["found"].get<size_t>());
+    ASSERT_EQ(3, result["hits"].size());
+
+    collectionManager.drop_collection("Customers");
+    collectionManager.drop_collection("Products");
 }

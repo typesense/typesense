@@ -51,6 +51,8 @@ private:
 
     std::shared_ptr<Stemmer> stemmer = nullptr;
 
+    bool do_transliterate = true;  //should pass false for stopwords
+
     inline size_t get_stream_mode(char c) {
         return (std::isalnum(c) || index_symbols[uint8_t(c)] == 1) ? INDEX : (
             (c == ' ' || c == '\n' || separator_symbols[uint8_t(c)] == 1) ? SEPARATE : SKIP
@@ -65,7 +67,8 @@ public:
                        const std::vector<char>& symbols_to_index = {},
                        const std::vector<char>& separators = {},
                        std::shared_ptr<Stemmer> stemmer = nullptr,
-                       bool is_placeholder = false);
+                       bool is_placeholder = false,
+                       bool do_transliterate = true);
 
     ~Tokenizer() {
         iconv_close(cd);

@@ -135,7 +135,7 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
             return Option<bool>(400, "Vocab file not found");
         }
 
-        if(config["model_type"].get<std::string>() != "bert" && config["model_type"].get<std::string>() != "xlm_roberta" && config["model_type"].get<std::string>() != "distilbert" && config["model_type"].get<std::string>() != "clip") {
+        if(config["model_type"].get<std::string>() != "bert" && config["model_type"].get<std::string>() != "xlm_roberta" && config["model_type"].get<std::string>() != "distilbert" && config["model_type"].get<std::string>() != "clip" && config["model_type"].get<std::string>() != "siglip") {
             LOG(ERROR) << "Invalid model type: " << config["model_type"].get<std::string>();
             return Option<bool>(400, "Invalid model type");
         }
@@ -173,9 +173,21 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
     num_dims = embedder->get_num_dim();
     text_embedders.emplace(model_name, embedder);
 
-    // if model is clip, generate image embedder
+    // if model has image embedding capability, generate image embedder
     if(embedder->is_image_embedding()) {
-        auto image_embedder = std::make_shared<CLIPImageEmbedder>(embedder->get_session(), embedder->get_env(), get_model_subdir(model_name_without_namespace, is_public_model));
+        LOG(INFO) << "IMAGE";
+        std::string processor_filename = "clip_image_processor.onnx";
+        auto config_path = get_absolute_config_path(model_name_without_namespace, is_public_model);
+        if(std::filesystem::exists(config_path)) {
+            std::ifstream cfg_file(config_path);
+            nlohmann::json cfg;
+            cfg_file >> cfg;
+            if(cfg.count("image_processor_file_name") > 0) {
+                processor_filename = cfg["image_processor_file_name"].get<std::string>();
+            }
+        }
+        auto image_embedder = std::make_shared<CLIPImageEmbedder>(embedder->get_session(), embedder->get_env(), get_model_subdir(model_name_without_namespace, is_public_model), processor_filename);
+        LOG(INFO) << "Image embedder: " << model_name;
         image_embedders.emplace(model_name, image_embedder);
     }
     return Option<bool>(true);
@@ -240,6 +252,8 @@ const TokenizerType EmbedderManager::get_tokenizer_type(const nlohmann::json& mo
             return TokenizerType::xlm_roberta;
         } else if(tokenizer_type == "clip") {
             return TokenizerType::clip;
+        } else if(tokenizer_type == "siglip") {
+            return TokenizerType::siglip;
         } else {
             return TokenizerType::bert;
         }
