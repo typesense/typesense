@@ -4363,3 +4363,99 @@ TEST_F(CollectionFilteringTest, LazyFilterNotInArrayDeepPagination) {
     // All 70 matching docs must be retrievable through pagination.
     ASSERT_EQ(found, total_retrieved);
 }
+
+TEST_F(CollectionFilteringTest, LazyFilterNotInMultiTokenStringDeepPagination) {
+    // Keep the lazy approximation <= 20 so TEST_BUILD does not eagerly materialize
+    // the iterator before topster sizing. The exact NOT result is 21, but the
+    // current approximation drops below that because each multi-token filter value
+    // is estimated from token-level minima instead of exact phrase/value matches.
+    nlohmann::json schema = R"({
+        "name": "lazy_not_in_multi_token_test",
+        "fields": [
+            {"name": "title", "type": "string", "facet": true},
+            {"name": "score", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    for (int i = 0; i < 30; i++) {
+        nlohmann::json doc;
+        doc["score"] = 30 - i;
+
+        if (i < 5) {
+            doc["title"] = "alpha beta";
+        } else if (i < 9) {
+            doc["title"] = "alpha gamma";
+        } else if (i < 19) {
+            doc["title"] = "alpha beta delta";
+        } else {
+            doc["title"] = "alpha gamma delta";
+        }
+
+        auto add_op = coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    const std::string filter = "title:!=[alpha beta,alpha gamma]";
+
+    auto req_params = new std::map<std::string, std::string>();
+    (*req_params)["collection"] = "lazy_not_in_multi_token_test";
+    (*req_params)["q"] = "*";
+    (*req_params)["filter_by"] = filter;
+    (*req_params)["sort_by"] = "score:desc";
+    (*req_params)["per_page"] = "10";
+    (*req_params)["page"] = "1";
+    (*req_params)["enable_lazy_filter"] = "true";
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+
+    size_t found = result["found"].get<size_t>();
+    ASSERT_EQ(21, found);
+    ASSERT_EQ(10, result["hits"].size());
+
+    size_t total_retrieved = result["hits"].size();
+    size_t per_page = 10;
+    size_t total_pages = (found / per_page) + 1;
+
+    for (size_t page = 2; page <= total_pages; page++) {
+        delete req_params;
+        req_params = new std::map<std::string, std::string>();
+        (*req_params)["collection"] = "lazy_not_in_multi_token_test";
+        (*req_params)["q"] = "*";
+        (*req_params)["filter_by"] = filter;
+        (*req_params)["sort_by"] = "score:desc";
+        (*req_params)["per_page"] = std::to_string(per_page);
+        (*req_params)["page"] = std::to_string(page);
+        (*req_params)["enable_lazy_filter"] = "true";
+
+        json_res.clear();
+        now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+        result = nlohmann::json::parse(json_res);
+
+        size_t hits = result["hits"].size();
+        total_retrieved += hits;
+
+        if (page == 2) {
+            ASSERT_EQ(10, hits);
+        } else {
+            ASSERT_EQ(1, hits);
+        }
+    }
+
+    delete req_params;
+    ASSERT_EQ(found, total_retrieved);
+}

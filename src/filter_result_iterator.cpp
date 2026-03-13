@@ -1735,7 +1735,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
     } else if (f.is_string()) {
         art_tree* t = index->search_index.at(a_filter.field_name);
 
-        uint32_t max_filter_value_match = 0;
 
         for (uint32_t i = 0; i < a_filter.values.size(); i++) {
             auto filter_value = a_filter.values[i];
@@ -1866,7 +1865,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                     // Multiple filter values get OR.
                     approx_filter_ids_length += approx_filter_value_match;
-                    max_filter_value_match = std::max(max_filter_value_match, approx_filter_value_match);
                 }
                 continue;
             }
@@ -1889,7 +1887,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             // Multiple filter values get OR.
             approx_filter_ids_length += approx_filter_value_match;
-            max_filter_value_match = std::max(max_filter_value_match, approx_filter_value_match);
         }
 
         if (a_filter.apply_not_equals) {
@@ -1898,18 +1895,9 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             auto const not_equals_filter_ids_approx = approx_filter_ids_length >= num_ids ?
                                                       num_ids : (num_ids - approx_filter_ids_length);
 
-            if (approx_filter_ids_length >= num_ids) {
-                // OR-sum overflows num_ids (overlapping posting lists).
-                // Use tighter upper bound: union >= max(Si),
-                // so NOT result <= num_ids - max(Si). Falls back to num_ids
-                // when no excluded values were found.
-                approx_filter_ids_length = (max_filter_value_match > 0 && max_filter_value_match <= num_ids) ?
-                                            (num_ids - max_filter_value_match) : num_ids;
-            } else {
-                // OR-sum hasn't overflowed, so num_ids - sum is a valid
-                // (and tighter) approximation.
-                approx_filter_ids_length = num_ids - approx_filter_ids_length;
-            }
+            // Per-value string counts are only token-level approximations until exact
+            // value matching runs, so they are not a safe bound for lazy NOT iterators.
+            approx_filter_ids_length = num_ids;
 
             if (not_equals_filter_ids_approx < string_filter_ids_threshold) {
                 // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
