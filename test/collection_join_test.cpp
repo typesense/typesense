@@ -5834,6 +5834,11 @@ TEST_F(CollectionJoinTest, FilterByObjectArrayJoinCorrelation) {
 
     ASSERT_EQ(4, res_obj["found"].get<size_t>());
     ASSERT_EQ(4, res_obj["hits"].size());
+    expected = {"7", "4", "3", "2"};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], res_obj["hits"][i]["document"]["id"]);
+    }
+
     std::vector<std::string> inactive_names;
     for (const auto& hit: res_obj["hits"]) {
         inactive_names.emplace_back(hit["document"]["name"].get<std::string>());
