@@ -3441,6 +3441,160 @@ TEST_F(CollectionSortingTest, TextMatchBucketSizeRanking) {
     ASSERT_EQ("1", results["hits"][5]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSortingTest, TextMatchAutoSizeBucketRanking) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection *coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Mark Antony";
+    doc1["description"] = "Counsellor";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Marks Spencer";
+    doc2["description"] = "Sales Expert";
+    doc2["points"] = 200;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["title"] = "Mark Anderson";
+    doc3["description"] = "Writer";
+    doc3["points"] = 100;
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["title"] = "Mark Anatoly";
+    doc4["description"] = "Entrepreneur";
+    doc4["points"] = 300;
+
+    nlohmann::json doc5;
+    doc5["id"] = "4";
+    doc5["title"] = "Marks Henry";
+    doc5["description"] = "Wrestler";
+    doc5["points"] = 200;
+
+    nlohmann::json doc6;
+    doc6["id"] = "5";
+    doc6["title"] = "Mark Archer";
+    doc6["description"] = "Football Coach";
+    doc6["points"] = 200;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc6.dump()).ok());
+
+    // threshold 0.05: exact-match "Mark A" docs and typo-match "Marks" docs are far enough apart in score
+    // with 5% bucket_diff should get two separate buckets, each sorted by points
+    sort_fields = {
+            sort_by("_text_match(bucket_auto_size:0.05)", "DESC"),
+            sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("mark a*", {"title"},
+                                 "", {}, sort_fields, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {3}, 1000, true).get();
+
+    ASSERT_EQ(6, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][4]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][5]["document"]["id"].get<std::string>());
+
+    // threshold 1.0: bucket_diff == anchor, all non-negative scores qualify — one bucket,
+    // full result set re-sorted by points DESC
+    sort_fields = {
+            sort_by("_text_match(bucket_auto_size:1.0)", "DESC"),
+            sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("mark", {"title"},
+                            "", {}, sort_fields, {2}, 10,
+                            1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {3}, 1000, true).get();
+
+    ASSERT_EQ(6, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][4]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][5]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSortingTest, TextMatchAutoSizeBucketValidation) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection *coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Mark Antony";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Marks Spencer";
+    doc2["points"] = 200;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    // reject zero (lower exclusive bound)
+    sort_fields = { sort_by("_text_match(bucket_auto_size:0)", "DESC") };
+    auto res_op = coll1->search("mark", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Value for `bucket_auto_size` must be between 0 and 1.", res_op.error());
+
+    // reject values above 1.0
+    sort_fields[0] = sort_by("_text_match(bucket_auto_size:1.5)", "DESC");
+    res_op = coll1->search("mark", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Value for `bucket_auto_size` must be between 0 and 1.", res_op.error());
+
+    // reject negative values
+    sort_fields[0] = sort_by("_text_match(bucket_auto_size:-0.5)", "DESC");
+    res_op = coll1->search("mark", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Value for `bucket_auto_size` must be between 0 and 1.", res_op.error());
+
+    // reject non-numeric values
+    sort_fields[0] = sort_by("_text_match(bucket_auto_size:abc)", "DESC");
+    res_op = coll1->search("mark", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid value passed for _text_match `bucket_auto_size` configuration.", res_op.error());
+
+    // reject malformed combined expression (4 colon-split parts, fails size != 2 guard)
+    sort_fields[0] = sort_by("_text_match(bucket_auto_size:0.5:buckets:2)", "DESC");
+    res_op = coll1->search("mark", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid sorting parameter passed for _text_match.", res_op.error());
+
+    // 1.0 is the valid upper boundary
+    sort_fields[0] = sort_by("_text_match(bucket_auto_size:1.0)", "DESC");
+    res_op = coll1->search("mark", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+
+    collectionManager.drop_collection("coll1");
+}
+
 
 TEST_F(CollectionSortingTest, VectorSearchBucketRanking) {
     nlohmann::json schema = nlohmann::json::parse(R"({

@@ -622,6 +622,7 @@ struct sort_by {
     // for text_match score bucketing
     uint32_t text_match_buckets;
     uint32_t text_match_bucket_size;
+    float text_match_bucket_auto_size;
 
     uint32_t vector_search_buckets = 0;
     uint32_t vector_search_bucket_size = 0;
@@ -652,12 +653,12 @@ struct sort_by {
     uint32_t union_search_index{};
 
     sort_by(const std::string & name, const std::string & order):
-            name(name), order(order), text_match_buckets(0), text_match_bucket_size(0), geopoint(0), exclude_radius(0),
-            geo_precision(0), missing_values(normal) {
+            name(name), order(order), text_match_buckets(0), text_match_bucket_size(0), text_match_bucket_auto_size(0.0f),
+            geopoint(0), exclude_radius(0), geo_precision(0), missing_values(normal) {
     }
 
     sort_by(std::vector<std::string> eval_expressions, std::vector<int64_t> scores, std::string  order):
-            eval_expressions(std::move(eval_expressions)), order(std::move(order)), text_match_buckets(0), text_match_bucket_size(0),
+            eval_expressions(std::move(eval_expressions)), order(std::move(order)), text_match_buckets(0), text_match_bucket_size(0), text_match_bucket_auto_size(0.0f), 
             geopoint(0), exclude_radius(0), geo_precision(0), missing_values(normal) {
         name = sort_field_const::eval;
         eval.scores = std::move(scores);
@@ -666,7 +667,7 @@ struct sort_by {
 
     sort_by(const std::string &name, const std::string &order, uint32_t text_match_buckets, int64_t geopoint,
             uint32_t exclude_radius, uint32_t geo_precision) :
-            name(name), order(order), text_match_buckets(text_match_buckets), text_match_bucket_size(0),
+            name(name), order(order), text_match_buckets(text_match_buckets), text_match_bucket_size(0), text_match_bucket_auto_size(0.0f),
             geopoint(geopoint), exclude_radius(exclude_radius), geo_precision(geo_precision),
             missing_values(normal) {
         type = geopoint_field;
@@ -680,6 +681,7 @@ struct sort_by {
         order = other.order;
         text_match_buckets = other.text_match_buckets;
         text_match_bucket_size = other.text_match_bucket_size;
+        text_match_bucket_auto_size = other.text_match_bucket_auto_size;
         vector_search_buckets = other.vector_search_buckets;
         vector_search_bucket_size = other.vector_search_bucket_size;
         geopoint = other.geopoint;
@@ -709,6 +711,7 @@ struct sort_by {
         order = other.order;
         text_match_buckets = other.text_match_buckets;
         text_match_bucket_size = other.text_match_bucket_size;
+        text_match_bucket_auto_size = other.text_match_bucket_auto_size;
         vector_search_buckets = other.vector_search_buckets;
         vector_search_bucket_size = other.vector_search_bucket_size;
         geopoint = other.geopoint;

@@ -1334,22 +1334,35 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 std::vector<std::string> match_parts;
                 const std::string& match_config = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
                 StringUtils::split(match_config, match_parts, ":");
-                if(match_parts.size() != 2 || (match_parts[0] != "buckets" && match_parts[0] != "bucket_size")) {
+                if(match_parts.size() != 2 || (match_parts[0] != "buckets" && match_parts[0] != "bucket_size" && match_parts[0] != "bucket_auto_size")) {
                     return Option<bool>(400, "Invalid sorting parameter passed for _text_match.");
                 }
 
-                if(!StringUtils::is_uint32_t(match_parts[1])) {
-                    return Option<bool>(400, "Invalid value passed for _text_match `buckets` or `bucket_size` configuration.");
-                }
+                // bucket_auto_size requires float, check first
+                if(match_parts[0] == "bucket_auto_size") {
+                    try {
+                        float val = std::stof(match_parts[1]);
+                        if(val <= 0.0f || val > 1.0f) {
+                            return Option<bool>(400, "Value for `bucket_auto_size` must be between 0 and 1.");
+                        }
+                        sort_field_std.text_match_bucket_auto_size = val;
+                    } catch(const std::exception& e) {
+                        return Option<bool>(400, "Invalid value passed for _text_match `bucket_auto_size` configuration.");
+                    }
+                } else {
+                    if(!StringUtils::is_uint32_t(match_parts[1])) {
+                        return Option<bool>(400, "Invalid value passed for _text_match `buckets` or `bucket_size` configuration.");
+                    }
 
+                    if(match_parts[0] == "buckets") {
+                        sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
+                    } else if(match_parts[0] == "bucket_size") {
+                        sort_field_std.text_match_bucket_size = std::stoll(match_parts[1]);
+                    }
+                }
                 sort_field_std.name = actual_field_name;
                 sort_field_std.type = sort_by::text_match;
 
-                if(match_parts[0] == "buckets") {
-                    sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
-                } else if(match_parts[0] == "bucket_size") {
-                    sort_field_std.text_match_bucket_size = std::stoll(match_parts[1]);
-                }
             } else if(actual_field_name == sort_field_const::vector_query) {
                 const std::string& vector_query_str = sort_field_std.name.substr(paran_start + 1,
                                                                               sort_field_std.name.size() - paran_start -
@@ -2937,36 +2950,62 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
     int match_score_index = -1;
     for(size_t i = 0; i < sort_fields_std.size(); i++) {
         if(sort_fields_std[i].name == sort_field_const::text_match &&
-        (sort_fields_std[i].text_match_buckets != 0 || sort_fields_std[i].text_match_bucket_size != 0)) {
+        (sort_fields_std[i].text_match_buckets != 0 || sort_fields_std[i].text_match_bucket_size != 0 ||
+        sort_fields_std[i].text_match_bucket_auto_size != 0.0f)) {
             match_score_index = i;
             break;
         }
     }
 
     if(match_score_index >= 0 && (sort_fields_std[match_score_index].text_match_buckets > 0
-        || sort_fields_std[match_score_index].text_match_bucket_size > 0)) {
+        || sort_fields_std[match_score_index].text_match_bucket_size > 0
+        || sort_fields_std[match_score_index].text_match_bucket_auto_size > 0.0f)) {
 
         size_t num_buckets = sort_fields_std[match_score_index].text_match_buckets;
         size_t bucket_size = sort_fields_std[match_score_index].text_match_bucket_size;
+        float bucket_auto_size = sort_fields_std[match_score_index].text_match_bucket_auto_size;
 
         const size_t max_kvs_bucketed = std::min<size_t>(Index::DEFAULT_TOPSTER_SIZE, raw_result_kvs.size());
 
-        if((num_buckets > 0 && max_kvs_bucketed >= num_buckets) || (bucket_size > 0 && max_kvs_bucketed >= bucket_size)) {
+        if((num_buckets > 0 && max_kvs_bucketed >= num_buckets) || (bucket_size > 0 && max_kvs_bucketed >= bucket_size) ||
+            (bucket_auto_size > 0.0f)) {
             spp::sparse_hash_map<uint64_t, int64_t> result_scores;
-
-            // only first `max_kvs_bucketed` elements are bucketed to prevent pagination issues past 250 records
-            size_t block_len = num_buckets > 0 ? ceil((double(max_kvs_bucketed) / (double)(num_buckets))) : bucket_size;
             size_t i = 0;
-            while(i < max_kvs_bucketed) {
-                size_t j = 0;
-                while(j < block_len && i+j < max_kvs_bucketed) {
-                    result_scores[raw_result_kvs[i+j][0]->key] = raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index];
-                    // use the bucket sequence as the sorting order (descending)
-                    raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index] = -i;
-                    j++;
+
+            if(bucket_auto_size > 0.0f) {
+                // dynamic bucketing logic
+                while(i < max_kvs_bucketed) {
+                    // use first item in bucket as auto_size anchor
+                    int64_t anchor = raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index];
+                    int64_t bucket_diff = (int64_t)(std::abs(anchor) * bucket_auto_size);
+                    size_t j = 0;
+                    while(i+j < max_kvs_bucketed && std::abs(raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index] - anchor) <= bucket_diff) {
+                        result_scores[raw_result_kvs[i+j][0]->key] = raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index];
+                        // use the bucket sequence as the sorting order (descending)
+                        raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index] = -i;
+                        j++;
+                    }
+                    i += j;
                 }
 
-                i += j;
+            } else {
+                // fixed bucketing logic
+                // only first `max_kvs_bucketed` elements are bucketed to prevent pagination issues past 250 records
+                size_t block_len = num_buckets > 0
+                    ? ceil((double(max_kvs_bucketed) / (double)(num_buckets)))
+                    : bucket_size;
+
+                while(i < max_kvs_bucketed) {
+                    size_t j = 0;
+                    while(j < block_len && i+j < max_kvs_bucketed) {
+                        result_scores[raw_result_kvs[i+j][0]->key] = raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index];
+                        // use the bucket sequence as the sorting order (descending)
+                        raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index] = -i;
+                        j++;
+                    }
+
+                    i += j;
+                }
             }
 
             // sort again based on bucketed match score
