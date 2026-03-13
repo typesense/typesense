@@ -6476,5 +6476,3 @@ TEST_F(CollectionVectorTest, UpdateAPIKeyInSchema) {
     embedding_fields = coll->get_embedding_fields();
     ASSERT_EQ("xyzw", embedding_fields["embedding"].embed[fields::model_config][fields::api_key]);
 }
-                         
-
