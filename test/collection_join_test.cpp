@@ -5817,15 +5817,10 @@ TEST_F(CollectionJoinTest, FilterByObjectArrayJoinCorrelation) {
     for (size_t i = 0; i < expected.size(); i++) {
         ASSERT_EQ(expected[i], res_obj["hits"][i]["document"]["id"]);
     }
-
-    std::vector<std::string> active_names;
-    for (const auto& hit: res_obj["hits"]) {
-        active_names.emplace_back(hit["document"]["name"].get<std::string>());
+    std::vector<std::string> expected_names = {"MixedOnly", "Both", "ActiveOnly"};
+    for (size_t i = 0; i < expected_names.size(); i++) {
+        ASSERT_EQ(expected_names[i], res_obj["hits"][i]["document"]["name"]);
     }
-    std::sort(active_names.begin(), active_names.end());
-    ASSERT_EQ("ActiveOnly", active_names[0]);
-    ASSERT_EQ("Both", active_names[1]);
-    ASSERT_EQ("MixedOnly", active_names[2]);
 
     req_params["filter_by"] = "locations.{isPrimary:true && $profiles(tags:INACTIVE)}";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -5838,16 +5833,10 @@ TEST_F(CollectionJoinTest, FilterByObjectArrayJoinCorrelation) {
     for (size_t i = 0; i < expected.size(); i++) {
         ASSERT_EQ(expected[i], res_obj["hits"][i]["document"]["id"]);
     }
-
-    std::vector<std::string> inactive_names;
-    for (const auto& hit: res_obj["hits"]) {
-        inactive_names.emplace_back(hit["document"]["name"].get<std::string>());
+    expected_names = {"PrimaryInactiveSecondaryActive", "MixedOnly", "Both", "InactiveOnly"};
+    for (size_t i = 0; i < expected_names.size(); i++) {
+        ASSERT_EQ(expected_names[i], res_obj["hits"][i]["document"]["name"]);
     }
-    std::sort(inactive_names.begin(), inactive_names.end());
-    ASSERT_EQ("Both", inactive_names[0]);
-    ASSERT_EQ("InactiveOnly", inactive_names[1]);
-    ASSERT_EQ("MixedOnly", inactive_names[2]);
-    ASSERT_EQ("PrimaryInactiveSecondaryActive", inactive_names[3]);
 }
 
 TEST_F(CollectionJoinTest, CascadeDeleteOption) {
