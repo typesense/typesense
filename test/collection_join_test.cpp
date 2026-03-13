@@ -5813,6 +5813,11 @@ TEST_F(CollectionJoinTest, FilterByObjectArrayJoinCorrelation) {
 
     ASSERT_EQ(3, res_obj["found"].get<size_t>());
     ASSERT_EQ(3, res_obj["hits"].size());
+    std::vector<std::string> expected = {"4", "3", "1"};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], res_obj["hits"][i]["document"]["id"]);
+    }
+
     std::vector<std::string> active_names;
     for (const auto& hit: res_obj["hits"]) {
         active_names.emplace_back(hit["document"]["name"].get<std::string>());
@@ -5837,6 +5842,7 @@ TEST_F(CollectionJoinTest, FilterByObjectArrayJoinCorrelation) {
     ASSERT_EQ("Both", inactive_names[0]);
     ASSERT_EQ("InactiveOnly", inactive_names[1]);
     ASSERT_EQ("MixedOnly", inactive_names[2]);
+    ASSERT_EQ("PrimaryInactiveSecondaryActive", inactive_names[3]);
 }
 
 TEST_F(CollectionJoinTest, CascadeDeleteOption) {
