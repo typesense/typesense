@@ -263,6 +263,12 @@ TEST_F(AuthManagerTest, VerifyAuthentication) {
     ASSERT_FALSE(auth_manager.authenticate("documents:search",
                                            {collection_key_t("coll_c", coll_c_key.value),},
                                            sparams, embedded_params));
+
+    //operation key exception case
+    api_key_t operation_key = api_key_t("zxcvbnm", "operation get", {"operations/schema_changes:get"}, {"*"}, FUTURE_TS);
+    auth_manager.create_key(operation_key);
+    ASSERT_FALSE(auth_manager.authenticate("operations/schema_changes:list", {collection_key_t("", operation_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("operations/schema_changes:get", {collection_key_t("", operation_key.value)}, sparams, embedded_params));
 }
 
 TEST_F(AuthManagerTest, GenerationOfAPIAction) {

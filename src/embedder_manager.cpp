@@ -528,7 +528,8 @@ Option<nlohmann::json> EmbedderManager::get_public_model_config(const std::strin
     headers["Accept"] = "application/json";
     std::map<std::string, std::string> response_headers;
     std::string response_body;
-    long res = httpClient.get_response(MODELS_REPO_URL + actual_model_name + "/" + MODEL_CONFIG_FILE, response_body, response_headers, headers);
+    long res = httpClient.get_response(MODELS_REPO_URL + actual_model_name + "/" + MODEL_CONFIG_FILE, response_body,
+                                       response_headers, headers, 30*1000);
     if(res == 200 || res == 302) {
         return Option<nlohmann::json>(nlohmann::json::parse(response_body));
     }
