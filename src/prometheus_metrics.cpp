@@ -10,12 +10,18 @@ void PrometheusMetrics::initialize() {
     registry_ = std::make_shared<prometheus::Registry>();
 
     // Pre-create commonly used metric families
-    getCounterFamily("search_requests_total", {"model_name", "success"});
-    getHistogramFamily("search_request_latency_ms", {"model_name"});
-    getCounterFamily("document_operations_total", {"collection", "operation", "success"});
-    getHistogramFamily("document_operation_latency_ms", {"collection", "operation"});
-    getCounterFamily("import_operations_total", {"collection", "success"});
-    getHistogramFamily("import_operation_latency_ms", {"collection"});
+    getCounterFamily("search_requests_total", {"model_name", "success"},
+        "Total number of search requests processed, partitioned by model name and success status");
+    getHistogramFamily("search_request_latency_ms", {"model_name"},
+        "Distribution of search request latency in milliseconds, partitioned by model name");
+    getCounterFamily("document_operations_total", {"collection", "operation", "success"},
+        "Total number of document operations (create, upsert, update, delete), partitioned by collection, operation type, and success status");
+    getHistogramFamily("document_operation_latency_ms", {"collection", "operation"},
+        "Distribution of document operation latency in milliseconds, partitioned by collection and operation type");
+    getCounterFamily("import_operations_total", {"collection", "success"},
+        "Total number of bulk import operations, partitioned by collection and success status");
+    getHistogramFamily("import_operation_latency_ms", {"collection"},
+        "Distribution of bulk import operation latency in milliseconds, partitioned by collection");
 
     LOG(INFO) << "Prometheus metrics initialized.";
 }
@@ -60,7 +66,7 @@ void PrometheusMetrics::recordImportOperation(const std::string& collection, siz
     histogram.Observe(latency_ms);
 }
 
-prometheus::Family<prometheus::Counter>& PrometheusMetrics::getCounterFamily(const std::string& name, const std::vector<std::string>& label_names) {
+prometheus::Family<prometheus::Counter>& PrometheusMetrics::getCounterFamily(const std::string& name, const std::vector<std::string>& label_names, const std::string& help_text) {
     auto it = counter_map.find(name);
     if (it != counter_map.end()) {
         return *(it->second);
@@ -68,14 +74,14 @@ prometheus::Family<prometheus::Counter>& PrometheusMetrics::getCounterFamily(con
 
     auto& family = prometheus::BuildCounter()
                        .Name(name)
-                       .Help(name + " counter")
+                       .Help(help_text.empty() ? name : help_text)
                        .Labels({})
                        .Register(*registry_);
     counter_map[name] = &family;
     return family;
 }
 
-prometheus::Family<prometheus::Gauge>& PrometheusMetrics::getGaugeFamily(const std::string& name, const std::vector<std::string>& label_names) {
+prometheus::Family<prometheus::Gauge>& PrometheusMetrics::getGaugeFamily(const std::string& name, const std::vector<std::string>& label_names, const std::string& help_text) {
     auto it = gauge_map.find(name);
     if (it != gauge_map.end()) {
         return *(it->second);
@@ -83,14 +89,14 @@ prometheus::Family<prometheus::Gauge>& PrometheusMetrics::getGaugeFamily(const s
 
     auto& family = prometheus::BuildGauge()
                        .Name(name)
-                       .Help(name + " gauge")
+                       .Help(help_text.empty() ? name : help_text)
                        .Labels({})
                        .Register(*registry_);
     gauge_map[name] = &family;
     return family;
 }
 
-prometheus::Family<prometheus::Histogram>& PrometheusMetrics::getHistogramFamily(const std::string& name, const std::vector<std::string>& label_names) {
+prometheus::Family<prometheus::Histogram>& PrometheusMetrics::getHistogramFamily(const std::string& name, const std::vector<std::string>& label_names, const std::string& help_text) {
     auto it = histogram_map.find(name);
     if (it != histogram_map.end()) {
         return *(it->second);
@@ -98,7 +104,7 @@ prometheus::Family<prometheus::Histogram>& PrometheusMetrics::getHistogramFamily
 
     auto& family = prometheus::BuildHistogram()
                        .Name(name)
-                       .Help(name + " histogram")
+                       .Help(help_text.empty() ? name : help_text)
                        .Labels({})
                        .Register(*registry_);
     histogram_map[name] = &family;

@@ -12,18 +12,13 @@
 // Singleton class to manage Prometheus metrics
 class PrometheusMetrics {
 public:
-    // Get the singleton instance
-    static PrometheusMetrics& getInstance() {
-        static PrometheusMetrics instance;
-        return instance;
-    }
-
     // Delete copy constructor and assignment operator
     PrometheusMetrics(const PrometheusMetrics&) = delete;
     PrometheusMetrics& operator=(const PrometheusMetrics&) = delete;
 
    static PrometheusMetrics& get_instance() {
-        return getInstance();
+        static PrometheusMetrics instance;
+        return instance;
     }
 
     // Initialize the Prometheus exposer
@@ -44,8 +39,8 @@ private:
     std::unordered_map<std::string, prometheus::Family<prometheus::Gauge>*> gauge_map;
     std::unordered_map<std::string, prometheus::Family<prometheus::Histogram>*> histogram_map;
 
-    prometheus::Family<prometheus::Counter>& getCounterFamily(const std::string& name, const std::vector<std::string>& label_names);
-    prometheus::Family<prometheus::Gauge>& getGaugeFamily(const std::string& name, const std::vector<std::string>& label_names);
-    prometheus::Family<prometheus::Histogram>& getHistogramFamily(const std::string& name, const std::vector<std::string>& label_names);
+    prometheus::Family<prometheus::Counter>& getCounterFamily(const std::string& name, const std::vector<std::string>& label_names, const std::string& help_text = "");
+    prometheus::Family<prometheus::Gauge>& getGaugeFamily(const std::string& name, const std::vector<std::string>& label_names, const std::string& help_text = "");
+    prometheus::Family<prometheus::Histogram>& getHistogramFamily(const std::string& name, const std::vector<std::string>& label_names, const std::string& help_text = "");
 };
 
