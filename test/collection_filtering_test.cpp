@@ -4459,3 +4459,104 @@ TEST_F(CollectionFilteringTest, LazyFilterNotInMultiTokenStringDeepPagination) {
     delete req_params;
     ASSERT_EQ(found, total_retrieved);
 }
+
+TEST_F(CollectionFilteringTest, LazyFilterNotInNumericOverlapDeepPagination) {
+    // Regression: numeric NOT-IN on int32[] with overlapping posting lists.
+    // Docs with tags=[1,2] appear in both S1 and S2. OR-sum = S1+S2 = 20 double-
+    // counts the overlap, so old approx = num_ids - 20 = 5, but actual NOT = 15.
+    // The undersized topster (5) drops results beyond page 1.
+    nlohmann::json schema = R"({
+        "name": "lazy_not_in_numeric_overlap",
+        "fields": [
+            {"name": "tags", "type": "int32[]", "facet": true},
+            {"name": "score", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    // 10 docs with tags=[1,2] (excluded), 15 docs with tags=[3] (matching NOT).
+    for (int i = 0; i < 25; i++) {
+        nlohmann::json doc;
+        doc["score"] = 25 - i;
+        if (i < 10) {
+            doc["tags"] = {1, 2};
+        } else {
+            doc["tags"] = {3};
+        }
+        auto add_op = coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    const std::string filter = "tags:!=[1, 2]";
+
+    auto req_params = new std::map<std::string, std::string>();
+    (*req_params)["collection"] = "lazy_not_in_numeric_overlap";
+    (*req_params)["q"] = "*";
+    (*req_params)["filter_by"] = filter;
+    (*req_params)["sort_by"] = "score:desc";
+    (*req_params)["per_page"] = "5";
+    (*req_params)["page"] = "1";
+    (*req_params)["enable_lazy_filter"] = "true";
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+
+    size_t found = result["found"].get<size_t>();
+    ASSERT_EQ(15, found);
+    ASSERT_EQ(5, result["hits"].size());
+
+    // Page 2 — fails without fix because topster is sized at 5 (old approx).
+    delete req_params;
+    req_params = new std::map<std::string, std::string>();
+    (*req_params)["collection"] = "lazy_not_in_numeric_overlap";
+    (*req_params)["q"] = "*";
+    (*req_params)["filter_by"] = filter;
+    (*req_params)["sort_by"] = "score:desc";
+    (*req_params)["per_page"] = "5";
+    (*req_params)["page"] = "2";
+    (*req_params)["enable_lazy_filter"] = "true";
+
+    json_res.clear();
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+
+    // Without fix: topster=5, page 2 returns 0 hits.
+    // With fix: topster=15, page 2 returns 5 hits.
+    ASSERT_EQ(5, result["hits"].size());
+
+    // Page 3 — last page with 5 remaining results.
+    delete req_params;
+    req_params = new std::map<std::string, std::string>();
+    (*req_params)["collection"] = "lazy_not_in_numeric_overlap";
+    (*req_params)["q"] = "*";
+    (*req_params)["filter_by"] = filter;
+    (*req_params)["sort_by"] = "score:desc";
+    (*req_params)["per_page"] = "5";
+    (*req_params)["page"] = "3";
+    (*req_params)["enable_lazy_filter"] = "true";
+
+    json_res.clear();
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(5, result["hits"].size());
+
+    delete req_params;
+}
