@@ -4098,6 +4098,7 @@ TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightingInNestedFields) {
     collectionManager.drop_collection("coll1");
 }
 
+
 TEST_F(CollectionSpecificMoreTest, NestedFieldSingleTokenSnippetTruncation) {
     // verify that snippets for single-token matches in nested fields are properly truncated
     nlohmann::json schema = R"({
@@ -4486,4 +4487,68 @@ TEST_F(CollectionSpecificMoreTest, ExplicitNotEqualsListOnRangeIndexedFloatShoul
     }
 
     collectionManager.drop_collection(collection_name);
+}
+
+TEST_F(CollectionSpecificMoreTest, TestUpsertWithFilter) {
+    nlohmann::json schema = R"({
+         "name": "coll1",
+         "fields": [
+           {"name": "name", "type": "string"},
+           {"name": "timestamp", "type": "int32"}
+         ]
+       })"_json;
+
+    auto coll_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_res.ok());
+
+    auto coll = coll_res.get();
+
+    auto add_op = coll->add(R"({"name": "Test1", "timestamp": 10})"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+    auto id = add_op.get()["id"].get<std::string>();
+    std::vector<std::string> upsert_records;
+    nlohmann::json record;
+    record["id"] = id;
+    record["name"] = "Test2";
+    record["timestamp"] = 20;
+    upsert_records.push_back(record.dump());
+
+    nlohmann::json document;
+    auto upsert_response = coll->add_many(upsert_records, document, index_operation_t::UPSERT, "", DIRTY_VALUES::COERCE_OR_REJECT, true, false, 200, 60000, 2, "timestamp:<10");
+    ASSERT_EQ(false, upsert_response["success"].get<bool>());
+    ASSERT_EQ(1, upsert_records.size());
+    record = nlohmann::json::parse(upsert_records[0]);
+    ASSERT_EQ(404, record["code"].get<int>());
+    ASSERT_EQ("Could not find a document matching the filter to update with id: " + id, record["error"].get<std::string>());
+    
+    record.clear();
+    record["id"] = id;
+    record["name"] = "Test2";
+    record["timestamp"] = 20;
+    upsert_records.clear();
+    upsert_records.push_back(record.dump());
+    upsert_response = coll->add_many(upsert_records, document, index_operation_t::UPSERT, "", DIRTY_VALUES::COERCE_OR_REJECT, true, false, 200, 60000, 2, "timestamp:<=10");
+    ASSERT_EQ(true, upsert_response["success"].get<bool>());
+    ASSERT_EQ(1, upsert_records.size());
+
+    record = nlohmann::json::parse(upsert_records[0]);
+    ASSERT_EQ(id, record["document"]["id"].get<std::string>());
+    ASSERT_EQ("Test2", record["document"]["name"].get<std::string>());
+    ASSERT_EQ(20, record["document"]["timestamp"].get<int>());
+
+    // Filter should not affect new documents
+    record.clear();
+    record["name"] = "Test3";
+    record["timestamp"] = 30;
+    upsert_records.clear();
+    upsert_records.push_back(record.dump());
+    upsert_response = coll->add_many(upsert_records, document, index_operation_t::UPSERT, "", DIRTY_VALUES::COERCE_OR_REJECT, true, false,
+                                    200, 60000, 2, "timestamp:<10");    
+    ASSERT_EQ(true, upsert_response["success"].get<bool>());
+    ASSERT_EQ(1, upsert_records.size());
+    record = nlohmann::json::parse(upsert_records[0]);
+    ASSERT_EQ("Test3", record["document"]["name"].get<std::string>());
+    ASSERT_EQ(30, record["document"]["timestamp"].get<int>());
+
+    collectionManager.drop_collection("coll1");
 }

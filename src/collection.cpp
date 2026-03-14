@@ -589,7 +589,8 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                                     const DIRTY_VALUES& dirty_values, const bool& return_doc, const bool& return_id,
                                     const size_t remote_embedding_batch_size,
                                     const size_t remote_embedding_timeout_ms,
-                                    const size_t remote_embedding_num_tries) {
+                                    const size_t remote_embedding_num_tries,
+                                    const std::string& filter_by_str) {
     std::vector<index_record> index_records;
 
     const size_t index_batch_size = 1000;
@@ -599,6 +600,27 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
     // ensures that document IDs are not repeated within the same batch
     std::set<std::string> batch_doc_ids;
     bool found_batch_new_field = false;
+    filter_result_t filter_result;
+    bool has_filter = filter_by_str != "" && filter_by_str != "*";
+
+    if(has_filter) {
+        auto filter_ids_op = get_filter_ids(filter_by_str, filter_result, false, true);
+        if(!filter_ids_op.ok()) {
+            std::vector<std::string> error_responses;
+            for(size_t i=0; i < json_lines.size(); i++) {
+                nlohmann::json error_response;
+                error_response["success"] = false;
+                error_response["code"] = filter_ids_op.code();
+                error_response["error"] = filter_ids_op.error();
+                error_responses.push_back(error_response.dump());
+            }
+            json_lines = error_responses;
+            nlohmann::json resp_summary;
+            resp_summary["num_imported"] = 0;
+            resp_summary["success"] = false;
+            return resp_summary;
+        }
+    }
 
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
@@ -626,12 +648,25 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             }
 
             record.is_update = !doc_seq_id_op.get().is_new;
+            batch_doc_ids.insert(doc_id);
 
             if(record.is_update) {
+                if(has_filter) {
+                    bool found_in_filter = false;
+                    for(uint32_t j = 0; j < filter_result.count; j++) {
+                        if(filter_result.docs[j] == seq_id) {
+                            found_in_filter = true;
+                            break;
+                        }
+                    }
+                    if(!found_in_filter) {
+                        record.index_failure(404, "Could not find a document matching the filter to update with id: " + doc_id);
+                        index_records.emplace_back(std::move(record));
+                        goto do_batched_index;
+                    }
+                }
                 get_document_from_store(get_seq_id_key(seq_id), record.old_doc);
             }
-
-            batch_doc_ids.insert(doc_id);
 
             std::string fallback_field_type_copy;
             std::unordered_map<std::string, field> dynamic_fields_copy;

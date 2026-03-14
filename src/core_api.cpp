@@ -1530,6 +1530,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     const char *REMOTE_EMBEDDING_BATCH_SIZE = "remote_embedding_batch_size";
     const char *REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
     const char *REMOTE_EMBEDDING_NUM_TRIES = "remote_embedding_num_tries";
+    const char *FILTER_BY = "filter_by";
 
     if(req->params.count(BATCH_SIZE) == 0) {
         req->params[BATCH_SIZE] = "40";
@@ -1553,6 +1554,10 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
 
     if(req->params.count(RETURN_ID) == 0) {
         req->params[RETURN_ID] = "false";
+    }
+
+    if(req->params.count(FILTER_BY) == 0) {
+        req->params[FILTER_BY] = "";
     }
 
     if(!StringUtils::is_uint32_t(req->params[BATCH_SIZE])) {
@@ -1693,8 +1698,9 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         const auto& dirty_values = collection->parse_dirty_values_option(req->params[DIRTY_VALUES]);
         const bool& return_doc = req->params[RETURN_DOC] == "true";
         const bool& return_id = req->params[RETURN_ID] == "true";
+        const std::string& filter_by = req->params[FILTER_BY];
         nlohmann::json json_res = collection->add_many(json_lines, document, operation, "",
-                                                       dirty_values, return_doc, return_id, REMOTE_EMBEDDING_BATCH_SIZE_VAL, REMOTE_EMBEDDING_TIMEOUT_MS_VAL, REMOTE_EMBEDDING_NUM_TRIES_VAL);
+                                                       dirty_values, return_doc, return_id, REMOTE_EMBEDDING_BATCH_SIZE_VAL, REMOTE_EMBEDDING_TIMEOUT_MS_VAL, REMOTE_EMBEDDING_NUM_TRIES_VAL, filter_by);
         //const std::string& import_summary_json = json_res->dump();
         //response_stream << import_summary_json << "\n";
 
