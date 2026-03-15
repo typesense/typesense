@@ -158,6 +158,13 @@ struct KV {
                     std::tie(j[0]->scores[0], j[0]->scores[1], j[0]->scores[2], j[0]->key);
     }
 
+    // Stable comparison that doesn't use key as tiebreaker, allowing std::stable_sort
+    // to preserve original order when all scores are equal (used for bucket sorting)
+    static bool is_greater_kv_group_stable(const std::vector<KV*>& i, const std::vector<KV*>& j) {
+        return std::tie(i[0]->scores[0], i[0]->scores[1], i[0]->scores[2]) >
+                    std::tie(j[0]->scores[0], j[0]->scores[1], j[0]->scores[2]);
+    }
+
     static constexpr uint64_t get_key(const KV* kv) {
         return kv->key;
     }

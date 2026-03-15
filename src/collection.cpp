@@ -3139,8 +3139,10 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
             }
 
             // sort again based on bucketed match score
+            // Use stable comparison (without key tiebreaker) to preserve original vector distance order
+            // within each bucket when secondary sort values are equal
             std::stable_sort(raw_result_kvs.begin(), raw_result_kvs.begin() + max_kvs_bucketed,
-                              KV::is_greater_kv_group);
+                              KV::is_greater_kv_group_stable);
 
             // restore original scores
             for(i = 0; i < max_kvs_bucketed; i++) {
