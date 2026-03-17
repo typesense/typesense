@@ -1469,8 +1469,10 @@ TEST_F(CollectionSynonymsTest, SynonymPrefix) {
     nlohmann::json schema = R"({
         "name": "coll3",
         "fields": [
-          {"name": "title", "type": "string"}
+          {"name": "title", "type": "string"},
+          {"name": "points", "type": "int32"}
         ],
+        "default_sorting_field": "points",
         "synonym_sets": ["index"]
     })"_json;
 
@@ -1481,11 +1483,13 @@ TEST_F(CollectionSynonymsTest, SynonymPrefix) {
     nlohmann::json doc;
     doc["id"] = "0";
     doc["title"] = "Cool Trousers";
+    doc["points"] = 20;
     auto add_op = coll3->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
 
     doc["id"] = "1";
     doc["title"] = "Cool Pants";
+    doc["points"] = 10;
     add_op = coll3->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
 
@@ -1498,6 +1502,14 @@ TEST_F(CollectionSynonymsTest, SynonymPrefix) {
     ASSERT_TRUE(syn_op.ok());
 
     bool synonym_prefix = false;
+
+    auto no_prefix_res = coll3->search("pants", {"title"}, "", {}, {}, {2}, 10).get();
+    ASSERT_EQ(2, no_prefix_res["hits"].size());
+    ASSERT_EQ("0", no_prefix_res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(1, no_prefix_res["hits"][0]["text_match_info"]["synonym_match_score"].get<int>());
+    ASSERT_EQ("1", no_prefix_res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, no_prefix_res["hits"][1]["text_match_info"]["synonym_match_score"].get<int>());
+    
 
     auto res = coll3->search("pan", {"title"}, "", {},
                                    {}, {2}, 10, 1,FREQUENCY, {false},
@@ -1538,6 +1550,11 @@ TEST_F(CollectionSynonymsTest, SynonymPrefix) {
                              "", false, true,false, synonym_prefix).get();
 
     ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(2, res["hits"][0]["text_match_info"]["synonym_match_score"].get<int>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_TRUE(res["hits"][1]["text_match_info"]["synonym_match_score"].get<int>() == 0 ||
+                res["hits"][1]["text_match_info"]["synonym_match_score"].get<int>() == 2);
 }
 
 TEST_F(CollectionSynonymsTest, SynonymsPagination) {

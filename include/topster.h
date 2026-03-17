@@ -21,6 +21,7 @@ struct KV {
     int8_t match_score_index{};
     uint16_t query_index{};
     uint16_t array_index{};
+    uint8_t synonym_match_score = 0;
     uint64_t key{};
     uint64_t distinct_key{};
     int64_t scores[3]{};  // match score + 2 custom attributes
@@ -35,8 +36,10 @@ struct KV {
     std::map<std::string, reference_filter_result_t> reference_filter_results;
 
     KV(uint16_t queryIndex, uint64_t key, uint64_t distinct_key, int8_t match_score_index, const int64_t *scores,
-       std::map<std::string, reference_filter_result_t>  reference_filter_results = {}, float vector_distance = -1.0f):
-            match_score_index(match_score_index), query_index(queryIndex), array_index(0), key(key),
+       std::map<std::string, reference_filter_result_t>  reference_filter_results = {}, float vector_distance = -1.0f,
+       uint8_t synonym_match_score = 0):
+            match_score_index(match_score_index), query_index(queryIndex), array_index(0),
+            synonym_match_score(synonym_match_score), key(key),
             distinct_key(distinct_key), vector_distance(vector_distance), reference_filter_results(std::move(reference_filter_results)) {
         this->scores[0] = scores[0];
         this->scores[1] = scores[1];
@@ -52,7 +55,7 @@ struct KV {
     KV(KV& kv) = default;
 
     KV(KV&& kv) noexcept : match_score_index(kv.match_score_index),
-                 query_index(kv.query_index), array_index(kv.array_index),
+                 query_index(kv.query_index), array_index(kv.array_index), synonym_match_score(kv.synonym_match_score),
                  key(kv.key), distinct_key(kv.distinct_key) {
                     
         scores[0] = kv.scores[0];
@@ -73,6 +76,7 @@ struct KV {
             match_score_index = kv.match_score_index;
             query_index = kv.query_index;
             array_index = kv.array_index;
+            synonym_match_score = kv.synonym_match_score;
             key = kv.key;
             distinct_key = kv.distinct_key;
 
@@ -98,6 +102,7 @@ struct KV {
             match_score_index = kv.match_score_index;
             query_index = kv.query_index;
             array_index = kv.array_index;
+            synonym_match_score = kv.synonym_match_score;
             key = kv.key;
             distinct_key = kv.distinct_key;
 
@@ -172,7 +177,7 @@ struct Union_KV : public KV {
     uint32_t collection_id;
     bool remove_duplicates = false;
 
-    Union_KV(KV& kv, uint32_t search_index, uint32_t collection_id, bool remove_duplicates = false) : KV(kv.query_index, kv.key, kv.distinct_key, kv.match_score_index, kv.scores, {}, kv.vector_distance),
+    Union_KV(KV& kv, uint32_t search_index, uint32_t collection_id, bool remove_duplicates = false) : KV(kv.query_index, kv.key, kv.distinct_key, kv.match_score_index, kv.scores, {}, kv.vector_distance, kv.synonym_match_score),
                                                search_index(search_index), collection_id(collection_id), remove_duplicates(remove_duplicates) {
         reference_filter_results = std::move(kv.reference_filter_results);
     }

@@ -697,7 +697,7 @@ private:
                                   const bool& validate_field_names = true) const;
 
     static void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type,
-                                         const size_t total_tokens);
+                                         const size_t total_tokens, uint8_t synonym_match_score = 0);
 
     static Option<bool> extract_field_name(const std::string& field_name,
                                            const tsl::htrie_map<char, field>& search_schema,

@@ -3348,7 +3348,8 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
                 wrapper_doc["text_match_info"] = nlohmann::json::object();
                 populate_text_match_info(wrapper_doc["text_match_info"],
                                         field_order_kv->text_match_score, match_type,
-                                         field_query_tokens[0].q_include_tokens.size());
+                                         field_query_tokens[0].q_include_tokens.size(),
+                                         field_order_kv->synonym_match_score);
                 if(!vector_query.field_name.empty()) {
                     wrapper_doc["hybrid_search_info"] = nlohmann::json::object();
                     wrapper_doc["hybrid_search_info"]["rank_fusion_score"] = Index::int64_t_to_float(field_order_kv->scores[field_order_kv->match_score_index]);
@@ -4000,7 +4001,8 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                 wrapper_doc["text_match_info"] = nlohmann::json::object();
                 populate_text_match_info(wrapper_doc["text_match_info"],
                                          kv->text_match_score, match_type,
-                                         field_query_tokens[0].q_include_tokens.size());
+                                         field_query_tokens[0].q_include_tokens.size(),
+                                         kv->synonym_match_score);
                 if (!vector_query.field_name.empty()) {
                     wrapper_doc["hybrid_search_info"] = nlohmann::json::object();
                     wrapper_doc["hybrid_search_info"]["rank_fusion_score"] = Index::int64_t_to_float(
@@ -4270,7 +4272,8 @@ uint64_t Collection::extract_bits(uint64_t value, unsigned lsb_offset, unsigned 
 
 void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_score,
                                           const text_match_type_t match_type,
-                                          const size_t total_tokens) {
+                                          const size_t total_tokens,
+                                          uint8_t synonym_match_score) {
 
     // MAX_SCORE
     // [ sign | tokens_matched | max_field_score | max_field_weight | num_matching_fields ]
@@ -4298,6 +4301,9 @@ void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_s
         info["num_tokens_dropped"] = std::max<int64_t>(0, token_diff);
         info["typo_prefix_score"] = 255 - extract_bits(match_score, 27, 8);
     }
+
+    info["synonym_match_score"] = synonym_match_score;
+    info["synonym_match"] = synonym_match_score > 0;
 }
 
 void Collection::process_highlight_fields_with_lock(const std::vector<search_field_t>& search_fields,
