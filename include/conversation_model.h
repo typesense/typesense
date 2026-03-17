@@ -9,6 +9,7 @@
 
 struct async_conversation_t {
     std::string response;
+    std::string sse_remainder;
     std::mutex mutex;
     std::condition_variable cv;
     long status_code;
@@ -64,6 +65,10 @@ class OpenAIConversationModel : public ConversationModel {
         )";
         // prevent instantiation
         OpenAIConversationModel() = delete;
+        static void _async_write_callback(std::string& response, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+            // for testing purposes
+            return async_res_write_callback(response, req, res);
+        }
     private:
         static constexpr char* OPENAI_URL = "https://api.openai.com";
         static constexpr char* OPENAI_LIST_MODELS = "/v1/models";
@@ -94,6 +99,10 @@ class CFConversationModel : public ConversationModel {
         static const inline std::string INFO_PROMPT = "You are an assistant for question-answering tasks. Use the following pieces of retrieved context to answer the question. If you don't know the answer, just say that you don't know. Use three sentences maximum and do not mention provided context directly, act like already knowing the context.";
         // prevent instantiation
         CFConversationModel() = delete;
+        static void _async_write_callback(std::string& response, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+            // for testing purposes
+            return async_res_write_callback(response, req, res);
+        }
         static const size_t get_minimum_required_bytes() {
             return CONTEXT_INFO.size() + SPLITTER_STR.size() + QUERY_STR.size() + ANSWER_STR.size();
         }
@@ -121,6 +130,10 @@ class vLLMConversationModel : public ConversationModel {
         )";
         // prevent instantiation
         vLLMConversationModel() = delete;
+        static void _async_write_callback(std::string& response, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+            // for testing purposes
+            return async_res_write_callback(response, req, res);
+        }
         // max_bytes must be greater than or equal to the minimum required bytes
         static const size_t get_minimum_required_bytes() {
             return  DATA_STR.size() + QUESTION_STR.size() + ANSWER_STR.size();
