@@ -9,6 +9,7 @@
 
 struct async_conversation_t {
     std::string response;
+    std::string stream_remainder;
     std::mutex mutex;
     std::condition_variable cv;
     long status_code;

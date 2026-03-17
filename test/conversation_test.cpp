@@ -392,6 +392,118 @@ TEST_F(ConversationTest, TestGeminiStreamManipulation) {
     ASSERT_EQ(test, expected);
 }
 
+TEST_F(ConversationTest, TestGeminiStreamSplitObjectAcrossCallbacks) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    ConversationModel::_add_async_conversation(req, "test");
+
+    std::string test = R"([
+    {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": "Hel)";
+    std::string expected = "";
+    GeminiConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+
+    test = R"(lo"
+                        }
+                    ],
+                    "role": "model"
+                }
+            }
+        ],
+        "modelVersion": "gemini-2.0-flash"
+    })";
+    expected = "data: {\"conversation_id\":\"test\",\"message\":\"Hello\"}\n\n";
+    GeminiConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+
+    test = R"(,
+    {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": " world"
+                        }
+                    ],
+                    "role": "model"
+                },
+                "finishReason": "STOP"
+            }
+        ],
+        "modelVersion": "gemini-2.0-flash"
+    }
+])";
+    expected = "data: {\"conversation_id\":\"test\",\"message\":\" world\"}\n\n";
+    expected += "data: [DONE]\n\n";
+    GeminiConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+}
+
+TEST_F(ConversationTest, TestGeminiStreamSplitArrayDelimitersAcrossCallbacks) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    ConversationModel::_add_async_conversation(req, "test");
+
+    std::string test = R"([
+    {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": "One"
+                        }
+                    ],
+                    "role": "model"
+                }
+            }
+        ],
+        "modelVersion": "gemini-2.0-flash"
+    })";
+    std::string expected = "data: {\"conversation_id\":\"test\",\"message\":\"One\"}\n\n";
+    GeminiConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+
+    test = ",";
+    expected = "";
+    GeminiConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+
+    test = R"(
+    {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": "Two"
+                        }
+                    ],
+                    "role": "model"
+                },
+                "finishReason": "STOP"
+            }
+        ],
+        "modelVersion": "gemini-2.0-flash"
+    })";
+    expected = "data: {\"conversation_id\":\"test\",\"message\":\"Two\"}\n\n";
+    expected += "data: [DONE]\n\n";
+    GeminiConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+
+    test = "]";
+    expected = "";
+    GeminiConversationModel::_async_write_callback(test, req, res);
+    ASSERT_EQ(test, expected);
+}
+
 TEST_F(ConversationTest, TestAzureStreamManipulation) {
     std::shared_ptr<http_req> req = std::make_shared<http_req>();
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
