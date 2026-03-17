@@ -97,8 +97,7 @@ private:
     static std::string get_req_suffix_key(uint64_t req_id);
 
     std::unordered_set<uint64_t> get_requests_to_wait_on(const std::shared_ptr<http_req>& req,
-                                                         const std::string& coll_name,
-                                                         const bool& is_live_req);
+                                                         const std::string& coll_name);
 
 public:
 

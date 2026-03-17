@@ -87,7 +87,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
                 req_res_map[req->start_ts].is_complete = true;
             }
 
-            auto wait_on_request_ids = get_requests_to_wait_on(req, coll_name, is_live_req);
+            auto wait_on_request_ids = get_requests_to_wait_on(req, coll_name);
             if(wait_on_request_ids.empty()) {
                 std::unique_lock qlk(qmutuxes[queue_id].mcv);
                 queues[queue_id].emplace_back(req->start_ts);
@@ -603,43 +603,47 @@ size_t BatchedIndexer::get_reference_q_size() {
 }
 
 std::unordered_set<uint64_t> BatchedIndexer::get_requests_to_wait_on(const std::shared_ptr<http_req>& req,
-                                                                     const std::string& coll_name,
-                                                                     const bool& is_live_req) {
+                                                                     const std::string& coll_name) {
     std::unordered_set<std::string> wait_for_collections;
-    std::unordered_set<uint64_t> wait_on_request_ids;
-    // We also have to serialize reference request if it results in cascade deletion of documents of referencing
-    // collections. Apart from this specific scenario, the user is responsible for serialization of requests
-    // of related collections.
-    const bool serialize_cascade_delete_request = CollectionManager::get_instance().is_referenced_in_any(coll_name) &&
-                                                  is_doc_del_route(req->route_hash);
-    if (is_live_req && !serialize_cascade_delete_request) {
-        return wait_on_request_ids;
-    }
 
-    if (serialize_cascade_delete_request) {
-        wait_for_collections = CollectionManager::get_instance().get_nested_referencing_collections(coll_name);
-    } else if (is_coll_create_route(req->route_hash)) {
+    if (is_coll_create_route(req->route_hash)) {
         get_ref_coll_names(req->body, wait_for_collections);
     } else {
-        // If this request involves a collection that references other collection(s), we have to wait
-        // for the other collection(s) request(s) that arrived before this request to finish by pushing
+        // If this request involves a collection that references other collection(s) or is referenced by other
+        // collection(s), we have to wait for the other request(s) that arrived before this request to finish by pushing
         // this request onto a waiting queue.
-        wait_for_collections = CollectionManager::get_instance().get_collection_references(coll_name);
+        auto& cm = CollectionManager::get_instance();
+        auto temp = cm.get_collection_references(coll_name);
+        wait_for_collections.insert(temp.begin(), temp.end());
+
+        temp = cm.get_nested_referencing_collections(coll_name);
+        wait_for_collections.insert(temp.begin(), temp.end());
     }
 
     if (wait_for_collections.empty()) {
-        return wait_on_request_ids;
+        return {};
     }
 
+    // Requests waiting in `reference_q` temporarily leave the collection's main queue, so later writes to the
+    // same collection must wait on them as well to preserve per-collection ordering.
+    wait_for_collections.insert(coll_name);
+
+    std::unordered_set<uint64_t> wait_on_request_ids;
     std::unique_lock lk(mutex);
-    const auto it_end = req_res_map.lower_bound(req->start_ts);
-    for (auto it = req_res_map.begin(); it != it_end; it++) {
-        const auto& ref_req = it->second.req;
+    for (const auto& [req_id, req_res] : req_res_map) {
+        const auto& ref_req = req_res.req;
+        const bool has_log_order = req->log_index != 0 && ref_req->log_index != 0;
+        const bool is_earlier_request = has_log_order ? (ref_req->log_index < req->log_index)
+                                                      : (req_id < req->start_ts);
+        if (!is_earlier_request) {
+            continue;
+        }
+
         const auto& ref_coll_name = get_collection_name(ref_req);
         if (wait_for_collections.count(ref_coll_name) == 0) {
             continue;
         }
-        wait_on_request_ids.insert(it->first);
+        wait_on_request_ids.insert(req_id);
     }
 
     return wait_on_request_ids;
