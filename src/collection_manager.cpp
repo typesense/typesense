@@ -2475,6 +2475,42 @@ std::unordered_set<std::string> CollectionManager::get_collection_references(con
     return references;
 }
 
+std::unordered_set<std::string> CollectionManager::get_nested_referencing_collections(const std::string& coll_name) {
+    std::shared_lock lock(mutex);
+
+    auto it = referenced_ins.find(coll_name);
+    if (it == referenced_ins.end()) {
+        return {};
+    }
+
+    std::unordered_set<std::string> referencing_collections;
+    std::queue<std::string> pending_collections;
+
+    for (const auto& [ref_coll_name, _] : it->second) {
+        if (referencing_collections.insert(ref_coll_name).second) {
+            pending_collections.push(ref_coll_name);
+        }
+    }
+
+    while (!pending_collections.empty()) {
+        auto nested_ref_coll = pending_collections.front();
+        pending_collections.pop();
+
+        auto nested_it = referenced_ins.find(nested_ref_coll);
+        if (nested_it == referenced_ins.end()) {
+            continue;
+        }
+
+        for (const auto& [nested_ref_coll_name, _] : nested_it->second) {
+            if (referencing_collections.insert(nested_ref_coll_name).second) {
+                pending_collections.push(nested_ref_coll_name);
+            }
+        }
+    }
+
+    return referencing_collections;
+}
+
 bool CollectionManager::is_valid_api_key_collection(const std::vector<std::string>& api_collections,
                                                     std::shared_ptr<Collection> coll) const {
     for(const auto& api_collection : api_collections) {
@@ -2666,8 +2702,14 @@ Option<reference_info_t> CollectionManager::is_referenced_in(const std::string& 
 
 Option<reference_info_t> CollectionManager::is_referenced_in_with_lock(const std::string& referenced_coll_name,
                                                                        const std::string& referring_coll_name) const {
-    std::unique_lock lock(mutex);
+    std::shared_lock lock(mutex);
     return is_referenced_in(referenced_coll_name, referring_coll_name);
+}
+
+bool CollectionManager::is_referenced_in_any(const std::string& referenced_coll_name) const {
+    std::shared_lock lock(mutex);
+    const auto it = referenced_ins.find(referenced_coll_name);
+    return it != referenced_ins.end();
 }
 
 Option<bool> CollectionManager::populate_include_exclude_fields(const std::string& collection_name,

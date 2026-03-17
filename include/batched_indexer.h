@@ -41,6 +41,7 @@ private:
     struct refq_entry {
         uint64_t queue_id;
         uint64_t start_ts;
+        std::unordered_set<uint64_t> waiting_on_requests{};
 
         refq_entry(uint64_t qid, uint64_t sts): queue_id(qid), start_ts(sts) {
 
@@ -56,7 +57,6 @@ private:
     await_t* qmutuxes;
     std::vector<std::deque<uint64_t>> queues;
 
-    std::unordered_map<std::string, std::unordered_set<std::string>> coll_to_references;
     await_t refq_wait;
     std::list<refq_entry> reference_q;
 
@@ -65,9 +65,6 @@ private:
 
     std::mutex mutex;
     std::map<uint64_t, req_res_t> req_res_map;
-
-    // used in tracking references
-    std::map<uint64_t, std::string> req_colls;
 
     std::atomic<int64_t> queued_writes = 0;
 
@@ -98,6 +95,10 @@ private:
     static std::string get_req_prefix_key(uint64_t req_id);
 
     static std::string get_req_suffix_key(uint64_t req_id);
+
+    std::unordered_set<uint64_t> get_requests_to_wait_on(const std::shared_ptr<http_req>& req,
+                                                         const std::string& coll_name,
+                                                         const bool& is_live_req);
 
 public:
 
