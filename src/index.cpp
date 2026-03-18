@@ -3003,6 +3003,7 @@ bool Index::resolve_curation(const std::vector<std::string>& rule_tokens, const 
 
 void Index::process_filter_sort_curations(const std::vector<const curation_t*>& filter_sort_curations,
                                      std::vector<std::string>& curation_normalized_queries,
+                                     const std::vector<std::set<std::string>>& curation_rule_token_sets,
                                      std::vector<std::string>& query_tokens,
                                      token_ordering token_order,
                                      std::unique_ptr<filter_node_t>& filter_tree_root,
@@ -3027,10 +3028,7 @@ void Index::process_filter_sort_curations(const std::vector<const curation_t*>& 
                     curation_metadata = curation->metadata;
                 }
                 if (curation->remove_matched_tokens) {
-                    std::vector<std::string> rule_tokens;
-                    Tokenizer(curation->rule.query, true).tokenize(rule_tokens);
-                    std::set<std::string> rule_token_set(rule_tokens.begin(), rule_tokens.end());
-                    remove_matched_tokens(query_tokens, rule_token_set);
+                    remove_matched_tokens(query_tokens, curation_rule_token_sets[i]);
                 }
 
                 if (curation->stop_processing) {

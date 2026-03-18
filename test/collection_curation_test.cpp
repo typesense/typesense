@@ -6186,12 +6186,15 @@ TEST_F(CollectionCurationTest, StemmingWithCuration) {
     ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Children Notebooks","categoryType":"Electronics","region":"act","popularity":90})").ok());
     ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Person Info","categoryType":"Office","region":"nsw","popularity":60})").ok());
     ASSERT_TRUE(coll1->add(R"({"id":"5","title":"People Info","categoryType":"Office","region":"nsw","popularity":60})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"6","title":"Diabetes","categoryType":"Office","region":"nsw","popularity":60})").ok());
 
     //check with stemming dictionary for irregular plurals
     std::vector<std::string> json_lines;
     std::string json_line = "{\"word\": \"people\", \"root\":\"person\"}";
     json_lines.push_back(json_line);
     json_line = "{\"word\": \"children\", \"root\":\"child\"}";
+    json_lines.push_back(json_line);
+    json_line = "{\"word\": \"diabetes\", \"root\":\"diabet\"}";
     json_lines.push_back(json_line);
 
     ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set1", json_lines).ok());
@@ -6265,6 +6268,146 @@ TEST_F(CollectionCurationTest, StemmingWithCuration) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
     ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+
+    //curations rule should match, if search field has stemming enabled and curation rule has disabled
+    curation_json = R"OVR(
+        {
+        "id": "stemmer3",
+        "rule": {
+            "query": "Diabetes",
+            "match": "contains",
+            "stem" : false,
+            "stemming_dictionary": "set1"
+          },
+          "includes": [
+                {"id": "1", "position": 1}
+         ]
+        }
+    )OVR"_json;
+
+    parse_op = curation_t::parse(curation_json, "stemming3", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    results.clear();
+    res_op = coll1->search("Diabetes", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>()); //added by curation rule
+    ASSERT_EQ("6", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionCurationTest, CurationSetShouldNotStripPhraseQueryOperators) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+    nlohmann::json schema = R"({
+          "name": "phrase_products",
+          "fields": [
+              {"name": "title", "type": "string", "stem": true},
+              {"name": "points", "type": "int32", "sort": true}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    coll->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"Child Play","points":10})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"2","title":"Play Child","points":5})").ok());
+
+    auto res_op = coll->search(R"("Child Play")", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+        "id": "phrase-unrelated",
+        "rule": {
+            "query": "Unrelated",
+            "match": "exact"
+          },
+          "includes": [
+                {"id": "1", "position": 1}
+         ]
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "phrase-unrelated", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    res_op = coll->search(R"("Child Play")", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionCurationTest, StaticFilterCurationsShouldRemoveStemmedRuleTokens) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+    nlohmann::json schema = R"({
+          "name": "stemmed_filter_products",
+          "fields": [
+              {"name": "title", "type": "string", "stem_dictionary": "set1"},
+              {"name": "category", "type": "string", "facet": true},
+              {"name": "points", "type": "int32", "sort": true}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    coll->set_curation_sets({"index"});
+
+    std::vector<std::string> json_lines = {
+        R"({"word": "diabetes", "root":"diabet"})"
+    };
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set1", json_lines).ok());
+
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"Wellness Handbook","category":"office","points":50})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"2","title":"Diabetes Management","category":"office","points":40})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"3","title":"Diabetes Recipes","category":"kitchen","points":30})").ok());
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    auto res_op = coll->search("Diabetes", {"title"}, "", {}, sort_fields, {0});
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+        "id": "stemmed-filter",
+        "rule": {
+            "query": "Diabetes",
+            "match": "exact",
+            "stem" : false
+          },
+          "remove_matched_tokens": true,
+          "filter_by": "category:=office"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "stemmed-filter", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    res_op = coll->search("Diabetes", {"title"}, "", {}, sort_fields, {0});
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2"}), ids);
 }
 
 TEST_F(CollectionCurationTest, SynonymsMatchWithCuration) {

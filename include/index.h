@@ -1121,6 +1121,7 @@ public:
 
     void process_filter_sort_curations(const std::vector<const curation_t*>& filter_curations,
                                   std::vector<std::string>& curation_normalized_queries,
+                                  const std::vector<std::set<std::string>>& curation_rule_token_sets,
                                   std::vector<std::string>& query_tokens,
                                   token_ordering token_order,
                                   std::unique_ptr<filter_node_t>& filter_tree_root,
