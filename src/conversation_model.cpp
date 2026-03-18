@@ -1,5 +1,6 @@
 #include <regex>
 #include <iterator>
+#include <cctype>
 #include "conversation_model.h"
 #include "embedder_manager.h"
 #include "text_embedder_remote.h"
@@ -27,19 +28,19 @@ static size_t find_next_sse_delimiter(const std::string& buffer, size_t start, s
 }
 
 static std::vector<std::string> consume_sse_payloads(async_conversation_t& async_conversation, const std::string& chunk) {
-    async_conversation.sse_remainder += chunk;
+    async_conversation.stream_remainder += chunk;
 
     std::vector<std::string> payloads;
     size_t cursor = 0;
 
-    while(cursor < async_conversation.sse_remainder.size()) {
+    while(cursor < async_conversation.stream_remainder.size()) {
         size_t delimiter_len = 0;
-        const auto event_end = find_next_sse_delimiter(async_conversation.sse_remainder, cursor, delimiter_len);
+        const auto event_end = find_next_sse_delimiter(async_conversation.stream_remainder, cursor, delimiter_len);
         if(event_end == std::string::npos) {
             break;
         }
 
-        const auto event = async_conversation.sse_remainder.substr(cursor, event_end - cursor);
+        const auto event = async_conversation.stream_remainder.substr(cursor, event_end - cursor);
         cursor = event_end + delimiter_len;
 
         std::string payload;
@@ -83,7 +84,7 @@ static std::vector<std::string> consume_sse_payloads(async_conversation_t& async
         return payloads;
     }
 
-    async_conversation.sse_remainder.erase(0, cursor);
+    async_conversation.stream_remainder.erase(0, cursor);
     return payloads;
 }
 
@@ -96,6 +97,88 @@ static void append_message_event(std::string& response, const std::string& conve
     json_res["message"] = message;
     json_res["conversation_id"] = conversation_id;
     response += "data: " + json_res.dump(-1) + "\n\n";
+}
+
+static std::vector<std::string> consume_gemini_stream_objects(async_conversation_t& async_conversation, const std::string& chunk) {
+    async_conversation.stream_remainder += chunk;
+
+    std::vector<std::string> objects;
+    size_t cursor = 0;
+    bool malformed_prefix = false;
+
+    while(cursor < async_conversation.stream_remainder.size()) {
+        while(cursor < async_conversation.stream_remainder.size()) {
+            const char c = async_conversation.stream_remainder[cursor];
+            if(c == '[' || c == ']' || c == ',' || std::isspace(static_cast<unsigned char>(c))) {
+                cursor++;
+                continue;
+            }
+            break;
+        }
+
+        if(cursor >= async_conversation.stream_remainder.size()) {
+            break;
+        }
+
+        if(async_conversation.stream_remainder[cursor] != '{') {
+            malformed_prefix = true;
+            break;
+        }
+
+        size_t object_end = std::string::npos;
+        size_t depth = 0;
+        bool in_string = false;
+        bool escaped = false;
+
+        for(size_t i = cursor; i < async_conversation.stream_remainder.size(); i++) {
+            const char c = async_conversation.stream_remainder[i];
+
+            if(escaped) {
+                escaped = false;
+                continue;
+            }
+
+            if(c == '\\' && in_string) {
+                escaped = true;
+                continue;
+            }
+
+            if(c == '"') {
+                in_string = !in_string;
+                continue;
+            }
+
+            if(in_string) {
+                continue;
+            }
+
+            if(c == '{') {
+                depth++;
+            } else if(c == '}') {
+                depth--;
+                if(depth == 0) {
+                    object_end = i;
+                    break;
+                }
+            }
+        }
+
+        if(object_end == std::string::npos) {
+            break;
+        }
+
+        objects.push_back(async_conversation.stream_remainder.substr(cursor, object_end - cursor + 1));
+        cursor = object_end + 1;
+    }
+
+    if(cursor > 0) {
+        async_conversation.stream_remainder.erase(0, cursor);
+    } else if(malformed_prefix) {
+        LOG(ERROR) << "Malformed Gemini stream chunk: " << async_conversation.stream_remainder;
+        async_conversation.stream_remainder.clear();
+    }
+
+    return objects;
 }
 
 static const std::string get_model_namespace(const std::string& model_name) {
@@ -1802,40 +1885,42 @@ void GeminiConversationModel::async_res_write_callback(std::string& response, co
         return;
     }
 
+    auto& async_conversation = async_conversations[req];
     try {
-        if(!response.empty()) {
-            if(response[0] == '[' || response[0] == ',') {
-                response.erase(0, 1);
+        const auto objects = consume_gemini_stream_objects(async_conversation, response);
+        std::string parsed_response;
+        bool found_done = false;
+
+        for(const auto& object : objects) {
+            auto json_res = nlohmann::json::parse(object);
+            if(json_res.count("candidates") == 0 || json_res["candidates"].size() == 0) {
+                continue;
             }
-            if(response.back() == ',' || response.back() == ']') {
-                response.pop_back();
+            if(json_res["candidates"][0].count("content") == 0 || json_res["candidates"][0]["content"].count("parts") == 0) {
+                continue;
+            }
+            if(json_res["candidates"][0]["content"]["parts"].size() == 0) {
+                continue;
+            }
+
+            parsed_response += json_res["candidates"][0]["content"]["parts"][0]["text"].get<std::string>();
+            if(json_res["candidates"][0].count("finishReason") != 0 &&
+               json_res["candidates"][0]["finishReason"] == "STOP") {
+                found_done = true;
             }
         }
 
-        if(response.empty()) {
-            response = "data: \n\n";
-            return;
+        response.clear();
+        if(!parsed_response.empty()) {
+            nlohmann::json json_actual_res;
+            json_actual_res["message"] = parsed_response;
+            json_actual_res["conversation_id"] = async_conversation.conversation_id;
+            response = "data: " + json_actual_res.dump(-1) + "\n\n";
+            async_conversation.response += parsed_response;
         }
-        auto json_res = nlohmann::json::parse(response);
-        if(json_res.count("candidates") == 0 || json_res["candidates"].size() == 0) {
-            return;
-        }
-        if(json_res["candidates"][0].count("content") == 0 || json_res["candidates"][0]["content"].count("parts") == 0) {
-            return;
-        }
-        if(json_res["candidates"][0]["content"]["parts"].size() == 0) {
-            return;
-        }
-        std::string parsed_response = json_res["candidates"][0]["content"]["parts"][0]["text"].get<std::string>();
-        nlohmann::json json_actual_res;
-        json_actual_res["message"] = parsed_response;
-        json_actual_res["conversation_id"] = async_conversations[req].conversation_id;
-        response = "data: " + json_actual_res.dump(-1) + "\n\n";
-        async_conversations[req].response += parsed_response;
-        if(json_res["candidates"][0].count("finishReason") != 0) {
-            if(json_res["candidates"][0]["finishReason"] == "STOP") {
-                response += "data: [DONE]\n\n";
-            }
+
+        if(found_done) {
+            response += "data: [DONE]\n\n";
         }
     } catch (const std::exception& e) {
         LOG(ERROR) << e.what();
