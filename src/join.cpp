@@ -156,15 +156,23 @@ Option<bool> Join::populate_reference_helper_fields(nlohmann::json& document,
                 auto const& object_array = document[keys[0]];
 
                 for (uint32_t i = 0; i < object_array.size(); i++) {
-                    if (optional && object_array[i].count(keys[1]) == 0) {
-                        continue;
-                    } else if (object_array[i].count(keys[1]) == 0) {
+                    if (object_array[i].count(keys[1]) == 0) {
+                        if (optional) {
+                            continue;
+                        }
                         return Option<bool>(400, "Object at index `" + std::to_string(i) + "` is missing `" + field_name + "`.");
-                    } else if (!object_array[i].at(keys[1]).is_string()) {
+                    }
+
+                    auto const& child_value = object_array[i].at(keys[1]);
+                    if (optional && child_value.is_null()) {
+                        continue;
+                    }
+
+                    if (!child_value.is_string()) {
                         return id_field_type_error_op;
                     }
 
-                    auto id = object_array[i].at(keys[1]).get<std::string>();
+                    auto id = child_value.get<std::string>();
                     auto ref_doc_id_op = CollectionManager::doc_id_to_seq_id(reference_collection_name, id);
                     if (!ref_doc_id_op.ok() && is_async_reference) {
                         auto const& value = nlohmann::json::array({i, Join::reference_helper_sentinel_value});
@@ -267,6 +275,8 @@ Option<bool> Join::populate_reference_helper_fields(nlohmann::json& document,
                     continue;
                 } else if (object_array[i].count(keys[1]) == 0) {
                     return Option<bool>(400, "Object at index `" + std::to_string(i) + "` is missing `" + field_name + "`.");
+                } else if (optional && object_array[i].at(keys[1]).is_null()) {
+                    continue;
                 }
 
                 temp_doc[field_name] = object_array[i].at(keys[1]);

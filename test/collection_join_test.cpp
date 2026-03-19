@@ -1117,6 +1117,79 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ("Cannot add a reference to `coll1.object_array_field` of type `object[]`.", add_doc_op.error());
 }
 
+TEST_F(CollectionJoinTest, UpdateOptionalNestedReferenceInObjectArrayViaPatchPath) {
+    auto objects_schema_json =
+            R"({
+                "name": "objects_patch",
+                "fields": [
+                    {"name": "title", "type": "string" },
+                    {"name": "code", "type": "string" }
+                ]
+            })"_json;
+
+    auto objects_collection_op = collectionManager.create_collection(objects_schema_json);
+    ASSERT_TRUE(objects_collection_op.ok());
+    auto objects_collection = objects_collection_op.get();
+
+    ASSERT_TRUE(objects_collection->add(R"({"id":"obj-123","title":"Sample Object","code":"OBJ001"})").ok());
+
+    auto items_schema_json =
+            R"({
+                "name": "items_patch",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name": "recordidentifier", "type": "string" },
+                    {"name": "title", "type": "string" },
+                    {"name": "relatedassetsdata", "type": "object[]", "optional": true },
+                    {"name": "relatedassetsdata.id", "type": "int32[]", "optional": true },
+                    {"name": "relatedassetsdata.relationtype", "type": "string[]", "optional": true },
+                    {"name": "relatedassetsdata.childobjectid", "type": "string[]", "reference": "objects_patch.id", "optional": true }
+                ]
+            })"_json;
+
+    auto items_collection_op = collectionManager.create_collection(items_schema_json);
+    ASSERT_TRUE(items_collection_op.ok());
+    auto items_collection = items_collection_op.get();
+
+    nlohmann::json create_doc = R"({
+        "id": "item-001",
+        "recordidentifier": "REC001",
+        "title": "Test Item with Null Reference",
+        "relatedassetsdata": [
+            {
+                "id": 1,
+                "relationtype": "Related",
+                "childobjectid": null
+            }
+        ]
+    })"_json;
+    auto add_op = items_collection->add(create_doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    nlohmann::json update_doc = R"({
+        "title": "Updated Test Item - Reference Still Null",
+        "relatedassetsdata": [
+            {
+                "id": 1,
+                "relationtype": "Related",
+                "childobjectid": null
+            }
+        ]
+    })"_json;
+    std::string dirty_values;
+    auto update_op = items_collection->update_matching_filter("id:=item-001", update_doc.dump(), dirty_values);
+    ASSERT_TRUE(update_op.ok()) << update_op.error();
+    ASSERT_EQ(1, update_op.get()["num_updated"]);
+
+    auto get_op = items_collection->get("item-001");
+    ASSERT_TRUE(get_op.ok());
+    auto doc = get_op.get();
+    ASSERT_EQ("Updated Test Item - Reference Still Null", doc["title"]);
+    ASSERT_EQ(1, doc.count("relatedassetsdata"));
+    ASSERT_EQ(1, doc["relatedassetsdata"].size());
+    ASSERT_EQ(0, doc["relatedassetsdata"][0].count("childobjectid"));
+}
+
 TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
     auto schema_json =
             R"({
