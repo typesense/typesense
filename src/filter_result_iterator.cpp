@@ -1792,7 +1792,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                 filter_result_iterator_t dummy_it(nullptr, 0);
                 std::vector<sort_by> sort_fields;
-                std::vector<std::vector<art_leaf*>> searched_filters;
+                std::vector<std::vector<std::string>> searched_filter_tokens;
                 tsl::htrie_map<char, token_leaf> qtoken_set;
                 Topster<KV>* topster = nullptr;
                 spp::sparse_hash_map<uint64_t, uint32_t> groups_processed;
@@ -1812,7 +1812,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                 auto fuzzy_search_fields_op = index->fuzzy_search_fields(fq_fields, value_tokens, {}, text_match_type_t::max_score,
                                                                          nullptr, 0, &dummy_it, {}, sort_fields,
-                                                                         {0}, searched_filters, qtoken_set, topster,
+                                                                         {0}, searched_filter_tokens, qtoken_set, topster,
                                                                          groups_processed, all_result_ids, all_result_ids_len,
                                                                          0, group_by_fields, false, false, false, false,
                                                                          query_hashes, MAX_SCORE, {true}, typo_tokens_threshold,
@@ -1828,11 +1828,13 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 }
 
                 // Searching for `Chris P.*` will return `Chris Parnell` and `Chris Pine`.
-                for (const auto& searched_filter_value: searched_filters) {
+                for (const auto& searched_filter_value: searched_filter_tokens) {
                     raw_posting_lists.clear();
                     approx_filter_value_match = UINT32_MAX;
 
-                    for (const auto& leaf: searched_filter_value) {
+                    for (const auto& token: searched_filter_value) {
+                        auto* leaf = static_cast<art_leaf*>(
+                            art_search(t, (const unsigned char*) token.c_str(), token.size() + 1));
                         if (leaf == nullptr) {
                             continue;
                         }

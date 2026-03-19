@@ -4110,7 +4110,7 @@ void Collection::expand_search_query(const tsl::htrie_map<char, field>& search_s
         return ;
     }
 
-    if(offset == 0 && !raw_search_fields.empty() && !search_params->searched_queries.empty() &&
+    if(offset == 0 && !raw_search_fields.empty() && !search_params->searched_query_tokens.empty() &&
         total != 0 && !result_group_kvs.empty()) {
         // we have to map raw_query (which could contain a prefix) back to expanded version
         auto search_field_it = search_schema.find(raw_search_fields[0]);
@@ -4120,26 +4120,25 @@ void Collection::expand_search_query(const tsl::htrie_map<char, field>& search_s
 
         first_q = "";
         auto q_index = result_group_kvs[0][0]->query_index;
-        if(q_index >= search_params->searched_queries.size()) {
+        if(q_index >= search_params->searched_query_tokens.size()) {
             return ;
         }
 
-        const auto& qleaves = search_params->searched_queries[q_index];
+        const auto& qtokens = search_params->searched_query_tokens[q_index];
         Tokenizer tokenizer(raw_query, true, false, search_field_it->locale, symbols_to_index, token_separators, search_field_it->get_stemmer());
         std::string raw_token;
         size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
 
         while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
-            if(raw_token_index < qleaves.size()) {
-                auto leaf = qleaves[raw_token_index];
-                std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
+            if(raw_token_index < qtokens.size()) {
+                const auto& tok = qtokens[raw_token_index];
                 if(StringUtils::begins_with(tok, raw_token)) {
                     first_q += tok + " ";
                 }
             }
         }
 
-        if(qleaves.size() != raw_token_index+1) {
+        if(qtokens.size() != raw_token_index+1) {
             first_q = raw_query;
         }
 
