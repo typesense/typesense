@@ -514,16 +514,38 @@ bool get_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 }
 
 uint64_t hash_request(const std::shared_ptr<http_req>& req) {
-    std::stringstream ss;
-    ss << req->route_hash << req->body;
+    auto append_component = [](std::string& req_str, const std::string& value) {
+        req_str.append(std::to_string(value.size()));
+        req_str.push_back(':');
+        req_str.append(value);
+    };
 
-    for(auto& kv: req->params) {
-        if(kv.first != "use_cache") {
-            ss << kv.second;
+    std::string req_str;
+    req_str.reserve(req->body.size() + (req->params.size() * 32) + (req->embedded_params_vec.size() * 72) + 64);
+
+    append_component(req_str, std::to_string(req->route_hash));
+    append_component(req_str, req->body);
+
+    for(const auto& kv : req->params) {
+        const auto& param_name = kv.first;
+        if(param_name != "use_cache" && param_name != http_req::USER_HEADER) {
+            append_component(req_str, param_name);
+            append_component(req_str, kv.second);
         }
     }
 
-    const std::string& req_str = ss.str();
+    for(const auto& embedded_params_item : req->embedded_params_vec) {
+        req_str.push_back(';');
+        for(const auto& item : embedded_params_item.items()) {
+            if(item.key() == "expires_at" || item.key() == AuthManager::AUTH_RESOLVED_COLLECTION_PARAM) {
+                continue;
+            }
+
+            append_component(req_str, item.key());
+            append_component(req_str, item.value().dump());
+        }
+    }
+
     return StringUtils::hash_wy(req_str.c_str(), req_str.size());
 }
 

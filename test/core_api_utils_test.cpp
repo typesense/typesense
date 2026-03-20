@@ -14,6 +14,8 @@
 #include <unistd.h>
 #include <vector>
 
+uint64_t hash_request(const std::shared_ptr<http_req>& req);
+
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
     Store *store;
@@ -429,6 +431,139 @@ TEST_F(CoreAPIUtilsTest, MultiSearchUsesAuthenticatedBodyCollectionInsteadOfTopL
     ASSERT_EQ("body_coll", response["results"][0]["request_params"]["collection_name"].get<std::string>());
     ASSERT_EQ(1, response["results"][0]["found"].get<size_t>());
     ASSERT_EQ("body match", response["results"][0]["hits"][0]["document"]["title"].get<std::string>());
+}
+
+TEST_F(CoreAPIUtilsTest, SearchCacheShouldRespectScopedEmbeddedFilters) {
+    const std::string coll_name = "scoped_cache_" + StringUtils::randstring(8);
+    const std::string query = "cache-" + StringUtils::randstring(6);
+
+    nlohmann::json schema = {
+        {"name", coll_name},
+        {"fields", nlohmann::json::array({
+            {{"name", "title"}, {"type", "string"}},
+            {{"name", "user_id"}, {"type", "int32"}, {"facet", true}}
+        })}
+    };
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    ASSERT_TRUE(coll->add("{\"id\":\"1\",\"title\":\"" + query + "\",\"user_id\":1}", CREATE).ok());
+    ASSERT_TRUE(coll->add("{\"id\":\"2\",\"title\":\"" + query + "\",\"user_id\":2}", CREATE).ok());
+
+    api_key_t parent_key("ScopedCacheLeak" + StringUtils::randstring(8), "scoped cache parent", {"documents:search"},
+                         {coll_name}, api_key_t::FAR_FUTURE_TIMESTAMP);
+    auto key_op = collectionManager.getAuthManager().create_key(parent_key);
+    ASSERT_TRUE(key_op.ok());
+
+    const auto build_scoped_key = [&](const std::string& filter_by) {
+        const std::string custom_params = "{\"filter_by\":\"" + filter_by + "\"}";
+        const std::string scoped_key_payload = StringUtils::hmac(parent_key.value, custom_params) +
+                                               parent_key.value.substr(0, api_key_t::PREFIX_LEN) + custom_params;
+        return StringUtils::base64_encode(scoped_key_payload);
+    };
+
+    const std::string scoped_key_user_1 = build_scoped_key("user_id:1");
+    const std::string scoped_key_user_2 = build_scoped_key("user_id:2");
+
+    route_path rpath_search = route_path("GET", {"collections", ":collection", "documents", "search"},
+                                         get_search, false, false);
+
+    auto req1 = std::make_shared<http_req>();
+    auto res1 = std::make_shared<http_res>(nullptr);
+    req1->route_hash = rpath_search.route_hash();
+    req1->params["collection"] = coll_name;
+    req1->params["q"] = query;
+    req1->params["query_by"] = "title";
+    req1->params["use_cache"] = "1";
+
+    ASSERT_TRUE(handle_authentication(req1->params, req1->embedded_params_vec, req1->body, rpath_search, scoped_key_user_1));
+    ASSERT_EQ("user_id:1", req1->embedded_params_vec[0]["filter_by"].get<std::string>());
+    ASSERT_TRUE(get_search(req1, res1));
+
+    auto response1 = nlohmann::json::parse(res1->body);
+    ASSERT_EQ(1, response1["found"].get<size_t>());
+    ASSERT_EQ(1, response1["hits"][0]["document"]["user_id"].get<int32_t>());
+
+    auto req2 = std::make_shared<http_req>();
+    auto res2 = std::make_shared<http_res>(nullptr);
+    req2->route_hash = rpath_search.route_hash();
+    req2->params["collection"] = coll_name;
+    req2->params["q"] = query;
+    req2->params["query_by"] = "title";
+    req2->params["use_cache"] = "1";
+
+    ASSERT_TRUE(handle_authentication(req2->params, req2->embedded_params_vec, req2->body, rpath_search, scoped_key_user_2));
+    ASSERT_EQ("user_id:2", req2->embedded_params_vec[0]["filter_by"].get<std::string>());
+    ASSERT_TRUE(get_search(req2, res2));
+
+    auto response2 = nlohmann::json::parse(res2->body);
+    ASSERT_EQ(1, response2["found"].get<size_t>());
+    ASSERT_EQ(2, response2["hits"][0]["document"]["user_id"].get<int32_t>());
+}
+
+TEST_F(CoreAPIUtilsTest, SearchCacheShouldIncludeParamNamesAndIgnoreInternalEmbeddedParams) {
+    const std::string coll_name = "cache_collision_" + StringUtils::randstring(8);
+
+    nlohmann::json schema = {
+        {"name", coll_name},
+        {"fields", nlohmann::json::array({
+            {{"name", "c"}, {"type", "string"}},
+            {{"name", "bc"}, {"type", "string"}}
+        })}
+    };
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"1","c":"ab","bc":"x"})", CREATE).ok());
+    ASSERT_TRUE(coll->add(R"({"id":"2","c":"x","bc":"a"})", CREATE).ok());
+
+    route_path rpath_search = route_path("GET", {"collections", ":collection", "documents", "search"},
+                                         get_search, false, false);
+
+    const auto make_req = [&](const std::string& q, const std::string& query_by) {
+        auto req = std::make_shared<http_req>();
+        req->route_hash = rpath_search.route_hash();
+        req->params["collection"] = coll_name;
+        req->params["q"] = q;
+        req->params["query_by"] = query_by;
+        req->params["use_cache"] = "1";
+        req->embedded_params_vec.push_back(nlohmann::json::object());
+        return req;
+    };
+
+    auto req1 = make_req("a", "bc");
+    auto req2 = make_req("ab", "c");
+
+    ASSERT_NE(hash_request(req1), hash_request(req2));
+
+    auto res1 = std::make_shared<http_res>(nullptr);
+    auto res2 = std::make_shared<http_res>(nullptr);
+
+    ASSERT_TRUE(get_search(req1, res1));
+    auto response1 = nlohmann::json::parse(res1->body);
+    ASSERT_EQ(1, response1["found"].get<size_t>());
+    ASSERT_EQ("2", response1["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_TRUE(get_search(req2, res2));
+    auto response2 = nlohmann::json::parse(res2->body);
+    ASSERT_EQ(1, response2["found"].get<size_t>());
+    ASSERT_EQ("1", response2["hits"][0]["document"]["id"].get<std::string>());
+
+    auto hash_req_base = make_req("a", "bc");
+    hash_req_base->embedded_params_vec.push_back({
+        {"filter_by", "user_id:1"},
+        {"expires_at", 111},
+        {AuthManager::AUTH_RESOLVED_COLLECTION_PARAM, "alpha"}
+    });
+
+    auto hash_req_variant = make_req("a", "bc");
+    hash_req_variant->embedded_params_vec.push_back({
+        {"filter_by", "user_id:1"},
+        {"expires_at", 999999},
+        {AuthManager::AUTH_RESOLVED_COLLECTION_PARAM, "beta"}
+    });
+
+    ASSERT_EQ(hash_request(hash_req_base), hash_request(hash_req_variant));
 }
 
 TEST_F(CoreAPIUtilsTest, MultiSearchConversationWithEarlierErrorShouldNotReuseFirstSearchCollection) {
