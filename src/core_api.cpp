@@ -566,9 +566,134 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         return false;
     }
 
+    bool conversation = req->params.find("conversation") != req->params.end() && req->params["conversation"] == "true";
+    std::string conversation_id;
+    std::string conversation_model_id;
+    const auto q_it = req->params.find("q");
+    std::string query = q_it == req->params.end() ? "" : q_it->second;
+    std::string raw_query = query;
+
+    if(req->params.find("conversation_id") != req->params.end()) {
+        conversation_id = req->params["conversation_id"];
+    }
+
+    if(req->params.find("conversation_model_id") != req->params.end()) {
+        conversation_model_id = req->params["conversation_model_id"];
+    }
+
+    if(!conversation && !conversation_id.empty()) {
+        res->set_400("Conversation ID provided but conversation is not enabled for this collection.");
+        return false;
+    }
+
+    if(conversation) {
+        if(conversation_model_id.empty()) {
+            res->set(400, "Conversation is enabled but no conversation model ID is provided.");
+            return false;
+        }
+
+        auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
+        if(!conversation_model_op.ok()) {
+            res->set(400, conversation_model_op.error());
+            return false;
+        }
+
+        if(!conversation_id.empty()) {
+            auto conversation_history_op = ConversationManager::get_instance().get_conversation(conversation_id, conversation_model_op.get());
+            if(!conversation_history_op.ok()) {
+                res->set_400(conversation_history_op.error());
+                return false;
+            }
+
+            auto standalone_question_op = ConversationModel::get_standalone_question(
+                conversation_history_op.get(), raw_query, conversation_model_op.get());
+            if(!standalone_question_op.ok()) {
+                res->set_400(standalone_question_op.error());
+                return false;
+            }
+
+            query = standalone_question_op.get();
+            req->params["q"] = query;
+        }
+    }
+
     std::string results_json_str;
     Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0],
                                                           results_json_str, req->conn_ts);
+    if(conversation && search_op.ok()) {
+        nlohmann::json results_json = nlohmann::json::parse(results_json_str);
+        results_json["conversation"] = nlohmann::json::object();
+        results_json["conversation"]["query"] = query;
+
+        nlohmann::json docs_array = nlohmann::json::array();
+        if(results_json.count("hits") != 0 && results_json["hits"].is_array()) {
+            docs_array = results_json["hits"];
+        }
+
+        auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
+        auto min_required_bytes_op = ConversationModel::get_minimum_required_bytes(conversation_model);
+        if(!min_required_bytes_op.ok()) {
+            res->set(min_required_bytes_op.code(), min_required_bytes_op.error());
+            return false;
+        }
+
+        auto min_required_bytes = min_required_bytes_op.get();
+        if(conversation_model["max_bytes"].get<size_t>() < min_required_bytes + query.size()) {
+            res->set_400("`max_bytes` of the conversation model is less than the minimum required bytes(" + std::to_string(min_required_bytes) + ").");
+            return false;
+        }
+
+        while(docs_array.dump(0).size() > conversation_model["max_bytes"].get<size_t>() - min_required_bytes - query.size()) {
+            if(docs_array.empty()) {
+                break;
+            }
+            docs_array.erase(docs_array.size() - 1);
+        }
+
+        auto answer_op = ConversationModel::get_answer(docs_array.dump(0), query, conversation_model);
+        if(!answer_op.ok()) {
+            res->set(answer_op.code(), answer_op.error());
+            return false;
+        }
+
+        results_json["conversation"]["answer"] = answer_op.get();
+        std::vector<std::string> exclude_fields;
+        const auto exclude_fields_it = req->params.find("exclude_fields");
+        if(exclude_fields_it != req->params.end()) {
+            StringUtils::split(exclude_fields_it->second, exclude_fields, ",");
+        }
+        bool exclude_conversation_history =
+            std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
+
+        auto conversation_history_op = ConversationManager::get_instance().get_full_conversation(
+            raw_query, answer_op.get(), conversation_model, conversation_id);
+        if(!conversation_history_op.ok()) {
+            res->set(conversation_history_op.code(), conversation_history_op.error());
+            return false;
+        }
+
+        auto conversation_history = conversation_history_op.get();
+        auto new_conversation_op = ConversationManager::get_last_n_messages(conversation_history["conversation"], 2);
+        if(!new_conversation_op.ok()) {
+            res->set(new_conversation_op.code(), new_conversation_op.error());
+            return false;
+        }
+
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(
+            new_conversation_op.get(), conversation_model, conversation_id);
+        if(!add_conversation_op.ok()) {
+            res->set(add_conversation_op.code(), add_conversation_op.error());
+            return false;
+        }
+
+        if(!exclude_conversation_history) {
+            results_json["conversation"]["conversation_history"] = conversation_history;
+        }
+        results_json["conversation"]["conversation_id"] = add_conversation_op.get();
+        results_json["request_params"]["q"] = raw_query;
+        results_json["request_params"]["first_q"] = raw_query;
+        results_json_str = results_json.dump();
+    }
 
     if(!search_op.ok()) {
         res->set(search_op.code(), search_op.error());
@@ -899,6 +1024,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             // pop the last element from first array
             if(result_docs_arr.size() > 0 && result_docs_arr[0].size() > 0) {
                 result_docs_arr[0].erase(result_docs_arr[0].size() - 1);
+            } else {
+                break;
             }
         }
 

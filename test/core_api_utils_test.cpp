@@ -1,16 +1,18 @@
-#include <gtest/gtest.h>
 #include "collection.h"
-#include <vector>
-#include <collection_manager.h>
-#include <core_api.h>
-#include <analytics_manager.h>
-#include "core_api_utils.h"
-#include "raft_server.h"
-#include "conversation_model_manager.h"
 #include "conversation_manager.h"
-#include "synonym_index_manager.h"
+#include "conversation_model_manager.h"
+#include "core_api_utils.h"
 #include "curation_index_manager.h"
+#include "raft_server.h"
 #include "string_utils.h"
+#include "synonym_index_manager.h"
+#include <analytics_manager.h>
+#include <collection_manager.h>
+#include <conversation_model.h>
+#include <core_api.h>
+#include <gtest/gtest.h>
+#include <unistd.h>
+#include <vector>
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
@@ -427,6 +429,159 @@ TEST_F(CoreAPIUtilsTest, MultiSearchUsesAuthenticatedBodyCollectionInsteadOfTopL
     ASSERT_EQ("body_coll", response["results"][0]["request_params"]["collection_name"].get<std::string>());
     ASSERT_EQ(1, response["results"][0]["found"].get<size_t>());
     ASSERT_EQ("body match", response["results"][0]["hits"][0]["document"]["title"].get<std::string>());
+}
+
+TEST_F(CoreAPIUtilsTest, MultiSearchConversationWithEarlierErrorShouldNotReuseFirstSearchCollection) {
+    nlohmann::json schema = R"({
+        "name": "stale_res_index_docs",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"duck story"})", CREATE).ok());
+
+    const std::string model_id = "stale-res-index-model-" + StringUtils::randstring(8);
+    nlohmann::json model = {
+        {"id", model_id},
+        {"model_name", "azure/test-model"},
+        {"api_key", "dummy"},
+        {"url", "http://127.0.0.1:1"},
+        {"history_collection", "conversation_store"},
+        {"max_bytes", 1}
+    };
+    ConversationModelManager::insert_model_for_testing(model_id, model);
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["conversation"] = "true";
+    req->params["conversation_model_id"] = model_id;
+    req->params["q"] = "duck";
+    req->embedded_params_vec.push_back(nlohmann::json::object());
+    req->embedded_params_vec.push_back(nlohmann::json::object());
+
+    nlohmann::json body;
+    body["searches"] = nlohmann::json::array();
+    body["searches"].push_back({
+        {"collection", false},
+        {"query_by", "missing_field"}
+    });
+    body["searches"].push_back({
+        {"collection", "stale_res_index_docs"},
+        {"query_by", "title"}
+    });
+    req->body = body.dump();
+
+    bool handled = true;
+    EXPECT_NO_THROW(handled = post_multi_search(req, res));
+    EXPECT_FALSE(handled);
+    EXPECT_EQ(400, res->status_code);
+
+    if(res->status_code != 400) {
+        return;
+    }
+
+    const auto expected_min_bytes = AzureConversationModel::get_minimum_required_bytes();
+    auto response = nlohmann::json::parse(res->body);
+    ASSERT_EQ("`max_bytes` of the conversation model is less than the minimum required bytes(" +
+                  std::to_string(expected_min_bytes) + ").",
+              response["message"].get<std::string>());
+}
+
+TEST_F(CoreAPIUtilsTest, GetSearchConversationUnderlyingSearchErrorShouldNotThrow) {
+    nlohmann::json schema = R"({
+        "name": "conversation_error_docs",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    const std::string model_id = "conversation-error-model-" + StringUtils::randstring(8);
+    nlohmann::json model = {
+        {"id", model_id},
+        {"model_name", "azure/test-model"},
+        {"api_key", "dummy"},
+        {"url", "http://127.0.0.1:1"},
+        {"history_collection", "conversation_store"},
+        {"max_bytes", AzureConversationModel::get_minimum_required_bytes() + 16}
+    };
+    ConversationModelManager::insert_model_for_testing(model_id, model);
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "conversation_error_docs";
+    req->params["q"] = "duck";
+    req->params["query_by"] = "missing_field";
+    req->params["conversation"] = "true";
+    req->params["conversation_model_id"] = model_id;
+    req->embedded_params_vec.push_back(nlohmann::json::object());
+
+    bool handled = true;
+    EXPECT_NO_THROW(handled = get_search(req, res));
+    EXPECT_FALSE(handled);
+    ASSERT_NE(0, res->status_code);
+
+    auto response = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Could not find a field named `missing_field` in the schema.",
+              response["message"].get<std::string>());
+}
+
+TEST_F(CoreAPIUtilsTest, MultiSearchConversationZeroHitTrimmingShouldNotHang) {
+    nlohmann::json schema = R"({
+        "name": "conversation_zero_hits_docs",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"duck story"})", CREATE).ok());
+
+    const std::string model_id = "conversation-zero-hits-model-" + StringUtils::randstring(8);
+    nlohmann::json model = {
+        {"id", model_id},
+        {"model_name", "azure/test-model"},
+        {"api_key", "dummy"},
+        {"url", "http://127.0.0.1:1"},
+        {"history_collection", "conversation_store"},
+        {"max_bytes", AzureConversationModel::get_minimum_required_bytes() + 1}
+    };
+    ConversationModelManager::insert_model_for_testing(model_id, model);
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["conversation"] = "true";
+    req->params["conversation_model_id"] = model_id;
+    req->params["q"] = "x";
+    req->embedded_params_vec.push_back(nlohmann::json::object());
+
+    nlohmann::json body;
+    body["searches"] = nlohmann::json::array();
+    body["searches"].push_back({
+        {"collection", "conversation_zero_hits_docs"},
+        {"query_by", "title"}
+    });
+    req->body = body.dump();
+
+    ASSERT_EXIT(
+        {
+            alarm(1);
+            const bool handled = post_multi_search(req, res);
+            alarm(0);
+
+            if(!handled && res->final && res->status_code != 0) {
+                _exit(0);
+            }
+
+            _exit(1);
+        },
+        ::testing::ExitedWithCode(0),
+        "");
 }
 
 TEST_F(CoreAPIUtilsTest, SearchEmbeddedPresetKey) {
