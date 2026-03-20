@@ -9,6 +9,96 @@
 #include "http_proxy.h"
 #include "string_utils.h"
 
+static size_t find_next_sse_delimiter(const std::string& buffer, size_t start, size_t& delimiter_len) {
+    const auto lf_pos = buffer.find("\n\n", start);
+    const auto crlf_pos = buffer.find("\r\n\r\n", start);
+
+    if(lf_pos == std::string::npos && crlf_pos == std::string::npos) {
+        delimiter_len = 0;
+        return std::string::npos;
+    }
+
+    if(crlf_pos == std::string::npos || (lf_pos != std::string::npos && lf_pos < crlf_pos)) {
+        delimiter_len = 2;
+        return lf_pos;
+    }
+
+    delimiter_len = 4;
+    return crlf_pos;
+}
+
+static std::vector<std::string> consume_sse_payloads(async_conversation_t& async_conversation, const std::string& chunk) {
+    async_conversation.stream_remainder += chunk;
+
+    std::vector<std::string> payloads;
+    size_t cursor = 0;
+
+    while(cursor < async_conversation.stream_remainder.size()) {
+        size_t delimiter_len = 0;
+        const auto event_end = find_next_sse_delimiter(async_conversation.stream_remainder, cursor, delimiter_len);
+        if(event_end == std::string::npos) {
+            break;
+        }
+
+        const auto event = async_conversation.stream_remainder.substr(cursor, event_end - cursor);
+        cursor = event_end + delimiter_len;
+
+        std::string payload;
+        bool found_data_line = false;
+        size_t line_start = 0;
+
+        while(line_start <= event.size()) {
+            const auto line_end = event.find('\n', line_start);
+            auto line = event.substr(line_start, line_end == std::string::npos ? std::string::npos : line_end - line_start);
+            if(!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+
+            if(line.rfind("data:", 0) == 0) {
+                size_t data_start = 5;
+                if(data_start < line.size() && line[data_start] == ' ') {
+                    data_start++;
+                }
+
+                if(found_data_line) {
+                    payload += "\n";
+                }
+                payload += line.substr(data_start);
+                found_data_line = true;
+            }
+
+            if(line_end == std::string::npos) {
+                break;
+            }
+
+            line_start = line_end + 1;
+        }
+
+        if(found_data_line) {
+            payloads.emplace_back(std::move(payload));
+        }
+    }
+
+    // No complete event was consumed, so keep the accumulated remainder intact.
+    if(cursor == 0) {
+        return payloads;
+    }
+
+    async_conversation.stream_remainder.erase(0, cursor);
+    return payloads;
+}
+
+static void append_message_event(std::string& response, const std::string& conversation_id, const std::string& message) {
+    if(message.empty()) {
+        return;
+    }
+
+    nlohmann::json json_res;
+    json_res["message"] = message;
+    json_res["conversation_id"] = conversation_id;
+    response += "data: " + json_res.dump(-1) + "\n\n";
+}
+
 static std::vector<std::string> consume_gemini_stream_objects(async_conversation_t& async_conversation, const std::string& chunk) {
     async_conversation.stream_remainder += chunk;
 
@@ -615,31 +705,33 @@ void OpenAIConversationModel::async_res_write_callback(std::string& response, co
         return;
     }
 
+    auto& async_conversation = async_conversations[req];
     try {
         bool found_done = false;
         std::string parsed_response;
-        std::regex data_regex("data: (.*?)\\n\\n");
-        auto begin = std::sregex_iterator(response.begin(), response.end(), data_regex);
-        auto end = std::sregex_iterator();
-        for (std::sregex_iterator i = begin; i != end; ++i) {
-            std::string substr_line = i->str().substr(6, i->str().size() - 8);
-            if(substr_line.find("[DONE]") != std::string::npos) {
-                found_done = true;  
-                break;
-            }
-            nlohmann::json json_line;
-            json_line = nlohmann::json::parse(substr_line);
-            if(json_line.count("choices") == 0 || json_line["choices"][0].count("delta") == 0 || json_line["choices"][0]["delta"].count("content") == 0) {
+        const auto payloads = consume_sse_payloads(async_conversation, response);
+
+        for(const auto& payload : payloads) {
+            if(payload.find("[DONE]") != std::string::npos) {
+                found_done = true;
                 continue;
             }
-            parsed_response += json_line["choices"][0]["delta"]["content"].get<std::string>();
+
+            try {
+                auto json_line = nlohmann::json::parse(payload);
+                if(json_line.count("choices") == 0 || json_line["choices"][0].count("delta") == 0 || json_line["choices"][0]["delta"].count("content") == 0) {
+                    continue;
+                }
+                parsed_response += json_line["choices"][0]["delta"]["content"].get<std::string>();
+            } catch (const std::exception& e) {
+                LOG(ERROR) << e.what();
+                LOG(ERROR) << "Response: " << payload;
+            }
         }
 
-        async_conversations[req].response += parsed_response;
-        nlohmann::json json_res;
-        json_res["message"] = parsed_response;
-        json_res["conversation_id"] = async_conversations[req].conversation_id;
-        response = "data: " + json_res.dump(-1) + "\n\n";
+        async_conversation.response += parsed_response;
+        response.clear();
+        append_message_event(response, async_conversation.conversation_id, parsed_response);
         if(found_done) {
             response += "data: [DONE]\n\n";
         }
@@ -655,8 +747,12 @@ bool OpenAIConversationModel::async_res_done_callback(const std::shared_ptr<http
         return false;
     }
 
-    async_conversations[req].ready = true;
-    async_conversations[req].cv.notify_one();
+    auto& async_conversation = async_conversations[req];
+    {
+        std::lock_guard<std::mutex> lock(async_conversation.mutex);
+        async_conversation.ready = true;
+    }
+    async_conversation.cv.notify_one();
     return false;
 }
 
@@ -1084,31 +1180,33 @@ void CFConversationModel::async_res_write_callback(std::string& response, const 
         return;
     }
 
+    auto& async_conversation = async_conversations[req];
     try {
         bool found_done = false;
         std::string parsed_response;
-        std::regex data_regex("data: (.*?)\\n\\n");
-        auto begin = std::sregex_iterator(response.begin(), response.end(), data_regex);
-        auto end = std::sregex_iterator();
-        for (std::sregex_iterator i = begin; i != end; ++i) {
-            std::string substr_line = i->str().substr(6, i->str().size() - 8);
-            if(substr_line.find("[DONE]") != std::string::npos) {
-                found_done = true;  
-                break;
-            }
-            nlohmann::json json_line;
-            json_line = nlohmann::json::parse(substr_line);
-            if(json_line.count("response") == 0) {
+        const auto payloads = consume_sse_payloads(async_conversation, response);
+
+        for(const auto& payload : payloads) {
+            if(payload.find("[DONE]") != std::string::npos) {
+                found_done = true;
                 continue;
             }
-            parsed_response += json_line["response"].get<std::string>();
+
+            try {
+                auto json_line = nlohmann::json::parse(payload);
+                if(json_line.count("response") == 0) {
+                    continue;
+                }
+                parsed_response += json_line["response"].get<std::string>();
+            } catch (const std::exception& e) {
+                LOG(ERROR) << e.what();
+                LOG(ERROR) << "Response: " << payload;
+            }
         }
 
-        async_conversations[req].response += parsed_response;
-        nlohmann::json json_res;
-        json_res["message"] = parsed_response;
-        json_res["conversation_id"] = async_conversations[req].conversation_id;
-        response = "data: " + json_res.dump(-1) + "\n\n";
+        async_conversation.response += parsed_response;
+        response.clear();
+        append_message_event(response, async_conversation.conversation_id, parsed_response);
         if(found_done) {
             response += "data: [DONE]\n\n";
         }
@@ -1124,8 +1222,12 @@ bool CFConversationModel::async_res_done_callback(const std::shared_ptr<http_req
         return false;
     }
 
-    async_conversations[req].ready = true;
-    async_conversations[req].cv.notify_one();
+    auto& async_conversation = async_conversations[req];
+    {
+        std::lock_guard<std::mutex> lock(async_conversation.mutex);
+        async_conversation.ready = true;
+    }
+    async_conversation.cv.notify_one();
     return false;
 }
 
@@ -1492,31 +1594,33 @@ void vLLMConversationModel::async_res_write_callback(std::string& response, cons
         return;
     }
 
+    auto& async_conversation = async_conversations[req];
     try {
         bool found_done = false;
         std::string parsed_response;
-        std::regex data_regex("data: (.*?)\\n\\n");
-        auto begin = std::sregex_iterator(response.begin(), response.end(), data_regex);
-        auto end = std::sregex_iterator();
-        for (std::sregex_iterator i = begin; i != end; ++i) {
-            std::string substr_line = i->str().substr(6, i->str().size() - 8);
-            if(substr_line.find("[DONE]") != std::string::npos) {
-                found_done = true;  
-                break;
-            }
-            nlohmann::json json_line;
-            json_line = nlohmann::json::parse(substr_line);
-            if(json_line.count("choices") == 0 || json_line["choices"][0].count("delta") == 0 || json_line["choices"][0]["delta"].count("content") == 0) {
+        const auto payloads = consume_sse_payloads(async_conversation, response);
+
+        for(const auto& payload : payloads) {
+            if(payload.find("[DONE]") != std::string::npos) {
+                found_done = true;
                 continue;
             }
-            parsed_response += json_line["choices"][0]["delta"]["content"].get<std::string>();
+
+            try {
+                auto json_line = nlohmann::json::parse(payload);
+                if(json_line.count("choices") == 0 || json_line["choices"][0].count("delta") == 0 || json_line["choices"][0]["delta"].count("content") == 0) {
+                    continue;
+                }
+                parsed_response += json_line["choices"][0]["delta"]["content"].get<std::string>();
+            } catch (const std::exception& e) {
+                LOG(ERROR) << e.what();
+                LOG(ERROR) << "Response: " << payload;
+            }
         }
 
-        async_conversations[req].response += parsed_response;
-        nlohmann::json json_res;
-        json_res["message"] = parsed_response;
-        json_res["conversation_id"] = async_conversations[req].conversation_id;
-        response = "data: " + json_res.dump(-1) + "\n\n";
+        async_conversation.response += parsed_response;
+        response.clear();
+        append_message_event(response, async_conversation.conversation_id, parsed_response);
         if(found_done) {
             response += "data: [DONE]\n\n";
         }
@@ -1532,8 +1636,12 @@ bool vLLMConversationModel::async_res_done_callback(const std::shared_ptr<http_r
         return false;
     }
 
-    async_conversations[req].ready = true;
-    async_conversations[req].cv.notify_one();
+    auto& async_conversation = async_conversations[req];
+    {
+        std::lock_guard<std::mutex> lock(async_conversation.mutex);
+        async_conversation.ready = true;
+    }
+    async_conversation.cv.notify_one();
     return false;
 }
 
@@ -2079,9 +2187,9 @@ Option<nlohmann::json> AzureConversationModel::format_answer(const std::string& 
 }
 
 bool AzureConversationModel::async_res_set_headers_callback(const std::string& response, 
-                                                           const std::shared_ptr<http_req> req, 
-                                                           long status_code, 
-                                                           std::string& content_type) {
+                                                          const std::shared_ptr<http_req> req, 
+                                                          long status_code, 
+                                                          std::string& content_type) {
     auto& async_conversations = ConversationModel::async_conversations;
     if(async_conversations.find(req) == async_conversations.end()) {
         return false;
@@ -2089,9 +2197,13 @@ bool AzureConversationModel::async_res_set_headers_callback(const std::string& r
     
     async_conversations[req].status_code = status_code;
     if(status_code != 200) {
-        async_conversations[req].response = response;
-        async_conversations[req].ready = true;
-        async_conversations[req].cv.notify_one();
+        auto& async_conversation = async_conversations[req];
+        async_conversation.response = response;
+        {
+            std::lock_guard<std::mutex> lock(async_conversation.mutex);
+            async_conversation.ready = true;
+        }
+        async_conversation.cv.notify_one();
         return false;
     }
     
@@ -2105,99 +2217,88 @@ void AzureConversationModel::async_res_write_callback(std::string& response, con
         return;
     }
 
+    auto& async_conversation = async_conversations[req];
     try {
         bool found_done = false;
         std::string parsed_response;
-        std::regex data_regex("data: (.*?)\\n\\n");
-        auto begin = std::sregex_iterator(response.begin(), response.end(), data_regex);
-        auto end = std::sregex_iterator();
-        
-        
-        // Track if we've seen any non-empty content
-        bool has_content = false;
-        
-        for (std::sregex_iterator i = begin; i != end; ++i) {
-            std::string substr_line = i->str().substr(6, i->str().size() - 8);
-            
+        const auto payloads = consume_sse_payloads(async_conversation, response);
+
+        for(const auto& payload : payloads) {
             // Handle [DONE] signal
-            if(substr_line.find("[DONE]") != std::string::npos) {
+            if(payload.find("[DONE]") != std::string::npos) {
                 found_done = true;
-                continue;  
+                continue;
             }
-            
+
             // Skip empty messages
-            if(substr_line.empty() || substr_line == "{}") {
+            if(payload.empty() || payload == "{}") {
                 continue;
             }
-            
-            nlohmann::json json_line;
+
             try {
-                json_line = nlohmann::json::parse(substr_line);
+                auto json_line = nlohmann::json::parse(payload);
+
+                // Skip content filter results and empty messages
+                if(json_line.contains("prompt_filter_results") ||
+                   (json_line.contains("choices") && json_line["choices"].empty())) {
+                    continue;
+                }
+
+                // Skip role assignment messages
+                if(json_line.contains("choices") && !json_line["choices"].empty() &&
+                   json_line["choices"][0].contains("delta") &&
+                   json_line["choices"][0]["delta"].contains("role")) {
+                    continue;
+                }
+
+                // Handle content chunks
+                if(json_line.contains("choices") && !json_line["choices"].empty() &&
+                   json_line["choices"][0].contains("delta") &&
+                   json_line["choices"][0]["delta"].contains("content")) {
+                    std::string content = json_line["choices"][0]["delta"]["content"].get<std::string>();
+                    if(!content.empty()) {
+                        parsed_response += content;
+                    }
+                }
+
+                // Handle finish reason
+                if(json_line.contains("choices") && !json_line["choices"].empty() &&
+                   json_line["choices"][0].contains("finish_reason") &&
+                   !json_line["choices"][0]["finish_reason"].is_null()) {
+                    std::string finish_reason = json_line["choices"][0]["finish_reason"].get<std::string>();
+                    if(finish_reason == "stop") {
+                        found_done = true;
+                    }
+                }
             } catch (const std::exception& e) {
-                LOG(ERROR) << "Azure callback: Failed to parse JSON: " << substr_line << " Error: " << e.what();
+                LOG(ERROR) << "Azure callback: Failed to parse JSON: " << payload << " Error: " << e.what();
                 continue;
-            }
-            
-            // Skip content filter results and empty messages
-            if (json_line.contains("prompt_filter_results") || 
-                (json_line.contains("choices") && json_line["choices"].empty())) {
-                continue;
-            }
-
-            // Skip role assignment messages
-            if (json_line.contains("choices") && !json_line["choices"].empty() && 
-                json_line["choices"][0].contains("delta") && 
-                json_line["choices"][0]["delta"].contains("role")) {
-                continue;
-            }
-
-            // Handle content chunks
-            if (json_line.contains("choices") && !json_line["choices"].empty() && 
-                json_line["choices"][0].contains("delta") && 
-                json_line["choices"][0]["delta"].contains("content")) {
-                std::string content = json_line["choices"][0]["delta"]["content"].get<std::string>();
-                if (!content.empty()) {
-                    parsed_response += content;
-                    has_content = true;
-                }
-            }
-
-            // Handle finish reason
-            if (json_line.contains("choices") && !json_line["choices"].empty() && 
-                json_line["choices"][0].contains("finish_reason") && 
-                !json_line["choices"][0]["finish_reason"].is_null()) {
-                std::string finish_reason = json_line["choices"][0]["finish_reason"].get<std::string>();
-                if (finish_reason == "stop") {
-                    found_done = true;
-                }
             }
         }
 
-        // Only send response if we have content
-        if (has_content) {
-            async_conversations[req].response += parsed_response;
-            nlohmann::json json_res;
-            json_res["message"] = parsed_response;
-            json_res["conversation_id"] = async_conversations[req].conversation_id;
-            response = "data: " + json_res.dump(-1) + "\n\n";
-        } else {
-            response = "";  // Don't send empty responses
-        }
+        async_conversation.response += parsed_response;
+        response.clear();
+        append_message_event(response, async_conversation.conversation_id, parsed_response);
 
-        // Send [DONE] if we've found it and we have content
-        if(found_done && has_content) {
+        if(found_done) {
             response += "data: [DONE]\n\n";
-            async_conversations[req].ready = true;
-            async_conversations[req].cv.notify_one();
-        } 
+            {
+                std::lock_guard<std::mutex> lock(async_conversation.mutex);
+                async_conversation.ready = true;
+            }
+            async_conversation.cv.notify_one();
+        }
 
     } catch (const std::exception& e) {
         LOG(ERROR) << "Azure callback: Exception caught: " << e.what();
         LOG(ERROR) << "Azure callback: Response that caused error: " << response;
         // Set error response
-        async_conversations[req].response = "{\"error\":{\"message\":\"" + std::string(e.what()) + "\"}}";
-        async_conversations[req].ready = true;
-        async_conversations[req].cv.notify_one();
+        async_conversation.response = "{\"error\":{\"message\":\"" + std::string(e.what()) + "\"}}";
+        {
+            std::lock_guard<std::mutex> lock(async_conversation.mutex);
+            async_conversation.ready = true;
+        }
+        async_conversation.cv.notify_one();
     }
 }
 
@@ -2208,10 +2309,19 @@ bool AzureConversationModel::async_res_done_callback(const std::shared_ptr<http_
         return false;
     }
 
-    // Only mark as done if not already marked by write callback
-    if (!async_conversations[req].ready) {
-        async_conversations[req].ready = true;
-        async_conversations[req].cv.notify_one();
+    auto& async_conversation = async_conversations[req];
+    bool should_notify = false;
+
+    {
+        std::lock_guard<std::mutex> lock(async_conversation.mutex);
+        if(!async_conversation.ready) {
+            async_conversation.ready = true;
+            should_notify = true;
+        }
+    }
+
+    if(should_notify) {
+        async_conversation.cv.notify_one();
     }
     return false;
 }
