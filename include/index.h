@@ -202,6 +202,8 @@ struct search_args {
     bool validate_field_names;
     size_t found_count = 0;
     size_t found_docs = 0;
+    bool populate_union_result_seq_ids = false;
+    std::vector<uint32_t> union_result_seq_ids;
     Collection const *const collection;
 
     diversity_t diversity{};
@@ -226,7 +228,8 @@ struct search_args {
                 std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                 bool enable_synonyms, bool demote_synonym_match, bool synonym_prefix, uint32_t synonym_num_typos,
                 bool enable_typos_for_alpha_numerical_tokens, bool rerank_hybrid_matches, const bool& validate_field_names,
-                Collection const *const collection, const std::vector<std::string>& synonym_sets, diversity_t&& diversity,
+                bool populate_union_result_seq_ids, Collection const *const collection,
+                const std::vector<std::string>& synonym_sets, diversity_t&& diversity,
                 size_t group_max_candidates) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), match_type(match_type), facets(facets),
@@ -254,6 +257,7 @@ struct search_args {
             demote_synonym_match(demote_synonym_match), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens),
             rerank_hybrid_matches(rerank_hybrid_matches), validate_field_names(validate_field_names),
+            populate_union_result_seq_ids(populate_union_result_seq_ids),
             collection(collection), synonym_sets(synonym_sets), diversity(diversity), group_max_candidates(group_max_candidates) {
 
     }
@@ -799,8 +803,10 @@ public:
                 bool is_group_by_first_pass,
                 std::set<uint32_t>& group_by_missing_value_ids,
                 Collection const *const collection,
-               const std::vector<std::string>& synonym_sets,
-               const diversity_t& diversity, const size_t group_max_candidates) const;
+                const std::vector<std::string>& synonym_sets,
+                bool populate_union_result_seq_ids,
+                std::vector<uint32_t>& union_result_seq_ids,
+                const diversity_t& diversity, const size_t group_max_candidates) const;
 
     void remove_field(uint32_t seq_id, nlohmann::json& document, const std::string& field_name,
                       const bool is_update);
