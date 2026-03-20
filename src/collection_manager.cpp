@@ -1180,9 +1180,11 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
 }
 
 Option<bool> apply_embedded_params(nlohmann::json& embedded_params, std::map<std::string, std::string>& req_params) {
+    const auto auth_collection_it = embedded_params.find(AuthManager::AUTH_RESOLVED_COLLECTION_PARAM);
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
-        if(item.key() == "expires_at") {
+        if(item.key() == "expires_at" || item.key() == AuthManager::AUTH_RESOLVED_COLLECTION_PARAM) {
             continue;
         }
 
@@ -1190,6 +1192,11 @@ Option<bool> apply_embedded_params(nlohmann::json& embedded_params, std::map<std
         if (!AuthManager::add_item_to_params(req_params, item, true)) {
             return Option<bool>(400, "Error applying search parameters inside Scoped Search API key");
         }
+    }
+
+    if(auth_collection_it != embedded_params.end() && auth_collection_it->is_string()) {
+        // Auth already resolved the target collection; keep execution pinned to it.
+        req_params["collection"] = auth_collection_it->get<std::string>();
     }
 
     return Option<bool>(true);

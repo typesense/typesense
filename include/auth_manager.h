@@ -133,6 +133,7 @@ public:
 
     static const size_t GENERATED_KEY_LEN = 32;
     static const size_t HMAC_BASE64_LEN = 44;
+    static constexpr const char* AUTH_RESOLVED_COLLECTION_PARAM = "__typesense_authorized_collection";
 
     AuthManager() = default;
 

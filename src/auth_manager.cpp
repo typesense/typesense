@@ -188,6 +188,35 @@ bool AuthManager::authenticate(const std::string& action,
     return (num_keys_matched == collection_keys.size());
 }
 
+namespace {
+Option<std::string> resolve_scoped_search_collection(const std::string& request_collection,
+                                                     const nlohmann::json& embedded_params) {
+    const auto collection_it = embedded_params.find("collection");
+    if(collection_it == embedded_params.end()) {
+        return Option<std::string>(request_collection);
+    }
+
+    if(!collection_it->is_string()) {
+        return Option<std::string>(400, "`collection` inside Scoped Search API key must be a string.");
+    }
+
+    const auto embedded_collection = collection_it->get<std::string>();
+    if(embedded_collection.empty()) {
+        return Option<std::string>(request_collection);
+    }
+
+    if(request_collection.empty()) {
+        return Option<std::string>(embedded_collection);
+    }
+
+    if(request_collection != embedded_collection) {
+        return Option<std::string>(400, "`collection` inside Scoped Search API key conflicts with the request collection.");
+    }
+
+    return Option<std::string>(request_collection);
+}
+}
+
 bool AuthManager::regexp_match(const std::string& value, const std::string& regexp) {
     try {
         return std::regex_match (value, std::regex(regexp));
@@ -285,13 +314,6 @@ Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scop
     for(auto it = prefix_range.first; it != prefix_range.second; ++it) {
         const api_key_t& root_api_key = it.value();
 
-        // ensure that parent key collection filter matches queried collection
-        bool auth_success = auth_against_key(scoped_api_key.collection, action, root_api_key, true);
-
-        if(!auth_success) {
-            continue;
-        }
-
         // finally verify hmac
         std::string digest = StringUtils::hmac(root_api_key.value, custom_params);
 
@@ -299,26 +321,41 @@ Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scop
             try {
                 embedded_params = nlohmann::json::parse(custom_params);
             } catch(const std::exception& e) {
-                continue;
+                return Option<bool>(403, "Forbidden.");
             }
 
             if(!embedded_params.is_object()) {
-                continue;
+                return Option<bool>(403, "Forbidden.");
+            }
+
+            auto effective_collection_op = resolve_scoped_search_collection(scoped_api_key.collection, embedded_params);
+            if(!effective_collection_op.ok()) {
+                LOG(ERROR) << effective_collection_op.error();
+                return Option<bool>(403, "Forbidden.");
+            }
+            const auto effective_collection = effective_collection_op.get();
+
+            // ensure that parent key collection filter matches the final collection that will be executed
+            bool auth_success = auth_against_key(effective_collection, action, root_api_key, true);
+            if(!auth_success) {
+                return Option<bool>(403, "Forbidden.");
             }
 
             if(embedded_params.count("expires_at") != 0) {
-                if(!embedded_params["expires_at"].is_number_integer() || embedded_params["expires_at"].get<int64_t>() < 0) {
-                    continue;
+                if(!embedded_params["expires_at"].is_number_integer() ||
+                   embedded_params["expires_at"].get<int64_t>() < 0) {
+                    return Option<bool>(403, "Forbidden.");
                 }
 
                 // if parent key's expiry timestamp is smaller, it takes precedence
                 uint64_t expiry_ts = std::min(root_api_key.expires_at, embedded_params["expires_at"].get<uint64_t>());
 
                 if(uint64_t(std::time(0)) > expiry_ts) {
-                    continue;
+                    return Option<bool>(403, "Forbidden.");
                 }
             }
 
+            embedded_params[AUTH_RESOLVED_COLLECTION_PARAM] = effective_collection;
             return Option<bool>(true);
         }
     }

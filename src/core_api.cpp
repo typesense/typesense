@@ -99,7 +99,20 @@ bool handle_authentication(std::map<std::string, std::string>& req_params,
         return false;
     }
 
-    return collectionManager.auth_key_matches(req_auth_key, rpath.action, collections, req_params, embedded_params_vec);
+    const bool authenticated = collectionManager.auth_key_matches(req_auth_key, rpath.action, collections, req_params,
+                                                                  embedded_params_vec);
+    if(!authenticated) {
+        return false;
+    }
+
+    // Carry the auth-resolved collection forward so later request merging cannot change the search target.
+    for(size_t i = 0; i < collections.size(); i++) {
+        if(embedded_params_vec[i].count(AuthManager::AUTH_RESOLVED_COLLECTION_PARAM) == 0) {
+            embedded_params_vec[i][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM] = collections[i].collection;
+        }
+    }
+
+    return true;
 }
 
 void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {

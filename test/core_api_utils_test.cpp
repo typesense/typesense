@@ -8,6 +8,9 @@
 #include "raft_server.h"
 #include "conversation_model_manager.h"
 #include "conversation_manager.h"
+#include "synonym_index_manager.h"
+#include "curation_index_manager.h"
+#include "string_utils.h"
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
@@ -297,6 +300,133 @@ TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
     req->embedded_params_vec[0].erase("limit_multi_searches");
     ASSERT_TRUE(post_multi_search(req, res));
 
+}
+
+TEST_F(CoreAPIUtilsTest, ScopedKeyEmbeddedCollectionCanSupplyMissingMultiSearchCollection) {
+    nlohmann::json schema = R"({
+        "name": "scoped_coll",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* scoped_coll = op.get();
+    scoped_coll->add(R"({"id":"1","title":"scoped doc"})", CREATE);
+
+    api_key_t parent_key("ScopedKeyMissingCollection1", "scoped search parent", {"documents:search"}, {"scoped_coll"},
+                         api_key_t::FAR_FUTURE_TIMESTAMP);
+    auto key_op = collectionManager.getAuthManager().create_key(parent_key);
+    ASSERT_TRUE(key_op.ok());
+
+    const std::string custom_params = R"({"collection":"scoped_coll"})";
+    const std::string scoped_key_payload = StringUtils::hmac(parent_key.value, custom_params) +
+                                           parent_key.value.substr(0, api_key_t::PREFIX_LEN) + custom_params;
+    const std::string scoped_key = StringUtils::base64_encode(scoped_key_payload);
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    nlohmann::json body;
+    nlohmann::json search = {
+        {"q", "scoped"},
+        {"query_by", "title"}
+    };
+    body["searches"] = nlohmann::json::array();
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
+    ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, scoped_key));
+    ASSERT_EQ("scoped_coll",
+              req->embedded_params_vec[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM].get<std::string>());
+
+    ASSERT_TRUE(post_multi_search(req, res));
+
+    auto response = nlohmann::json::parse(res->body);
+    ASSERT_EQ("scoped_coll", response["results"][0]["request_params"]["collection_name"].get<std::string>());
+    ASSERT_EQ(1, response["results"][0]["found"].get<size_t>());
+    ASSERT_EQ("scoped doc", response["results"][0]["hits"][0]["document"]["title"].get<std::string>());
+}
+
+TEST_F(CoreAPIUtilsTest, ScopedKeyEmbeddedCollectionConflictFailsAuthentication) {
+    nlohmann::json schema = R"({
+        "name": "allowed_coll",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    api_key_t parent_key("ScopedKeyConflictCollection2", "scoped search parent", {"documents:search"}, {"allowed_coll"},
+                         api_key_t::FAR_FUTURE_TIMESTAMP);
+    auto key_op = collectionManager.getAuthManager().create_key(parent_key);
+    ASSERT_TRUE(key_op.ok());
+
+    const std::string custom_params = R"({"collection":"blocked_coll"})";
+    const std::string scoped_key_payload = StringUtils::hmac(parent_key.value, custom_params) +
+                                           parent_key.value.substr(0, api_key_t::PREFIX_LEN) + custom_params;
+    const std::string scoped_key = StringUtils::base64_encode(scoped_key_payload);
+
+    auto req = std::make_shared<http_req>();
+    req->params["collection"] = "allowed_coll";
+    req->params["q"] = "blocked";
+    req->params["query_by"] = "title";
+
+    route_path rpath_search = route_path("GET", {"collections", ":collection", "documents", "search"},
+                                         get_search, false, false);
+    ASSERT_FALSE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_search, scoped_key));
+}
+
+TEST_F(CoreAPIUtilsTest, MultiSearchUsesAuthenticatedBodyCollectionInsteadOfTopLevelCollection) {
+    nlohmann::json body_schema = R"({
+        "name": "body_coll",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(body_schema);
+    ASSERT_TRUE(op.ok());
+    Collection* body_coll = op.get();
+
+    nlohmann::json query_schema = R"({
+        "name": "query_coll",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+    op = collectionManager.create_collection(query_schema);
+    ASSERT_TRUE(op.ok());
+    Collection* query_coll = op.get();
+
+    body_coll->add(R"({"id":"1","title":"body match"})", CREATE);
+    query_coll->add(R"({"id":"1","title":"query match"})", CREATE);
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "query_coll";
+
+    nlohmann::json body;
+    nlohmann::json search = {
+        {"collection", "body_coll"},
+        {"q", "body"},
+        {"query_by", "title"}
+    };
+    body["searches"] = nlohmann::json::array();
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
+    ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, "auth_key"));
+    ASSERT_EQ("body_coll",
+              req->embedded_params_vec[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM].get<std::string>());
+
+    ASSERT_TRUE(post_multi_search(req, res));
+
+    auto response = nlohmann::json::parse(res->body);
+    ASSERT_EQ("body_coll", response["results"][0]["request_params"]["collection_name"].get<std::string>());
+    ASSERT_EQ(1, response["results"][0]["found"].get<size_t>());
+    ASSERT_EQ("body match", response["results"][0]["hits"][0]["document"]["title"].get<std::string>());
 }
 
 TEST_F(CoreAPIUtilsTest, SearchEmbeddedPresetKey) {
