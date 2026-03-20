@@ -2232,6 +2232,15 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             return Option<bool>(400, error);
         }
 
+        if(search_schema.count(field_name) == 0) {
+            if(!validate_field_names) {
+                skipped_invalid_group_field = true;
+                continue;
+            }
+
+            return Option<bool>(404, "Could not find a field named `" + field_name + "` in the schema.");
+        }
+
         field search_field = search_schema.at(field_name);
 
         // must be a facet field
