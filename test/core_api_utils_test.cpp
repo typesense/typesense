@@ -2,10 +2,8 @@
 #include "conversation_manager.h"
 #include "conversation_model_manager.h"
 #include "core_api_utils.h"
-#include "curation_index_manager.h"
 #include "raft_server.h"
 #include "string_utils.h"
-#include "synonym_index_manager.h"
 #include <analytics_manager.h>
 #include <collection_manager.h>
 #include <conversation_model.h>
