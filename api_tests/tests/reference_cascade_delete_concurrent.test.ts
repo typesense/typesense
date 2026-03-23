@@ -7,8 +7,8 @@ const NODE_IDS = [1, 2, 3] as const;
 type NodeId = typeof NODE_IDS[number];
 
 const COLLECTIONS = {
-  products: "products",
-  orders: "orders",
+  products: "cascade_delete_products",
+  orders: "cascade_delete_orders",
 } as const;
 
 const CATEGORY_COUNT = 5;
