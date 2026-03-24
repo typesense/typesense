@@ -744,8 +744,40 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
         nlohmann::json docs_array = nlohmann::json::array();
 
-        if(results_json.count("hits") != 0 && results_json["hits"].is_array()) {
-            docs_array = results_json["hits"];
+        // Collect vector fields to strip from documents
+        std::vector<std::string> vector_fields;
+        auto collection = CollectionManager::get_instance().get_collection(req->params["collection"]);
+        if(collection != nullptr) {
+            auto search_schema = collection->get_schema();
+            for(const auto& field : search_schema) {
+                if(field.type == field_types::FLOAT_ARRAY) {
+                    vector_fields.push_back(field.name);
+                }
+            }
+        }
+
+        if(results_json.contains("grouped_hits")) {
+            for(const auto& grouped_hit : results_json["grouped_hits"]) {
+                for(const auto& hit : grouped_hit["hits"]) {
+                    auto doc = hit["document"];
+                    for(const auto& vector_field : vector_fields) {
+                        if(doc.contains(vector_field)) {
+                            doc.erase(vector_field);
+                        }
+                    }
+                    docs_array.push_back(doc);
+                }
+            }
+        } else {
+            for(const auto& hit : results_json["hits"]) {
+                auto doc = hit["document"];
+                for(const auto& vector_field : vector_fields) {
+                    if(doc.contains(vector_field)) {
+                        doc.erase(vector_field);
+                    }
+                }
+                docs_array.push_back(doc);
+            }
         }
 
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
