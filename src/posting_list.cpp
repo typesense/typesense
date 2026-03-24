@@ -1,5 +1,6 @@
 #include "posting_list.h"
 #include <bitset>
+#include <limits>
 #include "for.h"
 #include "array_utils.h"
 #include "filter_result_iterator.h"
@@ -1913,7 +1914,7 @@ size_t posting_list_t::get_first_offset(const posting_list_t::iterator_t& it, bo
 
     if(field_is_array) {
         int prev_pos = -1;
-        size_t min_offset = UINT_MAX;
+        size_t min_offset = std::numeric_limits<size_t>::max();
 
         while(start_offset < end_offset) {
             int pos = offsets[start_offset];

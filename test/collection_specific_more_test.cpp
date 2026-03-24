@@ -4538,7 +4538,7 @@ TEST_F(CollectionSpecificMoreTest, PrioritizeTokenPositionWithRepeat) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
-    collectionManager.drop_collection("coll1");
+    collectionManager.drop_collection("companies");
 
     //check with arrays
     schema = R"({
@@ -4585,5 +4585,56 @@ TEST_F(CollectionSpecificMoreTest, PrioritizeTokenPositionWithRepeat) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
-    collectionManager.drop_collection("coll1");
+    collectionManager.drop_collection("greeks");
+}
+
+TEST_F(CollectionSpecificMoreTest, PrioritizeTokenPositionSingleTokenOffsetsAreNormalizedAndClamped) {
+    nlohmann::json schema = R"({
+             "name": "token_offsets",
+             "fields": [
+               {"name": "title", "type": "string"}
+             ]
+           })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    auto make_doc = [](size_t prefix_tokens, const std::string& token) {
+        std::string value;
+        for(size_t i = 0; i < prefix_tokens; i++) {
+            if(!value.empty()) {
+                value += " ";
+            }
+            value += "filler";
+        }
+
+        if(!value.empty()) {
+            value += " ";
+        }
+        value += token;
+        return value;
+    };
+
+    nlohmann::json doc;
+    doc["id"] = "254";
+    doc["title"] = make_doc(254, "needle");
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    doc["id"] = "255";
+    doc["title"] = make_doc(255, "needle");
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    auto results = coll->search("needle", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 3, 3, 2, 2, true).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("254", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("255", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("token_offsets");
 }
