@@ -29,7 +29,7 @@ class CLIPImageEmbedder : public ImageEmbedder {
         std::mutex mutex_;
         CLIPImageProcessor image_processor_;     
     public:
-        CLIPImageEmbedder(const std::shared_ptr<Ort::Session>& session, const std::shared_ptr<Ort::Env>& env, const std::string& model_path);
+        CLIPImageEmbedder(const std::shared_ptr<Ort::Session>& session, const std::shared_ptr<Ort::Env>& env, const std::string& model_path, const std::string& processor_filename = "clip_image_processor.onnx");
         embedding_res_t embed(const std::string& image_encoded) override;
         std::vector<embedding_res_t> embed_documents(const std::vector<std::string>& inputs) override;
         virtual ImageEmbedderType get_image_embedder_type() override {

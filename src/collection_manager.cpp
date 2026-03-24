@@ -255,24 +255,28 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
         }
     }
 
-    Collection* collection = new Collection(this_collection_name,
-                                            collection_meta[Collection::COLLECTION_ID_KEY].get<uint32_t>(),
-                                            created_at,
-                                            collection_next_seq_id,
-                                            store,
-                                            fields,
-                                            default_sorting_field,
-                                            max_memory_ratio,
-                                            fallback_field_type,
-                                            symbols_to_index,
-                                            token_separators,
-                                            enable_nested_fields, model,
-                                            referenced_in,
-                                            metadata,
-                                            async_referenced_ins,
-                                            synonym_sets,
-                                            curation_sets);
+    auto collection_op = Collection::new_collection(this_collection_name,
+                                                    collection_meta[Collection::COLLECTION_ID_KEY].get<uint32_t>(),
+                                                    created_at,
+                                                    collection_next_seq_id,
+                                                    store,
+                                                    fields,
+                                                    default_sorting_field,
+                                                    max_memory_ratio,
+                                                    fallback_field_type,
+                                                    symbols_to_index,
+                                                    token_separators,
+                                                    enable_nested_fields, model,
+                                                    referenced_in,
+                                                    metadata,
+                                                    async_referenced_ins,
+                                                    synonym_sets,
+                                                    curation_sets, false);
+    if (!collection_op.ok()) {
+        return collection_op;
+    }
 
+    auto collection = collection_op.get();
     for (const auto& ref_field: collection->get_reference_fields()) {
         const auto& ref_info = ref_field.second;
         ref_info_it = referenced_infos.find(ref_info.collection);
@@ -773,15 +777,22 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
 
     lock.unlock();
 
-    Collection* new_collection = new Collection(name, new_coll_id, created_at, 0, store, fields,
-                                                default_sorting_field,
-                                                this->max_memory_ratio, fallback_field_type,
-                                                symbols_to_index, token_separators,
-                                                enable_nested_fields, model,
-                                                spp::sparse_hash_map<std::string, std::string>(),
-                                                metadata,
-                                                spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(), synonym_sets, curation_sets);
+    auto collection_op = Collection::new_collection(name, new_coll_id, created_at, 0, store, fields,
+                                                    default_sorting_field,
+                                                    this->max_memory_ratio, fallback_field_type,
+                                                    symbols_to_index, token_separators,
+                                                    enable_nested_fields, model,
+                                                    spp::sparse_hash_map<std::string, std::string>(),
+                                                    metadata,
+                                                    spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
+                                                    synonym_sets, curation_sets, true);
+    if (!collection_op.ok()) {
+        store->remove(Collection::get_next_seq_id_key(name));
+        store->remove(Collection::get_meta_key(name));
+        return collection_op;
+    }
 
+    auto new_collection = collection_op.get();
     add_to_collections(new_collection);
     lock.lock();
 
@@ -1348,9 +1359,11 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
 }
 
 Option<bool> apply_embedded_params(nlohmann::json& embedded_params, std::map<std::string, std::string>& req_params) {
+    const auto auth_collection_it = embedded_params.find(AuthManager::AUTH_RESOLVED_COLLECTION_PARAM);
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
-        if(item.key() == "expires_at") {
+        if(item.key() == "expires_at" || item.key() == AuthManager::AUTH_RESOLVED_COLLECTION_PARAM) {
             continue;
         }
 
@@ -1358,6 +1371,11 @@ Option<bool> apply_embedded_params(nlohmann::json& embedded_params, std::map<std
         if (!AuthManager::add_item_to_params(req_params, item, true)) {
             return Option<bool>(400, "Error applying search parameters inside Scoped Search API key");
         }
+    }
+
+    if(auth_collection_it != embedded_params.end() && auth_collection_it->is_string()) {
+        // Auth already resolved the target collection; keep execution pinned to it.
+        req_params["collection"] = auth_collection_it->get<std::string>();
     }
 
     return Option<bool>(true);
@@ -1451,8 +1469,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     Option<nlohmann::json> result_op = collection->search(args);
 
-    auto reqTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::high_resolution_clock::now().time_since_epoch()).count() - start_ts;
+    auto end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto reqTimeMillis = (end_ts - start_ts) / 1000;
+
     update_app_metrics(reqTimeMillis);
 
     if(!result_op.ok()) {
@@ -1535,6 +1555,66 @@ void remove_global_params(std::map<std::string, std::string>& req_params) {
     }
 }
 
+Option<bool> CollectionManager::validate_facet_params(const std::vector<collection_search_args_t>& coll_searches) {
+    struct facet_field_parent {
+        std::string facet_field;
+        bool should_return_parent;
+    };
+
+    const auto& facet_strategy = coll_searches[0].facet_strategy;
+    const auto& simple_facet_query = coll_searches[0].simple_facet_query;
+    const auto& facet_min_occurrence_ratio = coll_searches[0].facet_min_occurrence_ratio;
+    spp::sparse_hash_map<std::string, facet_field_parent> field_to_facet_field_map;
+    std::string generic_error = " should be uniform across searches for faceting with union search.";
+
+    for(const auto& args : coll_searches) {
+        if(args.facet_fields.empty()) {
+            continue;
+        }
+
+        if(args.facet_strategy != facet_strategy) {
+            return Option<bool>(400, "`facet_strategy`" + generic_error);
+        }
+
+        if(args.simple_facet_query != simple_facet_query) {
+            return Option<bool>(400, "`facet_query`" + generic_error);
+        }
+
+        if(args.facet_min_occurrence_ratio != facet_min_occurrence_ratio) {
+            return Option<bool>(400, "`facet_min_occurrence_ratio`" + generic_error);
+        }
+
+        for(const auto& field : args.facet_fields) {
+            std::string field_name = field;
+
+            auto pos = field_name.find("(");
+            field_name = field_name.substr(0, pos);
+
+            auto should_return_parent = false;
+            for(const auto& val : args.facet_return_parent) {
+                if(val == "*" || val == field_name) {
+                    should_return_parent = true;
+                    break;
+                }
+            }
+
+            auto it1 = field_to_facet_field_map.find(field_name);
+
+            if (it1 != field_to_facet_field_map.end()) {
+                if(field != it1->second.facet_field) {
+                    return Option<bool>(400, "facet fields" + generic_error);
+                } else if(it1->second.should_return_parent != should_return_parent) {
+                    return Option<bool>(400, "`facet_return_parent`" + generic_error);
+                }
+            } else {
+                field_to_facet_field_map[field_name] = facet_field_parent{field, should_return_parent};
+            }
+        }
+    }
+
+    return Option<bool>(true);
+}
+
 Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req_params,
                                          std::vector<nlohmann::json>& embedded_params_vec, nlohmann::json searches,
                                          nlohmann::json& response, uint64_t start_ts, bool remove_duplicates) {
@@ -1568,7 +1648,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
 
         auto begin = std::chrono::high_resolution_clock::now();
 
-        auto &embedded_params = embedded_params_vec[i];
+        auto& embedded_params = embedded_params_vec[i];
         // enrich params with values from embedded params
         auto apply_embedded_params_op = apply_embedded_params(embedded_params, req_params);
         if (!apply_embedded_params_op.ok()) {
@@ -1619,6 +1699,10 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
         result_op = Option<bool>(400, "Invalid group_by searches count. All searches with union search should be uniform.");
     }
 
+    if (result_op.ok()) {
+        result_op = validate_facet_params(coll_searches);
+    }
+
     if (!result_op.ok()) {
         response["error"] = result_op.error();
         response["code"] = result_op.code();
@@ -1629,8 +1713,10 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
 
     auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, union_params, response, remove_duplicates);
 
-    auto reqTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::high_resolution_clock::now().time_since_epoch()).count() - start_ts;
+    auto end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto reqTimeMillis = (end_ts - start_ts) / 1000;
+
     update_app_metrics(reqTimeMillis);
 
     if (!union_op.ok()) {
@@ -2286,15 +2372,38 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     return Option<Collection*>(new_coll);
 }
 
-void CollectionManager::add_referenced_ins(const std::string& collection_name, reference_info_t&& ref_info) {
+Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
+                                                   std::set<update_reference_info_t>& update_ref_infos) {
     std::unique_lock lock(mutex);
-    auto it = referenced_ins.find(collection_name);
-    if (it == referenced_ins.end()) {
-        referenced_ins[collection_name] = {{ref_info.collection, ref_info}};
-        return;
+
+    auto ref_coll = get_collection_unsafe(referenced_collection_name);
+    std::set<update_reference_info_t> _update_ref_infos{};
+    if (ref_coll != nullptr) {
+        referenced_collection_name = ref_coll->get_name(); // resolves alias
+
+        // If the collections are created in parallel, we can have a TOCTOU race condition where the referencing collection
+        // is yet to call CollectionManager::add_referenced_ins() and the referenced collection checks
+        // `CollectionManager::referenced_ins` in `CollectionManager::create_collection` and doesn't find reference. So its
+        // `referenced_in` isn't updated. To avoid this scenario we're going to call add_referenced_ins() on referenced collection.
+        _update_ref_infos = ref_coll->add_referenced_in(ref_info.collection, ref_info.field, ref_info.is_async,
+                                                        ref_info.referenced_field_name, ref_info.referenced_field);
+        if (!_update_ref_infos.empty() && _update_ref_infos.begin()->is_mutual_reference) {
+            auto info = is_referenced_in(ref_info.collection, referenced_collection_name);
+            return Option<bool>(400, "Collections having reference to each other are not allowed. `" + ref_info.collection +
+                                     "` collection is referenced by `" += referenced_collection_name + "` collection's `" +=
+                                                                                  info.get().field + "` field.");
+        }
     }
 
-    referenced_ins[collection_name].insert({ref_info.collection, ref_info});
+    auto it = referenced_ins.find(referenced_collection_name);
+    if (it == referenced_ins.end()) {
+        referenced_ins[referenced_collection_name] = {{ref_info.collection, ref_info}};
+    } else {
+        referenced_ins[referenced_collection_name].insert({ref_info.collection, ref_info});
+    }
+
+    update_ref_infos.insert(_update_ref_infos.begin(), _update_ref_infos.end());
+    return Option<bool>(true);
 }
 
 void CollectionManager::remove_referenced_ins(const std::string& referenced_coll_name,
@@ -2538,7 +2647,6 @@ Option<bool> CollectionManager::get_filter_ids(const std::string collection_name
 
 Option<reference_info_t> CollectionManager::is_referenced_in(const std::string& referenced_coll_name,
                                                              const std::string& referring_coll_name) const {
-    std::unique_lock lock(mutex);
     auto it = referenced_ins.find(referenced_coll_name);
     if (it == referenced_ins.end()) {
         return Option<reference_info_t>(400, "referenced_coll_name: `" + referenced_coll_name + "` not found.");
@@ -2551,6 +2659,12 @@ Option<reference_info_t> CollectionManager::is_referenced_in(const std::string& 
     }
 
     return Option<reference_info_t>(inner_it->second);
+}
+
+Option<reference_info_t> CollectionManager::is_referenced_in_with_lock(const std::string& referenced_coll_name,
+                                                                       const std::string& referring_coll_name) const {
+    std::unique_lock lock(mutex);
+    return is_referenced_in(referenced_coll_name, referring_coll_name);
 }
 
 Option<bool> CollectionManager::populate_include_exclude_fields(const std::string& collection_name,

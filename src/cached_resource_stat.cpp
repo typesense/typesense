@@ -1,7 +1,8 @@
 #include "cached_resource_stat.h"
-#include <fstream>
-#include <system_metrics.h>
 #include "logger.h"
+#include <fstream>
+#include <housekeeper.h>
+#include <system_metrics.h>
 
 cached_resource_stat_t::resource_check_t
 cached_resource_stat_t::has_enough_resources(const std::string& data_dir_path,
@@ -70,6 +71,7 @@ cached_resource_stat_t::get_resource_status(const std::string& data_dir_path, co
         LOG(INFO) << "memory_total: " << memory_total_bytes << ", memory_available: " << memory_available_bytes
                   << ", all_memory_used: " << memory_used_bytes << ", free_mem: " << free_mem
                   << ", memory_free_min: " << memory_free_min_bytes;
+        HouseKeeper::get_instance().log_running_queries();
         return cached_resource_stat_t::OUT_OF_MEMORY;
     }
 
