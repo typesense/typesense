@@ -76,7 +76,7 @@ bool get_alter_in_progress(const std::string& collection) {
     return alters_in_progress.count(collection) != 0;
 }
 
-static std::vector<std::string> get_vector_fields(const std::shared_ptr<Collection>& collection) {
+std::vector<std::string> get_vector_fields(const std::shared_ptr<Collection>& collection) {
     std::vector<std::string> vector_fields;
     if(collection == nullptr) {
         return vector_fields;
@@ -92,7 +92,7 @@ static std::vector<std::string> get_vector_fields(const std::shared_ptr<Collecti
     return vector_fields;
 }
 
-static nlohmann::json get_result_docs_without_vector_fields(const nlohmann::json& hits,
+nlohmann::json get_result_docs_without_vector_fields(const nlohmann::json& hits,
                                                             const std::vector<std::string>& vector_fields) {
     nlohmann::json result_docs = nlohmann::json::array();
 
