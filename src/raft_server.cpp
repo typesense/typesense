@@ -1050,10 +1050,15 @@ void ReplicationState::shutdown() {
     LOG(INFO) << "Set shutting_down = true";
     shutting_down = true;
 
-    // wait for pending writes to drop to zero
     LOG(INFO) << "Waiting for in-flight writes to finish...";
-    while(pending_writes.load() != 0) {
-        LOG(INFO) << "pending_writes: " << pending_writes;
+    while(true) {
+        const auto pending = pending_writes.load();
+        const auto queued = batched_indexer->get_queued_writes();
+        if(pending == 0 && queued == 0) {
+            break;
+        }
+
+        LOG(INFO) << "pending_writes: " << pending << ", queued_writes: " << queued;
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
 
@@ -1115,7 +1120,10 @@ nlohmann::json ReplicationState::get_status() {
     lock.unlock();
 
     status["state"] = braft::state2str(node_status.state);
+    status["last_index"] = node_status.last_index;
     status["committed_index"] = node_status.committed_index;
+    status["known_applied_index"] = node_status.known_applied_index;
+    status["applying_index"] = node_status.applying_index;
     status["queued_writes"] = batched_indexer->get_queued_writes();
 
     return status;

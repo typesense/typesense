@@ -57,6 +57,7 @@ private:
     await_t* qmutuxes;
     std::vector<std::deque<uint64_t>> queues;
 
+    std::unordered_map<std::string, std::unordered_set<std::string>> coll_to_references;
     await_t refq_wait;
     std::list<refq_entry> reference_q;
 
@@ -96,8 +97,16 @@ private:
 
     static std::string get_req_suffix_key(uint64_t req_id);
 
+    std::unordered_set<uint64_t> get_requests_to_wait_on_with_lock(const std::shared_ptr<http_req>& req,
+                                                                   const std::string& coll_name);
+
     std::unordered_set<uint64_t> get_requests_to_wait_on(const std::shared_ptr<http_req>& req,
                                                          const std::string& coll_name);
+
+    void update_coll_to_references(const std::shared_ptr<http_req>& req, const std::string& coll_name);
+
+    void update_coll_to_references_after_request(const std::shared_ptr<http_req>& req,
+                                                 const std::string& coll_name);
 
 public:
 
@@ -130,6 +139,4 @@ public:
     std::string get_collection_name(const std::shared_ptr<http_req>& req);
 
     std::shared_mutex& get_pause_mutex();
-
-    size_t get_reference_q_size();
 };

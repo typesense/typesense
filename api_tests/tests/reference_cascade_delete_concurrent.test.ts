@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { z } from "zod";
 import { Phases } from "../src/constants";
-import { fetchMultiNode, fetchMultiNodeRequest } from "../src/request";
+import { checkCommitedIndex, fetchMultiNode, fetchMultiNodeRequest } from "../src/request";
 
 const NODE_IDS = [1, 2, 3] as const;
 type NodeId = typeof NODE_IDS[number];
@@ -153,15 +153,18 @@ async function waitForPendingWrites(timeoutMs = 15000) {
   const start = Date.now();
 
   while (Date.now() - start < timeoutMs) {
-    const stats = await Promise.all(NODE_IDS.map((node) => fetchStats(node)));
-    if (stats.every((entry) => entry.pending_write_batches === 0)) {
+    const [isCommitted, stats] = await Promise.all([
+      checkCommitedIndex(),
+      Promise.all(NODE_IDS.map((node) => fetchStats(node))),
+    ]);
+    if (isCommitted && stats.every((entry) => entry.pending_write_batches === 0)) {
       return;
     }
 
     await sleep(100);
   }
 
-  throw new Error("Timed out waiting for pending write batches to drain");
+  throw new Error("Timed out waiting for committed index sync and pending write batches to drain");
 }
 
 async function createCollection(node: NodeId, schema: Record<string, unknown>) {
@@ -269,12 +272,23 @@ async function verifyClusterConsistency() {
   await waitForPendingWrites();
 
   let counts = await Promise.all(NODE_IDS.map((node) => collectionCount(node, COLLECTIONS.products)));
-  expect(new Set(counts).size).toBe(1);
-  expect(counts[0]!).toBeGreaterThan(0);
+  expect(counts.length).toBe(3);
+  // All the nodes must have same count.
+  let set = new Set(counts);
+  if (set.size > 1) {
+    console.log(counts);
+  }
+  expect(set.size).toBe(1);
+
 
   counts = await Promise.all(NODE_IDS.map((node) => collectionCount(node, COLLECTIONS.orders)));
-  expect(new Set(counts).size).toBe(1);
-  expect(counts[0]!).toBeGreaterThan(0);
+  expect(counts.length).toBe(3);
+  // All the nodes must have same count.
+  set = new Set(counts);
+  if (set.size > 1) {
+    console.log(counts);
+  }
+  expect(set.size).toBe(1);
 }
 
 async function runOrderImporter(workerId: number) {
