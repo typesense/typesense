@@ -1975,6 +1975,9 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
     collection_create_op = collectionManager.create_collection(schema_json4);
     ASSERT_TRUE(collection_create_op.ok());
 
+    auto symlink_op = collectionManager.upsert_symlink("Countries_alias", "Countries");
+    ASSERT_TRUE(symlink_op.ok());
+
     embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
     //facet query should be uniform across all faceted searches
     searches = R"OVR([
@@ -2089,6 +2092,88 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
                         "facet_by": "rating, country",
                         "facet_strategy": "top_values",
                         "facet_return_parent": "country, rating"
+                    }
+                ])OVR"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res.count("code"));
+    ASSERT_EQ(400, json_res["code"]);
+    ASSERT_EQ(1, json_res.count("error"));
+    ASSERT_EQ("`facet_return_parent` should be uniform across searches for faceting with union search.", json_res["error"]);
+
+    // canonical and alias-based joined facets should be treated as the same facet shape
+    req_params.clear();
+    json_res.clear();
+    searches = R"OVR([
+                    {
+                        "collection": "Cars",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(name)",
+                        "facet_strategy": "top_values",
+                        "facet_return_parent": "name"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "*",
+                        "filter_by": "$Countries_alias(id:*)",
+                        "facet_by": "$Countries_alias(name)",
+                        "facet_strategy": "top_values",
+                        "facet_return_parent": "name"
+                    }
+                ])OVR"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(0, json_res.count("code"));
+    ASSERT_EQ(0, json_res.count("error"));
+
+    // joined reference facets should use the referenced field name for parent-return validation
+    req_params.clear();
+    json_res.clear();
+    searches = R"OVR([
+                    {
+                        "collection": "Cars",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(name)",
+                        "facet_strategy": "top_values",
+                        "facet_return_parent": "name"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(name)",
+                        "facet_strategy": "top_values",
+                        "facet_return_parent": "name"
+                    }
+                ])OVR"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(0, json_res.count("code"));
+    ASSERT_EQ(0, json_res.count("error"));
+
+    // joined reference facet mismatch should still fail the uniformity check
+    req_params.clear();
+    json_res.clear();
+    searches = R"OVR([
+                    {
+                        "collection": "Cars",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(name)",
+                        "facet_strategy": "top_values",
+                        "facet_return_parent": "name"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(name)",
+                        "facet_strategy": "top_values"
                     }
                 ])OVR"_json;
 

@@ -4888,17 +4888,31 @@ nlohmann::json Collection::get_parent_object(const nlohmann::json& parent, const
                                  const std::vector<std::string>& field_path, size_t field_index,
                                  const std::string& val) {
     if(field_index == field_path.size()) {
-        std::string str_val;
+        auto json_to_facet_str = [](const nlohmann::json& value) -> std::string {
+            if(value.is_string()) {
+                return value.get<std::string>();
+            }
 
-        if(child.is_string()) {
-            str_val = child.get<std::string>();
-        } else if(child.is_number_integer()) {
-            str_val = std::to_string(child.get<int>());
-        } else if(child.is_number_float()) {
-            str_val = std::to_string(child.get<float>());
-        }  else if(child.is_boolean()) {
-            str_val = std::to_string(child.get<bool>());
-        }
+            if(value.is_number_integer()) {
+                return std::to_string(value.get<int64_t>());
+            }
+
+            if(value.is_number_unsigned()) {
+                return std::to_string(value.get<uint64_t>());
+            }
+
+            if(value.is_number_float()) {
+                return StringUtils::float_to_str(value.get<float>());
+            }
+
+            if(value.is_boolean()) {
+                return value.get<bool>() ? "true" : "false";
+            }
+
+            return "";
+        };
+
+        const auto str_val = json_to_facet_str(child);
 
         if(str_val == val) {
             return parent;
@@ -4906,7 +4920,7 @@ nlohmann::json Collection::get_parent_object(const nlohmann::json& parent, const
 
         if(child.is_array()) {
             for(const auto& ele: child) {
-                if(ele.is_string() && ele == val) {
+                if(json_to_facet_str(ele) == val) {
                     return parent;
                 }
             }
@@ -9519,15 +9533,17 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
                 }
 
                 nlohmann::json parent;
-                if(the_field.nested && should_return_parent) {
+                const bool is_reference_facet = !a_facet.reference_collection_name.empty();
+                if(should_return_parent && (the_field.nested || is_reference_facet)) {
+                    const Collection* parent_collection = is_reference_facet ? ref_collection.get() : this;
                     nlohmann::json document;
-                    const std::string &seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
-                    const Option<bool> &document_op = get_document_from_store(seq_id_key, document);
+                    const std::string& seq_id_key = parent_collection->get_seq_id_key((uint32_t) facet_count.doc_id);
+                    const Option<bool>& document_op = parent_collection->get_document_from_store(seq_id_key, document);
                     if (!document_op.ok()) {
                         LOG(ERROR) << "Facet fetch error. " << document_op.error();
                         continue;
                     }
-                    parent = get_facet_parent(the_field.name, document, value, the_field.is_array());
+                    parent = parent_collection->get_facet_parent(the_field.name, document, value, the_field.is_array());
                 }
 
                 const auto& highlighted_text = highlight.snippets.empty() ? value : highlight.snippets[0];
