@@ -76,6 +76,39 @@ bool get_alter_in_progress(const std::string& collection) {
     return alters_in_progress.count(collection) != 0;
 }
 
+static std::vector<std::string> get_vector_fields(const std::shared_ptr<Collection>& collection) {
+    std::vector<std::string> vector_fields;
+    if(collection == nullptr) {
+        return vector_fields;
+    }
+
+    auto search_schema = collection->get_schema();
+    for(const auto& field : search_schema) {
+        if(field.type == field_types::FLOAT_ARRAY) {
+            vector_fields.push_back(field.name);
+        }
+    }
+
+    return vector_fields;
+}
+
+static nlohmann::json get_result_docs_without_vector_fields(const nlohmann::json& hits,
+                                                            const std::vector<std::string>& vector_fields) {
+    nlohmann::json result_docs = nlohmann::json::array();
+
+    for(const auto& hit : hits) {
+        auto doc = hit["document"];
+        for(const auto& vector_field : vector_fields) {
+            if(doc.contains(vector_field)) {
+                doc.erase(vector_field);
+            }
+        }
+        result_docs.push_back(doc);
+    }
+
+    return result_docs;
+}
+
 bool handle_authentication(std::map<std::string, std::string>& req_params,
                            std::vector<nlohmann::json>& embedded_params_vec,
                            const std::string& body,
@@ -742,42 +775,16 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         results_json["conversation"] = nlohmann::json::object();
         results_json["conversation"]["query"] = query;
 
-        nlohmann::json docs_array = nlohmann::json::array();
-
-        // Collect vector fields to strip from documents
-        std::vector<std::string> vector_fields;
         auto collection = CollectionManager::get_instance().get_collection(req->params["collection"]);
-        if(collection != nullptr) {
-            auto search_schema = collection->get_schema();
-            for(const auto& field : search_schema) {
-                if(field.type == field_types::FLOAT_ARRAY) {
-                    vector_fields.push_back(field.name);
-                }
-            }
-        }
-
+        auto vector_fields = get_vector_fields(collection);
+        nlohmann::json docs_array = nlohmann::json::array();
         if(results_json.contains("grouped_hits")) {
             for(const auto& grouped_hit : results_json["grouped_hits"]) {
-                for(const auto& hit : grouped_hit["hits"]) {
-                    auto doc = hit["document"];
-                    for(const auto& vector_field : vector_fields) {
-                        if(doc.contains(vector_field)) {
-                            doc.erase(vector_field);
-                        }
-                    }
-                    docs_array.push_back(doc);
-                }
+                auto group_docs = get_result_docs_without_vector_fields(grouped_hit["hits"], vector_fields);
+                docs_array.insert(docs_array.end(), group_docs.begin(), group_docs.end());
             }
         } else {
-            for(const auto& hit : results_json["hits"]) {
-                auto doc = hit["document"];
-                for(const auto& vector_field : vector_fields) {
-                    if(doc.contains(vector_field)) {
-                        doc.erase(vector_field);
-                    }
-                }
-                docs_array.push_back(doc);
-            }
+            docs_array = get_result_docs_without_vector_fields(results_json["hits"], vector_fields);
         }
 
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
@@ -1205,45 +1212,19 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                     continue;
                 }
 
-                nlohmann::json result_docs = nlohmann::json::array();
-                std::vector<std::string> vector_fields;
-
                 auto collection_name_it = result["request_params"].find("collection_name");
                 auto collection = collection_name_it == result["request_params"].end() || !collection_name_it->is_string()
                                   ? nullptr
                                   : CollectionManager::get_instance().get_collection(collection_name_it->get<std::string>());
-                if(collection != nullptr) {
-                    auto search_schema = collection->get_schema();
-                    for(const auto& field : search_schema) {
-                        if(field.type == field_types::FLOAT_ARRAY) {
-                            vector_fields.push_back(field.name);
-                        }
-                    }
-                }
-
+                auto vector_fields = get_vector_fields(collection);
+                nlohmann::json result_docs = nlohmann::json::array();
                 if(result.contains("grouped_hits")) {
                     for(const auto& grouped_hit : result["grouped_hits"]) {
-                        for(const auto& hit : grouped_hit["hits"]) {
-                            auto doc = hit["document"];
-                            for(const auto& vector_field : vector_fields) {
-                                if(doc.contains(vector_field)) {
-                                    doc.erase(vector_field);
-                                }
-                            }
-                            result_docs.push_back(doc);
-                        }
+                        auto group_docs = get_result_docs_without_vector_fields(grouped_hit["hits"], vector_fields);
+                        result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
                     }
-                }
-                else {
-                    for(const auto& hit : result["hits"]) {
-                        auto doc = hit["document"];
-                        for(const auto& vector_field : vector_fields) {
-                            if(doc.contains(vector_field)) {
-                                doc.erase(vector_field);
-                            }
-                        }
-                        result_docs.push_back(doc);
-                    }
+                } else {
+                    result_docs = get_result_docs_without_vector_fields(result["hits"], vector_fields);
                 }
 
                 result_docs_arr.push_back(result_docs);
