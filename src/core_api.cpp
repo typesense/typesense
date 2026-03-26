@@ -981,14 +981,14 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 std::vector<std::string> vector_fields;
 
                 auto collection_name_it = result["request_params"].find("collection_name");
-                auto collection = collection_name_it == result["request_params"].end() || !collection_name_it->is_string()
-                                  ? nullptr
-                                  : CollectionManager::get_instance().get_collection(collection_name_it->get<std::string>());
-                if(collection != nullptr) {
-                    auto search_schema = collection->get_schema();
-                    for(const auto& field : search_schema) {
-                        if(field.type == field_types::FLOAT_ARRAY) {
-                            vector_fields.push_back(field.name);
+                if(collection_name_it != result["request_params"].end() && collection_name_it->is_string()) {
+                    auto collection = CollectionManager::get_instance().get_collection(collection_name_it->get<std::string>());
+                    if(collection != nullptr) {
+                        auto search_schema = collection->get_schema();
+                        for(const auto& field : search_schema) {
+                            if(field.type == field_types::FLOAT_ARRAY) {
+                                vector_fields.push_back(field.name);
+                            }
                         }
                     }
                 }
