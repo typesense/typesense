@@ -1218,16 +1218,9 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             }
         }
 
-        // If all searches failed, skip the model call entirely
-        bool has_docs = false;
-        for(const auto& docs : result_docs_arr) {
-            if(!docs.empty()) {
-                has_docs = true;
-                break;
-            }
-        }
-
-        if(!has_docs) {
+        // If all searches failed (no successful search results), skip the model call entirely.
+        // Successful searches with zero hits should still follow the normal conversation path.
+        if(result_docs_arr.empty()) {
             // No successful search results — skip conversation model call
             // and return the response with just the error results
             std::string response_str = response.dump();
