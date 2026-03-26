@@ -665,6 +665,55 @@ TEST_F(CoreAPIUtilsTest, GetSearchConversationUnderlyingSearchErrorShouldNotThro
               response["message"].get<std::string>());
 }
 
+TEST_F(CoreAPIUtilsTest, MultiSearchConversationAllSearchesFailedSkipsModelCall) {
+    nlohmann::json schema = R"({
+        "name": "conversation_all_fail_docs",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    const std::string model_id = "conversation-all-fail-model-" + StringUtils::randstring(8);
+    nlohmann::json model = {
+        {"id", model_id},
+        {"model_name", "azure/test-model"},
+        {"api_key", "dummy"},
+        {"url", "http://127.0.0.1:1"},
+        {"history_collection", "conversation_store"},
+        {"max_bytes", 100000}
+    };
+    ConversationModelManager::insert_model_for_testing(model_id, model);
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["conversation"] = "true";
+    req->params["conversation_model_id"] = model_id;
+    req->params["q"] = "duck";
+    req->embedded_params_vec.push_back(nlohmann::json::object());
+
+    nlohmann::json body;
+    body["searches"] = nlohmann::json::array();
+    body["searches"].push_back({
+        {"collection", "conversation_all_fail_docs"},
+        {"query_by", "missing_field"}
+    });
+    req->body = body.dump();
+
+    bool handled = post_multi_search(req, res);
+    EXPECT_TRUE(handled);
+    EXPECT_EQ(200, res->status_code);
+
+    auto response = nlohmann::json::parse(res->body);
+    // The error result should be present
+    ASSERT_TRUE(response.contains("results"));
+    ASSERT_EQ(1, response["results"].size());
+    ASSERT_TRUE(response["results"][0].contains("code"));
+    // The conversation block should NOT be present since model call was skipped
+    ASSERT_FALSE(response.contains("conversation"));
+}
+
 TEST_F(CoreAPIUtilsTest, MultiSearchConversationZeroHitTrimmingShouldNotHang) {
     nlohmann::json schema = R"({
         "name": "conversation_zero_hits_docs",

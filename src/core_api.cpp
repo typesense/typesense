@@ -1218,6 +1218,28 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             }
         }
 
+        // If all searches failed, skip the model call entirely
+        bool has_docs = false;
+        for(const auto& docs : result_docs_arr) {
+            if(!docs.empty()) {
+                has_docs = true;
+                break;
+            }
+        }
+
+        if(!has_docs) {
+            // No successful search results — skip conversation model call
+            // and return the response with just the error results
+            std::string response_str = response.dump();
+            if(res->content_type_header.find("event-stream") != std::string::npos) {
+                response_str = "data: " + response_str + "\n\n";
+            }
+            res->set_200(response_str);
+            res->final = true;
+            stream_response(req, res);
+            return true;
+        }
+
         const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
         auto min_required_bytes_op = ConversationModel::get_minimum_required_bytes(conversation_model);
