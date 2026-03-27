@@ -653,7 +653,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         conversation = true;
     }
 
-    if(req->params.find("conversation_stream") != req->params.end() && req->params["conversation_stream"] == "true") {
+    if(conversation && req->params.find("conversation_stream") != req->params.end() && req->params["conversation_stream"] == "true") {
         conversation_stream = true;
     }
 
@@ -1033,7 +1033,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     bool conversation = orig_req_params["conversation"] == "true";
-    bool conversation_stream = orig_req_params["conversation_stream"] == "true";
+    bool conversation_stream = conversation && orig_req_params["conversation_stream"] == "true";
     bool conversation_history = orig_req_params.find("conversation_id") != orig_req_params.end();
     std::string common_query;
 
