@@ -1507,3 +1507,4 @@ TEST_F(CollectionGroupingTest, GroupByPerPage) {
     ASSERT_EQ("1004", res["grouped_hits"][2]["group_key"][0]);
     ASSERT_EQ("1003", res["grouped_hits"][3]["group_key"][0]);
     ASSERT_EQ("1001", res["grouped_hits"][4]["group_key"][0]);
+}
