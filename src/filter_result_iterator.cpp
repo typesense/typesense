@@ -1153,6 +1153,9 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
     if(!a_filter.comparators.empty() && a_filter.comparators[0] == EXISTS) {
         auto map_it = index->field_missing_index.find(a_filter.field_name);
 
+        // apply_not_equals is the default/positive case (_exists) because the index
+        // stores seq_ids for documents where the field is missing (!_exists).
+        // So to find documents where the field exists, we negate the missing index.
         if(a_filter.apply_not_equals) {
             if(map_it == index->field_missing_index.end() || map_it->second == nullptr || map_it->second->num_ids() == 0) {
                 is_filter_result_initialized = true;
