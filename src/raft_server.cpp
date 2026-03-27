@@ -1,17 +1,18 @@
-#include "store.h"
 #include "raft_server.h"
-#include <butil/files/file_enumerator.h>
-#include <thread>
-#include <algorithm>
-#include <string_utils.h>
-#include <file_utils.h>
-#include <collection_manager.h>
-#include <http_client.h>
-#include <conversation_model_manager.h>
-#include "rocksdb/utilities/checkpoint.h"
-#include "thread_local_vars.h"
 #include "core_api.h"
 #include "personalization_model_manager.h"
+#include "rocksdb/utilities/checkpoint.h"
+#include "store.h"
+#include "thread_local_vars.h"
+#include <algorithm>
+#include <butil/files/file_enumerator.h>
+#include <collection_manager.h>
+#include <conversation_model_manager.h>
+#include <file_utils.h>
+#include <housekeeper.h>
+#include <http_client.h>
+#include <string_utils.h>
+#include <thread>
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -756,13 +757,13 @@ void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raf
     node->get_status(&nodeStatus);
 
     LOG(INFO) << "Term: " << nodeStatus.term
-              << ", pending_queue: " << nodeStatus.pending_queue_size
               << ", last_index: " << nodeStatus.last_index
               << ", committed: " << nodeStatus.committed_index
               << ", known_applied: " << nodeStatus.known_applied_index
               << ", applying: " << nodeStatus.applying_index
               << ", pending_writes: " << pending_writes
               << ", queued_writes: " << batched_indexer->get_queued_writes()
+              << ", inflight_searches: " << HouseKeeper::get_instance().get_num_inflight_queries()
               << ", local_sequence: " << store->get_latest_seq_number();
 
     if(node->is_leader()) {
@@ -1049,10 +1050,15 @@ void ReplicationState::shutdown() {
     LOG(INFO) << "Set shutting_down = true";
     shutting_down = true;
 
-    // wait for pending writes to drop to zero
     LOG(INFO) << "Waiting for in-flight writes to finish...";
-    while(pending_writes.load() != 0) {
-        LOG(INFO) << "pending_writes: " << pending_writes;
+    while(true) {
+        const auto pending = pending_writes.load();
+        const auto queued = batched_indexer->get_queued_writes();
+        if(pending == 0 && queued == 0) {
+            break;
+        }
+
+        LOG(INFO) << "pending_writes: " << pending << ", queued_writes: " << queued;
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
 
@@ -1114,7 +1120,10 @@ nlohmann::json ReplicationState::get_status() {
     lock.unlock();
 
     status["state"] = braft::state2str(node_status.state);
+    status["last_index"] = node_status.last_index;
     status["committed_index"] = node_status.committed_index;
+    status["known_applied_index"] = node_status.known_applied_index;
+    status["applying_index"] = node_status.applying_index;
     status["queued_writes"] = batched_indexer->get_queued_writes();
 
     return status;

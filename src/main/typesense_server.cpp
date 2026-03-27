@@ -54,6 +54,7 @@ void master_server_routes() {
     server->get("/keys/:id", get_key);
     server->post("/keys", post_create_key);
     server->del("/keys/:id", del_key);
+    server->patch("/keys/:id", patch_key);
 
     server->get("/presets", get_presets);
     server->get("/presets/:name", get_preset);

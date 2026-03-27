@@ -613,7 +613,7 @@ long HttpClient::download_file(const std::string& url, const std::string& file_p
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 30000); //30s
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);

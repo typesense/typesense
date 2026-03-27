@@ -5,6 +5,8 @@
 #include <string>
 #include <unordered_map>
 #include <thread>
+#include <memory>
+#include <atomic>
 #include <mutex>
 #include <condition_variable>
 #include <shared_mutex>
@@ -27,17 +29,33 @@ struct doc_seq_id_t {
     bool is_new;
 };
 
+struct highlight_query_token_t {
+    bool is_prefix = false;
+    uint32_t root_len = 0;
+    uint32_t num_typos = 0;
+
+    highlight_query_token_t() = default;
+
+    highlight_query_token_t(uint32_t root_len, uint32_t num_typos, bool is_prefix):
+            is_prefix(is_prefix), root_len(root_len), num_typos(num_typos) {
+    }
+};
+
 struct highlight_field_t {
     std::string name;
     bool fully_highlighted;
     bool infix;
     bool is_string;
-    tsl::htrie_map<char, token_leaf> qtoken_leaves;
+    tsl::htrie_map<char, highlight_query_token_t> qtoken_leaves;
 
     highlight_field_t(const std::string& name, bool fully_highlighted, bool infix, bool is_string):
             name(name), fully_highlighted(fully_highlighted), infix(infix), is_string(is_string) {
 
     }
+};
+
+struct highlight_field_snapshot_t {
+    tsl::htrie_map<char, highlight_query_token_t> qtoken_leaves;
 };
 
 struct union_global_params_t {
@@ -145,6 +163,7 @@ struct collection_search_args_t {
     static constexpr auto FACET_SAMPLE_PERCENT = "facet_sample_percent";
     static constexpr auto FACET_SAMPLE_THRESHOLD = "facet_sample_threshold";
     static constexpr auto FACET_SAMPLE_SLOPE = "facet_sample_slope";
+    static constexpr auto FACET_MIN_OCCURRENCE_RATIO = "facet_min_occurrence_ratio";
 
     static constexpr auto CONVERSATION = "conversation";
     static constexpr auto CONVERSATION_ID = "conversation_id";
@@ -237,6 +256,7 @@ struct collection_search_args_t {
     size_t facet_sample_percent;
     size_t facet_sample_threshold;
     size_t facet_sample_slope;
+    float facet_min_occurrence_ratio;
     size_t offset;
     std::string facet_strategy;
     size_t remote_embedding_timeout_ms;
@@ -295,7 +315,8 @@ struct collection_search_args_t {
                              size_t max_extra_prefix, size_t max_extra_suffix, size_t facet_query_num_typos,
                              bool filter_curated_hits_option, bool prioritize_token_position, std::string vector_query,
                              bool enable_highlight_v1, uint64_t start_ts, text_match_type_t match_type,
-                             size_t facet_sample_percent, size_t facet_sample_threshold, size_t facet_sample_slope, size_t offset,
+                             size_t facet_sample_percent, size_t facet_sample_threshold, size_t facet_sample_slope,
+                             float facet_min_occurrence_ratio, size_t offset,
                              std::string facet_strategy, size_t remote_embedding_timeout_ms, size_t remote_embedding_num_tries,
                              std::string stopwords_set, std::vector<std::string> facet_return_parent,
                              std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec,
@@ -328,7 +349,8 @@ struct collection_search_args_t {
             max_extra_prefix(max_extra_prefix), max_extra_suffix(max_extra_suffix), facet_query_num_typos(facet_query_num_typos),
             filter_curated_hits_option(filter_curated_hits_option), prioritize_token_position(prioritize_token_position), vector_query(std::move(vector_query)),
             enable_highlight_v1(enable_highlight_v1), start_ts(start_ts), match_type(match_type),
-            facet_sample_percent(facet_sample_percent), facet_sample_threshold(facet_sample_threshold), facet_sample_slope(facet_sample_slope), offset(offset),
+            facet_sample_percent(facet_sample_percent), facet_sample_threshold(facet_sample_threshold), facet_sample_slope(facet_sample_slope),
+            facet_min_occurrence_ratio(facet_min_occurrence_ratio), offset(offset),
             facet_strategy(std::move(facet_strategy)), remote_embedding_timeout_ms(remote_embedding_timeout_ms), remote_embedding_num_tries(remote_embedding_num_tries),
             stopwords_set(std::move(stopwords_set)), facet_return_parent(std::move(facet_return_parent)),
             ref_include_exclude_fields_vec(std::move(ref_include_exclude_fields_vec)),
@@ -441,6 +463,17 @@ private:
     /// "field name" -> reference_info(referenced_collection_name, referenced_field_name, is_async)
     spp::sparse_hash_map<std::string, reference_info_t> reference_fields;
 
+    struct read_state_t {
+        tsl::htrie_map<char, field> search_schema;
+        std::vector<char> symbols_to_index;
+        std::vector<char> token_separators;
+        bool enable_nested_fields = false;
+        spp::sparse_hash_map<std::string, reference_info_t> reference_fields;
+        std::string collection_name;
+    };
+
+    std::shared_ptr<const read_state_t> read_state_snapshot;
+
     /// Contains the info where the current collection is referenced.
     /// Useful to perform operations such as cascading delete.
     /// collection_name -> field_name
@@ -497,7 +530,7 @@ private:
                                       const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
                                       highlight_t& highlight, StringUtils& string_utils, const bool& use_word_tokenizer,
                                       const size_t& highlight_affix_num_tokens,
-                                      const tsl::htrie_map<char, token_leaf>& qtoken_leaves, const int& last_valid_offset_index,
+                                      const tsl::htrie_map<char, highlight_query_token_t>& qtoken_leaves, const int& last_valid_offset_index,
                                       const size_t& prefix_token_num_chars, const bool& highlight_fully,
                                       const size_t& snippet_threshold, const bool& is_infix_search,
                                       const std::vector<std::string>& raw_query_tokens, const size_t& last_valid_offset,
@@ -505,38 +538,41 @@ private:
                                       const uint8_t* index_symbols, const match_index_t& match_index, const std::string& raw_query,
                                       const std::vector<std::vector<std::string>>& q_phrases = {});
 
-    static void highlight_result(const bool& enable_nested_fields, const std::vector<char>& symbols_to_index,const std::vector<char>& token_separators,
-                                 const std::string& raw_query, const field& search_field,
-                                 const size_t& search_field_index,
-                                 const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
-                                 const KV* field_order_kv, const nlohmann::json& document,
-                                 nlohmann::json& highlight_doc,
-                                 StringUtils& string_utils,
-                                 const size_t& snippet_threshold,
-                                 const size_t& highlight_affix_num_tokens,
-                                 const bool& highlight_fully,
-                                 const bool& is_infix_search,
-                                 const std::string& highlight_start_tag,
-                                 const std::string& highlight_end_tag,
-                                 const uint8_t* index_symbols,
-                                 highlight_t& highlight,
-                                 bool& found_highlight,
-                                 bool& found_full_highlight,
-                                 const std::vector<std::vector<std::string>>& q_phrases = {});
+    void highlight_result(const bool& enable_nested_fields, const std::vector<char>& symbols_to_index,const std::vector<char>& token_separators,
+                          const std::string& raw_query, const field& search_field,
+                          const size_t& search_field_index,
+                          const highlight_field_snapshot_t& highlight_snapshot,
+                          const KV* field_order_kv, const nlohmann::json& document,
+                          nlohmann::json& highlight_doc,
+                          StringUtils& string_utils,
+                          const size_t& snippet_threshold,
+                          const size_t& highlight_affix_num_tokens,
+                          const bool& highlight_fully,
+                          const bool& is_infix_search,
+                          const std::string& highlight_start_tag,
+                          const std::string& highlight_end_tag,
+                          const uint8_t* index_symbols,
+                          highlight_t& highlight,
+                          bool& found_highlight,
+                          bool& found_full_highlight,
+                          const std::vector<std::vector<std::string>>& q_phrases = {}) const;
 
-    static void do_highlighting(const tsl::htrie_map<char, field>& search_schema, const bool& enable_nested_fields,
-                                const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
-                                const string& query, const std::vector<std::string>& raw_search_fields,
-                                const string& raw_query, const bool& enable_highlight_v1, const size_t& snippet_threshold,
-                                const size_t& highlight_affix_num_tokens, const string& highlight_start_tag,
-                                const string& highlight_end_tag, const std::vector<std::string>& highlight_field_names,
-                                const std::vector<std::string>& highlight_full_field_names,
-                                const std::vector<highlight_field_t>& highlight_items, const uint8_t* index_symbols,
-                                const KV* field_order_kv, const nlohmann::json& document, nlohmann::json& highlight_res,
-                                nlohmann::json& wrapper_doc,
-                                const std::vector<std::vector<std::string>>& q_phrases = {});
+    void do_highlighting(const tsl::htrie_map<char, field>& search_schema, const bool& enable_nested_fields,
+                         const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
+                         const string& query, const std::vector<std::string>& raw_search_fields,
+                         const string& raw_query, const bool& enable_highlight_v1, const size_t& snippet_threshold,
+                         const size_t& highlight_affix_num_tokens, const string& highlight_start_tag,
+                         const string& highlight_end_tag, const std::vector<std::string>& highlight_field_names,
+                         const std::vector<std::string>& highlight_full_field_names,
+                         const std::vector<highlight_field_t>& highlight_items,
+                         const std::vector<highlight_field_snapshot_t>& highlight_snapshots,
+                         const uint8_t* index_symbols,
+                         const KV* field_order_kv, const nlohmann::json& document, nlohmann::json& highlight_res,
+                         nlohmann::json& wrapper_doc,
+                         const std::vector<std::vector<std::string>>& q_phrases = {}) const;
 
-    void remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
+    void remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store,
+                         const bool& cascade_remove = true);
 
     void process_remove_field_for_embedding_fields(const field& del_field, std::vector<field>& garbage_embed_fields);
 
@@ -659,7 +695,11 @@ private:
                                   std::string& sort_by_clause,
                                   bool enable_typos_for_numerical_tokens=true,
                                   bool enable_typos_for_alpha_numerical_tokens=true,
-                                  const bool& validate_field_names = true) const;
+                                  const bool& validate_field_names = true,
+                                  const std::string& query_locale = "",
+                                  std::shared_ptr<Stemmer> stemmer = nullptr,
+                                  const std::vector<char>& query_symbols_to_index = {},
+                                  const std::vector<char>& query_token_separators = {}) const;
 
     static void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type,
                                          const size_t total_tokens);
@@ -738,11 +778,15 @@ private:
                                         const bool& is_union_search,
                                         const uint32_t& union_search_index) const;
 
+    std::shared_ptr<const read_state_t> get_read_state_snapshot() const;
+
+    void rebuild_read_state_snapshot_unlocked();
+
     Option<bool> run_search_with_lock(search_args* search_params) const;
 
     void reset_alter_status_counters();
 
-    std::string get_facet_str_val(const std::string& field_name, uint32_t facet_id);
+    std::string get_facet_str_val(const std::string& field_name, uint32_t facet_id) const;
 
     Option<bool> fix_broken_reference(const std::string& seq_id_key, const uint32_t& seq_id,
                                       const tsl::htrie_set<char>& include_fields_full,
@@ -759,6 +803,25 @@ private:
                                         nlohmann::json& results, bool is_union = false) const;
 
     static Option<bool> merge_facet_results(nlohmann::json& result);
+    static Option<bool> filter_dynamic_facets_by_occurrence(nlohmann::json& facet_counts, size_t found_docs,
+                                                            float facet_min_occurrence_ratio);
+
+    void reset_referencing_documents(const std::string& field_name, const std::vector<index_record>& docs);
+
+    // Called to reset the reference helper fields to sentinel value when a referenced document fails to index.
+    static void reset_referencing_documents(const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& found_async_referenced_ins,
+                                            const std::vector<index_record>& docs);
+
+    static void cascade_remove_helper(const std::vector<index_record>& records, cascade_remove_node_t* cascade_node,
+                                      const bool remove_from_store = true);
+
+    // Called to recursively deleted all the documents that directly or indirectly reference the documents.
+    static void cascade_remove(const std::string& coll_name, const std::vector<index_record>& records,
+                               const bool remove_from_store = true);
+
+    void cascade_remove(const std::vector<index_record>& records, const reference_info_t& ref_info,
+                        const std::string& ref_coll_name, std::vector<index_record>& removed_records,
+                        const bool remove_from_store = true);
 
 public:
 
@@ -918,7 +981,8 @@ public:
     nlohmann::json get_summary_json() const;
 
     size_t batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
-                                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings);
+                                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings,
+                                 std::unordered_set<std::string>& found_fields);
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",
@@ -1030,7 +1094,8 @@ public:
                                   const std::vector<std::string>& search_synonym_sets = {},
                                   float diversity_lamda = diversity_t::DEFAULT_LAMDA_VALUE,
                                   size_t group_max_candidates = Index::DEFAULT_TOPSTER_SIZE,
-                                  size_t diversity_limit = Index::DEFAULT_TOPSTER_SIZE);
+                                  size_t diversity_limit = Index::DEFAULT_TOPSTER_SIZE,
+                                  const float facet_min_occurrence_ratio = 0.5f);
 
     Option<bool> parse_and_validate_personalization_query(const std::string& personalization_user_id,
                                                           const std::string& personalization_model_id,
@@ -1050,6 +1115,9 @@ public:
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result,
                                 const bool& should_timeout = true, const bool& validate_field_names = true) const;
 
+    Option<bool> get_filter_ids_with_lock(const std::string & filter_query, filter_result_t& filter_result,
+                                          const bool& should_timeout = true, const bool& validate_field_names = true) const;
+
     Option<bool> get_reference_filter_ids(const std::string& filter_query,
                                           filter_result_t& filter_result,
                                           const std::string& reference_field_name,
@@ -1058,12 +1126,13 @@ public:
 
     Option<nlohmann::json> get(const std::string & id) const;
 
-    void cascade_remove_docs(const std::string& field_name, const uint32_t& ref_seq_id,
-                             const nlohmann::json& ref_doc, bool remove_from_store = true);
-
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
 
     Option<bool> remove_if_found(uint32_t seq_id, bool remove_from_store = true);
+
+    Option<size_t> remove_if_found_many(const std::vector<uint32_t>& seq_ids,
+                                        bool remove_from_store = true,
+                                        std::vector<nlohmann::json>* removed_docs = nullptr);
 
     size_t get_num_documents() const;
 
@@ -1154,6 +1223,12 @@ public:
                                   const tsl::htrie_map<char, token_leaf>& qtoken_set,
                                   std::vector<highlight_field_t>& highlight_items) const;
 
+    void build_highlight_snapshots_with_lock(const std::vector<highlight_field_t>& highlight_items,
+                                             std::vector<highlight_field_snapshot_t>& highlight_snapshots) const;
+
+    void build_highlight_snapshots(const std::vector<highlight_field_t>& highlight_items,
+                                   std::vector<highlight_field_snapshot_t>& highlight_snapshots) const;
+
     static void copy_highlight_doc(const std::vector<highlight_field_t>& hightlight_items,
                                    const bool nested_fields_enabled,
                                    const nlohmann::json& src,
@@ -1241,7 +1316,7 @@ public:
 
     bool check_store_alter_status_msg(bool success, const std::string& msg = "");
 
-    std::string get_facet_str_val_with_lock(const std::string& field_name, uint32_t facet_id);
+    std::string get_facet_str_val_with_lock(const std::string& field_name, uint32_t facet_id) const;
 
     Option<bool> include_related_docs(nlohmann::json& doc, const uint32_t& seq_id,
                                       const reference_info_t& ref_info,
@@ -1249,6 +1324,10 @@ public:
                                       const tsl::htrie_set<char>& ref_exclude_fields_full,
                                       const nlohmann::json& original_doc,
                                       const ref_include_exclude_fields& ref_include_exclude) const;
+
+    std::shared_mutex& get_mutex() const {
+        return mutex;
+    }
 };
 
 template<class T>

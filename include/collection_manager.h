@@ -189,7 +189,8 @@ public:
 
     Option<bool> delete_preset(const std::string & preset_name);
 
-    void add_referenced_ins(const std::string& collection_name, reference_info_t&& ref_info);
+    Option<bool> add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
+                                    std::set<update_reference_info_t>& update_ref_infos);
 
     void remove_referenced_ins(const std::string& referenced_coll_name, const std::string& referring_coll_name = "");
 
@@ -201,6 +202,8 @@ public:
                                          std::map<std::string, std::map<std::string, reference_info_t>>& referenced_ins);
 
     std::unordered_set<std::string> get_collection_references(const std::string& coll_name);
+
+    std::unordered_set<std::string> get_nested_referencing_collections(const std::string& coll_name);
 
     bool is_valid_api_key_collection(const std::vector<std::string>& api_key_collections, std::shared_ptr<Collection> coll) const;
 
@@ -223,8 +226,13 @@ public:
                                        filter_result_t& filter_result,
                                        const bool& should_timeout = true, const bool& validate_field_names = true);
 
+    bool is_referenced_in_any(const std::string& referenced_coll_name) const;
+
     Option<reference_info_t> is_referenced_in(const std::string& referenced_coll_name,
                                               const std::string& referring_coll_name) const;
+
+    Option<reference_info_t> is_referenced_in_with_lock(const std::string& referenced_coll_name,
+                                                        const std::string& referring_coll_name) const;
 
     static Option<bool> populate_include_exclude_fields(const std::string& collection_name,
                                                         const std::string& ref_include,
@@ -248,4 +256,11 @@ public:
     static Option<bool> process_ref_include_fields_sort(const std::string& collection_name,
                                                         const std::string& sort_by_str, size_t limit,
                                                         std::vector<uint32_t>& doc_ids);
+
+    void lock_nested_referencing_collections_helper(const std::string& coll_name,
+                                                    cascade_remove_node_t* cascade_node,
+                                                    std::set<std::string>& referencing_collections);
+
+    void lock_nested_referencing_collections(const std::string& coll_name,
+                                             cascade_remove_node_t*& cascade_tree);
 };

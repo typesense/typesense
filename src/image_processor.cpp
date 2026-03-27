@@ -1,10 +1,10 @@
 #include "image_processor.h"
 #include "logger.h"
 
-CLIPImageProcessor::CLIPImageProcessor(const std::string& model_path) {
+CLIPImageProcessor::CLIPImageProcessor(const std::string& model_path, const std::string& processor_filename) {
     Ort::SessionOptions session_options;
     session_options.EnableOrtCustomOps();
-    auto processor_path = model_path + "/clip_image_processor.onnx";
+    auto processor_path = model_path + "/" + processor_filename;
     LOG(INFO) << "Loading image processor from " << processor_path;
     session_ = std::make_unique<Ort::Session>(env_, processor_path.c_str(), session_options);
 }

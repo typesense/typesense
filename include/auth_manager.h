@@ -133,6 +133,7 @@ public:
 
     static const size_t GENERATED_KEY_LEN = 32;
     static const size_t HMAC_BASE64_LEN = 44;
+    static constexpr const char* AUTH_RESOLVED_COLLECTION_PARAM = "__typesense_authorized_collection";
 
     AuthManager() = default;
 
@@ -145,6 +146,8 @@ public:
     Option<api_key_t> create_key(api_key_t& api_key);
 
     Option<api_key_t> remove_key(uint32_t id);
+
+    Option<api_key_t> update_key(uint32_t id, api_key_t&& api_key);
 
     bool authenticate(const std::string& action,
                       const std::vector<collection_key_t>& collection_keys,
