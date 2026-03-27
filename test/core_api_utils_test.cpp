@@ -566,6 +566,38 @@ TEST_F(CoreAPIUtilsTest, SearchCacheShouldIncludeParamNamesAndIgnoreInternalEmbe
     ASSERT_EQ(hash_request(hash_req_base), hash_request(hash_req_variant));
 }
 
+TEST_F(CoreAPIUtilsTest, ConversationSearchShouldBypassHttpResponseCache) {
+    std::map<std::string, std::string> params = {
+        {"use_cache", "1"},
+        {"conversation", "true"},
+        {"q", "cache conversation"}
+    };
+
+    std::map<std::string, std::string> cacheable_params = {
+        {"use_cache", "1"},
+        {"q", "cache conversation"}
+    };
+
+    ASSERT_TRUE(use_response_cache(cacheable_params));
+    ASSERT_FALSE(use_response_cache(params));
+}
+
+TEST_F(CoreAPIUtilsTest, ConversationMultiSearchShouldBypassHttpResponseCache) {
+    std::map<std::string, std::string> params = {
+        {"use_cache", "true"},
+        {"conversation", "true"},
+        {"q", "cache conversation"}
+    };
+
+    std::map<std::string, std::string> cacheable_params = {
+        {"use_cache", "true"},
+        {"q", "cache conversation"}
+    };
+
+    ASSERT_TRUE(use_response_cache(cacheable_params));
+    ASSERT_FALSE(use_response_cache(params));
+}
+
 TEST_F(CoreAPIUtilsTest, MultiSearchConversationWithEarlierErrorShouldNotReuseFirstSearchCollection) {
     nlohmann::json schema = R"({
         "name": "stale_res_index_docs",

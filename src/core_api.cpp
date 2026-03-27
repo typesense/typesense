@@ -71,6 +71,19 @@ void init_api(uint32_t cache_num_entries) {
     res_cache.capacity(cache_num_entries);
 }
 
+bool use_response_cache(const std::map<std::string, std::string>& params) {
+    const auto use_cache_it = params.find("use_cache");
+    bool use_cache = (use_cache_it != params.end()) &&
+                     (use_cache_it->second == "1" || use_cache_it->second == "true");
+
+    const auto conversation_it = params.find("conversation");
+    if(conversation_it != params.end() && conversation_it->second == "true") {
+        use_cache = false;
+    }
+
+    return use_cache;
+}
+
 bool get_alter_in_progress(const std::string& collection) {
     std::shared_lock lock(alter_mutex);
     return alters_in_progress.count(collection) != 0;
@@ -599,8 +612,8 @@ uint64_t hash_request(const std::shared_ptr<http_req>& req) {
 }
 
 bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const auto use_cache_it = req->params.find("use_cache");
-    bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
+    bool use_cache = use_response_cache(req->params);
+
     uint64_t req_hash = 0;
 
     in_flight_req_guard_t in_flight_req_guard(req);
@@ -887,8 +900,8 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 }
 
 bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const auto use_cache_it = req->params.find("use_cache");
-    bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
+    bool use_cache = use_response_cache(req->params);
+
     uint64_t req_hash = 0;
 
     in_flight_req_guard_t in_flight_req_guard(req);
