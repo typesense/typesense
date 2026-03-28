@@ -953,6 +953,34 @@ TEST_F(CollectionLocaleTest, HandleSpecialCharsInThai) {
     ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionLocaleTest, SearchGermanStreetNameWithTokenSeparatorsAndTypo) {
+    nlohmann::json coll_json = R"({
+        "name": "streets",
+        "fields": [
+            {"name": "str", "type": "string", "locale": "de"}
+        ],
+        "token_separators": ["-", "/", ","]
+    })"_json;
+
+    auto coll1 = collectionManager.create_collection(coll_json).get();
+
+    nlohmann::json doc;
+    doc["str"] = "Rudolf Hans Bartsch-Gasse";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // Search with typo: missing "s" in "Gasse" -> "Gase"
+    // and different tokenization: "Rudolf-Hans-Bartsch-Gase" vs "Rudolf Hans Bartsch-Gasse"
+    auto results = coll1->search("Rudolf-Hans-Bartsch-Gase", {"str"}, "", {}, {},
+                                 {1}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("<mark>Rudolf</mark> <mark>Hans</mark> <mark>Bartsch</mark>-<mark>Gasse</mark>", 
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    collectionManager.drop_collection("streets");
+}
+
 /*
 TEST_F(CollectionLocaleTest, TranslitPad) {
     UErrorCode translit_status = U_ZERO_ERROR;
