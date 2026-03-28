@@ -5000,6 +5000,143 @@ TEST_F(JoinIncludeExcludeFieldsTest, UnindexedField) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_price"));
 }
 
+TEST_F(CollectionJoinTest, NestedReferencesOrCrash) {
+    auto schema_json =
+            R"({
+                "name": "products",
+                "fields": [
+                    {"name": "product_name", "type": "string", "facet": true},
+                    {"name": "brand_id", "type": "int32", "facet": true},
+                    {"name": "active", "type": "bool"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (int i = 1; i <= 10; ++i) {
+        auto document = nlohmann::json::object({
+                {"id", "P" + std::to_string(i)},
+                {"product_name", "Product " + std::to_string(i)},
+                {"brand_id", (i % 2) + 1},
+                {"active", (bool)(i % 2 == 0)}
+        });
+
+        auto add_op = collection_create_op.get()->add(document.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "sku_sellers",
+                "fields": [
+                    {"name": "product_id", "type": "string", "reference": "products.id"},
+                    {"name": "seller_id", "type": "string"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (int i = 1; i <= 10; ++i) {
+        for (const auto& seller_id: {"S1", "S2"}) {
+            auto document = nlohmann::json::object({
+                    {"id", "SS_" + std::to_string(i) + "_" + seller_id},
+                    {"product_id", "P" + std::to_string(i)},
+                    {"seller_id", seller_id}
+            });
+
+            auto add_op = collection_create_op.get()->add(document.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
+    }
+
+    schema_json =
+            R"({
+                "name": "offers_S1",
+                "fields": [
+                    {"name": "sku_seller_id", "type": "string", "reference": "sku_sellers.id"},
+                    {"name": "price", "type": "float"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (int i = 1; i <= 10; ++i) {
+        auto document = nlohmann::json::object({
+                {"id", "OF_S1_" + std::to_string(i)},
+                {"sku_seller_id", "SS_" + std::to_string(i) + "_S1"},
+                {"price", 10.5 * i}
+        });
+
+        auto add_op = collection_create_op.get()->add(document.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "offers_S2",
+                "fields": [
+                    {"name": "sku_seller_id", "type": "string", "reference": "sku_sellers.id"},
+                    {"name": "price", "type": "float"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (int i = 1; i <= 10; ++i) {
+        auto document = nlohmann::json::object({
+                {"id", "OF_S2_" + std::to_string(i)},
+                {"sku_seller_id", "SS_" + std::to_string(i) + "_S2"},
+                {"price", 12.0 * i}
+        });
+
+        auto add_op = collection_create_op.get()->add(document.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "products"},
+            {"q", "*"},
+            {"filter_by", "active:true && "
+                          "($sku_sellers(seller_id:=S1 && $offers_S1(id: *))"
+                          "||"
+                          "(brand_id:[1] && $sku_sellers(seller_id:=S2 && $offers_S2(id: *))))"},
+            {"include_fields", "*,$sku_sellers(seller_id,$offers_S1(price,clusters),$offers_S2(price,clusters), strategy: nest_array)"},
+            {"page", "1"},
+            {"per_page", "10"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+
+    for (size_t i = 10, j = 0; i >= 2; i-=2, j++) {
+        ASSERT_EQ("P" + std::to_string(i), res_obj["hits"][j]["document"]["id"]);
+        ASSERT_TRUE(res_obj["hits"][j]["document"]["active"]);
+        ASSERT_EQ(2, res_obj["hits"][j]["document"]["sku_sellers"].size());
+        ASSERT_EQ("S1", res_obj["hits"][j]["document"]["sku_sellers"][0]["seller_id"]);
+        ASSERT_EQ(10.5 * i, res_obj["hits"][j]["document"]["sku_sellers"][0]["offers_S1"]["price"]);
+        ASSERT_EQ("S2", res_obj["hits"][j]["document"]["sku_sellers"][1]["seller_id"]);
+        ASSERT_EQ(12.0 * i, res_obj["hits"][j]["document"]["sku_sellers"][1]["offers_S2"]["price"]);
+    }
+}
+
 TEST_F(CollectionJoinTest, FilterByReferenceArrayField) {
     auto schema_json =
             R"({
