@@ -2832,7 +2832,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                facet_index_types, enable_typos_for_numerical_tokens,
                                                enable_synonyms, demote_synonym_match, synonym_prefix, synonyms_num_typos,
                                                enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches,
-                                               validate_field_names, is_union_search, this, all_synonym_sets, std::move(diversity),
+                                               validate_field_names, nullptr, this, all_synonym_sets, std::move(diversity),
                                                coll_args.group_max_candidates);
 
     return Option<bool>(true);
@@ -3613,7 +3613,9 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     spp::sparse_hash_set<uint32_t> unique_collection_ids;
     long totalSearchTime = 0;
     auto group_limit = searches[0].group_limit;
+    auto should_remove_duplicates = group_limit ? false : remove_duplicates;
     auto found_docs = 0;
+    std::unordered_map<uint32_t, std::unique_ptr<id_list_t>> union_result_seq_ids_by_collection;
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto begin = std::chrono::high_resolution_clock::now();
@@ -3649,6 +3651,16 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                                                                       true, search_index);
         if (!init_index_search_args_op.ok()) {
             return init_index_search_args_op;
+        }
+
+        if(should_remove_duplicates) {
+            auto [it, inserted] = union_result_seq_ids_by_collection.try_emplace(coll_id);
+            if(inserted) {
+                it->second = std::make_unique<id_list_t>(ids_t::MAX_BLOCK_ELEMENTS);
+            }
+            search_params_guard->union_result_seq_ids = it->second.get();
+        } else {
+            search_params_guard->union_result_seq_ids = nullptr;
         }
 
         const auto search_op = coll->run_search_with_lock(search_params_guard.get());
@@ -3786,18 +3798,11 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     auto curations_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
             Union_KV::is_greater, Union_KV::is_smaller>>(std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
-    auto should_remove_duplicates = group_limit ? false : remove_duplicates;
-
     if(should_remove_duplicates) {
-        std::unordered_set<uint64_t> unique_union_keys;
-        for (size_t search_index = 0; search_index < searches.size(); search_index++) {
-            const auto& seq_ids = search_params_guards[search_index]->union_result_seq_ids;
-            unique_union_keys.reserve(unique_union_keys.size() + seq_ids.size());
-            for(const auto& seq_id : seq_ids) {
-                unique_union_keys.insert(StringUtils::hash_combine(collection_ids[search_index], seq_id));
-            }
+        total = 0;
+        for(const auto& entry : union_result_seq_ids_by_collection) {
+            total += entry.second->num_ids();
         }
-        total = unique_union_keys.size();
     }
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
