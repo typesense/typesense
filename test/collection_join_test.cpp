@@ -3023,6 +3023,233 @@ TEST_F(CollectionJoinTest, OrFilterResults_WithReferences) {
     }
 }
 
+TEST_F(CollectionJoinTest, AndFilterResults_WithNestedReferences) {
+    bool is_reference_array_field = false, delete_docs = true;
+    auto a = filter_result_t(2, new uint32_t[2]{1, 3},
+                             new std::map<std::string, reference_filter_result_t>[2]{
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{2}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{1}))}}))},
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{0}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{0}))}}))},
+    });
+    auto b = filter_result_t(2, new uint32_t[2]{2, 3},
+                             new std::map<std::string, reference_filter_result_t>[2]{
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{1}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_2",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{1}))}}))},
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{0}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_2",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{1}))}}))},
+                             });
+
+    filter_result_t result_1;
+    filter_result_t::and_filter_results(a, b, result_1);
+    ASSERT_EQ(1, result_1.count);
+    ASSERT_EQ(3, result_1.docs[0]);
+    ASSERT_NE(nullptr, result_1.coll_to_references);
+    ASSERT_EQ(1, result_1.coll_to_references[0].size());
+    ASSERT_EQ(1, result_1.coll_to_references[0].count("L2"));
+    const auto& nested_result_doc_3_L2_distinct = result_1.coll_to_references[0]["L2"];
+    ASSERT_EQ(1, nested_result_doc_3_L2_distinct.count);
+    ASSERT_EQ(0, nested_result_doc_3_L2_distinct.docs[0]);
+    ASSERT_NE(nullptr, nested_result_doc_3_L2_distinct.coll_to_references);
+    ASSERT_EQ(2, nested_result_doc_3_L2_distinct.coll_to_references[0].size());
+    ASSERT_EQ(1, nested_result_doc_3_L2_distinct.coll_to_references[0].count("L3_1"));
+    ASSERT_EQ(1, nested_result_doc_3_L2_distinct.coll_to_references[0].count("L3_2"));
+    // Since the ANDed results don't have any common references, we combine the reference result.
+    const auto& nested_result_doc_3_L3_1_distinct = nested_result_doc_3_L2_distinct.coll_to_references[0]["L3_1"];
+    ASSERT_EQ(1, nested_result_doc_3_L3_1_distinct.count);
+    ASSERT_EQ(0, nested_result_doc_3_L3_1_distinct.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_3_L3_1_distinct.coll_to_references);
+    const auto& nested_result_doc_3_L3_2_distinct = nested_result_doc_3_L2_distinct.coll_to_references[0]["L3_2"];
+    ASSERT_EQ(1, nested_result_doc_3_L3_2_distinct.count);
+    ASSERT_EQ(1, nested_result_doc_3_L3_2_distinct.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_3_L3_2_distinct.coll_to_references);
+
+    a = filter_result_t(2, new uint32_t[2]{1, 3},
+                         new std::map<std::string, reference_filter_result_t>[2]{
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{1}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{1}))}}))},
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{0}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{3}))}}))},
+    });
+
+    b = filter_result_t(2, new uint32_t[2]{1, 3},
+                         new std::map<std::string, reference_filter_result_t>[2]{
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{1}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{0}))}}))},
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{0}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{3}))}}))},
+                             });
+
+    filter_result_t result_2;
+    filter_result_t::and_filter_results(a, b, result_2);
+    ASSERT_EQ(1, result_2.count);
+    ASSERT_EQ(3, result_2.docs[0]);
+
+    ASSERT_NE(nullptr, result_2.coll_to_references);
+
+    ASSERT_EQ(1, result_2.coll_to_references[0].size());
+    ASSERT_EQ(1, result_2.coll_to_references[0].count("L2"));
+    const auto& nested_result_doc_3_L2 = result_2.coll_to_references[0]["L2"];
+    ASSERT_EQ(1, nested_result_doc_3_L2.count);
+    ASSERT_EQ(0, nested_result_doc_3_L2.docs[0]);
+    ASSERT_NE(nullptr, nested_result_doc_3_L2.coll_to_references);
+    ASSERT_EQ(1, nested_result_doc_3_L2.coll_to_references[0].size());
+    ASSERT_EQ(1, nested_result_doc_3_L2.coll_to_references[0].count("L3_1"));
+    const auto& nested_result_doc_3_L3_1 = nested_result_doc_3_L2.coll_to_references[0]["L3_1"];
+    ASSERT_EQ(1, nested_result_doc_3_L3_1.count);
+    ASSERT_EQ(3, nested_result_doc_3_L3_1.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_3_L3_1.coll_to_references);
+}
+
+TEST_F(CollectionJoinTest, OrFilterResults_WithNestedReferences) {
+    bool is_reference_array_field = false, delete_docs = true;
+    auto a_result = filter_result_t(2, new uint32_t[2]{1, 3},
+                                    new std::map<std::string, reference_filter_result_t>[2]{
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{2}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{1}))}}))},
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{0}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{0}))}}))},
+    });
+    auto b_result = filter_result_t(2, new uint32_t[2]{2, 3},
+                                    new std::map<std::string, reference_filter_result_t>[2]{
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{1}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_2",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{1}))}}))},
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{0}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_2",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{0}))}}))},
+                             });
+
+    filter_result_t or_result;
+    filter_result_t::or_filter_results(a_result, b_result, or_result);
+
+    ASSERT_EQ(3, or_result.count);
+    std::vector<uint32_t> expected = {1, 2, 3};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], or_result.docs[i]);
+    }
+    ASSERT_NE(nullptr, or_result.coll_to_references);
+
+    ASSERT_EQ(1, or_result.coll_to_references[0].size());
+    ASSERT_EQ(1, or_result.coll_to_references[0].count("L2"));
+    const auto& nested_result_doc_1_L2 = or_result.coll_to_references[0]["L2"];
+    ASSERT_EQ(1, nested_result_doc_1_L2.count);
+    ASSERT_EQ(2, nested_result_doc_1_L2.docs[0]);
+    ASSERT_NE(nullptr, nested_result_doc_1_L2.coll_to_references);
+    ASSERT_EQ(1, nested_result_doc_1_L2.coll_to_references[0].size());
+    ASSERT_EQ(1, nested_result_doc_1_L2.coll_to_references[0].count("L3_1"));
+    const auto& nested_result_doc_1_L3_1 = nested_result_doc_1_L2.coll_to_references[0]["L3_1"];
+    ASSERT_EQ(1, nested_result_doc_1_L3_1.count);
+    ASSERT_EQ(1, nested_result_doc_1_L3_1.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_1_L3_1.coll_to_references);
+
+    ASSERT_EQ(1, or_result.coll_to_references[1].size());
+    ASSERT_EQ(1, or_result.coll_to_references[1].count("L2"));
+    const auto& nested_result_doc_2_L2 = or_result.coll_to_references[1]["L2"];
+    ASSERT_EQ(1, nested_result_doc_2_L2.count);
+    ASSERT_EQ(1, nested_result_doc_2_L2.docs[0]);
+    ASSERT_NE(nullptr, nested_result_doc_2_L2.coll_to_references);
+    ASSERT_EQ(1, nested_result_doc_2_L2.coll_to_references[0].size());
+    ASSERT_EQ(1, nested_result_doc_2_L2.coll_to_references[0].count("L3_2"));
+    const auto& nested_result_doc_2_L3_2 = nested_result_doc_2_L2.coll_to_references[0]["L3_2"];
+    ASSERT_EQ(1, nested_result_doc_2_L3_2.count);
+    ASSERT_EQ(1, nested_result_doc_2_L3_2.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_2_L3_2.coll_to_references);
+
+    ASSERT_EQ(1, or_result.coll_to_references[2].size());
+    ASSERT_EQ(1, or_result.coll_to_references[2].count("L2"));
+    const auto& nested_result_doc_3_L2 = or_result.coll_to_references[2]["L2"];
+    ASSERT_EQ(1, nested_result_doc_3_L2.count);
+    ASSERT_EQ(0, nested_result_doc_3_L2.docs[0]);
+    ASSERT_NE(nullptr, nested_result_doc_3_L2.coll_to_references);
+    ASSERT_EQ(2, nested_result_doc_3_L2.coll_to_references[0].size());
+    ASSERT_EQ(1, nested_result_doc_3_L2.coll_to_references[0].count("L3_1"));
+    const auto& nested_result_doc_3_L3_1 = nested_result_doc_3_L2.coll_to_references[0]["L3_1"];
+    ASSERT_EQ(1, nested_result_doc_3_L3_1.count);
+    ASSERT_EQ(0, nested_result_doc_3_L3_1.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_3_L3_1.coll_to_references);
+    ASSERT_EQ(1, nested_result_doc_3_L2.coll_to_references[0].count("L3_2"));
+    const auto& nested_result_doc_3_L3_2 = nested_result_doc_3_L2.coll_to_references[0]["L3_2"];
+    ASSERT_EQ(1, nested_result_doc_3_L3_2.count);
+    ASSERT_EQ(0, nested_result_doc_3_L3_2.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_3_L3_2.coll_to_references);
+
+    filter_result_t a, b, result;
+
+    // Regression case for OR-ing the same joined collection when each reference doc
+    // also carries nested references of its own.
+    a.count = 1;
+    a.docs = new uint32_t[1]{10};
+    a.coll_to_references = new std::map<std::string, reference_filter_result_t>[1] {};
+
+    auto foo_a_docs = new uint32_t[1]{101};
+    reference_filter_result_t foo_a(1, foo_a_docs);
+    foo_a.coll_to_references = new std::map<std::string, reference_filter_result_t>[1] {};
+    foo_a.coll_to_references[0]["bar"] = reference_filter_result_t(1, new uint32_t[1]{1001});
+    a.coll_to_references[0]["foo"] = std::move(foo_a);
+
+    b.count = 1;
+    b.docs = new uint32_t[1]{10};
+    b.coll_to_references = new std::map<std::string, reference_filter_result_t>[1] {};
+
+    auto foo_b_docs = new uint32_t[1]{202};
+    reference_filter_result_t foo_b(1, foo_b_docs);
+    foo_b.coll_to_references = new std::map<std::string, reference_filter_result_t>[1] {};
+    foo_b.coll_to_references[0]["bar"] = reference_filter_result_t(1, new uint32_t[1]{2002});
+    b.coll_to_references[0]["foo"] = std::move(foo_b);
+
+    filter_result_t::or_filter_results(a, b, result);
+
+    ASSERT_EQ(1, result.count);
+    ASSERT_EQ(10, result.docs[0]);
+    ASSERT_EQ(1, result.coll_to_references[0].count("foo"));
+
+    auto const& foo_result = result.coll_to_references[0].at("foo");
+    ASSERT_EQ(2, foo_result.count);
+    ASSERT_EQ(101, foo_result.docs[0]);
+    ASSERT_EQ(202, foo_result.docs[1]);
+    ASSERT_NE(nullptr, foo_result.coll_to_references);
+
+    ASSERT_EQ(1, foo_result.coll_to_references[0].count("bar"));
+    ASSERT_EQ(1, foo_result.coll_to_references[1].count("bar"));
+    ASSERT_EQ(1001, foo_result.coll_to_references[0].at("bar").docs[0]);
+    ASSERT_EQ(2002, foo_result.coll_to_references[1].at("bar").docs[0]);
+}
+
 TEST_F(CollectionJoinTest, FilterByNReferences) {
     auto schema_json =
             R"({

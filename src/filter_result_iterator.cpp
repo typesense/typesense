@@ -41,33 +41,114 @@ void filter_result_t::copy_references(const filter_result_t& from, filter_result
     return copy_references_helper(from.coll_to_references, to.coll_to_references, from.count);
 }
 
+bool reference_filter_result_t::intersect_reference_results(const reference_filter_result_t& a_ref_result,
+                                                            const reference_filter_result_t& b_ref_result,
+                                                            reference_filter_result_t& out_ref_result) {
+    if (a_ref_result.count == 0 || b_ref_result.count == 0) {
+        return false;
+    }
+
+    std::vector<uint32_t> intersected_docs;
+    std::vector<std::map<std::string, reference_filter_result_t>> intersected_nested_references;
+    bool has_nested_references = false;
+
+    size_t index_a = 0, index_b = 0;
+    while (1) {
+        while (a_ref_result.docs[index_a] < b_ref_result.docs[index_b]) {
+            if (++index_a >= a_ref_result.count) {
+                goto BREAK_OUTER_LOOP;
+            }
+        }
+
+        while (a_ref_result.docs[index_a] > b_ref_result.docs[index_b]) {
+            if (++index_b >= b_ref_result.count) {
+                goto BREAK_OUTER_LOOP;
+            }
+        }
+
+        // Intersect nested references, if reference to the same collection in found.
+        std::map<std::string, reference_filter_result_t> nested_references;
+        const auto a_has_nested_references = a_ref_result.coll_to_references != nullptr &&
+                                             !a_ref_result.coll_to_references[index_a].empty();
+        const auto b_has_nested_references = b_ref_result.coll_to_references != nullptr &&
+                                             !b_ref_result.coll_to_references[index_b].empty();
+
+        bool references_found = true;
+        if (a_has_nested_references && b_has_nested_references) {
+            references_found = and_references(a_ref_result.coll_to_references[index_a],
+                                              b_ref_result.coll_to_references[index_b],
+                                              nested_references);
+        } else if (a_has_nested_references) {
+            nested_references.insert(a_ref_result.coll_to_references[index_a].begin(),
+                                     a_ref_result.coll_to_references[index_a].end());
+        } else if (b_has_nested_references) {
+            nested_references.insert(b_ref_result.coll_to_references[index_b].begin(),
+                                     b_ref_result.coll_to_references[index_b].end());
+        }
+
+        if (references_found) {
+            intersected_docs.push_back(a_ref_result.docs[index_a]);
+            if (!nested_references.empty()) {
+                has_nested_references = true;
+            }
+            intersected_nested_references.push_back(std::move(nested_references));
+        }
+
+        if (++index_a >= a_ref_result.count || ++index_b >= b_ref_result.count) {
+            break;
+        }
+    }
+    BREAK_OUTER_LOOP:
+
+    if (intersected_docs.empty()) {
+        return false;
+    }
+
+    out_ref_result.count = intersected_docs.size();
+    out_ref_result.docs = new uint32_t[out_ref_result.count];
+    out_ref_result.is_reference_array_field = a_ref_result.is_reference_array_field;
+    out_ref_result.delete_docs = true;
+
+    for (size_t i = 0; i < intersected_docs.size(); i++) {
+        out_ref_result.docs[i] = intersected_docs[i];
+    }
+
+    if (has_nested_references) {
+        out_ref_result.coll_to_references =
+            new std::map<std::string, reference_filter_result_t>[intersected_nested_references.size()] {};
+        for (size_t i = 0; i < intersected_nested_references.size(); i++) {
+            out_ref_result.coll_to_references[i] = std::move(intersected_nested_references[i]);
+        }
+    }
+
+    return true;
+}
+
 bool reference_filter_result_t::and_references(const std::map<std::string, reference_filter_result_t>& a_references,
                                                const std::map<std::string, reference_filter_result_t>& b_references,
                                                std::map<std::string, reference_filter_result_t>& result_references) {
     // Copy the references of the document from every collection into result.
     result_references.insert(a_references.begin(), a_references.end());
 
-    for (auto& it : b_references) {
-        auto ref_it = result_references.find(it.first);
+    for (const auto& [ref_collection_name, b_ref_result] : b_references) {
+        auto ref_it = result_references.find(ref_collection_name);
         if (ref_it == result_references.end()) {
-            result_references[it.first] = it.second;
+            result_references[ref_collection_name] = b_ref_result;
             continue;
         }
 
-        // Both the docs of A and B have references to the same collection.
-        uint32_t* and_result = nullptr;
-        auto& ref_result = ref_it->second;
-        ref_result.count = ArrayUtils::and_scalar(ref_result.docs, ref_result.count,
-                                                  it.second.docs, it.second.count, &and_result);
-        delete [] ref_result.docs;
-        ref_result.docs = and_result;
-
-        // No common references found, this doc doesn't pass AND.
-        if (ref_result.count == 0) {
+        reference_filter_result_t merged_ref_result;
+        if (!intersect_reference_results(ref_it->second, b_ref_result, merged_ref_result)) {
             result_references.clear();
             return false;
         }
+
+        auto& out_ref_result = ref_it->second;
+        delete [] out_ref_result.docs;
+        delete [] out_ref_result.coll_to_references;
+        out_ref_result = std::move(merged_ref_result);
     }
+
     return true;
 }
 
