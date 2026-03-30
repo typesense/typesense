@@ -5,6 +5,8 @@
 #include <utility>
 #include <vector>
 #include <memory>
+#include <unordered_map>
+#include <unordered_set>
 #include "num_tree.h"
 #include "option.h"
 #include "posting_list.h"
@@ -23,10 +25,11 @@ struct reference_filter_result_t {
     std::map<std::string, reference_filter_result_t>* coll_to_references = nullptr;
 
     explicit reference_filter_result_t(uint32_t count = 0, uint32_t* docs = nullptr,
-                                       bool is_reference_array_field = true, bool delete_docs = true) :
+                                       bool is_reference_array_field = true, bool delete_docs = true,
+                                       std::map<std::string, reference_filter_result_t>* coll_to_references = nullptr) :
                                        count(count), docs(docs),
                                        is_reference_array_field(is_reference_array_field),
-                                       delete_docs(delete_docs) {}
+                                       delete_docs(delete_docs), coll_to_references(coll_to_references) {}
 
     reference_filter_result_t(const reference_filter_result_t& obj) {
         if (&obj == this || obj.count == 0) {
@@ -85,6 +88,10 @@ struct reference_filter_result_t {
     }
 
     static void copy_references(const reference_filter_result_t& from, reference_filter_result_t& to);
+
+    static bool intersect_reference_results(const reference_filter_result_t& a_ref_result,
+                                            const reference_filter_result_t& b_ref_result,
+                                            reference_filter_result_t& out_ref_result);
 
     /// Returns whether at least one common reference doc_id was found or not.
     static bool and_references(const std::map<std::string, reference_filter_result_t>& a_references,
@@ -172,7 +179,9 @@ struct filter_result_t {
 
     filter_result_t() = default;
 
-    filter_result_t(uint32_t count, uint32_t* docs) : count(count), docs(docs) {}
+    filter_result_t(uint32_t count, uint32_t* docs,
+                    std::map<std::string, reference_filter_result_t>* coll_to_references = nullptr) :
+                    count(count), docs(docs), coll_to_references(coll_to_references) {}
 
     filter_result_t(const filter_result_t& obj) {
         if (&obj == this) {
@@ -367,7 +376,11 @@ private:
     void skip_to(uint32_t id);
 
     static bool validate_object_filter_helper(Index const* const index, const nlohmann::json& doc,
-                                              const filter_node_t* filter_node);
+                                              const filter_node_t* filter_node,
+                                              const std::string& collection_name,
+                                              const std::string& object_field_name,
+                                              const std::unordered_map<std::string, std::unordered_set<uint32_t>>* object_join_matches,
+                                              uint32_t object_index);
 
     bool validate_object_filter();
 
@@ -391,7 +404,8 @@ public:
 
     explicit filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count,
                                       const size_t& max_candidates = DEFAULT_FILTER_BY_CANDIDATES,
-                                      uint64_t search_begin_us = 0, uint64_t search_stop_us = UINT64_MAX);
+                                      uint64_t search_begin_us = 0, uint64_t search_stop_us = UINT64_MAX,
+                                      std::map<std::string, reference_filter_result_t>* coll_to_references = nullptr);
 
     explicit filter_result_iterator_t(const std::string& collection_name,
                                       Index const* const index, filter_node_t const* const filter_node,

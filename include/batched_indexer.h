@@ -41,6 +41,7 @@ private:
     struct refq_entry {
         uint64_t queue_id;
         uint64_t start_ts;
+        std::unordered_set<uint64_t> waiting_on_requests{};
 
         refq_entry(uint64_t qid, uint64_t sts): queue_id(qid), start_ts(sts) {
 
@@ -65,9 +66,6 @@ private:
 
     std::mutex mutex;
     std::map<uint64_t, req_res_t> req_res_map;
-
-    // used in tracking references
-    std::map<uint64_t, std::string> req_colls;
 
     std::atomic<int64_t> queued_writes = 0;
 
@@ -98,6 +96,17 @@ private:
     static std::string get_req_prefix_key(uint64_t req_id);
 
     static std::string get_req_suffix_key(uint64_t req_id);
+
+    std::unordered_set<uint64_t> get_requests_to_wait_on_with_lock(const std::shared_ptr<http_req>& req,
+                                                                   const std::string& coll_name);
+
+    std::unordered_set<uint64_t> get_requests_to_wait_on(const std::shared_ptr<http_req>& req,
+                                                         const std::string& coll_name);
+
+    void update_coll_to_references(const std::shared_ptr<http_req>& req, const std::string& coll_name);
+
+    void update_coll_to_references_after_request(const std::shared_ptr<http_req>& req,
+                                                 const std::string& coll_name);
 
 public:
 
@@ -130,6 +139,4 @@ public:
     std::string get_collection_name(const std::shared_ptr<http_req>& req);
 
     std::shared_mutex& get_pause_mutex();
-
-    size_t get_reference_q_size();
 };

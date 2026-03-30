@@ -13,6 +13,7 @@ private:
     std::atomic<uint32_t> remove_expired_keys_interval_s = 3600;
     std::atomic<uint32_t> memory_req_min_age_s = 6;
     std::atomic<uint32_t> memory_usage_interval_s = 3;
+    std::atomic<uint32_t> long_req_log_s = 60;
 
     // used to track in-flight queries so they can be logged during a crash / rapid memory growth
     std::mutex ifq_mutex;
@@ -59,6 +60,8 @@ public:
     void log_bad_queries();
 
     void log_running_queries();
+
+    size_t get_num_inflight_queries();
 
     void run();
 

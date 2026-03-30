@@ -1,5 +1,7 @@
 #include <string>
 #include <vector>
+#include <queue>
+#include <set>
 #include <json.hpp>
 #include <app_metrics.h>
 #include <analytics_manager.h>
@@ -1364,9 +1366,11 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
 }
 
 Option<bool> apply_embedded_params(nlohmann::json& embedded_params, std::map<std::string, std::string>& req_params) {
+    const auto auth_collection_it = embedded_params.find(AuthManager::AUTH_RESOLVED_COLLECTION_PARAM);
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
-        if(item.key() == "expires_at") {
+        if(item.key() == "expires_at" || item.key() == AuthManager::AUTH_RESOLVED_COLLECTION_PARAM) {
             continue;
         }
 
@@ -1374,6 +1378,11 @@ Option<bool> apply_embedded_params(nlohmann::json& embedded_params, std::map<std
         if (!AuthManager::add_item_to_params(req_params, item, true)) {
             return Option<bool>(400, "Error applying search parameters inside Scoped Search API key");
         }
+    }
+
+    if(auth_collection_it != embedded_params.end() && auth_collection_it->is_string()) {
+        // Auth already resolved the target collection; keep execution pinned to it.
+        req_params["collection"] = auth_collection_it->get<std::string>();
     }
 
     return Option<bool>(true);
@@ -1561,6 +1570,7 @@ Option<bool> CollectionManager::validate_facet_params(const std::vector<collecti
 
     const auto& facet_strategy = coll_searches[0].facet_strategy;
     const auto& simple_facet_query = coll_searches[0].simple_facet_query;
+    const auto& facet_min_occurrence_ratio = coll_searches[0].facet_min_occurrence_ratio;
     spp::sparse_hash_map<std::string, facet_field_parent> field_to_facet_field_map;
     std::string generic_error = " should be uniform across searches for faceting with union search.";
 
@@ -1575,6 +1585,10 @@ Option<bool> CollectionManager::validate_facet_params(const std::vector<collecti
 
         if(args.simple_facet_query != simple_facet_query) {
             return Option<bool>(400, "`facet_query`" + generic_error);
+        }
+
+        if(args.facet_min_occurrence_ratio != facet_min_occurrence_ratio) {
+            return Option<bool>(400, "`facet_min_occurrence_ratio`" + generic_error);
         }
 
         for(const auto& field : args.facet_fields) {
@@ -2151,7 +2165,8 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         // batch must match atleast the number of shards
          if(exceeds_batch_mem_threshold || (num_valid_docs % batch_size == 0) || last_record) {
             size_t num_records = index_records.size();
-            size_t num_indexed = collection->batch_index_in_memory(index_records, 200, 60000, 2, false);
+            std::unordered_set<std::string> dummy;
+            size_t num_indexed = collection->batch_index_in_memory(index_records, 200, 60000, 2, false, dummy);
             batch_doc_str_size = 0;
 
             if(num_indexed != num_records) {
@@ -2365,15 +2380,38 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     return Option<Collection*>(new_coll);
 }
 
-void CollectionManager::add_referenced_ins(const std::string& collection_name, reference_info_t&& ref_info) {
+Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
+                                                   std::set<update_reference_info_t>& update_ref_infos) {
     std::unique_lock lock(mutex);
-    auto it = referenced_ins.find(collection_name);
-    if (it == referenced_ins.end()) {
-        referenced_ins[collection_name] = {{ref_info.collection, ref_info}};
-        return;
+
+    auto ref_coll = get_collection_unsafe(referenced_collection_name);
+    std::set<update_reference_info_t> _update_ref_infos{};
+    if (ref_coll != nullptr) {
+        referenced_collection_name = ref_coll->get_name(); // resolves alias
+
+        // If the collections are created in parallel, we can have a TOCTOU race condition where the referencing collection
+        // is yet to call CollectionManager::add_referenced_ins() and the referenced collection checks
+        // `CollectionManager::referenced_ins` in `CollectionManager::create_collection` and doesn't find reference. So its
+        // `referenced_in` isn't updated. To avoid this scenario we're going to call add_referenced_ins() on referenced collection.
+        _update_ref_infos = ref_coll->add_referenced_in(ref_info.collection, ref_info.field, ref_info.is_async,
+                                                        ref_info.referenced_field_name, ref_info.referenced_field);
+        if (!_update_ref_infos.empty() && _update_ref_infos.begin()->is_mutual_reference) {
+            auto info = is_referenced_in(ref_info.collection, referenced_collection_name);
+            return Option<bool>(400, "Collections having reference to each other are not allowed. `" + ref_info.collection +
+                                     "` collection is referenced by `" += referenced_collection_name + "` collection's `" +=
+                                                                                  info.get().field + "` field.");
+        }
     }
 
-    referenced_ins[collection_name].insert({ref_info.collection, ref_info});
+    auto it = referenced_ins.find(referenced_collection_name);
+    if (it == referenced_ins.end()) {
+        referenced_ins[referenced_collection_name] = {{ref_info.collection, ref_info}};
+    } else {
+        referenced_ins[referenced_collection_name].insert({ref_info.collection, ref_info});
+    }
+
+    update_ref_infos.insert(_update_ref_infos.begin(), _update_ref_infos.end());
+    return Option<bool>(true);
 }
 
 void CollectionManager::remove_referenced_ins(const std::string& referenced_coll_name,
@@ -2440,6 +2478,42 @@ std::unordered_set<std::string> CollectionManager::get_collection_references(con
     }
 
     return references;
+}
+
+std::unordered_set<std::string> CollectionManager::get_nested_referencing_collections(const std::string& coll_name) {
+    std::shared_lock lock(mutex);
+
+    auto it = referenced_ins.find(coll_name);
+    if (it == referenced_ins.end()) {
+        return {};
+    }
+
+    std::unordered_set<std::string> referencing_collections;
+    std::queue<std::string> pending_collections;
+
+    for (const auto& [ref_coll_name, _] : it->second) {
+        if (referencing_collections.insert(ref_coll_name).second) {
+            pending_collections.push(ref_coll_name);
+        }
+    }
+
+    while (!pending_collections.empty()) {
+        auto nested_ref_coll = pending_collections.front();
+        pending_collections.pop();
+
+        auto nested_it = referenced_ins.find(nested_ref_coll);
+        if (nested_it == referenced_ins.end()) {
+            continue;
+        }
+
+        for (const auto& [nested_ref_coll_name, _] : nested_it->second) {
+            if (referencing_collections.insert(nested_ref_coll_name).second) {
+                pending_collections.push(nested_ref_coll_name);
+            }
+        }
+    }
+
+    return referencing_collections;
 }
 
 bool CollectionManager::is_valid_api_key_collection(const std::vector<std::string>& api_collections,
@@ -2612,12 +2686,11 @@ Option<bool> CollectionManager::get_filter_ids(const std::string collection_name
         return Option<bool>(400, "Collection `" + collection_name + "` not found.");
     }
 
-    return collection->get_filter_ids(filter_query, filter_result, should_timeout, validate_field_names);
+    return collection->get_filter_ids_with_lock(filter_query, filter_result, should_timeout, validate_field_names);
 }
 
 Option<reference_info_t> CollectionManager::is_referenced_in(const std::string& referenced_coll_name,
                                                              const std::string& referring_coll_name) const {
-    std::unique_lock lock(mutex);
     auto it = referenced_ins.find(referenced_coll_name);
     if (it == referenced_ins.end()) {
         return Option<reference_info_t>(400, "referenced_coll_name: `" + referenced_coll_name + "` not found.");
@@ -2630,6 +2703,18 @@ Option<reference_info_t> CollectionManager::is_referenced_in(const std::string& 
     }
 
     return Option<reference_info_t>(inner_it->second);
+}
+
+Option<reference_info_t> CollectionManager::is_referenced_in_with_lock(const std::string& referenced_coll_name,
+                                                                       const std::string& referring_coll_name) const {
+    std::shared_lock lock(mutex);
+    return is_referenced_in(referenced_coll_name, referring_coll_name);
+}
+
+bool CollectionManager::is_referenced_in_any(const std::string& referenced_coll_name) const {
+    std::shared_lock lock(mutex);
+    const auto it = referenced_ins.find(referenced_coll_name);
+    return it != referenced_ins.end();
 }
 
 Option<bool> CollectionManager::populate_include_exclude_fields(const std::string& collection_name,
@@ -2697,4 +2782,55 @@ Option<bool> CollectionManager::process_ref_include_fields_sort(const std::strin
     }
 
     return collection->process_ref_include_fields_sort(sort_by_str, limit, doc_ids);
+}
+
+void CollectionManager::lock_nested_referencing_collections_helper(const std::string& coll_name,
+                                                                   cascade_remove_node_t* cascade_node,
+                                                                   std::set<std::string>& referencing_collections) {
+    if (cascade_node == nullptr) {
+        return;
+    }
+
+    auto it = referenced_ins.find(coll_name);
+    if (it == referenced_ins.end()) {
+        return;
+    }
+
+    for (const auto& [ref_coll_name, ref_info]: it->second) {
+        if (!referencing_collections.insert(ref_coll_name).second) {
+            continue;
+        }
+
+        auto red_coll_it = collections.find(ref_coll_name);
+        if (red_coll_it == collections.end()) {
+            continue;
+        }
+
+        cascade_node->ref_infos.emplace_back(ref_info);
+        cascade_node->nested_references.emplace_back(new cascade_remove_node_t({red_coll_it->second,
+                                                            std::unique_lock<std::shared_mutex>(red_coll_it->second->get_mutex())}));
+        lock_nested_referencing_collections_helper(ref_coll_name, cascade_node->nested_references.back(),
+                                                   referencing_collections);
+    }
+}
+
+void CollectionManager::lock_nested_referencing_collections(const std::string& coll_name,
+                                                            cascade_remove_node_t*& cascade_tree) {
+    std::shared_lock lock(mutex);
+
+    auto coll_it = collections.find(coll_name);
+    if (coll_it == collections.end()) {
+        return;
+    }
+
+    auto it = referenced_ins.find(coll_name);
+    if (it == referenced_ins.end()) {
+        return;
+    }
+
+    cascade_tree = new cascade_remove_node_t({coll_it->second,
+                                              std::unique_lock<std::shared_mutex>(coll_it->second->get_mutex())});
+
+    std::set<std::string> referencing_collections{coll_name};
+    lock_nested_referencing_collections_helper(coll_name, cascade_tree, referencing_collections);
 }

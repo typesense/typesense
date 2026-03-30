@@ -45,6 +45,8 @@ TextEmbedder::TextEmbedder(const std::string& model_name, const bool is_public_m
     }
     else if(tokenizer_type == TokenizerType::xlm_roberta) {
         tokenizer_ = std::make_unique<XLMRobertaTokenizer>(vocab_path);
+    } else if(tokenizer_type == TokenizerType::siglip) {
+        tokenizer_ = std::make_unique<SigLIPTokenizer>(vocab_path);
     } else if(tokenizer_type == TokenizerType::clip) {
         tokenizer_ = std::make_unique<CLIPTokenizerWrapper>(vocab_path);
     }
@@ -65,13 +67,17 @@ TextEmbedder::TextEmbedder(const std::string& model_name, const bool is_public_m
     }
 
     auto input_count = session_->GetInputCount();
+    bool found_attention_mask = false;
     for(size_t i = 0; i < input_count; i++) {
         auto input_name = session_->GetInputNameAllocated(i, Ort::AllocatorWithDefaultOptions());
         if(std::strcmp(input_name.get(), "pixel_values") == 0) {
             is_image_embedding_model = true;
-            break;
+        }
+        if(std::strcmp(input_name.get(), "attention_mask") == 0) {
+            found_attention_mask = true;
         }
     }
+    has_attention_mask_input = found_attention_mask;
 }
 
 TextEmbedder::TextEmbedder(const nlohmann::json& model_config, size_t num_dims, const bool has_custom_dims) {
@@ -164,36 +170,36 @@ embedding_res_t TextEmbedder::embed_query(const std::string& text, const size_t 
         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
         std::vector<Ort::Value> input_tensors;
         std::vector<std::vector<int64_t>> input_shapes;
-        std::vector<const char*> input_node_names = {"input_ids", "attention_mask"};
+        std::vector<const char*> input_node_names;
+        std::vector<float> pixel_values;
 
+        // Build inputs based on what the model expects
+        input_node_names.push_back("input_ids");
         input_shapes.push_back({1, static_cast<int64_t>(encoded_input.input_ids.size())});
-        input_shapes.push_back({1, static_cast<int64_t>(encoded_input.attention_mask.size())});
-
         input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, encoded_input.input_ids.data(), encoded_input.input_ids.size(), input_shapes[0].data(), input_shapes[0].size()));
-        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, encoded_input.attention_mask.data(), encoded_input.attention_mask.size(), input_shapes[1].data(), input_shapes[1].size()));
 
-        // If model is DistilBERT or sentencepiece, it has 2 inputs, else it has 3 inputs
-        if(session_->GetInputCount() == 3) {
-            if(is_image_embedding_model) {
-                input_node_names.push_back("pixel_values");
+        if(has_attention_mask_input) {
+            input_node_names.push_back("attention_mask");
+            input_shapes.push_back({1, static_cast<int64_t>(encoded_input.attention_mask.size())});
+            input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, encoded_input.attention_mask.data(), encoded_input.attention_mask.size(), input_shapes.back().data(), input_shapes.back().size()));
+        }
 
-                // dummy input for clip
-                input_shapes.push_back({1, 3, 224, 224});
+        if(is_image_embedding_model) {
+            input_node_names.push_back("pixel_values");
+            // dummy pixel_values for text-only query
+            input_shapes.push_back({1, 3, 224, 224});
+            pixel_values.resize(3 * 224 * 224, 0.5);
+            input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, pixel_values.data(), pixel_values.size(), input_shapes.back().data(), input_shapes.back().size()));
+        } else if(session_->GetInputCount() == 3) {
+            input_node_names.push_back("token_type_ids");
 
-                std::vector<float> pixel_values(3 * 224 * 224, 0.5);
-                input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, pixel_values.data(), pixel_values.size(), input_shapes[2].data(), input_shapes[2].size()));
-            } else {
-                input_node_names.push_back("token_type_ids");
-
-                // edge case: xlm_roberta does not have token_type_ids, but if the model has it as input, we need to fill it with 0s
-                if(encoded_input.token_type_ids.size() == 0) {
-                    encoded_input.token_type_ids.resize(encoded_input.input_ids.size(), 0);
-                }
-
-                input_shapes.push_back({1, static_cast<int64_t>(encoded_input.token_type_ids.size())});
-
-                input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, encoded_input.token_type_ids.data(), encoded_input.token_type_ids.size(), input_shapes[2].data(), input_shapes[2].size()));
+            // edge case: xlm_roberta does not have token_type_ids, but if the model has it as input, we need to fill it with 0s
+            if(encoded_input.token_type_ids.size() == 0) {
+                encoded_input.token_type_ids.resize(encoded_input.input_ids.size(), 0);
             }
+
+            input_shapes.push_back({1, static_cast<int64_t>(encoded_input.token_type_ids.size())});
+            input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, encoded_input.token_type_ids.data(), encoded_input.token_type_ids.size(), input_shapes.back().data(), input_shapes.back().size()));
         }
         
         //LOG(INFO) << "Running model";
@@ -242,14 +248,12 @@ std::vector<embedding_res_t> TextEmbedder::embed_documents(const std::vector<std
             Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
             std::vector<Ort::Value> input_tensors;
             std::vector<std::vector<int64_t>> input_shapes;
-            std::vector<const char*> input_node_names = {"input_ids", "attention_mask"};
-
-            input_shapes.push_back({static_cast<int64_t>(encoded_inputs.input_ids.size()), static_cast<int64_t>(encoded_inputs.input_ids[0].size())});
-            input_shapes.push_back({static_cast<int64_t>(encoded_inputs.attention_mask.size()), static_cast<int64_t>(encoded_inputs.attention_mask[0].size())});
+            std::vector<const char*> input_node_names;
 
             std::vector<int64_t> input_ids_flatten;
             std::vector<int64_t> attention_mask_flatten;
             std::vector<int64_t> token_type_ids_flatten;
+            std::vector<float> pixel_values;
 
             for (int i = 0; i < encoded_inputs.input_ids.size(); i++) {
                 for (int j = 0; j < encoded_inputs.input_ids[i].size(); j++) {
@@ -257,38 +261,40 @@ std::vector<embedding_res_t> TextEmbedder::embed_documents(const std::vector<std
                 }
             }
 
-            for (int i = 0; i < encoded_inputs.attention_mask.size(); i++) {
-                for (int j = 0; j < encoded_inputs.attention_mask[i].size(); j++) {
-                    attention_mask_flatten.push_back(encoded_inputs.attention_mask[i][j]);
+            // Build inputs based on what the model expects
+            input_node_names.push_back("input_ids");
+            input_shapes.push_back({static_cast<int64_t>(encoded_inputs.input_ids.size()), static_cast<int64_t>(encoded_inputs.input_ids[0].size())});
+            input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, input_ids_flatten.data(), input_ids_flatten.size(), input_shapes.back().data(), input_shapes.back().size()));
+
+            if(has_attention_mask_input) {
+                for (int i = 0; i < encoded_inputs.attention_mask.size(); i++) {
+                    for (int j = 0; j < encoded_inputs.attention_mask[i].size(); j++) {
+                        attention_mask_flatten.push_back(encoded_inputs.attention_mask[i][j]);
+                    }
                 }
+
+                input_node_names.push_back("attention_mask");
+                input_shapes.push_back({static_cast<int64_t>(encoded_inputs.attention_mask.size()), static_cast<int64_t>(encoded_inputs.attention_mask[0].size())});
+                input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask_flatten.data(), attention_mask_flatten.size(), input_shapes.back().data(), input_shapes.back().size()));
             }
 
-            input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, input_ids_flatten.data(), input_ids_flatten.size(), input_shapes[0].data(), input_shapes[0].size()));
-            input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask_flatten.data(), attention_mask_flatten.size(), input_shapes[1].data(), input_shapes[1].size()));
-            
-            if(session_->GetInputCount() == 3) {
-                if(is_image_embedding_model) {
-                    input_node_names.push_back("pixel_values");
+            if(is_image_embedding_model) {
+                input_node_names.push_back("pixel_values");
+                // dummy pixel_values for text-only batch
+                input_shapes.push_back({1, 3, 224, 224});
+                pixel_values.resize(3 * 224 * 224, 0.5);
+                input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, pixel_values.data(), pixel_values.size(), input_shapes.back().data(), input_shapes.back().size()));
+            } else if(session_->GetInputCount() == 3) {
+                input_node_names.push_back("token_type_ids");
 
-                    // dummy input for clip
-                    input_shapes.push_back({1, 3, 224, 224});
-
-                    std::vector<float> pixel_values(3 * 224 * 224, 0.5);
-                    input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, pixel_values.data(), pixel_values.size(), input_shapes[2].data(), input_shapes[2].size()));
-                } else {
-                    input_node_names.push_back("token_type_ids");
-
-
-                    
-                    for (int i = 0; i < encoded_inputs.token_type_ids.size(); i++) {
-                        for (int j = 0; j < encoded_inputs.token_type_ids[i].size(); j++) {
-                            token_type_ids_flatten.push_back(encoded_inputs.token_type_ids[i][j]);
-                        }
+                for (int i = 0; i < encoded_inputs.token_type_ids.size(); i++) {
+                    for (int j = 0; j < encoded_inputs.token_type_ids[i].size(); j++) {
+                        token_type_ids_flatten.push_back(encoded_inputs.token_type_ids[i][j]);
                     }
-
-                    input_shapes.push_back({static_cast<int64_t>(encoded_inputs.token_type_ids.size()), static_cast<int64_t>(encoded_inputs.token_type_ids[0].size())});
-                    input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, token_type_ids_flatten.data(), token_type_ids_flatten.size(), input_shapes[2].data(), input_shapes[2].size()));
                 }
+
+                input_shapes.push_back({static_cast<int64_t>(encoded_inputs.token_type_ids.size()), static_cast<int64_t>(encoded_inputs.token_type_ids[0].size())});
+                input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, token_type_ids_flatten.data(), token_type_ids_flatten.size(), input_shapes.back().data(), input_shapes.back().size()));
             }
 
             //LOG(INFO) << "Running model";
@@ -388,11 +394,13 @@ Option<bool> TextEmbedder::validate() {
     }
 
 
-    auto attention_mask_index = tokenizer_->get_tokenizer_type() == TokenizerType::clip ? 2 : 1;
-    auto attention_mask_name = session_->GetInputNameAllocated(attention_mask_index, allocator);
-    if (std::strcmp(attention_mask_name.get(), "attention_mask") != 0) {
-        LOG(ERROR) << "Invalid model: attention_mask tensor not found";
-        return Option<bool>(400, "Invalid model: attention_mask tensor not found");
+    if(has_attention_mask_input) {
+        auto attention_mask_index = tokenizer_->get_tokenizer_type() == TokenizerType::clip ? 2 : 1;
+        auto attention_mask_name = session_->GetInputNameAllocated(attention_mask_index, allocator);
+        if (std::strcmp(attention_mask_name.get(), "attention_mask") != 0) {
+            LOG(ERROR) << "Invalid model: attention_mask tensor not found";
+            return Option<bool>(400, "Invalid model: attention_mask tensor not found");
+        }
     }
 
     if(session_->GetInputCount() == 3) {

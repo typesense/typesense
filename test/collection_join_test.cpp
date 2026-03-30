@@ -2604,9 +2604,9 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     auto customers_coll = collectionManager.get_collection_unsafe("Customers");
     customers_coll->remove("0");
     customers_coll->remove("2");
-    // product_a has no references now. `get_filter_ids` should still include reference of product_b in the result.
+    // product_a has no references now. `get_filter_ids_with_lock` should still include reference of product_b in the result.
     filter_result_t filter_result;
-    collectionManager.get_collection_unsafe("Products")->get_filter_ids("id:* || $Customers(id:*)", filter_result);
+    collectionManager.get_collection_unsafe("Products")->get_filter_ids_with_lock("id:* || $Customers(id:*)", filter_result);
     ASSERT_NE(nullptr, filter_result.coll_to_references);
     ASSERT_EQ(2, filter_result.count);
     ASSERT_EQ(0, filter_result.docs[0]);
@@ -3021,6 +3021,233 @@ TEST_F(CollectionJoinTest, OrFilterResults_WithReferences) {
             ASSERT_EQ(0, result3.coll_to_references[i].count("baz"));
         }
     }
+}
+
+TEST_F(CollectionJoinTest, AndFilterResults_WithNestedReferences) {
+    bool is_reference_array_field = false, delete_docs = true;
+    auto a = filter_result_t(2, new uint32_t[2]{1, 3},
+                             new std::map<std::string, reference_filter_result_t>[2]{
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{2}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{1}))}}))},
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{0}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{0}))}}))},
+    });
+    auto b = filter_result_t(2, new uint32_t[2]{2, 3},
+                             new std::map<std::string, reference_filter_result_t>[2]{
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{1}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_2",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{1}))}}))},
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{0}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_2",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{1}))}}))},
+                             });
+
+    filter_result_t result_1;
+    filter_result_t::and_filter_results(a, b, result_1);
+    ASSERT_EQ(1, result_1.count);
+    ASSERT_EQ(3, result_1.docs[0]);
+    ASSERT_NE(nullptr, result_1.coll_to_references);
+    ASSERT_EQ(1, result_1.coll_to_references[0].size());
+    ASSERT_EQ(1, result_1.coll_to_references[0].count("L2"));
+    const auto& nested_result_doc_3_L2_distinct = result_1.coll_to_references[0]["L2"];
+    ASSERT_EQ(1, nested_result_doc_3_L2_distinct.count);
+    ASSERT_EQ(0, nested_result_doc_3_L2_distinct.docs[0]);
+    ASSERT_NE(nullptr, nested_result_doc_3_L2_distinct.coll_to_references);
+    ASSERT_EQ(2, nested_result_doc_3_L2_distinct.coll_to_references[0].size());
+    ASSERT_EQ(1, nested_result_doc_3_L2_distinct.coll_to_references[0].count("L3_1"));
+    ASSERT_EQ(1, nested_result_doc_3_L2_distinct.coll_to_references[0].count("L3_2"));
+    // Since the ANDed results don't have any common references, we combine the reference result.
+    const auto& nested_result_doc_3_L3_1_distinct = nested_result_doc_3_L2_distinct.coll_to_references[0]["L3_1"];
+    ASSERT_EQ(1, nested_result_doc_3_L3_1_distinct.count);
+    ASSERT_EQ(0, nested_result_doc_3_L3_1_distinct.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_3_L3_1_distinct.coll_to_references);
+    const auto& nested_result_doc_3_L3_2_distinct = nested_result_doc_3_L2_distinct.coll_to_references[0]["L3_2"];
+    ASSERT_EQ(1, nested_result_doc_3_L3_2_distinct.count);
+    ASSERT_EQ(1, nested_result_doc_3_L3_2_distinct.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_3_L3_2_distinct.coll_to_references);
+
+    a = filter_result_t(2, new uint32_t[2]{1, 3},
+                         new std::map<std::string, reference_filter_result_t>[2]{
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{1}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{1}))}}))},
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{0}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{3}))}}))},
+    });
+
+    b = filter_result_t(2, new uint32_t[2]{1, 3},
+                         new std::map<std::string, reference_filter_result_t>[2]{
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{1}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{0}))}}))},
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{0}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{3}))}}))},
+                             });
+
+    filter_result_t result_2;
+    filter_result_t::and_filter_results(a, b, result_2);
+    ASSERT_EQ(1, result_2.count);
+    ASSERT_EQ(3, result_2.docs[0]);
+
+    ASSERT_NE(nullptr, result_2.coll_to_references);
+
+    ASSERT_EQ(1, result_2.coll_to_references[0].size());
+    ASSERT_EQ(1, result_2.coll_to_references[0].count("L2"));
+    const auto& nested_result_doc_3_L2 = result_2.coll_to_references[0]["L2"];
+    ASSERT_EQ(1, nested_result_doc_3_L2.count);
+    ASSERT_EQ(0, nested_result_doc_3_L2.docs[0]);
+    ASSERT_NE(nullptr, nested_result_doc_3_L2.coll_to_references);
+    ASSERT_EQ(1, nested_result_doc_3_L2.coll_to_references[0].size());
+    ASSERT_EQ(1, nested_result_doc_3_L2.coll_to_references[0].count("L3_1"));
+    const auto& nested_result_doc_3_L3_1 = nested_result_doc_3_L2.coll_to_references[0]["L3_1"];
+    ASSERT_EQ(1, nested_result_doc_3_L3_1.count);
+    ASSERT_EQ(3, nested_result_doc_3_L3_1.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_3_L3_1.coll_to_references);
+}
+
+TEST_F(CollectionJoinTest, OrFilterResults_WithNestedReferences) {
+    bool is_reference_array_field = false, delete_docs = true;
+    auto a_result = filter_result_t(2, new uint32_t[2]{1, 3},
+                                    new std::map<std::string, reference_filter_result_t>[2]{
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{2}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{1}))}}))},
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{0}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_1",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{0}))}}))},
+    });
+    auto b_result = filter_result_t(2, new uint32_t[2]{2, 3},
+                                    new std::map<std::string, reference_filter_result_t>[2]{
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{1}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_2",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{1}))}}))},
+        {std::make_pair("L2",
+                        reference_filter_result_t(1, new uint32_t[1]{0}, is_reference_array_field, delete_docs,
+                                                  new std::map<std::string, reference_filter_result_t>[1]{
+                                                  {std::make_pair("L3_2",
+                                                                  reference_filter_result_t(1, new uint32_t[1]{0}))}}))},
+                             });
+
+    filter_result_t or_result;
+    filter_result_t::or_filter_results(a_result, b_result, or_result);
+
+    ASSERT_EQ(3, or_result.count);
+    std::vector<uint32_t> expected = {1, 2, 3};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], or_result.docs[i]);
+    }
+    ASSERT_NE(nullptr, or_result.coll_to_references);
+
+    ASSERT_EQ(1, or_result.coll_to_references[0].size());
+    ASSERT_EQ(1, or_result.coll_to_references[0].count("L2"));
+    const auto& nested_result_doc_1_L2 = or_result.coll_to_references[0]["L2"];
+    ASSERT_EQ(1, nested_result_doc_1_L2.count);
+    ASSERT_EQ(2, nested_result_doc_1_L2.docs[0]);
+    ASSERT_NE(nullptr, nested_result_doc_1_L2.coll_to_references);
+    ASSERT_EQ(1, nested_result_doc_1_L2.coll_to_references[0].size());
+    ASSERT_EQ(1, nested_result_doc_1_L2.coll_to_references[0].count("L3_1"));
+    const auto& nested_result_doc_1_L3_1 = nested_result_doc_1_L2.coll_to_references[0]["L3_1"];
+    ASSERT_EQ(1, nested_result_doc_1_L3_1.count);
+    ASSERT_EQ(1, nested_result_doc_1_L3_1.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_1_L3_1.coll_to_references);
+
+    ASSERT_EQ(1, or_result.coll_to_references[1].size());
+    ASSERT_EQ(1, or_result.coll_to_references[1].count("L2"));
+    const auto& nested_result_doc_2_L2 = or_result.coll_to_references[1]["L2"];
+    ASSERT_EQ(1, nested_result_doc_2_L2.count);
+    ASSERT_EQ(1, nested_result_doc_2_L2.docs[0]);
+    ASSERT_NE(nullptr, nested_result_doc_2_L2.coll_to_references);
+    ASSERT_EQ(1, nested_result_doc_2_L2.coll_to_references[0].size());
+    ASSERT_EQ(1, nested_result_doc_2_L2.coll_to_references[0].count("L3_2"));
+    const auto& nested_result_doc_2_L3_2 = nested_result_doc_2_L2.coll_to_references[0]["L3_2"];
+    ASSERT_EQ(1, nested_result_doc_2_L3_2.count);
+    ASSERT_EQ(1, nested_result_doc_2_L3_2.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_2_L3_2.coll_to_references);
+
+    ASSERT_EQ(1, or_result.coll_to_references[2].size());
+    ASSERT_EQ(1, or_result.coll_to_references[2].count("L2"));
+    const auto& nested_result_doc_3_L2 = or_result.coll_to_references[2]["L2"];
+    ASSERT_EQ(1, nested_result_doc_3_L2.count);
+    ASSERT_EQ(0, nested_result_doc_3_L2.docs[0]);
+    ASSERT_NE(nullptr, nested_result_doc_3_L2.coll_to_references);
+    ASSERT_EQ(2, nested_result_doc_3_L2.coll_to_references[0].size());
+    ASSERT_EQ(1, nested_result_doc_3_L2.coll_to_references[0].count("L3_1"));
+    const auto& nested_result_doc_3_L3_1 = nested_result_doc_3_L2.coll_to_references[0]["L3_1"];
+    ASSERT_EQ(1, nested_result_doc_3_L3_1.count);
+    ASSERT_EQ(0, nested_result_doc_3_L3_1.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_3_L3_1.coll_to_references);
+    ASSERT_EQ(1, nested_result_doc_3_L2.coll_to_references[0].count("L3_2"));
+    const auto& nested_result_doc_3_L3_2 = nested_result_doc_3_L2.coll_to_references[0]["L3_2"];
+    ASSERT_EQ(1, nested_result_doc_3_L3_2.count);
+    ASSERT_EQ(0, nested_result_doc_3_L3_2.docs[0]);
+    ASSERT_EQ(nullptr, nested_result_doc_3_L3_2.coll_to_references);
+
+    filter_result_t a, b, result;
+
+    // Regression case for OR-ing the same joined collection when each reference doc
+    // also carries nested references of its own.
+    a.count = 1;
+    a.docs = new uint32_t[1]{10};
+    a.coll_to_references = new std::map<std::string, reference_filter_result_t>[1] {};
+
+    auto foo_a_docs = new uint32_t[1]{101};
+    reference_filter_result_t foo_a(1, foo_a_docs);
+    foo_a.coll_to_references = new std::map<std::string, reference_filter_result_t>[1] {};
+    foo_a.coll_to_references[0]["bar"] = reference_filter_result_t(1, new uint32_t[1]{1001});
+    a.coll_to_references[0]["foo"] = std::move(foo_a);
+
+    b.count = 1;
+    b.docs = new uint32_t[1]{10};
+    b.coll_to_references = new std::map<std::string, reference_filter_result_t>[1] {};
+
+    auto foo_b_docs = new uint32_t[1]{202};
+    reference_filter_result_t foo_b(1, foo_b_docs);
+    foo_b.coll_to_references = new std::map<std::string, reference_filter_result_t>[1] {};
+    foo_b.coll_to_references[0]["bar"] = reference_filter_result_t(1, new uint32_t[1]{2002});
+    b.coll_to_references[0]["foo"] = std::move(foo_b);
+
+    filter_result_t::or_filter_results(a, b, result);
+
+    ASSERT_EQ(1, result.count);
+    ASSERT_EQ(10, result.docs[0]);
+    ASSERT_EQ(1, result.coll_to_references[0].count("foo"));
+
+    auto const& foo_result = result.coll_to_references[0].at("foo");
+    ASSERT_EQ(2, foo_result.count);
+    ASSERT_EQ(101, foo_result.docs[0]);
+    ASSERT_EQ(202, foo_result.docs[1]);
+    ASSERT_NE(nullptr, foo_result.coll_to_references);
+
+    ASSERT_EQ(1, foo_result.coll_to_references[0].count("bar"));
+    ASSERT_EQ(1, foo_result.coll_to_references[1].count("bar"));
+    ASSERT_EQ(1001, foo_result.coll_to_references[0].at("bar").docs[0]);
+    ASSERT_EQ(2002, foo_result.coll_to_references[1].at("bar").docs[0]);
 }
 
 TEST_F(CollectionJoinTest, FilterByNReferences) {
@@ -5000,6 +5227,143 @@ TEST_F(JoinIncludeExcludeFieldsTest, UnindexedField) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_price"));
 }
 
+TEST_F(CollectionJoinTest, NestedReferencesOrCrash) {
+    auto schema_json =
+            R"({
+                "name": "products",
+                "fields": [
+                    {"name": "product_name", "type": "string", "facet": true},
+                    {"name": "brand_id", "type": "int32", "facet": true},
+                    {"name": "active", "type": "bool"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (int i = 1; i <= 10; ++i) {
+        auto document = nlohmann::json::object({
+                {"id", "P" + std::to_string(i)},
+                {"product_name", "Product " + std::to_string(i)},
+                {"brand_id", (i % 2) + 1},
+                {"active", (bool)(i % 2 == 0)}
+        });
+
+        auto add_op = collection_create_op.get()->add(document.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "sku_sellers",
+                "fields": [
+                    {"name": "product_id", "type": "string", "reference": "products.id"},
+                    {"name": "seller_id", "type": "string"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (int i = 1; i <= 10; ++i) {
+        for (const auto& seller_id: {"S1", "S2"}) {
+            auto document = nlohmann::json::object({
+                    {"id", "SS_" + std::to_string(i) + "_" + seller_id},
+                    {"product_id", "P" + std::to_string(i)},
+                    {"seller_id", seller_id}
+            });
+
+            auto add_op = collection_create_op.get()->add(document.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
+    }
+
+    schema_json =
+            R"({
+                "name": "offers_S1",
+                "fields": [
+                    {"name": "sku_seller_id", "type": "string", "reference": "sku_sellers.id"},
+                    {"name": "price", "type": "float"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (int i = 1; i <= 10; ++i) {
+        auto document = nlohmann::json::object({
+                {"id", "OF_S1_" + std::to_string(i)},
+                {"sku_seller_id", "SS_" + std::to_string(i) + "_S1"},
+                {"price", 10.5 * i}
+        });
+
+        auto add_op = collection_create_op.get()->add(document.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "offers_S2",
+                "fields": [
+                    {"name": "sku_seller_id", "type": "string", "reference": "sku_sellers.id"},
+                    {"name": "price", "type": "float"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (int i = 1; i <= 10; ++i) {
+        auto document = nlohmann::json::object({
+                {"id", "OF_S2_" + std::to_string(i)},
+                {"sku_seller_id", "SS_" + std::to_string(i) + "_S2"},
+                {"price", 12.0 * i}
+        });
+
+        auto add_op = collection_create_op.get()->add(document.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "products"},
+            {"q", "*"},
+            {"filter_by", "active:true && "
+                          "($sku_sellers(seller_id:=S1 && $offers_S1(id: *))"
+                          "||"
+                          "(brand_id:[1] && $sku_sellers(seller_id:=S2 && $offers_S2(id: *))))"},
+            {"include_fields", "*,$sku_sellers(seller_id,$offers_S1(price,clusters),$offers_S2(price,clusters), strategy: nest_array)"},
+            {"page", "1"},
+            {"per_page", "10"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+
+    for (size_t i = 10, j = 0; i >= 2; i-=2, j++) {
+        ASSERT_EQ("P" + std::to_string(i), res_obj["hits"][j]["document"]["id"]);
+        ASSERT_TRUE(res_obj["hits"][j]["document"]["active"]);
+        ASSERT_EQ(2, res_obj["hits"][j]["document"]["sku_sellers"].size());
+        ASSERT_EQ("S1", res_obj["hits"][j]["document"]["sku_sellers"][0]["seller_id"]);
+        ASSERT_EQ(10.5 * i, res_obj["hits"][j]["document"]["sku_sellers"][0]["offers_S1"]["price"]);
+        ASSERT_EQ("S2", res_obj["hits"][j]["document"]["sku_sellers"][1]["seller_id"]);
+        ASSERT_EQ(12.0 * i, res_obj["hits"][j]["document"]["sku_sellers"][1]["offers_S2"]["price"]);
+    }
+}
+
 TEST_F(CollectionJoinTest, FilterByReferenceArrayField) {
     auto schema_json =
             R"({
@@ -5712,6 +6076,131 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
     ASSERT_EQ(500 , res_obj["hits"][1]["document"]["portions"][0].at("quantity"));
     ASSERT_EQ("g", res_obj["hits"][1]["document"]["portions"][0].at("unit"));
     ASSERT_EQ(10 , res_obj["hits"][1]["document"]["portions"][0].at("count"));
+}
+
+TEST_F(CollectionJoinTest, FilterByObjectArrayJoinCorrelation) {
+    auto schema_json =
+            R"({
+                "name": "profiles",
+                "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "tags", "type": "string[]"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    std::vector<nlohmann::json> documents = {
+            R"({"id": "profile_active", "name": "Active", "tags": ["ACTIVE"]})"_json,
+            R"({"id": "profile_inactive", "name": "Inactive", "tags": ["INACTIVE"]})"_json,
+            R"({"id": "profile_mixed", "name": "Mixed", "tags": ["INACTIVE", "ACTIVE"]})"_json
+    };
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "people",
+                "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "locations", "type": "object[]"},
+                    {"name": "locations.isPrimary", "type": "bool[]", "optional": true},
+                    {"name": "locations.profileId", "type": "string[]", "reference": "profiles.id", "optional": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    documents = {
+            R"({
+                "id": "1",
+                "name": "ActiveOnly",
+                "locations": [{"isPrimary": true, "profileId": "profile_active"}]
+            })"_json,
+            R"({
+                "id": "2",
+                "name": "InactiveOnly",
+                "locations": [{"isPrimary": true, "profileId": "profile_inactive"}]
+            })"_json,
+            R"({
+                "id": "3",
+                "name": "Both",
+                "locations": [
+                    {"isPrimary": true, "profileId": "profile_active"},
+                    {"isPrimary": true, "profileId": "profile_inactive"}
+                ]
+            })"_json,
+            R"({
+                "id": "4",
+                "name": "MixedOnly",
+                "locations": [{"isPrimary": true, "profileId": "profile_mixed"}]
+            })"_json,
+            R"({
+                "id": "5",
+                "name": "NonPrimaryActive",
+                "locations": [{"isPrimary": false, "profileId": "profile_active"}]
+            })"_json,
+            R"({
+                "id": "6",
+                "name": "PrimaryNoProfile",
+                "locations": [{"isPrimary": true}]
+            })"_json,
+            R"({
+                "id": "7",
+                "name": "PrimaryInactiveSecondaryActive",
+                "locations": [
+                    {"isPrimary": true, "profileId": "profile_inactive"},
+                    {"isPrimary": false, "profileId": "profile_active"}
+                ]
+            })"_json
+    };
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "people"},
+            {"q", "*"},
+            {"filter_by", "locations.{isPrimary:true && $profiles(tags:ACTIVE)}"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    uint64_t now_ts = 0;
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto res_obj = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+    std::vector<std::string> expected = {"4", "3", "1"};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], res_obj["hits"][i]["document"]["id"]);
+    }
+    std::vector<std::string> expected_names = {"MixedOnly", "Both", "ActiveOnly"};
+    for (size_t i = 0; i < expected_names.size(); i++) {
+        ASSERT_EQ(expected_names[i], res_obj["hits"][i]["document"]["name"]);
+    }
+
+    req_params["filter_by"] = "locations.{isPrimary:true && $profiles(tags:INACTIVE)}";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+    expected = {"7", "4", "3", "2"};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], res_obj["hits"][i]["document"]["id"]);
+    }
+    expected_names = {"PrimaryInactiveSecondaryActive", "MixedOnly", "Both", "InactiveOnly"};
+    for (size_t i = 0; i < expected_names.size(); i++) {
+        ASSERT_EQ(expected_names[i], res_obj["hits"][i]["document"]["name"]);
+    }
 }
 
 TEST_F(CollectionJoinTest, CascadeDeleteOption) {
@@ -12126,7 +12615,7 @@ TEST_F(CollectionJoinTest, FixReferencesAtQueryTime) {
                         "include_fields": "id, $Products(id) "
                     },
                     {
-                        "collection": "Products",
+                        "collection": "Customers",
                         "q": "*",
                         "filter_by": "id:[0, 1, 2]",
                         "include_fields": "id, $Products(id) "
@@ -12149,4 +12638,59 @@ TEST_F(CollectionJoinTest, FixReferencesAtQueryTime) {
     ASSERT_EQ("1", res_obj["hits"][3]["document"]["Products"]["id"]);
     ASSERT_EQ("0", res_obj["hits"][4]["document"]["id"]);
     ASSERT_EQ("0", res_obj["hits"][4]["document"]["Products"]["id"]);
+}
+
+TEST_F(CollectionJoinTest, MultipleJoinsSameCollection) {
+    auto products_schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string"}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(products_schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto products_collection = collection_create_op.get();
+
+    for (size_t i = 0; i < 5; i++) {
+        nlohmann::json product_doc;
+        product_doc["product_id"] = "product_" + std::to_string(i);
+        product_doc["product_name"] = "item " + std::to_string(i);
+        ASSERT_TRUE(products_collection->add(product_doc.dump()).ok());
+    }
+
+    auto customers_schema_json =
+            R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "customer_id", "type": "string"},
+                    {"name": "product_price", "type": "float"},
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+                ]
+            })"_json;
+
+    collection_create_op = collectionManager.create_collection(customers_schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto customers_collection = collection_create_op.get();
+
+    for (size_t i = 0; i < 5; i++) {
+        nlohmann::json customer_doc;
+        customer_doc["customer_id"] = "customer_" + std::to_string(i);
+        customer_doc["product_id"] = "product_" + std::to_string(i);
+        customer_doc["product_price"] = (i >= 2) ? 50.0 + i : 150.0 + i;
+        ASSERT_TRUE(customers_collection->add(customer_doc.dump()).ok());
+    }
+
+    const std::string filter_query = "$Customers(id:*) && $Customers(product_price:<100)";
+
+    auto result = products_collection->search("item", {"product_name"}, filter_query, {}, {}, {0},
+                                              10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD).get();
+
+    ASSERT_EQ(3, result["found"].get<size_t>());
+    ASSERT_EQ(3, result["hits"].size());
+
+    collectionManager.drop_collection("Customers");
+    collectionManager.drop_collection("Products");
 }

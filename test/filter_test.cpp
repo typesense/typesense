@@ -2738,3 +2738,50 @@ TEST_F(FilterTest, ObjectFitlterIterator) {
 
     delete filter_tree_root;
 }
+
+TEST_F(FilterTest, FilterReferences) {
+    const size_t max_candidates = DEFAULT_FILTER_BY_CANDIDATES;
+    const uint64_t search_begin_us = 0;
+    const uint64_t search_stop_us = UINT64_MAX;
+    auto filter_root = std::make_unique<filter_node_t>();
+    auto left_refs = new std::map<std::string, reference_filter_result_t>[4]{
+                            {{"foo", reference_filter_result_t(1, new uint32_t[1]{101})}},
+                            {{"bar", reference_filter_result_t(1, new uint32_t[1]{102})}},
+                            {{"foo", reference_filter_result_t(1, new uint32_t[1]{104})}},
+                            {{"bar", reference_filter_result_t(1, new uint32_t[1]{105})}}};
+    auto right_refs = new std::map<std::string, reference_filter_result_t>[4]{
+                            {{"bar", reference_filter_result_t(1, new uint32_t[1]{100})}},
+                            {{"foo", reference_filter_result_t(1, new uint32_t[1]{101})}},
+                            {{"bar", reference_filter_result_t(1, new uint32_t[1]{103})}},
+                            {{"bar", reference_filter_result_t(1, new uint32_t[1]{106})}}};
+    auto fit = std::make_unique<filter_result_iterator_t>(
+                                            AND,
+                                            new filter_result_iterator_t(new uint32_t[4]{1, 2, 4, 6}, 4,
+                                                                         max_candidates, search_begin_us, search_stop_us,
+                                                                         left_refs),
+                                            new filter_result_iterator_t(new uint32_t[4]{0, 1, 4, 6}, 4,
+                                                                         max_candidates, search_begin_us, search_stop_us,
+                                                                         right_refs),
+                                            filter_root, new filter_node_t());
+
+    std::vector<uint32_t> expected = {1, 4};
+    std::vector<std::vector<std::string>> collection_names = {{"foo"}, {"foo", "bar"}};
+    std::vector<std::vector<uint32_t>> ref_ids = {{101}, {104, 103}};
+    for (size_t i = 0; i < 2; i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+        const auto& id = expected[i];
+        ASSERT_EQ(id, fit->seq_id);
+
+        for (size_t j = 0; j < collection_names[i].size(); j++) {
+            const auto& name = collection_names[i][j];
+            ASSERT_EQ(1, fit->reference.count(name));
+            ASSERT_EQ(1, fit->reference[name].count);
+
+            const auto& ref_id = ref_ids[i][j];
+            ASSERT_EQ(ref_id, fit->reference[name].docs[0]);
+        }
+
+        fit->next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+}
