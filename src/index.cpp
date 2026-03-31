@@ -3640,6 +3640,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 group_by_field_it_vec = get_group_by_field_iterators(group_by_fields, true);
             }
 
+            const auto comp_size = diversity.similarity_equation.empty() ? fetch_size : topster->MAX_SIZE;
             while (it.valid()) {
                 uint32_t seq_id = it.id();
                 uint64_t distinct_id = seq_id;
@@ -3655,14 +3656,19 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     }
                 }
 
-                int64_t scores[3] = {0};
-                scores[0] = seq_id;
-                int64_t match_score_index = -1;
-
                 result_ids_size++;
                 if(union_result_seq_ids != nullptr) {
                     union_result_seq_ids->upsert(seq_id);
                 }
+
+                if(union_result_seq_ids != nullptr && group_limit == 0 && result_ids_size > comp_size) {
+                    it.previous();
+                    continue;
+                }
+
+                int64_t scores[3] = {0};
+                scores[0] = seq_id;
+                int64_t match_score_index = -1;
                 KV kv(searched_query_tokens.size(), seq_id, distinct_id, match_score_index, scores);
                 int ret = topster->add(&kv);
 
@@ -3670,7 +3676,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     groups_processed[distinct_id]++;
                 }
 
-                const auto comp_size = diversity.similarity_equation.empty() ? fetch_size : topster->MAX_SIZE;
                 if (union_result_seq_ids == nullptr && result_ids_size == comp_size && group_limit == 0) {
                     break;
                 }
